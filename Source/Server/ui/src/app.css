@@ -1,0 +1,7 @@
+/* Base styles migrated to App.svelte global styles */
+#app {
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+}

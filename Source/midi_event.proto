@@ -1,0 +1,93 @@
+syntax = "proto3";
+
+package fiddle;
+
+message MidiEvent {
+    uint64 timestamp_samples = 1;
+    uint32 channel = 2;
+    
+    oneof event {
+        NoteOn note_on = 3;
+        NoteOff note_off = 4;
+        ControlChange cc = 5;
+        PitchBend pitch_bend = 6;
+        ProgramChange program_change = 7;
+        Aftertouch aftertouch = 8;
+        ChannelPressure channel_pressure = 9;
+        SysEx sys_ex = 10;
+        Other other = 11;
+    }
+
+    message NoteOn {
+        uint32 note_number = 1;
+        float velocity = 2;
+    }
+
+    message NoteOff {
+        uint32 note_number = 1;
+        float velocity = 2;
+    }
+
+    message ControlChange {
+        uint32 controller_number = 1;
+        uint32 controller_value = 2;
+    }
+
+    message PitchBend {
+        uint32 value = 1;
+    }
+
+    message ProgramChange {
+        uint32 program_number = 1;
+    }
+
+    message Aftertouch {
+        uint32 note_number = 1;
+        uint32 value = 2;
+    }
+
+    message ChannelPressure {
+        uint32 value = 1;
+    }
+
+    message SysEx {
+        bytes data = 1;
+    }
+
+    message Other {
+        string description = 1;
+    }
+}
+
+/**
+ * A "Subnote" represents a chunk of a longer Note.
+ * Typically ~1 second long, used for processing and lookahead.
+ */
+message Subnote {
+    uint64 id = 1;
+    uint32 note_number = 2;
+    uint32 channel = 3;
+    float velocity = 4;
+    
+    // Position relative to the start of the original note (in samples)
+    uint64 offset_samples = 5;
+    // Duration of this chunk (in samples)
+    uint64 duration_samples = 6;
+    
+    bool is_first = 7;
+    bool is_last = 8;
+}
+
+/**
+ * A higher-level Note object aggregated from MIDI events.
+ */
+message Note {
+    uint64 id = 1;
+    uint32 note_number = 2;
+    uint32 channel = 3;
+    float start_velocity = 4;
+    float end_velocity = 5;
+    
+    uint64 start_sample = 6;
+    uint64 duration_samples = 7;
+}
