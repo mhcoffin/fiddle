@@ -9,6 +9,9 @@ compile_commands.json
 _deps/
 *.cmake
 MidiLogger_artefacts/
+FiddleServer_artefacts/
+FiddlePilot_artefacts/
+Fiddle_artefacts/
 
 # Node.js
 node_modules/

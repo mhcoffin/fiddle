@@ -6,16 +6,19 @@
 
 using namespace juce;
 
-class MidiLoggerAudioProcessorEditor : public juce::AudioProcessorEditor {
+class FiddleAudioProcessorEditor : public juce::AudioProcessorEditor,
+                                   private juce::Timer {
 public:
-  MidiLoggerAudioProcessorEditor(MidiLoggerAudioProcessor &);
-  ~MidiLoggerAudioProcessorEditor() override;
+  FiddleAudioProcessorEditor(FiddleAudioProcessor &);
+  ~FiddleAudioProcessorEditor() override;
 
   void paint(juce::Graphics &) override;
   void resized() override;
 
-private:
-  MidiLoggerAudioProcessor &audioProcessor;
+  void timerCallback() override;
 
-  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiLoggerAudioProcessorEditor)
+private:
+  FiddleAudioProcessor &audioProcessor;
+
+  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessorEditor)
 };

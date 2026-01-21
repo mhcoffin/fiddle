@@ -21,6 +21,7 @@ private:
   juce::File uiDir;
   juce::WebBrowserComponent webComponent;
   std::unique_ptr<fiddle::MidiTcpServer> server;
+  ExpressionMap expressionMap;
   NoteStreamTracker noteTracker;
   SubnoteGenerator subnoteGenerator;
   std::unique_ptr<ScriptEngine> scriptEngine;

@@ -1,0 +1,52 @@
+Mutex Group,CC#,,CC Value,Default
+Length,102,pt.natural,0,TRUE
+,,pt.staccatissimo,1,
+,,pt.staccato,2,
+,,pt.staccato+pt.tenuto,3,
+,,pt.tenuto,4,
+Legato,103,pt.natural,0,TRUE
+,,pt.legato,1,
+Attack,104,pt.user.espressivo,32,
+,,pt.natural,64,TRUE
+,,pt.marcato,96,
+Bow Direction,105,pt.natural,0,TRUE
+,,pt.upbow,1,
+,,pt.downbow,2,
+Vibrato,106,pt.nonVibrato,0,
+,,pt.natural,64,TRUE
+,,pt.vibrato,64,TRUE
+,,pt.pocoVibrato,32,
+,,pt.moltoVibrato,96,
+Mute,107,pt.natural,0,TRUE
+,,pt.open1,0,TRUE
+,,pt.muted,1,
+Playing Position,108,pt.natural,0,TRUE
+,,pt.sulTasto,1,
+,,pt.sulPonticello,2,
+,,pt.flautando,3,
+Harmonics,109,pt.natural,0,TRUE
+,,pt.naturalHarmonic1,1,
+,,pt.naturalHarmonic2,2,
+,,pt.artificialHarmonic,3,
+Tremolo,110,pt.natural,0,TRUE
+,,pt.flutterTongue,1,
+,,pt.tremolo,2,
+String technique,111,pt.natural,0,TRUE
+,,pt.bowed,0,TRUE
+,,pt.pizzicato,1,
+,,pt.bartoksnapPizzicato,2,
+,,pt.colLegnoBattuto,3,
+,,pt.colLegnoTratto,4,
+,,pt.pizzicatoSecco,5,
+,,pt.pizzicatoAllaChitarra,6,
+Glissando,112,pt.natural,0,TRUE
+,,pt.portamento,1,
+,,pt.glissando,2,
+,,pt.portamentoUp,1,
+,,pt.glissandoUp,2,
+,,pt.portamentoDown,3,
+,,pt.glissandoDown,4,
+Arpeggios,113,pt.arpeggioUp,1,
+,,pt.arpeggioDown,2,
+,,pt.natural,0,TRUE
+,,pt.arpeggio,1,

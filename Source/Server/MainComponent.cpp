@@ -104,14 +104,15 @@ MainComponent::MainComponent()
         "Resources/scripts/default_fiddle.as");
   }
 
+  // 2. Try Source Tree Fallback (Development)
+  juce::File projectRoot = exeFile;
+  for (int i = 0; i < 10; ++i) {
+    if (projectRoot.getChildFile("Source").isDirectory())
+      break;
+    projectRoot = projectRoot.getParentDirectory();
+  }
+
   if (!scriptFile.exists()) {
-    // 2. Try Source Tree Fallback (Development)
-    juce::File projectRoot = exeFile;
-    for (int i = 0; i < 10; ++i) {
-      if (projectRoot.getChildFile("Source").isDirectory())
-        break;
-      projectRoot = projectRoot.getParentDirectory();
-    }
     scriptFile = projectRoot.getChildFile("scripts/default_fiddle.as");
   }
 
@@ -130,45 +131,161 @@ MainComponent::MainComponent()
                    true);
   }
 
+  // Load Expression Map
+  juce::File expMapFile = projectRoot.getChildFile("Fiddle Expression Map.csv");
+  if (!expMapFile.exists()) {
+    expMapFile = exeFile.getSiblingFile("Fiddle Expression Map.csv");
+  }
+
+  if (expMapFile.exists()) {
+    if (expressionMap.loadFromCsv(expMapFile)) {
+      pushLogMessage("<b>[ExpressionMap]</b> Loaded " +
+                     expMapFile.getFileName() + " successfully");
+      noteTracker.setExpressionMap(&expressionMap);
+    } else {
+      pushLogMessage("<b>[ExpressionMap]</b> Failed to parse " +
+                         expMapFile.getFileName(),
+                     true);
+    }
+  } else {
+    pushLogMessage("<b>[ExpressionMap]</b> Could not find "
+                   "FiddleExpressionMap.csv",
+                   true);
+  }
+
+  auto noteToJson = [](const fiddle::Note &n) {
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty("id", (juce::int64)n.id());
+    obj->setProperty("noteNumber", (int)n.note_number());
+    obj->setProperty("channel", (int)n.channel());
+    obj->setProperty("startVelocity", (int)n.start_velocity());
+    obj->setProperty("endVelocity", (int)n.end_velocity());
+    obj->setProperty("startSample", (juce::int64)n.start_sample());
+    obj->setProperty("durationSamples", (juce::int64)n.duration_samples());
+
+    juce::DynamicObject::Ptr dims = new juce::DynamicObject();
+    for (auto const &it : n.notation_dimensions()) {
+      dims->setProperty(juce::String(it.first), it.second);
+    }
+    obj->setProperty("dimensions", dims.get());
+
+    juce::DynamicObject::Ptr techs = new juce::DynamicObject();
+    for (auto const &it : n.notation_techniques()) {
+      techs->setProperty(juce::String(it.first), juce::String(it.second));
+    }
+    obj->setProperty("techniques", techs.get());
+
+    juce::DynamicObject::Ptr defaults = new juce::DynamicObject();
+    for (auto const &it : n.notation_is_default()) {
+      defaults->setProperty(juce::String(it.first), it.second);
+    }
+    obj->setProperty("notation_is_default", defaults.get());
+
+    return juce::JSON::toString(juce::var(obj.get()), true);
+  };
+
+  auto midiEventToJson = [](const fiddle::MidiEvent &event,
+                            uint64_t absoluteSamples, int oldCCVal) {
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty("type", (int)event.event_case());
+    obj->setProperty("channel", (int)event.channel());
+    obj->setProperty("timestamp", (juce::int64)absoluteSamples);
+
+    if (event.has_note_on()) {
+      obj->setProperty("note", (int)event.note_on().note_number());
+      obj->setProperty("velocity", (int)event.note_on().velocity());
+    } else if (event.has_note_off()) {
+      obj->setProperty("note", (int)event.note_off().note_number());
+      obj->setProperty("velocity", (int)event.note_off().velocity());
+    } else if (event.has_cc()) {
+      obj->setProperty("cc", (int)event.cc().controller_number());
+      obj->setProperty("value", (int)event.cc().controller_value());
+      if (oldCCVal >= 0)
+        obj->setProperty("oldValue", oldCCVal);
+    } else if (event.has_transport()) {
+      obj->setProperty("transportType", (int)event.transport().type());
+    }
+
+    return juce::JSON::toString(juce::var(obj.get()));
+  };
+
+  noteTracker.uiLogger = [this](const juce::String &msg) {
+    pushLogMessage(msg);
+  };
+
   noteTracker.setCallbacks(
-      {[this](const fiddle::Note &n) {
+      {[this, noteToJson](const fiddle::Note &n) {
+         pushLogMessage(
+             "<b>[Tracker]</b> Note ON: " + juce::String((juce::int64)n.id()) +
+             " (Ch " + juce::String((int)n.channel()) + ")");
          subnoteGenerator.onNoteStarted(n);
-         // Call into script
          scriptEngine->execute("void processNote(Note@)", (void *)&n);
 
-         juce::MessageManager::callAsync([this, n]() {
-           webComponent.evaluateJavascript(juce::String::formatted(
-               "updateNoteState(%llu, %d, %d, 'started')", n.id(),
-               n.note_number(), n.channel()));
-         });
+         juce::String json = noteToJson(n);
+         juce::String call = juce::String::formatted(
+             "updateNoteState(%s, 'started')", json.toRawUTF8());
+         std::cerr << "[MainComponent] Call: " << call << std::endl;
+         juce::MessageManager::callAsync(
+             [this, call]() { webComponent.evaluateJavascript(call); });
        },
-       [this](const fiddle::Note &n) {
+       [this, noteToJson](const fiddle::Note &n) {
+         pushLogMessage("<b>[Tracker]</b> Note OFF: " +
+                        juce::String((juce::int64)n.id()));
          subnoteGenerator.onNoteEnded(n);
-         juce::MessageManager::callAsync([this, n]() {
-           webComponent.evaluateJavascript(juce::String::formatted(
-               "updateNoteState(%llu, 0, 0, 'ended')", n.id()));
-         });
+         juce::String json = noteToJson(n);
+         juce::String call = juce::String::formatted(
+             "updateNoteState(%s, 'ended')", json.toRawUTF8());
+         std::cerr << "[MainComponent] Call: " << call << std::endl;
+         juce::MessageManager::callAsync(
+             [this, call]() { webComponent.evaluateJavascript(call); });
+       },
+       [this, noteToJson](const fiddle::Note &n) {
+         juce::String json = noteToJson(n);
+         juce::String call = juce::String::formatted(
+             "updateNoteState(%s, 'updated')", json.toRawUTF8());
+         juce::MessageManager::callAsync(
+             [this, call]() { webComponent.evaluateJavascript(call); });
+       },
+       [this, midiEventToJson](const fiddle::MidiEvent &event,
+                               uint64_t absoluteSamples, int oldCCVal) {
+         juce::String json = midiEventToJson(event, absoluteSamples, oldCCVal);
+         juce::String call =
+             juce::String::formatted("pushMidiEvent(%s)", json.toRawUTF8());
+         juce::MessageManager::callAsync(
+             [this, call]() { webComponent.evaluateJavascript(call); });
        }});
 
-  subnoteGenerator.setCallbacks({[this](const fiddle::Subnote &s) {
-    // Call into script
-    scriptEngine->execute("void processSubnote(Subnote@)", (void *)&s);
+  subnoteGenerator.setCallbacks(
+      {[this](const fiddle::Subnote &s) {
+         // Call into script
+         scriptEngine->execute("void processSubnote(Subnote@)", (void *)&s);
 
-    pushSubnoteToWebView(s);
-    juce::MessageManager::callAsync([this, s]() {
-      webComponent.evaluateJavascript(juce::String::formatted(
-          "updateNoteState(%llu, 0, 0, 'subnote')", s.id()));
-    });
-  }});
+         pushSubnoteToWebView(s);
+         juce::MessageManager::callAsync([this, id = s.id()]() {
+           webComponent.evaluateJavascript(juce::String::formatted(
+               "updateNoteState({id: %llu}, 'subnote')", id));
+         });
+       },
+       [this, noteToJson](const fiddle::Note &n) {
+         pushLogMessage("<b>[Watchdog]</b> Note Timed Out: " +
+                        juce::String((juce::int64)n.id()));
+         juce::String json = noteToJson(n);
+         juce::String call = juce::String::formatted(
+             "updateNoteState(%s, 'ended')", json.toRawUTF8());
+         juce::MessageManager::callAsync(
+             [this, call]() { webComponent.evaluateJavascript(call); });
+       }});
 
   server = std::make_unique<fiddle::MidiTcpServer>();
   server->onMessageReceived([this](const fiddle::MidiEvent &event) {
-    std::cerr << "[MidiTcpServer] Received MIDI event on channel "
-              << event.channel() << std::endl;
+    // Force a log to the UI so we can see the flow
+    pushLogMessage("<b>[Server]</b> Received Event Case: " +
+                   juce::String((int)event.event_case()) +
+                   " Ch: " + juce::String(event.channel()));
+
     noteTracker.processEvent(event);
     pushEventToWebView(event);
 
-    // Update time tracking
     lastSampleTime = event.timestamp_samples();
     lastSystemTime = juce::Time::getMillisecondCounter();
   });
@@ -323,16 +440,15 @@ void MainComponent::pushSubnoteToWebView(const fiddle::Subnote &subnote) {
 }
 
 void MainComponent::timerCallback() {
-  if (lastSystemTime == 0)
-    return;
+  subnoteGenerator.tick(noteTracker.getSessionSamples());
 
-  // Estimate current sample time based on system time elapsed
-  uint32_t now = juce::Time::getMillisecondCounter();
-  uint32_t elapsedMs = now - lastSystemTime;
-  uint64_t elapsedSamples =
-      static_cast<uint64_t>(elapsedMs * (44100.0 / 1000.0));
-
-  subnoteGenerator.tick(lastSampleTime + elapsedSamples);
+  static int hbCounter = 0;
+  if (++hbCounter % 50 == 0) { // Every 1 second (20ms * 50)
+    juce::MessageManager::callAsync([this, val = hbCounter / 50]() {
+      webComponent.evaluateJavascript("setHeartbeat(" + juce::String(val) +
+                                      ")");
+    });
+  }
 }
 
 void MainComponent::paint(juce::Graphics &g) {

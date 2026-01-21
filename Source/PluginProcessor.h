@@ -7,10 +7,10 @@
 
 using namespace juce;
 
-class MidiLoggerAudioProcessor : public juce::AudioProcessor {
+class FiddleAudioProcessor : public juce::AudioProcessor {
 public:
-  MidiLoggerAudioProcessor();
-  ~MidiLoggerAudioProcessor() override;
+  FiddleAudioProcessor();
+  ~FiddleAudioProcessor() override;
 
   void prepareToPlay(double sampleRate, int samplesPerBlock) override;
   void releaseResources() override;
@@ -45,6 +45,7 @@ public:
 private:
   std::unique_ptr<juce::FileLogger> logger;
   std::unique_ptr<fiddle::MidiTcpRelay> tcpRelay;
+  bool wasPlaying = false;
 
-  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiLoggerAudioProcessor)
+  JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessor)
 };

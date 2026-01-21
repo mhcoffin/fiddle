@@ -3,8 +3,19 @@
 
 void processNote(Note@ note) {
     print("Note Started: " + note.get_note_number() + " (velocity: " + note.get_start_velocity() + ")");
-    // Simple pass-through logging
-    // In a real fiddle, you would modify properties or generate new events.
+    
+    // Example: Read notation dimensions
+    float legato = note.get_dimension("Legato");
+    string legatoTech = note.get_technique("Legato");
+    float vibrato = note.get_dimension("Vibrato");
+    string vibratoTech = note.get_technique("Vibrato");
+
+    if (legato > 0) {
+        print("  -> Legato active: " + legatoTech + " (" + legato + ")");
+    }
+    if (vibrato > 0) {
+        print("  -> Vibrato: " + vibratoTech + " (" + vibrato + ")");
+    }
 }
 
 void processSubnote(Subnote@ subnote) {

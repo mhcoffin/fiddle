@@ -19,6 +19,7 @@ public:
 
   struct Callbacks {
     std::function<void(const fiddle::Subnote &)> onSubnoteGenerated;
+    std::function<void(const fiddle::Note &)> onNoteTimeout;
   };
 
   SubnoteGenerator(double sampleRate = 44100.0)
@@ -77,8 +78,27 @@ public:
   void tick(uint64_t currentSampleTime) {
     std::lock_guard<std::mutex> lock(mutex);
 
+    std::vector<uint64_t> notesToRemove;
     for (auto &[id, state] : activeNotes) {
+      if (currentSampleTime < state.note.start_sample())
+        continue;
+
       uint64_t elapsed = currentSampleTime - state.note.start_sample();
+
+      // Watchdog: If a note lasts longer than 30 seconds without an end event,
+      // force-end it to prevent infinite subnotes.
+      if (elapsed > (30LL * sampleRate)) {
+        // Update note duration before timing out
+        state.note.set_duration_samples(elapsed);
+        emitSubnote(state, true);
+
+        if (callbacks.onNoteTimeout) {
+          callbacks.onNoteTimeout(state.note);
+        }
+
+        notesToRemove.push_back(id);
+        continue;
+      }
 
       // While we have enough elapsed time to emit more subnotes
       while (elapsed >= state.lastEmittedOffset + subnoteDurationSamples) {
@@ -89,6 +109,10 @@ public:
           break;
         }
       }
+    }
+
+    for (auto id : notesToRemove) {
+      activeNotes.erase(id);
     }
   }
 
@@ -117,7 +141,10 @@ private:
 
     uint64_t duration = subnoteDurationSamples;
     if (isLast) {
-      duration = state.note.duration_samples() - state.lastEmittedOffset;
+      if (state.note.duration_samples() > state.lastEmittedOffset)
+        duration = state.note.duration_samples() - state.lastEmittedOffset;
+      else
+        duration = 0;
     }
     sub.set_duration_samples(duration);
 

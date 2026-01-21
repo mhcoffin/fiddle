@@ -4,7 +4,7 @@
 #include <google/protobuf/text_format.h>
 #include <string>
 
-MidiLoggerAudioProcessor::MidiLoggerAudioProcessor()
+FiddleAudioProcessor::FiddleAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
     : AudioProcessor(
           BusesProperties()
@@ -18,44 +18,42 @@ MidiLoggerAudioProcessor::MidiLoggerAudioProcessor()
 #endif
 {
   juce::File logFile("/tmp/juce_midi_log.txt");
-  logger = std::make_unique<juce::FileLogger>(logFile, "MidiLogger Log File");
+  logger = std::make_unique<juce::FileLogger>(logFile, "Fiddle Log File");
 
   tcpRelay = std::make_unique<fiddle::MidiTcpRelay>();
 }
 
-MidiLoggerAudioProcessor::~MidiLoggerAudioProcessor() {}
+FiddleAudioProcessor::~FiddleAudioProcessor() {}
 
-const juce::String MidiLoggerAudioProcessor::getName() const {
-  return "MidiLogger";
-}
+const juce::String FiddleAudioProcessor::getName() const { return "Fiddle"; }
 
-bool MidiLoggerAudioProcessor::acceptsMidi() const { return true; }
+bool FiddleAudioProcessor::acceptsMidi() const { return true; }
 
-bool MidiLoggerAudioProcessor::producesMidi() const { return false; }
+bool FiddleAudioProcessor::producesMidi() const { return false; }
 
-bool MidiLoggerAudioProcessor::isMidiEffect() const { return false; }
+bool FiddleAudioProcessor::isMidiEffect() const { return false; }
 
-double MidiLoggerAudioProcessor::getTailLengthSeconds() const { return 0.0; }
+double FiddleAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 
-int MidiLoggerAudioProcessor::getNumPrograms() { return 1; }
+int FiddleAudioProcessor::getNumPrograms() { return 1; }
 
-int MidiLoggerAudioProcessor::getCurrentProgram() { return 0; }
+int FiddleAudioProcessor::getCurrentProgram() { return 0; }
 
-void MidiLoggerAudioProcessor::setCurrentProgram(int index) {}
+void FiddleAudioProcessor::setCurrentProgram(int index) {}
 
-const juce::String MidiLoggerAudioProcessor::getProgramName(int index) {
+const juce::String FiddleAudioProcessor::getProgramName(int index) {
   return {};
 }
 
-void MidiLoggerAudioProcessor::changeProgramName(int index,
-                                                 const juce::String &newName) {}
+void FiddleAudioProcessor::changeProgramName(int index,
+                                             const juce::String &newName) {}
 
-void MidiLoggerAudioProcessor::prepareToPlay(double sampleRate,
-                                             int samplesPerBlock) {}
+void FiddleAudioProcessor::prepareToPlay(double sampleRate,
+                                         int samplesPerBlock) {}
 
-void MidiLoggerAudioProcessor::releaseResources() {}
+void FiddleAudioProcessor::releaseResources() {}
 
-bool MidiLoggerAudioProcessor::isBusesLayoutSupported(
+bool FiddleAudioProcessor::isBusesLayoutSupported(
     const BusesLayout &layouts) const {
 #if JucePlugin_IsMidiEffect
   juce::ignoreUnused(layouts);
@@ -74,14 +72,43 @@ bool MidiLoggerAudioProcessor::isBusesLayoutSupported(
 #endif
 }
 
-void MidiLoggerAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
-                                            juce::MidiBuffer &midiMessages) {
+void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
+                                        juce::MidiBuffer &midiMessages) {
   juce::ScopedNoDenormals noDenormals;
   auto totalNumInputChannels = getTotalNumInputChannels();
   auto totalNumOutputChannels = getTotalNumOutputChannels();
 
   for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
     buffer.clear(i, 0, buffer.getNumSamples());
+
+  // Detect Transport Start and capture Host Position
+  juce::Optional<juce::AudioPlayHead::PositionInfo> positionInfo;
+  if (auto *playHead = getPlayHead()) {
+    positionInfo = playHead->getPosition();
+  }
+
+  if (positionInfo.hasValue()) {
+    bool isPlaying = positionInfo->getIsPlaying();
+    auto hostSamplesOpt = positionInfo->getTimeInSamples();
+    int64_t hostSamples = hostSamplesOpt.hasValue() ? *hostSamplesOpt : 0;
+
+    if (isPlaying && !wasPlaying) {
+      std::cerr << "[Fiddle] Transport START detected at host sample "
+                << hostSamples << std::endl;
+      fiddle::MidiEvent transportEvent;
+      transportEvent.set_timestamp_samples(0);
+      transportEvent.set_host_sample_position((uint64_t)hostSamples);
+
+      auto *transport = transportEvent.mutable_transport();
+      transport->set_type(fiddle::MidiEvent_TransportEvent_Type_START);
+      transport->set_host_sample_position((uint64_t)hostSamples);
+
+      if (tcpRelay != nullptr) {
+        tcpRelay->pushMessage(transportEvent);
+      }
+    }
+    wasPlaying = isPlaying;
+  }
 
   for (const auto metadata : midiMessages) {
     auto message = metadata.getMessage();
@@ -91,14 +118,20 @@ void MidiLoggerAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
       protoEvent.set_timestamp_samples(time);
       protoEvent.set_channel(message.getChannel());
 
+      if (positionInfo.hasValue()) {
+        auto hostSamplesOpt = positionInfo->getTimeInSamples();
+        int64_t hostSamples = hostSamplesOpt.hasValue() ? *hostSamplesOpt : 0;
+        protoEvent.set_host_sample_position((uint64_t)(hostSamples + time));
+      }
+
       if (message.isNoteOn()) {
         auto *noteOn = protoEvent.mutable_note_on();
         noteOn->set_note_number(message.getNoteNumber());
-        noteOn->set_velocity(message.getFloatVelocity());
+        noteOn->set_velocity(message.getVelocity());
       } else if (message.isNoteOff()) {
         auto *noteOff = protoEvent.mutable_note_off();
         noteOff->set_note_number(message.getNoteNumber());
-        noteOff->set_velocity(message.getFloatVelocity());
+        noteOff->set_velocity(message.getVelocity());
       } else if (message.isController()) {
         auto *cc = protoEvent.mutable_cc();
         cc->set_controller_number(message.getControllerNumber());
@@ -130,7 +163,7 @@ void MidiLoggerAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
       }
 
       if (tcpRelay != nullptr) {
-        std::cerr << "[MidiLogger] Pushing event to relay: Ch "
+        std::cerr << "[Fiddle] Pushing event to relay: Ch "
                   << protoEvent.channel() << " Type: "
                   << (message.isNoteOn()    ? "NoteOn"
                       : message.isNoteOff() ? "NoteOff"
@@ -142,18 +175,17 @@ void MidiLoggerAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
   }
 }
 
-bool MidiLoggerAudioProcessor::hasEditor() const { return true; }
+bool FiddleAudioProcessor::hasEditor() const { return true; }
 
-juce::AudioProcessorEditor *MidiLoggerAudioProcessor::createEditor() {
-  return new MidiLoggerAudioProcessorEditor(*this);
+juce::AudioProcessorEditor *FiddleAudioProcessor::createEditor() {
+  return new FiddleAudioProcessorEditor(*this);
 }
 
-void MidiLoggerAudioProcessor::getStateInformation(
-    juce::MemoryBlock &destData) {}
+void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {}
 
-void MidiLoggerAudioProcessor::setStateInformation(const void *data,
-                                                   int sizeInBytes) {}
+void FiddleAudioProcessor::setStateInformation(const void *data,
+                                               int sizeInBytes) {}
 
 juce::AudioProcessor *JUCE_CALLTYPE createPluginFilter() {
-  return new MidiLoggerAudioProcessor();
+  return new FiddleAudioProcessor();
 }

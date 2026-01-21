@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(MidiLogger VERSION 1.0.0)
+project(Fiddle VERSION 1.0.0)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 if(POLICY CMP0135)
     cmake_policy(SET CMP0135 NEW)
@@ -43,16 +43,16 @@ FetchContent_MakeAvailable(angelscript)
 # No separate include needed for 3.20.3 manual command
 
 
-juce_add_plugin(MidiLogger
+juce_add_plugin(Fiddle
     COMPANY_NAME "Antigravity"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    PLUGIN_CODE "MLog"
+    PLUGIN_CODE "Fidl"
     FORMATS VST3
-    PRODUCT_NAME "MidiLogger"
+    PRODUCT_NAME "Fiddle"
 )
 
 juce_add_gui_app(FiddleServer
@@ -67,7 +67,7 @@ juce_add_gui_app(FiddlePilot
     BUNDLE_ID "com.antigravity.fiddlepilot"
 )
 
-target_sources(MidiLogger PRIVATE
+target_sources(Fiddle PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
@@ -111,7 +111,7 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/midi_event.proto" protoc
 )
 
-target_link_libraries(MidiLogger PRIVATE
+target_link_libraries(Fiddle PRIVATE
     juce::juce_audio_utils
     juce::juce_audio_processors
     juce::juce_audio_devices
@@ -146,7 +146,7 @@ target_link_libraries(FiddlePilot PRIVATE
     libprotobuf
 )
 
-target_compile_definitions(MidiLogger PRIVATE
+target_compile_definitions(Fiddle PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
 )
 
@@ -158,7 +158,7 @@ if(APPLE OR UNIX)
     target_compile_options(FiddleServer PRIVATE -fno-strict-aliasing)
 endif()
 
-target_include_directories(MidiLogger PRIVATE
+target_include_directories(Fiddle PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     Source
 )
@@ -175,7 +175,7 @@ target_include_directories(FiddleServer PRIVATE
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring"
 )
 
-juce_generate_juce_header(MidiLogger)
+juce_generate_juce_header(Fiddle)
 juce_generate_juce_header(FiddleServer)
 juce_generate_juce_header(FiddlePilot)
 

@@ -11,10 +11,27 @@ static uint32_t Note_GetNoteNumber(const fiddle::Note *n) {
 }
 static uint32_t Note_GetChannel(const fiddle::Note *n) { return n->channel(); }
 static uint32_t Note_GetStartVelocity(const fiddle::Note *n) {
-  return (uint32_t)(n->start_velocity() * 127.0f);
+  return n->start_velocity();
 }
 static uint32_t Note_GetEndVelocity(const fiddle::Note *n) {
-  return (uint32_t)(n->end_velocity() * 127.0f);
+  return n->end_velocity();
+}
+
+static float Note_GetDimension(const std::string &name, const fiddle::Note *n) {
+  auto it = n->notation_dimensions().find(name);
+  if (it != n->notation_dimensions().end()) {
+    return it->second;
+  }
+  return 0.0f;
+}
+
+static std::string Note_GetTechnique(const std::string &name,
+                                     const fiddle::Note *n) {
+  auto it = n->notation_techniques().find(name);
+  if (it != n->notation_techniques().end()) {
+    return it->second;
+  }
+  return "";
 }
 
 static uint32_t Subnote_GetID(const fiddle::Subnote *s) { return s->id(); }
@@ -24,7 +41,7 @@ static uint32_t Subnote_GetNoteNumber(const fiddle::Subnote *s) {
 static uint32_t Subnote_GetChannel(const fiddle::Subnote *s) {
   return s->channel();
 }
-static float Subnote_GetVelocity(const fiddle::Subnote *s) {
+static uint32_t Subnote_GetVelocity(const fiddle::Subnote *s) {
   return s->velocity();
 }
 static bool Subnote_GetIsFirst(const fiddle::Subnote *s) {
@@ -52,6 +69,12 @@ void ScriptBindings::RegisterFiddleAPI(asIScriptEngine *engine) {
   engine->RegisterObjectMethod("Note", "uint get_end_velocity() const",
                                asFUNCTION(Note_GetEndVelocity),
                                asCALL_CDECL_OBJLAST);
+  engine->RegisterObjectMethod(
+      "Note", "float get_dimension(const string &in) const",
+      asFUNCTION(Note_GetDimension), asCALL_CDECL_OBJLAST);
+  engine->RegisterObjectMethod(
+      "Note", "string get_technique(const string &in) const",
+      asFUNCTION(Note_GetTechnique), asCALL_CDECL_OBJLAST);
 
   // Register Subnote type
   engine->RegisterObjectType("Subnote", 0, asOBJ_REF | asOBJ_NOCOUNT);
@@ -63,7 +86,7 @@ void ScriptBindings::RegisterFiddleAPI(asIScriptEngine *engine) {
   engine->RegisterObjectMethod("Subnote", "uint get_channel() const",
                                asFUNCTION(Subnote_GetChannel),
                                asCALL_CDECL_OBJLAST);
-  engine->RegisterObjectMethod("Subnote", "float get_velocity() const",
+  engine->RegisterObjectMethod("Subnote", "uint get_velocity() const",
                                asFUNCTION(Subnote_GetVelocity),
                                asCALL_CDECL_OBJLAST);
   engine->RegisterObjectMethod("Subnote", "bool get_is_first() const",

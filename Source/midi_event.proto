@@ -16,16 +16,28 @@ message MidiEvent {
         ChannelPressure channel_pressure = 9;
         SysEx sys_ex = 10;
         Other other = 11;
+        TransportEvent transport = 12;
+    }
+
+    optional uint64 host_sample_position = 13;
+
+    message TransportEvent {
+        enum Type {
+            START = 0;
+            STOP = 1;
+        }
+        Type type = 1;
+        optional uint64 host_sample_position = 2;
     }
 
     message NoteOn {
         uint32 note_number = 1;
-        float velocity = 2;
+        uint32 velocity = 2;
     }
 
     message NoteOff {
         uint32 note_number = 1;
-        float velocity = 2;
+        uint32 velocity = 2;
     }
 
     message ControlChange {
@@ -67,7 +79,7 @@ message Subnote {
     uint64 id = 1;
     uint32 note_number = 2;
     uint32 channel = 3;
-    float velocity = 4;
+    uint32 velocity = 4;
     
     // Position relative to the start of the original note (in samples)
     uint64 offset_samples = 5;
@@ -85,9 +97,13 @@ message Note {
     uint64 id = 1;
     uint32 note_number = 2;
     uint32 channel = 3;
-    float start_velocity = 4;
-    float end_velocity = 5;
+    uint32 start_velocity = 4;
+    uint32 end_velocity = 5;
     
     uint64 start_sample = 6;
     uint64 duration_samples = 7;
+
+    map<string, float> notation_dimensions = 8;
+    map<string, string> notation_techniques = 9;
+    map<string, bool> notation_is_default = 10;
 }
