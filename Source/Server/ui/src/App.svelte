@@ -61,10 +61,9 @@
   };
 
   window.setChannelInstrument = (channel, name) => {
-    // channel is 0-based from C++, Timeline uses 1-based
     channelInstruments = {
       ...channelInstruments,
-      [channel + 1]: name,
+      [channel]: name,
     };
   };
 
