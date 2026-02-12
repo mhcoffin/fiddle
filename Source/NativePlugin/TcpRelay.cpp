@@ -77,8 +77,29 @@ void TcpRelay::relayThread() {
       if (!running_)
         break;
 
-      if (queue_.empty())
+      if (queue_.empty()) {
+        // No messages to send — check if the server is still alive.
+        // A non-blocking recv() returns 0 on clean close, or -1 with
+        // an error (other than EAGAIN/EWOULDBLOCK) on broken connection.
+        if (connected_ && socketFd_ >= 0) {
+          char probe;
+          ssize_t n = ::recv(socketFd_, &probe, 1, MSG_DONTWAIT | MSG_PEEK);
+          if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
+            // Server closed the connection
+            lock.unlock();
+            disconnect();
+            connected_ = false;
+            ConnectionCallback cb;
+            {
+              std::lock_guard<std::mutex> cbLock(mutex_);
+              cb = connectionCallback_;
+            }
+            if (cb)
+              cb(false);
+          }
+        }
         continue;
+      }
 
       msg = std::move(queue_.front());
       queue_.pop_front();
