@@ -129,6 +129,11 @@ public:
         if (callbacks.onMidiEvent)
           callbacks.onMidiEvent(event, 0, -1);
       }
+    } else {
+      // Forward all other events (ProgramChange, ContextUpdate, PitchBend,
+      // etc.)
+      if (callbacks.onMidiEvent)
+        callbacks.onMidiEvent(event, absoluteSamples, -1);
     }
   }
 

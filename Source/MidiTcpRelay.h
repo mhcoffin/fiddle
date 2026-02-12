@@ -1,9 +1,11 @@
 #pragma once
 
 #include "midi_event.pb.h"
+#include <atomic>
 #include <google/protobuf/message.h>
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,7 @@ public:
   ~MidiTcpRelay() override {
     signalThreadShouldExit();
     notify();
-    stopThread(2000);
+    stopThread(5000); // 5s timeout for safer shutdown
   }
 
   /**
@@ -40,70 +42,106 @@ public:
     }
   }
 
-  bool isConnected() const { return socket.isConnected(); }
+  bool isConnected() const { return connected.load(); }
 
   void run() override {
+    uint32_t lastConnectAttempt = 0;
+
     while (!threadShouldExit()) {
-      if (!socket.isConnected()) {
-        // Attempt to connect to localhost:5252 (default)
-        DBG("MidiTcpRelay: Attempting to connect to 127.0.0.1:5252...");
-        if (!socket.connect("127.0.0.1", 5252, 1000)) {
-          DBG("MidiTcpRelay: Connection failed, retrying in 5s...");
-          continue;
+      bool isNowConnected = false;
+      {
+        const juce::ScopedLock sl(lock);
+        isNowConnected = (socket != nullptr && connected.load());
+      }
+
+      if (!isNowConnected) {
+        auto now = juce::Time::getMillisecondCounter();
+        if (now - lastConnectAttempt > 5000) {
+          lastConnectAttempt = now;
+
+          // Re-create socket to ensure fresh state
+          {
+            const juce::ScopedLock sl(lock);
+            socket = std::make_unique<juce::StreamingSocket>();
+            connected.store(false);
+          }
+
+          if (socket->connect("127.0.0.1", 5252, 500)) {
+            connected.store(true);
+          }
         }
       }
 
       std::vector<fiddle::MidiEvent> messagesToSend;
       {
         const juce::ScopedLock sl(lock);
-        messagesToSend.swap(pendingMessages);
+        if (!pendingMessages.empty()) {
+          messagesToSend.swap(pendingMessages);
+        }
       }
 
       if (messagesToSend.empty()) {
-        wait(5000); // Wait up to 5s for messages or timeout for heartbeat
-        if (pendingMessages.empty() && socket.isConnected()) {
-          fiddle::MidiEvent heartbeat;
-          heartbeat.mutable_other()->set_description("Heartbeat");
-          messagesToSend.push_back(heartbeat);
+        if (connected.load()) {
+          // Heartbeat check (Disabled to reduce noise)
+          wait(5000);
+          const juce::ScopedLock sl(lock);
+          // if (pendingMessages.empty() && connected.load()) {
+          //   fiddle::MidiEvent heartbeat;
+          //   heartbeat.mutable_other()->set_description("Heartbeat");
+          //   messagesToSend.push_back(heartbeat);
+          // }
         } else {
+          wait(500); // Shorter wait when disconnected to keep loop responsive
           continue;
         }
       }
 
+      if (messagesToSend.empty())
+        continue;
+
       for (const auto &msg : messagesToSend) {
+        if (threadShouldExit())
+          break;
+
         std::string binary;
         if (msg.SerializeToString(&binary)) {
-          // Framing: 4-byte length prefix (Big Endian)
           uint32_t size = static_cast<uint32_t>(binary.size());
           uint32_t networkSize = juce::ByteOrder::swapIfLittleEndian(size);
 
-          if (socket.write(&networkSize, 4) != 4) {
-            std::cerr << "[MidiTcpRelay] Error writing length prefix"
-                      << std::endl;
-            socket.close();
-            break;
+          bool success = false;
+          if (connected.load()) {
+            if (socket->waitUntilReady(false, 100) > 0) {
+              if (socket->write(&networkSize, 4) == 4) {
+                if (socket->write(binary.data(), (int)binary.size()) ==
+                    (int)binary.size()) {
+                  success = true;
+                }
+              }
+            }
           }
 
-          if (socket.write(binary.data(), static_cast<int>(binary.size())) !=
-              static_cast<int>(binary.size())) {
-            std::cerr << "[MidiTcpRelay] Error writing binary payload"
-                      << std::endl;
-            socket.close();
+          if (!success) {
+            const juce::ScopedLock sl(lock);
+            if (socket != nullptr)
+              socket->close();
+            connected.store(false);
             break;
           }
-          std::cerr << "[MidiTcpRelay] Successfully sent payload of "
-                    << binary.size() << " bytes" << std::endl;
         }
       }
     }
 
-    socket.close();
+    const juce::ScopedLock sl(lock);
+    if (socket != nullptr)
+      socket->close();
+    connected.store(false);
   }
 
 private:
-  juce::StreamingSocket socket;
+  std::unique_ptr<juce::StreamingSocket> socket;
   juce::CriticalSection lock;
   std::vector<fiddle::MidiEvent> pendingMessages;
+  std::atomic<bool> connected{false};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTcpRelay)
 };

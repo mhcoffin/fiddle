@@ -26,6 +26,12 @@
                 return "Note Off";
             case 5:
                 return "CC";
+            case 6:
+                return "Pitch Bend";
+            case 7:
+                return "Program Change";
+            case 11:
+                return "Context Update";
             case 12:
                 return "Transport";
             default:
@@ -41,6 +47,12 @@
                 return "event-note-off";
             case 5:
                 return "event-cc";
+            case 6:
+                return "event-pb"; // Reuse or new class
+            case 7:
+                return "event-pc";
+            case 11:
+                return "event-other";
             case 12:
                 return "event-transport";
             default:
@@ -67,7 +79,7 @@
                     <td class="cell-time">{time.clock}</td>
                     <td class="cell-sec">{time.seconds}</td>
                     <td class="cell-type">{getEventName(event.type)}</td>
-                    <td class="cell-chan">{event.channel + 1}</td>
+                    <td class="cell-chan">{event.channel}</td>
                     <td class="cell-details">
                         {#if event.type === 3 || event.type === 4}
                             Note: <strong>{event.note}</strong> | Velocity: {event.velocity}
@@ -76,6 +88,13 @@
                             <span class="cc-old">{event.oldValue ?? "?"}</span>
                             &rarr;
                             <span class="cc-new">{event.value}</span>
+                        {:else if event.type === 6}
+                            Value: <strong>{event.value}</strong>
+                        {:else if event.type === 7}
+                            Program: <strong>{event.program}</strong>
+                        {:else if event.type === 11}
+                            <span class="context-desc">{event.description}</span
+                            >
                         {:else if event.type === 12}
                             <span class="transport-badge">
                                 {event.transportType === 0 ? "START" : "STOP"}
@@ -135,8 +154,20 @@
     .event-cc td {
         color: #fbbf24;
     }
+    .event-pc td {
+        color: #c084fc; /* Purple */
+    }
+    .event-other td {
+        color: #2dd4bf; /* Teal */
+    }
+    .event-transport {
+        background: rgba(239, 68, 68, 0.15);
+        border-top: 1px solid #ef4444;
+        border-bottom: 1px solid #ef4444;
+    }
     .event-transport td {
-        color: #f87171;
+        color: #fca5a5;
+        font-weight: bold;
     }
     .transport-badge {
         background: #ef4444;

@@ -57,6 +57,13 @@ MainComponent::MainComponent()
                         "addLogMessage('<i>Server started and listening for "
                         "connections...</i>')");
 
+                    // Send Version
+                    if (auto *app = juce::JUCEApplication::getInstance()) {
+                      webComponent.evaluateJavascript(
+                          "setServerVersion('" + app->getApplicationVersion() +
+                          "')");
+                    }
+
                     completion(true);
                   })
               .withNativeFunction(
@@ -70,7 +77,13 @@ MainComponent::MainComponent()
                     completion(true);
                   })) {
   setupWebView();
-  addAndMakeVisible(webComponent);
+
+  // Set up tabbed interface: Monitor (WebView) + Dorico Setup
+  tabbedComponent.addTab("Monitor", juce::Colour(0xff1e1e1e), &webComponent,
+                         false);
+  tabbedComponent.addTab("Dorico Setup", juce::Colour(0xff1e1e1e), &doricoSetup,
+                         false);
+  addAndMakeVisible(tabbedComponent);
 
   scriptEngine = std::make_unique<ScriptEngine>();
   ScriptBindings::RegisterFiddleAPI(scriptEngine->getEngine());
@@ -202,6 +215,11 @@ MainComponent::MainComponent()
       obj->setProperty("value", (int)event.cc().controller_value());
       if (oldCCVal >= 0)
         obj->setProperty("oldValue", oldCCVal);
+    } else if (event.has_program_change()) {
+      obj->setProperty("program", (int)event.program_change().program_number());
+    } else if (event.has_other()) {
+      obj->setProperty("description",
+                       juce::String(event.other().description()));
     } else if (event.has_transport()) {
       obj->setProperty("transportType", (int)event.transport().type());
     }
@@ -292,6 +310,11 @@ MainComponent::MainComponent()
 
   server->onConnectionChanged([this](bool connected, juce::String host) {
     juce::MessageManager::callAsync([this, connected, host]() {
+      // Send explicit status to UI
+      webComponent.evaluateJavascript(
+          "setConnectionState(" + juce::String(connected ? "true" : "false") +
+          ")");
+
       if (connected) {
         webComponent.evaluateJavascript(
             "addLogMessage('<span style=\"color: #03dac6\">[Connected: " +
@@ -456,6 +479,6 @@ void MainComponent::paint(juce::Graphics &g) {
       getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
-void MainComponent::resized() { webComponent.setBounds(getLocalBounds()); }
+void MainComponent::resized() { tabbedComponent.setBounds(getLocalBounds()); }
 
 } // namespace fiddle

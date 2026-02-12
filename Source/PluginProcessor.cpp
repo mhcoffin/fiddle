@@ -1,7 +1,10 @@
 #include "PluginProcessor.h"
+#include "InstrumentNames.h"
 #include "PluginEditor.h"
+#include "Vst3Extensions.h"
 #include "midi_event.pb.h"
-#include <google/protobuf/text_format.h>
+#include <fstream>
+#include <iostream>
 #include <string>
 
 FiddleAudioProcessor::FiddleAudioProcessor()
@@ -17,13 +20,35 @@ FiddleAudioProcessor::FiddleAudioProcessor()
       )
 #endif
 {
-  juce::File logFile("/tmp/juce_midi_log.txt");
-  logger = std::make_unique<juce::FileLogger>(logFile, "Fiddle Log File");
+  // Create Parameters with Legacy IDs if possible, or string IDs matching
+  // Vst3Extensions expectations Note: JUCE hashing might result in different
+  // IDs. For robustness, we'd need to match mapping. For now, assume "1001"
+  // works or that the Host is smart enough if we name them "Bank MSB".
 
+  // Bank MSB (CC 0)
+  addParameter(bankMSBParam = new juce::AudioParameterInt(
+                   juce::ParameterID("1001", 1), "Bank MSB", 0, 127, 0));
+
+  // Bank LSB (CC 32)
+  addParameter(bankLSBParam = new juce::AudioParameterInt(
+                   juce::ParameterID("1002", 1), "Bank LSB", 0, 127, 0));
+
+  vst3Extensions = std::make_unique<fiddle::FiddleVST3Extensions>(*this);
   tcpRelay = std::make_unique<fiddle::MidiTcpRelay>();
 }
 
 FiddleAudioProcessor::~FiddleAudioProcessor() {}
+
+juce::VST3ClientExtensions *FiddleAudioProcessor::getVST3ClientExtensions() {
+  return vst3Extensions.get();
+}
+// ... (getName, etc)
+
+// Listener removed to enable raw MIDI test
+void FiddleAudioProcessor::parameterValueChanged(int parameterIndex,
+                                                 float newValue) {}
+void FiddleAudioProcessor::parameterGestureChanged(int parameterIndex,
+                                                   bool gestureIsStarting) {}
 
 const juce::String FiddleAudioProcessor::getName() const { return "Fiddle"; }
 
@@ -35,21 +60,72 @@ bool FiddleAudioProcessor::isMidiEffect() const { return false; }
 
 double FiddleAudioProcessor::getTailLengthSeconds() const { return 0.0; }
 
-int FiddleAudioProcessor::getNumPrograms() { return 1; }
+int FiddleAudioProcessor::getNumPrograms() { return 128; }
 
 int FiddleAudioProcessor::getCurrentProgram() { return 0; }
 
-void FiddleAudioProcessor::setCurrentProgram(int index) {}
+// Capture VST3 Program Changes (if host uses this instead of MIDI)
+// Capture VST3 Program Changes (if host uses this instead of MIDI)
+void FiddleAudioProcessor::setCurrentProgram(int index) {
+  if (tcpRelay != nullptr && tcpRelay->isConnected()) {
+    int channel = nextProgramChangeChannel;
+    if (nextProgramChangeChannel < 16)
+      nextProgramChangeChannel++;
+
+    // Send Debug Log
+    fiddle::MidiEvent debugEvent;
+    debugEvent.set_timestamp_samples(0);
+    debugEvent.mutable_other()->set_description(
+        "Debug: VST3 setCurrentProgram(" + std::to_string(index) + ") -> Ch " +
+        std::to_string(channel));
+    tcpRelay->pushMessage(debugEvent);
+
+    fiddle::MidiEvent protoEvent;
+    protoEvent.set_timestamp_samples(0);
+    protoEvent.set_channel(channel);
+    auto *pc = protoEvent.mutable_program_change();
+    pc->set_program_number(index);
+    tcpRelay->pushMessage(protoEvent);
+  }
+}
 
 const juce::String FiddleAudioProcessor::getProgramName(int index) {
+  if (index >= 0 && index < 128)
+    return "Program " + juce::String(index + 1);
   return {};
 }
 
 void FiddleAudioProcessor::changeProgramName(int index,
                                              const juce::String &newName) {}
 
+void FiddleAudioProcessor::updateTrackProperties(
+    const juce::AudioProcessor::TrackProperties &properties) {
+  if (tcpRelay != nullptr && tcpRelay->isConnected() &&
+      properties.name.has_value() && !properties.name->isEmpty()) {
+
+    juce::String name = *properties.name;
+
+    // Send Debug Log
+    fiddle::MidiEvent debugEvent;
+    debugEvent.set_timestamp_samples(0);
+    debugEvent.mutable_other()->set_description(
+        "Debug: updateTrackProperties Name='" + name.toStdString() + "'");
+    tcpRelay->pushMessage(debugEvent);
+
+    // Send Context Update
+    fiddle::MidiEvent event;
+    event.set_timestamp_samples(0);
+    juce::String msg = "ContextUpdate: TrackName='" + name + "'";
+    event.mutable_other()->set_description(msg.toStdString());
+    tcpRelay->pushMessage(event);
+  }
+}
+
 void FiddleAudioProcessor::prepareToPlay(double sampleRate,
-                                         int samplesPerBlock) {}
+                                         int samplesPerBlock) {
+  // Reset channel counter so next setCurrentProgram sequence starts at ch 1
+  nextProgramChangeChannel = 1;
+}
 
 void FiddleAudioProcessor::releaseResources() {}
 
@@ -81,6 +157,35 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
   for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
     buffer.clear(i, 0, buffer.getNumSamples());
 
+  // DEBUG LOGGING
+  static std::ofstream debugFile;
+  static bool debugFileOpened = false;
+  if (!debugFileOpened) {
+    debugFile.open("/tmp/fiddle_plugin_debug.log", std::ios::app);
+    debugFileOpened = true;
+    debugFile << "--- Plugin Process Block Started ---" << std::endl;
+  }
+
+  for (const auto metadata : midiMessages) {
+    auto message = metadata.getMessage();
+
+    // Log to file
+    if (debugFile.is_open()) {
+      const uint8_t *raw = message.getRawData();
+      int len = message.getRawDataSize();
+
+      debugFile << "Event: "
+                << (message.isNoteOn()          ? "NoteOn"
+                    : message.isNoteOff()       ? "NoteOff"
+                    : message.isController()    ? "CC"
+                    : message.isProgramChange() ? "PC"
+                                                : "Other")
+                << " Ch:" << message.getChannel()
+                << " B1:" << (len > 1 ? (int)raw[1] : -1)
+                << " B2:" << (len > 2 ? (int)raw[2] : -1) << std::endl;
+    }
+  }
+
   // Detect Transport Start and capture Host Position
   juce::Optional<juce::AudioPlayHead::PositionInfo> positionInfo;
   if (auto *playHead = getPlayHead()) {
@@ -93,8 +198,6 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     int64_t hostSamples = hostSamplesOpt.hasValue() ? *hostSamplesOpt : 0;
 
     if (isPlaying && !wasPlaying) {
-      std::cerr << "[Fiddle] Transport START detected at host sample "
-                << hostSamples << std::endl;
       fiddle::MidiEvent transportEvent;
       transportEvent.set_timestamp_samples(0);
       transportEvent.set_host_sample_position((uint64_t)hostSamples);
@@ -111,9 +214,10 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
   }
 
   for (const auto metadata : midiMessages) {
-    auto message = metadata.getMessage();
-    auto time = metadata.samplePosition;
-    if (logger != nullptr) {
+    if (tcpRelay != nullptr) {
+      auto message = metadata.getMessage();
+      auto time = metadata.samplePosition;
+
       fiddle::MidiEvent protoEvent;
       protoEvent.set_timestamp_samples(time);
       protoEvent.set_channel(message.getChannel());
@@ -128,6 +232,8 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         auto *noteOn = protoEvent.mutable_note_on();
         noteOn->set_note_number(message.getNoteNumber());
         noteOn->set_velocity(message.getVelocity());
+
+        // (Test hack removed)
       } else if (message.isNoteOff()) {
         auto *noteOff = protoEvent.mutable_note_off();
         noteOff->set_note_number(message.getNoteNumber());
@@ -136,12 +242,71 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         auto *cc = protoEvent.mutable_cc();
         cc->set_controller_number(message.getControllerNumber());
         cc->set_controller_value(message.getControllerValue());
+
+        // Track Bank Select messages for instrument detection
+        int channelIndex = message.getChannel() - 1; // Convert to 0-based
+        if (channelIndex >= 0 && channelIndex < 16) {
+          if (message.getControllerNumber() == 0) {
+            // Bank Select MSB (CC #0)
+            channelStates[channelIndex].bankMSB = message.getControllerValue();
+            DBG("[MIDI] Ch " + juce::String(message.getChannel()) +
+                " Bank MSB = " + juce::String(message.getControllerValue()));
+          } else if (message.getControllerNumber() == 32) {
+            // Bank Select LSB (CC #32)
+            channelStates[channelIndex].bankLSB = message.getControllerValue();
+            DBG("[MIDI] Ch " + juce::String(message.getChannel()) +
+                " Bank LSB = " + juce::String(message.getControllerValue()));
+          }
+        }
       } else if (message.isPitchWheel()) {
         auto *pb = protoEvent.mutable_pitch_bend();
         pb->set_value(message.getPitchWheelValue());
       } else if (message.isProgramChange()) {
         auto *pc = protoEvent.mutable_program_change();
         pc->set_program_number(message.getProgramChangeNumber());
+
+        // Debug Log for MIDI PC
+        fiddle::MidiEvent debugEvent;
+        debugEvent.set_timestamp_samples(time);
+        debugEvent.mutable_other()->set_description(
+            "Debug: MIDI ProgramChange Ch" +
+            std::to_string(message.getChannel()) + " Val" +
+            std::to_string(message.getProgramChangeNumber()));
+        tcpRelay->pushMessage(debugEvent);
+
+        // Track program change and send instrument name update
+        int channelIndex = message.getChannel() - 1; // Convert to 0-based
+        if (channelIndex >= 0 && channelIndex < 16) {
+          int program = message.getProgramChangeNumber();
+          channelStates[channelIndex].program = program;
+
+          DBG("[MIDI] Ch " + juce::String(message.getChannel()) +
+              " Program Change = " + juce::String(program));
+
+          // Look up instrument name using current bank and program
+          juce::String instrumentName = fiddle::getInstrumentName(
+              channelStates[channelIndex].bankMSB,
+              channelStates[channelIndex].bankLSB, program);
+
+          DBG("[MIDI] Instrument name: " + instrumentName);
+
+          // Only send update if name changed
+          if (instrumentName != channelStates[channelIndex].instrumentName) {
+            channelStates[channelIndex].instrumentName = instrumentName;
+
+            DBG("[MIDI] Sending ContextUpdate for Ch " +
+                juce::String(message.getChannel()));
+
+            // Send instrument name update to UI
+            fiddle::MidiEvent contextEvent;
+            juce::String contextInfo =
+                "ContextUpdate: Index=" + juce::String(channelIndex) +
+                ", Name='" + instrumentName + "'" + ", Namespace='MIDI'";
+            contextEvent.mutable_other()->set_description(
+                contextInfo.toStdString());
+            tcpRelay->pushMessage(contextEvent);
+          }
+        }
       } else if (message.isAftertouch()) {
         auto *at = protoEvent.mutable_aftertouch();
         at->set_note_number(message.getNoteNumber());
@@ -157,20 +322,7 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
         other->set_description(message.getDescription().toStdString());
       }
 
-      std::string output;
-      if (google::protobuf::TextFormat::PrintToString(protoEvent, &output)) {
-        logger->logMessage(output);
-      }
-
-      if (tcpRelay != nullptr) {
-        std::cerr << "[Fiddle] Pushing event to relay: Ch "
-                  << protoEvent.channel() << " Type: "
-                  << (message.isNoteOn()    ? "NoteOn"
-                      : message.isNoteOff() ? "NoteOff"
-                                            : "Other")
-                  << std::endl;
-        tcpRelay->pushMessage(protoEvent);
-      }
+      tcpRelay->pushMessage(protoEvent);
     }
   }
 }
@@ -184,7 +336,51 @@ juce::AudioProcessorEditor *FiddleAudioProcessor::createEditor() {
 void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {}
 
 void FiddleAudioProcessor::setStateInformation(const void *data,
-                                               int sizeInBytes) {}
+                                               int sizeInBytes) {
+  // You should use this method to restore your parameters from this memory
+  // block, whose contents will have been created by the getStateInformation()
+  // call.
+}
+
+// Test methods for debugging
+int FiddleAudioProcessor::sendTestProgramChange() {
+  if (tcpRelay != nullptr) {
+    bool connected = tcpRelay->isConnected();
+    if (connected) {
+      fiddle::MidiEvent testEvent;
+      testEvent.set_timestamp_samples(1000);
+      testEvent.set_channel(1);
+      auto *pc = testEvent.mutable_program_change();
+      pc->set_program_number(40); // Violin
+      tcpRelay->pushMessage(testEvent);
+      return 0; // Success
+    } else {
+      return 1; // Disconnected
+    }
+  }
+  return 2; // Null
+}
+
+int FiddleAudioProcessor::sendTestContextUpdate() {
+  if (tcpRelay != nullptr) {
+    bool connected = tcpRelay->isConnected();
+    if (connected) {
+      fiddle::MidiEvent contextEvent;
+      contextEvent.set_timestamp_samples(1000);
+      juce::String contextInfo =
+          "ContextUpdate: Index=0, Name='TEST VIOLIN', Namespace='TEST'";
+      contextEvent.mutable_other()->set_description(contextInfo.toStdString());
+      tcpRelay->pushMessage(contextEvent);
+      return 0; // Success
+    } else {
+      return 1; // Disconnected
+    }
+  }
+  return 2; // Null
+}
+
+//==============================================================================
+// function moved to top
 
 juce::AudioProcessor *JUCE_CALLTYPE createPluginFilter() {
   return new FiddleAudioProcessor();

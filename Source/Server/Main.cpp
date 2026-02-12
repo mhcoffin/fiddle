@@ -1,6 +1,8 @@
 #include "MainComponent.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
+#include <JuceHeader.h>
+
 namespace fiddle {
 
 class FiddleServerApplication : public juce::JUCEApplication {
@@ -8,18 +10,10 @@ public:
   FiddleServerApplication() {}
 
   const juce::String getApplicationName() override { return "FiddleServer"; }
-  const juce::String getApplicationVersion() override { return "1.0.0"; }
-  bool moreThanOneInstanceAllowed() override { return true; }
-
-  void initialise(const juce::String &commandLine) override {
-    mainWindow = std::make_unique<MainWindow>(getApplicationName());
+  const juce::String getApplicationVersion() override {
+    return ProjectInfo::versionString;
   }
-
-  void shutdown() override { mainWindow.reset(); }
-
-  void systemRequestedQuit() override { quit(); }
-
-  void anotherInstanceStarted(const juce::String &commandLine) override {}
+  bool moreThanOneInstanceAllowed() override { return true; }
 
   class MainWindow : public juce::DocumentWindow {
   public:
@@ -49,6 +43,16 @@ public:
   private:
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
   };
+
+  void initialise(const juce::String &commandLine) override {
+    mainWindow = std::make_unique<MainWindow>(getApplicationName());
+  }
+
+  void shutdown() override { mainWindow.reset(); }
+
+  void systemRequestedQuit() override { quit(); }
+
+  void anotherInstanceStarted(const juce::String &commandLine) override {}
 
 private:
   std::unique_ptr<MainWindow> mainWindow;

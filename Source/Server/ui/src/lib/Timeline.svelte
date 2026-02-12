@@ -3,6 +3,7 @@
         noteHistory = [],
         heartbeat = 0,
         firstSample = 0,
+        channelInstruments = {},
         onHover,
         onLeave,
     } = $props();
@@ -20,7 +21,7 @@
     const currentSessionSamples = $derived(heartbeat * sampleRate);
 
     const getX = (sample) =>
-        (Number(sample) - Number(firstSample)) * pixelsPerSample + 80 + 20;
+        (Number(sample) - Number(firstSample)) * pixelsPerSample + 150 + 20;
 
     // Calculate the total width based on the last note's end
     let totalWidth = $derived.by(() => {
@@ -84,7 +85,9 @@
                             class="channel-label"
                             style="height: {rowHeight}px"
                         >
-                            Ch {ch}
+                            Ch {ch}{channelInstruments[ch]
+                                ? `: ${channelInstruments[ch]}`
+                                : ""}
                         </div>
                     {/each}
                 </div>
@@ -185,7 +188,7 @@
     }
 
     .channel-label-header {
-        width: 80px;
+        width: 150px;
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -219,7 +222,7 @@
     }
 
     .channel-labels {
-        width: 80px;
+        width: 150px;
         flex-shrink: 0;
         background: #0f172a;
         border-right: 1px solid #334155;
@@ -231,10 +234,14 @@
     .channel-label {
         display: flex;
         align-items: center;
-        justify-content: center;
-        font-size: 0.8rem;
+        justify-content: flex-start;
+        padding-left: 10px;
+        font-size: 0.75rem;
         color: #94a3b8;
         border-bottom: 1px solid #1e293b;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .grid-layer {

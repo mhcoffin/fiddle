@@ -35,7 +35,7 @@ public:
   // If we can't find the VST3, we can also just use the class directly since
   // it's in our project
   void useInternalInstance() {
-    processor = std::make_unique<MidiLoggerAudioProcessor>();
+    processor = std::make_unique<FiddleAudioProcessor>();
     processor->prepareToPlay(44100.0, 512);
   }
 
@@ -47,7 +47,7 @@ public:
   }
 
   bool isConnected() const {
-    if (auto *p = dynamic_cast<MidiLoggerAudioProcessor *>(processor.get())) {
+    if (auto *p = dynamic_cast<FiddleAudioProcessor *>(processor.get())) {
       return p->isConnected();
     }
     return false;

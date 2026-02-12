@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DoricoSetupComponent.h"
 #include "MidiTcpServer.h"
 #include "NoteStreamTracker.h"
 #include "ScriptEngine.h"
@@ -19,7 +20,9 @@ public:
 
 private:
   juce::File uiDir;
+  juce::TabbedComponent tabbedComponent{juce::TabbedButtonBar::TabsAtTop};
   juce::WebBrowserComponent webComponent;
+  DoricoSetupComponent doricoSetup;
   std::unique_ptr<fiddle::MidiTcpServer> server;
   ExpressionMap expressionMap;
   NoteStreamTracker noteTracker;

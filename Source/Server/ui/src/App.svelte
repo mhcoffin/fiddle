@@ -1,4 +1,5 @@
 <script>
+  /** @type {import('svelte')} */
   import { onMount } from "svelte";
   import Timeline from "./lib/Timeline.svelte";
   import EventLog from "./lib/EventLog.svelte";
@@ -12,9 +13,11 @@
   let hoveredNote = $state(null);
   let tooltipPos = $state({ x: 0, y: 0 });
   let tooltipPlacement = $state("top");
-  let activeNotesList = $derived([...activeNotes].reverse());
   let activeTab = $state("timeline");
+  let channelInstruments = $state({});
   let midiEvents = $state([]);
+  let serverVersion = $state("");
+  let isConnected = $state(false);
   let sessionOffset = $derived.by(() => {
     let min = Infinity;
     if (noteHistory.length > 0) {
@@ -31,10 +34,14 @@
     return min === Infinity ? 0 : min;
   });
 
-  const resetSession = () => {
+  /* 
+    Reset Session State.
+    @param {boolean} keepEvents - If true, midiEvents remain (useful for Transport Start).
+  */
+  const resetSession = (keepEvents = false) => {
     noteHistory = [];
     activeNotes = [];
-    midiEvents = [];
+    if (keepEvents !== true) midiEvents = [];
     logs = [];
     heartbeat = 0;
   };
@@ -45,10 +52,29 @@
     heartbeat = val;
   };
 
-  window.onerror = (msg, url, line, col, error) => {
-    window.addLogMessage(`<b>[JS Error]</b> ${msg} (at ${line}:${col})`, true);
-    return false;
+  window.setServerVersion = (ver) => {
+    serverVersion = ver;
   };
+
+  window.setConnectionState = (connected) => {
+    isConnected = connected;
+  };
+
+  const getNative = (name) => {
+    const w = /** @type {any} */ (window);
+    return (
+      (w.__JUCE__ && w.__JUCE__.backend && w.__JUCE__.backend[name]) ||
+      window[name] ||
+      (w.juce && w.juce[name]) ||
+      (w.__juce__ && w.__juce__[name])
+    );
+  };
+
+  const nativeLog = (msg) => {
+    const f = getNative("nativeLog");
+    if (f) f(msg);
+  };
+
   window.addLogMessage = (msg, isError = false) => {
     const newLog = {
       id: logId++,
@@ -59,31 +85,15 @@
     logs = [newLog, ...logs].slice(0, 200);
   };
 
-  const getNative = (name) => {
-    return (
-      (window.__JUCE__ &&
-        window.__JUCE__.backend &&
-        window.__JUCE__.backend[name]) ||
-      window[name] ||
-      (window.juce && window.juce[name]) ||
-      (window.__juce__ && window.__juce__[name])
-    );
-  };
-
-  const nativeLog = (msg) => {
-    const f = getNative("nativeLog");
-    if (f) f(msg);
-  };
-
-  nativeLog("JS Booting: Bundle loaded");
-  window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
-
-  window.onerror = (msg, url, line, col, error) => {
+  window.onerror = (msg, url, line, col) => {
     const errorMsg = `[JS Error] ${msg} at ${line}:${col}`;
     nativeLog(errorMsg);
     window.addLogMessage(`<b>${errorMsg}</b>`, true);
     return false;
   };
+
+  nativeLog("JS Booting: Bundle loaded");
+  window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
 
   window.updateNoteState = (noteData, status) => {
     try {
@@ -129,27 +139,27 @@
           return n;
         });
       } else if (status === "updated") {
-        const updatedNote = { ...noteData, id: idStr }; // Ensure ID remains string
+        const dataToMerge = { ...noteData, id: idStr }; // Ensure ID remains string
         activeNotes = activeNotes.map((n) => {
-          if (n.id === idStr) return { ...n, ...updatedNote };
+          if (n.id === idStr) return { ...n, ...dataToMerge };
           return n;
         });
         noteHistory = noteHistory.map((n) => {
-          if (n.id === idStr) return { ...n, ...updatedNote };
+          if (n.id === idStr) return { ...n, ...dataToMerge };
           return n;
         });
       }
 
       // Debug: log the state of Legato for this note
-      const updatedNote = noteHistory.find((n) => n.id === idStr);
+      const currentNote = noteHistory.find((n) => n.id === idStr);
       if (
-        updatedNote &&
-        updatedNote.dimensions &&
-        updatedNote.dimensions.Legato !== undefined
+        currentNote &&
+        currentNote.dimensions &&
+        currentNote.dimensions.Legato !== undefined
       ) {
-        const isDef = updatedNote.notation_is_default?.Legato;
+        const isDef = currentNote.notation_is_default?.Legato;
         console.log(
-          `[UI Debug] Note ${idStr} Legato=${updatedNote.dimensions.Legato} isDefault=${isDef}`,
+          `[UI Debug] Note ${idStr} Legato=${currentNote.dimensions.Legato} isDefault=${isDef}`,
         );
       }
     } catch (e) {
@@ -162,8 +172,30 @@
 
   window.pushMidiEvent = (event) => {
     if (event.transportType === 0) {
-      resetSession();
+      // Keep existing event log, but reset other state
+      resetSession(true);
     }
+
+    // Parse ContextUpdate messages to extract instrument names
+    if (event.description && event.description.startsWith("ContextUpdate:")) {
+      // Format: "ContextUpdate: Index=0, Name='Violin 1', Namespace='VST3'"
+      const indexMatch = event.description.match(/Index=(\d+)/);
+      const nameMatch = event.description.match(/Name='([^']+)'/);
+
+      if (indexMatch && nameMatch) {
+        const channelIndex = parseInt(indexMatch[1]);
+        const instrumentName = nameMatch[1];
+        // Channel index is 0-based, but we display 1-based
+        const channel = channelIndex + 1;
+
+        channelInstruments = {
+          ...channelInstruments,
+          [channel]: instrumentName,
+        };
+        console.log(`[Context] Ch ${channel}: ${instrumentName}`);
+      }
+    }
+
     midiEvents = [
       { ...event, localTime: Date.now(), id: Date.now() + Math.random() },
       ...midiEvents,
@@ -251,13 +283,16 @@
   <header class="app-header">
     <h1>
       Fiddle Server <small style="font-size: 0.6em; color: #64748b;"
-        >v2.0-Timeline</small
+        >v{serverVersion || "?.?"}</small
       >
     </h1>
     <div class="header-controls">
-      <span class="status-pill"
-        >Bridge: {heartbeat > 0 ? "LIVE (" + heartbeat + ")" : "WAITING"}</span
-      >
+      <div
+        class="connection-indicator {isConnected
+          ? 'connected'
+          : 'disconnected'}"
+        title={isConnected ? "Connected to Plugin" : "Disconnected"}
+      ></div>
       <span class="status-pill"
         >Active: {activeNotes.length} | History: {noteHistory.length}</span
       >
@@ -266,7 +301,9 @@
       <button onclick={clearLogs}>Clear Logs</button>
     </div>
     <div class="nav-actions">
-      <button class="reset-btn" onclick={resetSession}>Reset Session</button>
+      <button class="reset-btn" onclick={() => resetSession(false)}
+        >Reset Session</button
+      >
     </div>
   </header>
   <nav class="tab-nav">
@@ -287,6 +324,7 @@
           {noteHistory}
           {heartbeat}
           firstSample={sessionOffset}
+          {channelInstruments}
           onHover={handleHover}
           onLeave={handleLeave}
         />
@@ -303,18 +341,18 @@
       class="global-floating-tooltip {tooltipPlacement}"
       style="left: {tooltipPos.x}px; top: {tooltipPos.y}px;"
     >
-      <strong>Note {hoveredNote.noteNumber}</strong><br />
-      Channel: {hoveredNote.channel}<br />
-      Velocity: Start {hoveredNote.startVelocity}, End {hoveredNote.endVelocity}<br
-      />
-      Start: {hoveredNote.startSample}<br />
-      Duration: {hoveredNote.durationSamples}<br />
+      <strong>Note {hoveredNote?.noteNumber ?? "N/A"}</strong><br />
+      Channel: {hoveredNote?.channel ?? "N/A"}<br />
+      Velocity: Start {hoveredNote?.startVelocity ?? 0}, End {hoveredNote?.endVelocity ??
+        0}<br />
+      Start: {hoveredNote?.startSample ?? 0}<br />
+      Duration: {hoveredNote?.durationSamples ?? 0}<br />
       <hr />
-      {#if hoveredNote.dimensions}
+      {#if hoveredNote?.dimensions}
         <strong>Dimensions:</strong><br />
         {#each Object.entries(hoveredNote.dimensions) as [dim, val]}
-          {#if !hoveredNote.notation_is_default?.[dim]}
-            {dim}: {hoveredNote.techniques?.[dim] || val}<br />
+          {#if !hoveredNote?.notation_is_default?.[dim]}
+            {dim}: {hoveredNote?.techniques?.[dim] || val}<br />
           {/if}
         {/each}
       {/if}
@@ -477,5 +515,20 @@
   .reset-btn:hover {
     background: #ef4444;
     border-color: #f87171;
+  }
+
+  .connection-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #ef4444; /* Red */
+    box-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+    transition: all 0.3s;
+    margin-right: 15px;
+  }
+
+  .connection-indicator.connected {
+    background: #4ade80; /* Green */
+    box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
   }
 </style>

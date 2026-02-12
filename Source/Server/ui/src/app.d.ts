@@ -13,12 +13,16 @@ interface Window {
         [key: string]: any;
     };
     addLogMessage: (msg: string, isError?: boolean) => void;
-    updateNoteState: (id: number | string, noteNumber: number, channel: number, status: string) => void;
+    updateNoteState: (noteData: any, status: string) => void;
+    pushMidiEvent: (event: any) => void;
+    setHeartbeat: (val: number) => void;
+    nativeLog: (msg: string) => void;
 }
 
-declare module '*.svelte' {
-    import type { Component } from 'svelte';
+declare module "*.svelte" {
+    import { type Component } from "svelte";
     const component: Component<any, any, any>;
     export default component;
 }
+
 

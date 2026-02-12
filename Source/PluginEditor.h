@@ -20,5 +20,8 @@ public:
 private:
   FiddleAudioProcessor &audioProcessor;
 
+  juce::TextButton testProgramChangeButton;
+  juce::TextButton testContextUpdateButton;
+
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessorEditor)
 };
