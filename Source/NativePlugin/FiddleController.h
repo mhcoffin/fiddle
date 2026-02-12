@@ -57,7 +57,6 @@ public:
                Steinberg::int32 busIndex, Steinberg::int32 channel,
                Steinberg::Vst::UnitID &unitId) override;
 
-  // IMidiMapping
   Steinberg::tresult PLUGIN_API getMidiControllerAssignment(
       Steinberg::int32 busIndex, Steinberg::int16 channel,
       Steinberg::Vst::CtrlNumber midiControllerNumber,
