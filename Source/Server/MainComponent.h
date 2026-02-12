@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DoricoSetupComponent.h"
+#include "InstrumentMapper.h"
 #include "MidiTcpServer.h"
 #include "NoteStreamTracker.h"
 #include "ScriptEngine.h"
@@ -27,6 +28,7 @@ private:
   ExpressionMap expressionMap;
   NoteStreamTracker noteTracker;
   SubnoteGenerator subnoteGenerator;
+  InstrumentMapper instrumentMapper_;
   std::unique_ptr<ScriptEngine> scriptEngine;
 
   uint64_t lastSampleTime = 0;

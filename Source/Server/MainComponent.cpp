@@ -304,6 +304,20 @@ MainComponent::MainComponent()
     noteTracker.processEvent(event);
     pushEventToWebView(event);
 
+    // Track program changes → instrument names for the UI
+    if (event.has_program_change()) {
+      int channel = event.channel();
+      int program = event.program_change().program_number();
+      std::string name =
+          instrumentMapper_.handleProgramChange(channel, program);
+      if (!name.empty()) {
+        juce::String jsCall = "setChannelInstrument(" + juce::String(channel) +
+                              ", '" + escapeForJS(juce::String(name)) + "')";
+        juce::MessageManager::callAsync(
+            [this, jsCall]() { webComponent.evaluateJavascript(jsCall); });
+      }
+    }
+
     lastSampleTime = event.timestamp_samples();
     lastSystemTime = juce::Time::getMillisecondCounter();
   });

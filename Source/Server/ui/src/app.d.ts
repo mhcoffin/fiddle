@@ -16,6 +16,9 @@ interface Window {
     updateNoteState: (noteData: any, status: string) => void;
     pushMidiEvent: (event: any) => void;
     setHeartbeat: (val: number) => void;
+    setServerVersion: (ver: string) => void;
+    setConnectionState: (connected: boolean) => void;
+    setChannelInstrument: (channel: number, name: string) => void;
     nativeLog: (msg: string) => void;
 }
 
