@@ -183,6 +183,18 @@ MainComponent::MainComponent()
     obj->setProperty("startSample", (juce::int64)n.start_sample());
     obj->setProperty("durationSamples", (juce::int64)n.duration_samples());
 
+    // Compute end velocity for UI display:
+    // VELOCITY mode (short notes) → same as start velocity
+    // CC mode (sustained notes) → last CC1 value from automation
+    int endVel = (int)n.start_velocity();
+    if (n.dynamics_mode() == fiddle::Note::CC) {
+      auto it = n.cc_automation().find(1); // CC1
+      if (it != n.cc_automation().end() && it->second.points_size() > 0) {
+        endVel = (int)it->second.points(it->second.points_size() - 1).value();
+      }
+    }
+    obj->setProperty("endVelocity", endVel);
+
     juce::DynamicObject::Ptr dims = new juce::DynamicObject();
     for (auto const &it : n.notation_dimensions()) {
       dims->setProperty(juce::String(it.first), it.second);
