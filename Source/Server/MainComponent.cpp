@@ -144,25 +144,33 @@ MainComponent::MainComponent()
                    true);
   }
 
-  // Load Expression Map
-  juce::File expMapFile = projectRoot.getChildFile("Fiddle Expression Map.csv");
-  if (!expMapFile.exists()) {
-    expMapFile = exeFile.getSiblingFile("Fiddle Expression Map.csv");
+  // Load Expression Map from .doricolib
+  juce::File doricolibFile =
+      exeFile.getSiblingFile("Fiddle_Universal.doricolib");
+  if (!doricolibFile.exists()) {
+    // Try Resources folder if in a macOS bundle
+    doricolibFile = exeFile.getParentDirectory().getSiblingFile(
+        "Resources/Fiddle_Universal.doricolib");
+  }
+  if (!doricolibFile.exists()) {
+    // Try source tree fallback
+    doricolibFile =
+        projectRoot.getChildFile("resources/Fiddle_Universal.doricolib");
   }
 
-  if (expMapFile.exists()) {
-    if (expressionMap.loadFromCsv(expMapFile)) {
-      pushLogMessage("<b>[ExpressionMap]</b> Loaded " +
-                     expMapFile.getFileName() + " successfully");
+  if (doricolibFile.exists()) {
+    if (expressionMap.loadFromDoricolib(doricolibFile)) {
+      pushLogMessage("<b>[ExpressionMap]</b> Loaded from " +
+                     doricolibFile.getFileName());
       noteTracker.setExpressionMap(&expressionMap);
     } else {
       pushLogMessage("<b>[ExpressionMap]</b> Failed to parse " +
-                         expMapFile.getFileName(),
+                         doricolibFile.getFileName(),
                      true);
     }
   } else {
     pushLogMessage("<b>[ExpressionMap]</b> Could not find "
-                   "FiddleExpressionMap.csv",
+                   "Fiddle_Universal.doricolib",
                    true);
   }
 
