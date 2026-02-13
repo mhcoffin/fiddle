@@ -77,21 +77,11 @@ public:
   // Parameter IDs
   // Program change params: 100 + channel (0-15) → IDs 100-115
   static constexpr Steinberg::Vst::ParamID kProgramParamBase = 100;
-  // Bank MSB params: 200 + channel (0-15) → IDs 200-215
-  static constexpr Steinberg::Vst::ParamID kBankMSBParamBase = 200;
-  // Bank LSB params: 300 + channel (0-15) → IDs 300-315
-  static constexpr Steinberg::Vst::ParamID kBankLSBParamBase = 300;
 
-  // Expression map CC params: per-CC base IDs.
-  // CC N on channel C → paramID = kCCParamBase + (N - kFirstCC) * 16 + C
-  // CCs 102-113 → 12 CCs × 16 channels = 192 params (IDs 400-591)
-  static constexpr int kFirstCC = 102;
-  static constexpr int kLastCC = 113;
-  static constexpr int kNumCCs = kLastCC - kFirstCC + 1; // 12
-  static constexpr Steinberg::Vst::ParamID kCCParamBase = 400;
-
-  // CC1 (dynamics / mod wheel): IDs 600-615 (one per channel)
-  static constexpr Steinberg::Vst::ParamID kCC1ParamBase = 600;
+  // All CC params: paramID = kCCParamBase + ccNumber * kNumChannels + channel
+  // CC 0-127 × 16 channels = 2048 params (IDs 200-2247)
+  static constexpr Steinberg::Vst::ParamID kCCParamBase = 200;
+  static constexpr int kNumCCs = 128;
 
   static constexpr int kNumChannels = 16;
   static constexpr int kNumPrograms = 128;

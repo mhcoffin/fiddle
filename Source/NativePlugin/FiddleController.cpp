@@ -137,39 +137,10 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
 
     parameters.addParameter(new Parameter(paramInfo));
 
-    // Also create Bank MSB and Bank LSB parameters per channel
-    {
-      ParameterInfo bankMSBInfo{};
-      bankMSBInfo.id = kBankMSBParamBase + ch;
-      char title[32];
-      snprintf(title, sizeof(title), "Bank MSB Ch%d", ch + 1);
-      UString(bankMSBInfo.title, 128).fromAscii(title);
-      UString(bankMSBInfo.shortTitle, 128).fromAscii(title);
-      bankMSBInfo.stepCount = 127;
-      bankMSBInfo.defaultNormalizedValue = 0.0;
-      bankMSBInfo.unitId = unitId;
-      bankMSBInfo.flags = ParameterInfo::kCanAutomate;
-      parameters.addParameter(new Parameter(bankMSBInfo));
-    }
-
-    {
-      ParameterInfo bankLSBInfo{};
-      bankLSBInfo.id = kBankLSBParamBase + ch;
-      char title[32];
-      snprintf(title, sizeof(title), "Bank LSB Ch%d", ch + 1);
-      UString(bankLSBInfo.title, 128).fromAscii(title);
-      UString(bankLSBInfo.shortTitle, 128).fromAscii(title);
-      bankLSBInfo.stepCount = 127;
-      bankLSBInfo.defaultNormalizedValue = 0.0;
-      bankLSBInfo.unitId = unitId;
-      bankLSBInfo.flags = ParameterInfo::kCanAutomate;
-      parameters.addParameter(new Parameter(bankLSBInfo));
-    }
-
-    // Create expression map CC parameters (CC102-CC113) per channel
-    for (int cc = kFirstCC; cc <= kLastCC; ++cc) {
+    // Register all CC parameters (CC0-CC127) per channel
+    for (int cc = 0; cc < kNumCCs; ++cc) {
       ParameterInfo ccInfo{};
-      ccInfo.id = kCCParamBase + (cc - kFirstCC) * kNumChannels + ch;
+      ccInfo.id = kCCParamBase + cc * kNumChannels + ch;
       char title[32];
       snprintf(title, sizeof(title), "CC%d Ch%d", cc, ch + 1);
       UString(ccInfo.title, 128).fromAscii(title);
@@ -179,21 +150,6 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
       ccInfo.unitId = unitId;
       ccInfo.flags = ParameterInfo::kCanAutomate;
       parameters.addParameter(new Parameter(ccInfo));
-    }
-
-    // Create CC1 (dynamics) parameter per channel
-    {
-      ParameterInfo cc1Info{};
-      cc1Info.id = kCC1ParamBase + ch;
-      char title[32];
-      snprintf(title, sizeof(title), "CC1 Ch%d", ch + 1);
-      UString(cc1Info.title, 128).fromAscii(title);
-      UString(cc1Info.shortTitle, 128).fromAscii(title);
-      cc1Info.stepCount = 127;
-      cc1Info.defaultNormalizedValue = 0.0;
-      cc1Info.unitId = unitId;
-      cc1Info.flags = ParameterInfo::kCanAutomate;
-      parameters.addParameter(new Parameter(cc1Info));
     }
   }
 
@@ -267,25 +223,13 @@ tresult PLUGIN_API FiddleController::getMidiControllerAssignment(
   if (channel < 0 || channel >= kNumChannels)
     return kResultFalse;
 
-  switch (midiControllerNumber) {
-  case 0: // CC 0 = Bank MSB
-    id = kBankMSBParamBase + channel;
+  // All CCs use unified formula: paramID = kCCParamBase + cc * kNumChannels +
+  // channel
+  if (midiControllerNumber >= 0 && midiControllerNumber < kNumCCs) {
+    id = kCCParamBase + midiControllerNumber * kNumChannels + channel;
     return kResultOk;
-  case 1: // CC 1 = Mod wheel / dynamics
-    id = kCC1ParamBase + channel;
-    return kResultOk;
-  case 32: // CC 32 = Bank LSB
-    id = kBankLSBParamBase + channel;
-    return kResultOk;
-  default:
-    // Expression map CCs 102-113
-    if (midiControllerNumber >= kFirstCC && midiControllerNumber <= kLastCC) {
-      id = kCCParamBase + (midiControllerNumber - kFirstCC) * kNumChannels +
-           channel;
-      return kResultOk;
-    }
-    return kResultFalse;
   }
+  return kResultFalse;
 }
 
 //----------------------------------------------------------------------

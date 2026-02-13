@@ -97,30 +97,28 @@ public:
                      juce::String(ccNum) + " -> " + juce::String(newVal));
           }
 
-          // CC1 (dynamics): append to dynamics envelope of ALL active
-          // notes on this channel that use CC1 dynamics mode.
-          if (ccNum == 1) {
+          // Append CC change to automation envelope of ALL active notes
+          // on this channel. This captures the full CC history per-note
+          // for later playback.
+          if (ccNum < 128) {
             uint64_t currentSamples =
                 sessionTimestamp + event.timestamp_samples();
             for (auto &note : activeNotes) {
-              if (note.channel() == chan &&
-                  note.dynamics_mode() == fiddle::Note::CC) {
-                auto *pt = note.add_dynamics_envelope();
+              if (note.channel() == chan) {
+                auto &lane = (*note.mutable_cc_automation())[ccNum];
+                auto *pt = lane.add_points();
                 uint64_t offset = (currentSamples > note.start_sample())
                                       ? (currentSamples - note.start_sample())
                                       : 0;
                 pt->set_offset_samples(offset);
                 pt->set_value(newVal);
-                if (callbacks.onNoteUpdated)
-                  callbacks.onNoteUpdated(note);
               }
             }
           }
 
-          // Update ONLY the most recently started note on this channel
-          // and only if it's very young (30ms jitter window).
-          // This handles expression map CCs (102-113) that define technique.
-          if (ccNum != 1) {
+          // Expression map enrichment: update notation dimensions/techniques
+          // on the most recently started note (30ms jitter window).
+          {
             uint64_t currentSamples =
                 sessionTimestamp + event.timestamp_samples();
             for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
@@ -233,13 +231,21 @@ private:
       uint8_t cc102Val = currentCCs[chan][102];
       if (expMap->dynamicsUsesCC1((int)cc102Val)) {
         note.set_dynamics_mode(fiddle::Note::CC);
-        // Seed the dynamics envelope with the current CC1 value
-        uint8_t cc1Val = currentCCs[chan][1];
-        auto *pt = note.add_dynamics_envelope();
-        pt->set_offset_samples(0);
-        pt->set_value(cc1Val);
       } else {
         note.set_dynamics_mode(fiddle::Note::VELOCITY);
+      }
+    }
+
+    // Seed all CC automation lanes with current values at offset 0
+    if (chan < 16) {
+      for (int cc = 0; cc < 128; ++cc) {
+        uint8_t val = currentCCs[chan][cc];
+        if (val != 0) { // Only seed non-zero CCs to keep notes compact
+          auto &lane = (*note.mutable_cc_automation())[cc];
+          auto *pt = lane.add_points();
+          pt->set_offset_samples(0);
+          pt->set_value(val);
+        }
       }
     }
 

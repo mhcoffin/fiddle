@@ -160,30 +160,21 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
           tcpRelay_->pushMessage(protoEvent);
         }
       }
-      // Bank MSB params: IDs 200..215
-      else if (paramId >= FiddleController::kBankMSBParamBase &&
-               paramId < FiddleController::kBankMSBParamBase +
-                             FiddleController::kNumChannels) {
-        int ch = paramId - FiddleController::kBankMSBParamBase;
-        channelStates_[ch].bankMSB = static_cast<int>(value * 127.0 + 0.5);
-      }
-      // Bank LSB params: IDs 300..315
-      else if (paramId >= FiddleController::kBankLSBParamBase &&
-               paramId < FiddleController::kBankLSBParamBase +
-                             FiddleController::kNumChannels) {
-        int ch = paramId - FiddleController::kBankLSBParamBase;
-        channelStates_[ch].bankLSB = static_cast<int>(value * 127.0 + 0.5);
-      }
-      // Expression map CC params: IDs 400..591
+      // All CC params: IDs 200..2247 (128 CCs × 16 channels)
       else if (paramId >= FiddleController::kCCParamBase &&
                paramId < FiddleController::kCCParamBase +
                              FiddleController::kNumCCs *
                                  FiddleController::kNumChannels) {
         int offset = paramId - FiddleController::kCCParamBase;
-        int ccIndex = offset / FiddleController::kNumChannels;
+        int ccNum = offset / FiddleController::kNumChannels;
         int ch = offset % FiddleController::kNumChannels;
-        int ccNum = FiddleController::kFirstCC + ccIndex;
         int ccVal = static_cast<int>(value * 127.0 + 0.5);
+
+        // Track Bank Select in channel state
+        if (ccNum == 0)
+          channelStates_[ch].bankMSB = ccVal;
+        else if (ccNum == 32)
+          channelStates_[ch].bankLSB = ccVal;
 
         if (tcpRelay_) {
           MidiEvent protoEvent;
@@ -198,32 +189,8 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
 
           tcpRelay_->pushMessage(protoEvent);
         }
-
-        pluginLog("CC" + std::to_string(ccNum) + " Ch" +
-                  std::to_string(ch + 1) + " = " + std::to_string(ccVal));
-      }
-      // CC1 (dynamics) params: IDs 600..615
-      else if (paramId >= FiddleController::kCC1ParamBase &&
-               paramId < FiddleController::kCC1ParamBase +
-                             FiddleController::kNumChannels) {
-        int ch = paramId - FiddleController::kCC1ParamBase;
-        int ccVal = static_cast<int>(value * 127.0 + 0.5);
-
-        if (tcpRelay_) {
-          MidiEvent protoEvent;
-          protoEvent.set_timestamp_samples(sampleOffset);
-          protoEvent.set_host_sample_position(
-              static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_channel(ch + 1); // 1-based
-
-          auto *ccMsg = protoEvent.mutable_cc();
-          ccMsg->set_controller_number(1);
-          ccMsg->set_controller_value(ccVal);
-
-          tcpRelay_->pushMessage(protoEvent);
-        }
       } else {
-        // Log unrecognized parameter IDs so we can discover CCs
+        // Log unrecognized parameter IDs so we can discover new params
         pluginLog("Unhandled paramID=" + std::to_string(paramId) +
                   " value=" + std::to_string(value));
       }
