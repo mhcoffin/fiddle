@@ -180,6 +180,21 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
       ccInfo.flags = ParameterInfo::kCanAutomate;
       parameters.addParameter(new Parameter(ccInfo));
     }
+
+    // Create CC1 (dynamics) parameter per channel
+    {
+      ParameterInfo cc1Info{};
+      cc1Info.id = kCC1ParamBase + ch;
+      char title[32];
+      snprintf(title, sizeof(title), "CC1 Ch%d", ch + 1);
+      UString(cc1Info.title, 128).fromAscii(title);
+      UString(cc1Info.shortTitle, 128).fromAscii(title);
+      cc1Info.stepCount = 127;
+      cc1Info.defaultNormalizedValue = 0.0;
+      cc1Info.unitId = unitId;
+      cc1Info.flags = ParameterInfo::kCanAutomate;
+      parameters.addParameter(new Parameter(cc1Info));
+    }
   }
 
   return kResultOk;
@@ -255,6 +270,9 @@ tresult PLUGIN_API FiddleController::getMidiControllerAssignment(
   switch (midiControllerNumber) {
   case 0: // CC 0 = Bank MSB
     id = kBankMSBParamBase + channel;
+    return kResultOk;
+  case 1: // CC 1 = Mod wheel / dynamics
+    id = kCC1ParamBase + channel;
     return kResultOk;
   case 32: // CC 32 = Bank LSB
     id = kBankLSBParamBase + channel;

@@ -201,6 +201,27 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
 
         pluginLog("CC" + std::to_string(ccNum) + " Ch" +
                   std::to_string(ch + 1) + " = " + std::to_string(ccVal));
+      }
+      // CC1 (dynamics) params: IDs 600..615
+      else if (paramId >= FiddleController::kCC1ParamBase &&
+               paramId < FiddleController::kCC1ParamBase +
+                             FiddleController::kNumChannels) {
+        int ch = paramId - FiddleController::kCC1ParamBase;
+        int ccVal = static_cast<int>(value * 127.0 + 0.5);
+
+        if (tcpRelay_) {
+          MidiEvent protoEvent;
+          protoEvent.set_timestamp_samples(sampleOffset);
+          protoEvent.set_host_sample_position(
+              static_cast<uint64_t>(hostSamples + sampleOffset));
+          protoEvent.set_channel(ch + 1); // 1-based
+
+          auto *ccMsg = protoEvent.mutable_cc();
+          ccMsg->set_controller_number(1);
+          ccMsg->set_controller_value(ccVal);
+
+          tcpRelay_->pushMessage(protoEvent);
+        }
       } else {
         // Log unrecognized parameter IDs so we can discover CCs
         pluginLog("Unhandled paramID=" + std::to_string(paramId) +

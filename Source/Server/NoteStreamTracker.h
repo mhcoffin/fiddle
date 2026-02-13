@@ -97,24 +97,47 @@ public:
                      juce::String(ccNum) + " -> " + juce::String(newVal));
           }
 
+          // CC1 (dynamics): append to dynamics envelope of ALL active
+          // notes on this channel that use CC1 dynamics mode.
+          if (ccNum == 1) {
+            uint64_t currentSamples =
+                sessionTimestamp + event.timestamp_samples();
+            for (auto &note : activeNotes) {
+              if (note.channel() == chan &&
+                  note.dynamics_mode() == fiddle::Note::CC) {
+                auto *pt = note.add_dynamics_envelope();
+                uint64_t offset = (currentSamples > note.start_sample())
+                                      ? (currentSamples - note.start_sample())
+                                      : 0;
+                pt->set_offset_samples(offset);
+                pt->set_value(newVal);
+                if (callbacks.onNoteUpdated)
+                  callbacks.onNoteUpdated(note);
+              }
+            }
+          }
+
           // Update ONLY the most recently started note on this channel
           // and only if it's very young (30ms jitter window).
-          uint64_t currentSamples =
-              sessionTimestamp + event.timestamp_samples();
-          for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
-            auto &note = activeNotes[i];
-            if (note.channel() == chan) {
-              uint64_t age = (currentSamples > note.start_sample())
-                                 ? (currentSamples - note.start_sample())
-                                 : 0;
+          // This handles expression map CCs (102-113) that define technique.
+          if (ccNum != 1) {
+            uint64_t currentSamples =
+                sessionTimestamp + event.timestamp_samples();
+            for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
+              auto &note = activeNotes[i];
+              if (note.channel() == chan) {
+                uint64_t age = (currentSamples > note.start_sample())
+                                   ? (currentSamples - note.start_sample())
+                                   : 0;
 
-              if (age < 1323) { // 30ms window
-                if (enrichNoteWithCC(note, (int)ccNum, (int)newVal)) {
-                  if (callbacks.onNoteUpdated)
-                    callbacks.onNoteUpdated(note);
+                if (age < 1323) { // 30ms window
+                  if (enrichNoteWithCC(note, (int)ccNum, (int)newVal)) {
+                    if (callbacks.onNoteUpdated)
+                      callbacks.onNoteUpdated(note);
+                  }
                 }
+                break; // Only the latest one
               }
-              break; // Only the latest one
             }
           }
 
@@ -204,6 +227,19 @@ private:
           uint8_t val = currentCCs[chan][dim.ccNumber % 128];
           enrichNoteWithCC(note, dim.ccNumber, val);
         }
+      }
+
+      // Set dynamics mode based on current CC102 (base switch) value
+      uint8_t cc102Val = currentCCs[chan][102];
+      if (expMap->dynamicsUsesCC1((int)cc102Val)) {
+        note.set_dynamics_mode(fiddle::Note::CC);
+        // Seed the dynamics envelope with the current CC1 value
+        uint8_t cc1Val = currentCCs[chan][1];
+        auto *pt = note.add_dynamics_envelope();
+        pt->set_offset_samples(0);
+        pt->set_value(cc1Val);
+      } else {
+        note.set_dynamics_mode(fiddle::Note::VELOCITY);
       }
     }
 

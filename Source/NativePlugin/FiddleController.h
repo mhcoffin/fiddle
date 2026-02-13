@@ -90,6 +90,9 @@ public:
   static constexpr int kNumCCs = kLastCC - kFirstCC + 1; // 12
   static constexpr Steinberg::Vst::ParamID kCCParamBase = 400;
 
+  // CC1 (dynamics / mod wheel): IDs 600-615 (one per channel)
+  static constexpr Steinberg::Vst::ParamID kCC1ParamBase = 600;
+
   static constexpr int kNumChannels = 16;
   static constexpr int kNumPrograms = 128;
 

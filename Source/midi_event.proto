@@ -106,4 +106,18 @@ message Note {
     map<string, float> notation_dimensions = 8;
     map<string, string> notation_techniques = 9;
     map<string, bool> notation_is_default = 10;
+
+    // Dynamics envelope: timestamped CC1 values during the note
+    message DynamicsPoint {
+        uint64 offset_samples = 1;  // relative to note start
+        uint32 value = 2;           // 0-127
+    }
+    repeated DynamicsPoint dynamics_envelope = 11;
+
+    // Which dynamics mode this note uses (from expression map volumeType)
+    enum DynamicsMode {
+        VELOCITY = 0;   // short notes: dynamics = start_velocity
+        CC = 1;         // sustained notes: dynamics = CC1 envelope
+    }
+    DynamicsMode dynamics_mode = 12;
 }

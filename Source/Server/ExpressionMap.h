@@ -234,6 +234,18 @@ public:
 
         juce::String techID = techEl->getAllSubText().trim();
 
+        // Parse volumeType to determine dynamics mode
+        bool usesCC1 = false;
+        auto *volType = combo->getChildByName("volumeType");
+        if (volType) {
+          auto *vtType = volType->getChildByName("type");
+          if (vtType && vtType->getAllSubText().trim() == "kCC") {
+            auto *vtParam = volType->getChildByName("param1");
+            if (vtParam && vtParam->getAllSubText().trim().getIntValue() == 1)
+              usesCC1 = true;
+          }
+        }
+
         // Find the CC102 action
         auto *onActions = combo->getChildByName("switchOnActions");
         if (onActions) {
@@ -248,10 +260,18 @@ public:
                 articulationDim.techniques[ccVal] = displayName;
                 articulationDim.ccNumber = 102;
 
+                // Record dynamics mode for this base switch
+                baseSwitchDynamicsCC1[ccVal] = usesCC1;
+
                 // pt.natural is the default
                 if (techID == "pt.natural") {
                   articulationDim.defaultValues.push_back(ccVal);
                 }
+
+                std::cerr << "[ExpressionMap] Base switch CC102=" << ccVal
+                          << " (" << displayName
+                          << ") dynamics=" << (usesCC1 ? "CC1" : "velocity")
+                          << std::endl;
               }
               break;
             }
@@ -286,9 +306,18 @@ public:
     return nullptr;
   }
 
+  /// Returns true if the given CC102 value (base switch) uses CC1 for dynamics.
+  /// Returns false if it uses note velocity (or if the value is unknown).
+  bool dynamicsUsesCC1(int cc102Value) const {
+    auto it = baseSwitchDynamicsCC1.find(cc102Value);
+    return it != baseSwitchDynamicsCC1.end() && it->second;
+  }
+
 private:
   std::vector<Dimension> dimensions;
   std::map<int, int> ccToDimensionIdx;
+  // Maps CC102 value → whether dynamics uses CC1 (true) or velocity (false)
+  std::map<int, bool> baseSwitchDynamicsCC1;
 
   /// Convert "pt.staccato" → "Staccato", "pt.user.glissando" → "Glissando",
   /// "pt.staccato+pt.tenuto" → "Staccato+Tenuto", etc.
