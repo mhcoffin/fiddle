@@ -260,21 +260,17 @@ private:
 
   void handleNoteOff(const fiddle::MidiEvent &event, uint64_t absoluteSamples) {
     uint32_t noteNum = 0;
-    uint32_t velocity = 0;
 
     if (event.has_note_off()) {
       noteNum = event.note_off().note_number();
-      velocity = event.note_off().velocity();
     } else {
       noteNum = event.note_on().note_number();
-      velocity = 0;
     }
 
     uint32_t chan = event.channel();
 
     for (auto it = activeNotes.begin(); it != activeNotes.end(); ++it) {
       if (it->channel() == chan && it->note_number() == noteNum) {
-        it->set_end_velocity(velocity);
         uint64_t endSample = absoluteSamples;
         if (endSample < it->start_sample()) {
           // This NoteOff likely belongs to a previous instance of this pitch

@@ -13,9 +13,6 @@ static uint32_t Note_GetChannel(const fiddle::Note *n) { return n->channel(); }
 static uint32_t Note_GetStartVelocity(const fiddle::Note *n) {
   return n->start_velocity();
 }
-static uint32_t Note_GetEndVelocity(const fiddle::Note *n) {
-  return n->end_velocity();
-}
 
 static float Note_GetDimension(const std::string &name, const fiddle::Note *n) {
   auto it = n->notation_dimensions().find(name);
@@ -65,9 +62,6 @@ void ScriptBindings::RegisterFiddleAPI(asIScriptEngine *engine) {
                                asCALL_CDECL_OBJLAST);
   engine->RegisterObjectMethod("Note", "uint get_start_velocity() const",
                                asFUNCTION(Note_GetStartVelocity),
-                               asCALL_CDECL_OBJLAST);
-  engine->RegisterObjectMethod("Note", "uint get_end_velocity() const",
-                               asFUNCTION(Note_GetEndVelocity),
                                asCALL_CDECL_OBJLAST);
   engine->RegisterObjectMethod(
       "Note", "float get_dimension(const string &in) const",

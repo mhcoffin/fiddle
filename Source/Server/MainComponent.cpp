@@ -180,7 +180,6 @@ MainComponent::MainComponent()
     obj->setProperty("noteNumber", (int)n.note_number());
     obj->setProperty("channel", (int)n.channel());
     obj->setProperty("startVelocity", (int)n.start_velocity());
-    obj->setProperty("endVelocity", (int)n.end_velocity());
     obj->setProperty("startSample", (juce::int64)n.start_sample());
     obj->setProperty("durationSamples", (juce::int64)n.duration_samples());
 

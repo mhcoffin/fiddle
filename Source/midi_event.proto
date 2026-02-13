@@ -98,7 +98,7 @@ message Note {
     uint32 note_number = 2;
     uint32 channel = 3;
     uint32 start_velocity = 4;
-    uint32 end_velocity = 5;
+    reserved 5;  // was end_velocity (Dorico always sends 64, not useful)
     
     uint64 start_sample = 6;
     uint64 duration_samples = 7;
