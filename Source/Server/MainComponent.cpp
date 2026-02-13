@@ -312,6 +312,26 @@ MainComponent::MainComponent()
     noteTracker.processEvent(event);
     pushEventToWebView(event);
 
+    // Log CC events with expression map context
+    if (event.has_cc()) {
+      int ch = event.channel();
+      int ccNum = event.cc().controller_number();
+      int ccVal = event.cc().controller_value();
+      juce::String logMsg = "<b>[CC]</b> Ch " + juce::String(ch + 1) + " CC" +
+                            juce::String(ccNum) + " = " + juce::String(ccVal);
+      auto *dim = expressionMap.getDimensionForCC(ccNum);
+      if (dim) {
+        logMsg += " (" + dim->name;
+        auto techIt = dim->techniques.find(ccVal);
+        if (techIt != dim->techniques.end())
+          logMsg += ": " + techIt->second;
+        else
+          logMsg += ": unknown value";
+        logMsg += ")";
+      }
+      pushLogMessage(logMsg);
+    }
+
     // Track program changes → instrument names for the UI
     if (event.has_program_change()) {
       int channel = event.channel();
