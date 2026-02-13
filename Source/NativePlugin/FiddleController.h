@@ -82,6 +82,14 @@ public:
   // Bank LSB params: 300 + channel (0-15) → IDs 300-315
   static constexpr Steinberg::Vst::ParamID kBankLSBParamBase = 300;
 
+  // Expression map CC params: per-CC base IDs.
+  // CC N on channel C → paramID = kCCParamBase + (N - kFirstCC) * 16 + C
+  // CCs 102-113 → 12 CCs × 16 channels = 192 params (IDs 400-591)
+  static constexpr int kFirstCC = 102;
+  static constexpr int kLastCC = 113;
+  static constexpr int kNumCCs = kLastCC - kFirstCC + 1; // 12
+  static constexpr Steinberg::Vst::ParamID kCCParamBase = 400;
+
   static constexpr int kNumChannels = 16;
   static constexpr int kNumPrograms = 128;
 

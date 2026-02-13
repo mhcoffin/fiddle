@@ -7,9 +7,22 @@
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 
 #include <cstring>
+#include <fstream>
+#include <iostream>
+#include <mutex>
 
 using namespace Steinberg;
 using namespace Steinberg::Vst;
+
+namespace {
+// File-based logging for diagnostics — stderr is invisible inside Dorico
+std::mutex logMutex;
+void pluginLog(const std::string &msg) {
+  std::lock_guard<std::mutex> lock(logMutex);
+  std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
+  f << msg << std::endl;
+}
+} // namespace
 
 namespace fiddle {
 
@@ -161,6 +174,38 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         int ch = paramId - FiddleController::kBankLSBParamBase;
         channelStates_[ch].bankLSB = static_cast<int>(value * 127.0 + 0.5);
       }
+      // Expression map CC params: IDs 400..591
+      else if (paramId >= FiddleController::kCCParamBase &&
+               paramId < FiddleController::kCCParamBase +
+                             FiddleController::kNumCCs *
+                                 FiddleController::kNumChannels) {
+        int offset = paramId - FiddleController::kCCParamBase;
+        int ccIndex = offset / FiddleController::kNumChannels;
+        int ch = offset % FiddleController::kNumChannels;
+        int ccNum = FiddleController::kFirstCC + ccIndex;
+        int ccVal = static_cast<int>(value * 127.0 + 0.5);
+
+        if (tcpRelay_) {
+          MidiEvent protoEvent;
+          protoEvent.set_timestamp_samples(sampleOffset);
+          protoEvent.set_host_sample_position(
+              static_cast<uint64_t>(hostSamples + sampleOffset));
+          protoEvent.set_channel(ch + 1); // 1-based
+
+          auto *ccMsg = protoEvent.mutable_cc();
+          ccMsg->set_controller_number(ccNum);
+          ccMsg->set_controller_value(ccVal);
+
+          tcpRelay_->pushMessage(protoEvent);
+        }
+
+        pluginLog("CC" + std::to_string(ccNum) + " Ch" +
+                  std::to_string(ch + 1) + " = " + std::to_string(ccVal));
+      } else {
+        // Log unrecognized parameter IDs so we can discover CCs
+        pluginLog("Unhandled paramID=" + std::to_string(paramId) +
+                  " value=" + std::to_string(value));
+      }
     }
   }
 
@@ -197,10 +242,15 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     return;
 
   int32 count = events->getEventCount();
+  if (count > 0) {
+    pluginLog("processEvents: " + std::to_string(count) + " events");
+  }
   for (int32 i = 0; i < count; ++i) {
     Event event{};
     if (events->getEvent(i, event) != kResultOk)
       continue;
+
+    pluginLog("Event type=" + std::to_string(event.type));
 
     MidiEvent protoEvent;
     protoEvent.set_timestamp_samples(event.sampleOffset);
@@ -413,7 +463,8 @@ void FiddleProcessor::sendConnectionStatus(bool connected) {
 //----------------------------------------------------------------------
 void FiddleProcessor::sendProgramStatesToController() {
   // Send all 16 channel program assignments to the controller for UI display.
-  // Called from relay thread (connection callback) and main thread (setState).
+  // Called from relay thread (connection callback) and main thread
+  // (setState).
   if (auto msg = owned(allocateMessage())) {
     msg->setMessageID("ProgramStates");
     auto *attrs = msg->getAttributes();

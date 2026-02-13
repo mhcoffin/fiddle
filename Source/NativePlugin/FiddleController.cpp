@@ -165,6 +165,21 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
       bankLSBInfo.flags = ParameterInfo::kCanAutomate;
       parameters.addParameter(new Parameter(bankLSBInfo));
     }
+
+    // Create expression map CC parameters (CC102-CC113) per channel
+    for (int cc = kFirstCC; cc <= kLastCC; ++cc) {
+      ParameterInfo ccInfo{};
+      ccInfo.id = kCCParamBase + (cc - kFirstCC) * kNumChannels + ch;
+      char title[32];
+      snprintf(title, sizeof(title), "CC%d Ch%d", cc, ch + 1);
+      UString(ccInfo.title, 128).fromAscii(title);
+      UString(ccInfo.shortTitle, 128).fromAscii(title);
+      ccInfo.stepCount = 127;
+      ccInfo.defaultNormalizedValue = 0.0;
+      ccInfo.unitId = unitId;
+      ccInfo.flags = ParameterInfo::kCanAutomate;
+      parameters.addParameter(new Parameter(ccInfo));
+    }
   }
 
   return kResultOk;
@@ -245,6 +260,12 @@ tresult PLUGIN_API FiddleController::getMidiControllerAssignment(
     id = kBankLSBParamBase + channel;
     return kResultOk;
   default:
+    // Expression map CCs 102-113
+    if (midiControllerNumber >= kFirstCC && midiControllerNumber <= kLastCC) {
+      id = kCCParamBase + (midiControllerNumber - kFirstCC) * kNumChannels +
+           channel;
+      return kResultOk;
+    }
     return kResultFalse;
   }
 }
