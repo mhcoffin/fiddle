@@ -1,28 +1,36 @@
 #pragma once
 
-#include "DoricoInstruments.h"
+#include "MasterInstrumentList.h"
 #include <juce_core/juce_core.h>
 #include <vector>
 
 namespace fiddle {
 
 /**
- * Tracks the MIDI bank/program assignment for a selected instrument.
+ * Represents a single "chair" in the ensemble — one instrument assigned
+ * to a unique MIDI program address. Each EnsembleSlot with soloCount=2
+ * and sectionCount=1 expands into 3 InstrumentAssignments.
  */
 struct InstrumentAssignment {
-  int instrumentIndex; // Index into getDefaultInstruments()
-  int program;         // MIDI Program Change (1-128)
-  int bankMSB;         // MIDI Bank Select MSB (CC0)
-  int bankLSB;         // MIDI Bank Select LSB (CC32)
+  juce::String entityID; // Dorico instrument entity ID
+  juce::String name;     // Display name (e.g., "Violin 1 (Solo)")
+  juce::String musicXMLSoundID;
+  juce::String category; // Category for presets.xml (e.g., "Strings")
+  int program;           // MIDI Program number (1-128)
+  int bankMSB = 0;       // Bank Select MSB (CC0)
+  int bankLSB = 0;       // Bank Select LSB (CC32)
+  bool isSolo;           // true = solo player, false = section player
 };
 
 /**
- * Generates and installs Dorico playback template configuration files
- * so that Dorico can automatically discover and route instruments
- * through the Fiddle VST3 plugin.
+ * Generates Dorico configuration files for the Fiddle plugin.
  *
- * Output files:
- *   PlaybackTemplateGenerators/Fiddle/playbacktemplategen.xml
+ * Uses the VE Pro-style endpoint config approach (not the template
+ * generator approach, which has a hard 16-channel limit).
+ *
+ * Produces five files from a list of EnsembleSlots:
+ *   EndpointConfigs/Fiddle/endpointconfig.xml
+ *   PlaybackTemplateSpecs/Fiddle/playbacktemplatespec.xml
  *   PluginPresetLibraries/Fiddle/presets.xml
  *   PluginPresetLibraries/Fiddle/presets_for_instruments.xml
  *   DefaultLibraryAdditions/Fiddle_Universal.doricolib
@@ -32,25 +40,24 @@ public:
   DoricoConfigGenerator();
 
   /**
-   * Generate MIDI Bank/Program assignments for the selected instruments.
-   * Programs are assigned sequentially: 1, 2, 3, ..., 128, then
-   * BankLSB increments and programs restart at 1.
-   *
-   * @param selectedIndices  Indices into getDefaultInstruments()
-   * @return Vector of assignments with bank/program values
+   * Expand EnsembleSlots into individual InstrumentAssignments.
+   * Each slot produces soloCount + sectionCount assignments with
+   * sequential program numbers.
    */
-  std::vector<InstrumentAssignment>
-  generateAssignments(const std::vector<int> &selectedIndices);
+  static std::vector<InstrumentAssignment>
+  expandSlots(const std::vector<MasterInstrumentList::EnsembleSlot> &slots);
 
   /**
    * Generate all XML config files and install them to the Dorico
    * application support directory.
    *
-   * @param assignments  The instrument assignments from generateAssignments()
+   * @param assignments  The expanded instrument assignments
+   * @param numChannels  Total channels to declare in playback template
    * @return Result indicating success or failure with details
    */
   juce::Result
-  generateAndInstallFiles(const std::vector<InstrumentAssignment> &assignments);
+  generateAndInstallFiles(const std::vector<InstrumentAssignment> &assignments,
+                          int numChannels);
 
   /**
    * Get the resolved Dorico application support base directory.
@@ -69,7 +76,11 @@ private:
   juce::File findDoricoBasePath() const;
   void backupExistingFile(const juce::File &file) const;
 
-  juce::Result writePlaybackTemplateGen(const juce::File &baseDir) const;
+  juce::Result writeEndpointConfigXml(
+      const juce::File &baseDir,
+      const std::vector<InstrumentAssignment> &assignments) const;
+
+  juce::Result writePlaybackTemplateSpecXml(const juce::File &baseDir) const;
 
   juce::Result
   writePresetsXml(const juce::File &baseDir,

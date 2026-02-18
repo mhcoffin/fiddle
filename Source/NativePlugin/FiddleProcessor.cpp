@@ -3,6 +3,7 @@
 #include "FiddleController.h"
 
 #include "pluginterfaces/base/ibstream.h"
+#include "pluginterfaces/base/ustring.h"
 #include "pluginterfaces/vst/ivstevents.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 
@@ -37,8 +38,15 @@ tresult PLUGIN_API FiddleProcessor::initialize(FUnknown *context) {
   if (result != kResultOk)
     return result;
 
-  // Add event (MIDI) input bus — 16 channels
-  addEventInput(STR16("MIDI In"), 16);
+  // 48 event (MIDI) input buses — one per port, 16 channels each.
+  // Dorico discovers and assigns instruments via the endpoint config.
+  for (int p = 0; p < kNumPorts; ++p) {
+    char busName[32];
+    snprintf(busName, sizeof(busName), "Port %d", p + 1);
+    String128 name128;
+    UString(name128, 128).fromAscii(busName);
+    addEventInput(name128, 16, kMain, BusInfo::kDefaultActive);
+  }
 
   // Add stereo audio output (silent — we don't synthesize audio)
   addAudioOutput(STR16("Audio Out"), SpeakerArr::kStereo);
@@ -136,15 +144,17 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
       ParamValue value = 0;
       queue->getPoint(numPoints - 1, sampleOffset, value);
 
-      // Program change params: IDs 100..115 (kProgramParamBase + channel)
+      // Program change params: IDs 100..163 (kProgramParamBase +
+      // logicalChannel)
       if (paramId >= FiddleController::kProgramParamBase &&
           paramId < FiddleController::kProgramParamBase +
                         FiddleController::kNumChannels) {
-        int ch = paramId - FiddleController::kProgramParamBase; // 0-based
+        int logicalCh =
+            paramId - FiddleController::kProgramParamBase; // 0-based
         int program = static_cast<int>(
             value * (FiddleController::kNumPrograms - 1) + 0.5);
 
-        channelStates_[ch].program = program;
+        channelStates_[logicalCh].program = program;
         programStatesDirty_.store(true, std::memory_order_relaxed);
 
         if (tcpRelay_) {
@@ -152,7 +162,9 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
           protoEvent.set_timestamp_samples(sampleOffset);
           protoEvent.set_host_sample_position(
               static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_channel(ch + 1); // 1-based
+          protoEvent.set_port(logicalCh / 16 + 1); // 1-based port
+          protoEvent.set_channel(logicalCh % 16 +
+                                 1); // 1-based channel within port
 
           auto *pc = protoEvent.mutable_program_change();
           pc->set_program_number(program);
@@ -160,36 +172,9 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
           tcpRelay_->pushMessage(protoEvent);
         }
       }
-      // All CC params: IDs 200..2247 (128 CCs × 16 channels)
-      else if (paramId >= FiddleController::kCCParamBase &&
-               paramId < FiddleController::kCCParamBase +
-                             FiddleController::kNumCCs *
-                                 FiddleController::kNumChannels) {
-        int offset = paramId - FiddleController::kCCParamBase;
-        int ccNum = offset / FiddleController::kNumChannels;
-        int ch = offset % FiddleController::kNumChannels;
-        int ccVal = static_cast<int>(value * 127.0 + 0.5);
-
-        // Track Bank Select in channel state
-        if (ccNum == 0)
-          channelStates_[ch].bankMSB = ccVal;
-        else if (ccNum == 32)
-          channelStates_[ch].bankLSB = ccVal;
-
-        if (tcpRelay_) {
-          MidiEvent protoEvent;
-          protoEvent.set_timestamp_samples(sampleOffset);
-          protoEvent.set_host_sample_position(
-              static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_channel(ch + 1); // 1-based
-
-          auto *ccMsg = protoEvent.mutable_cc();
-          ccMsg->set_controller_number(ccNum);
-          ccMsg->set_controller_value(ccVal);
-
-          tcpRelay_->pushMessage(protoEvent);
-        }
-      } else {
+      // Note: CC parameters are not registered at the controller level
+      // (would be 98K+ params). CC data arrives through event buses.
+      else {
         // Log unrecognized parameter IDs so we can discover new params
         pluginLog("Unhandled paramID=" + std::to_string(paramId) +
                   " value=" + std::to_string(value));
@@ -245,13 +230,17 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     protoEvent.set_host_sample_position(
         static_cast<uint64_t>(hostSamples + event.sampleOffset));
 
-    // Channel is stored per event type in the union, not at top level.
-    // We extract it in each case below.
+    // Compute logical channel from busIndex + per-event channel.
+    // busIndex identifies the port (0-based), event channel is 0-15.
+    int eventBus = event.busIndex;
+    if (eventBus < 0 || eventBus >= kNumPorts)
+      eventBus = 0;
 
     switch (event.type) {
     case Event::kNoteOnEvent: {
-      // VST3 channels are 0-based, our protobuf uses 1-based
-      protoEvent.set_channel(event.noteOn.channel + 1);
+      protoEvent.set_port(eventBus + 1); // 1-based port
+      protoEvent.set_channel(event.noteOn.channel +
+                             1); // 1-based channel within port
       auto *noteOn = protoEvent.mutable_note_on();
       noteOn->set_note_number(event.noteOn.pitch);
       // VST3 velocity is 0-1 float, convert to 0-127
@@ -261,6 +250,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     }
 
     case Event::kNoteOffEvent: {
+      protoEvent.set_port(eventBus + 1);
       protoEvent.set_channel(event.noteOff.channel + 1);
       auto *noteOff = protoEvent.mutable_note_off();
       noteOff->set_note_number(event.noteOff.pitch);
@@ -270,6 +260,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     }
 
     case Event::kPolyPressureEvent: {
+      protoEvent.set_port(eventBus + 1);
       protoEvent.set_channel(event.polyPressure.channel + 1);
       auto *at = protoEvent.mutable_aftertouch();
       at->set_note_number(event.polyPressure.pitch);
@@ -281,6 +272,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     case Event::kLegacyMIDICCOutEvent: {
       // This is how VST3 delivers CC, program change, pitch bend, etc.
       auto &cc = event.midiCCOut;
+      protoEvent.set_port(eventBus + 1);
       protoEvent.set_channel(cc.channel + 1);
 
       if (cc.controlNumber <= 127) {
@@ -290,12 +282,12 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
         ccMsg->set_controller_value(cc.value);
 
         // Track Bank Select
-        int ch = cc.channel; // 0-based
-        if (ch >= 0 && ch < 16) {
+        int logicalCh = eventBus * 16 + cc.channel;
+        if (logicalCh >= 0 && logicalCh < kTotalChannels) {
           if (cc.controlNumber == 0)
-            channelStates_[ch].bankMSB = cc.value;
+            channelStates_[logicalCh].bankMSB = cc.value;
           else if (cc.controlNumber == 32)
-            channelStates_[ch].bankLSB = cc.value;
+            channelStates_[logicalCh].bankLSB = cc.value;
         }
       } else if (cc.controlNumber == 129) {
         // kPitchBend
@@ -311,9 +303,9 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
         auto *pc = protoEvent.mutable_program_change();
         pc->set_program_number(cc.value);
 
-        int ch = cc.channel; // 0-based
-        if (ch >= 0 && ch < 16) {
-          channelStates_[ch].program = cc.value;
+        int logicalCh = eventBus * 16 + cc.channel;
+        if (logicalCh >= 0 && logicalCh < kTotalChannels) {
+          channelStates_[logicalCh].program = cc.value;
         }
       }
       break;
@@ -340,11 +332,12 @@ void FiddleProcessor::replayProgramState() {
     return;
 
   // Replay all stored program states on connection
-  for (int ch = 0; ch < 16; ++ch) {
+  for (int ch = 0; ch < kTotalChannels; ++ch) {
     if (channelStates_[ch].program >= 0) {
       MidiEvent protoEvent;
       protoEvent.set_timestamp_samples(0);
-      protoEvent.set_channel(ch + 1); // 1-based
+      protoEvent.set_port(ch / 16 + 1);    // 1-based port
+      protoEvent.set_channel(ch % 16 + 1); // 1-based channel within port
 
       auto *pc = protoEvent.mutable_program_change();
       pc->set_program_number(channelStates_[ch].program);
@@ -361,7 +354,7 @@ tresult PLUGIN_API FiddleProcessor::setState(IBStream *state) {
   if (!state)
     return kResultFalse;
 
-  for (int ch = 0; ch < 16; ++ch) {
+  for (int ch = 0; ch < kTotalChannels; ++ch) {
     int32 prog = -1;
     if (state->read(&prog, sizeof(int32)) != kResultOk)
       break;
@@ -384,7 +377,7 @@ tresult PLUGIN_API FiddleProcessor::getState(IBStream *state) {
   if (!state)
     return kResultFalse;
 
-  for (int ch = 0; ch < 16; ++ch) {
+  for (int ch = 0; ch < kTotalChannels; ++ch) {
     int32 prog = channelStates_[ch].program;
     state->write(&prog, sizeof(int32));
   }
@@ -414,15 +407,16 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
     int64 channel = 0, program = 0;
     if (attrs->getInt("Channel", channel) == kResultOk &&
         attrs->getInt("Program", program) == kResultOk) {
-      int ch = static_cast<int>(channel); // 0-based
-      if (ch >= 0 && ch < 16) {
+      int ch = static_cast<int>(channel); // 0-based logical channel
+      if (ch >= 0 && ch < kTotalChannels) {
         channelStates_[ch].program = static_cast<int>(program);
 
         // Send to TCP relay
         if (tcpRelay_) {
           MidiEvent protoEvent;
           protoEvent.set_timestamp_samples(0);
-          protoEvent.set_channel(ch + 1); // 1-based
+          protoEvent.set_port(ch / 16 + 1);    // 1-based port
+          protoEvent.set_channel(ch % 16 + 1); // 1-based channel within port
 
           auto *pc = protoEvent.mutable_program_change();
           pc->set_program_number(static_cast<uint32_t>(program));
@@ -450,15 +444,15 @@ void FiddleProcessor::sendConnectionStatus(bool connected) {
 
 //----------------------------------------------------------------------
 void FiddleProcessor::sendProgramStatesToController() {
-  // Send all 16 channel program assignments to the controller for UI display.
+  // Send all channel program assignments to the controller for UI display.
   // Called from relay thread (connection callback) and main thread
   // (setState).
   if (auto msg = owned(allocateMessage())) {
     msg->setMessageID("ProgramStates");
     auto *attrs = msg->getAttributes();
-    for (int ch = 0; ch < 16; ++ch) {
-      // Attribute keys: "P0" through "P15"
-      char key[4];
+    for (int ch = 0; ch < kTotalChannels; ++ch) {
+      // Attribute keys: "P0" through "P767"
+      char key[16];
       snprintf(key, sizeof(key), "P%d", ch);
       attrs->setInt(key, channelStates_[ch].program);
     }

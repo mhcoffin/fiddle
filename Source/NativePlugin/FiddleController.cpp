@@ -74,7 +74,9 @@ const char *kGMInstruments[128] = {
     "Telephone Ring", "Helicopter", "Applause", "Gunshot"};
 
 //----------------------------------------------------------------------
-FiddleController::FiddleController() = default;
+FiddleController::FiddleController() {
+  std::fill(std::begin(channelPrograms_), std::end(channelPrograms_), -1);
+}
 FiddleController::~FiddleController() = default;
 
 //----------------------------------------------------------------------
@@ -90,67 +92,51 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
   auto *rootUnit = new Unit(STR16("Root"), kRootUnitId, kNoParentUnitId);
   addUnit(rootUnit);
 
-  // Create 16 channel units, each with its own program list
-  for (int ch = 0; ch < kNumChannels; ++ch) {
-    UnitID unitId = ch + 1;        // Units 1-16
-    ProgramListID listId = ch + 1; // Program lists 1-16
+  // Create a SINGLE shared program list (ID=1) — all channels use the
+  // same 128 GM instruments. Creating 768 separate lists (768×128 = 98K
+  // entries) would overwhelm the host.
+  constexpr ProgramListID sharedListId = 1;
+  auto *programList =
+      new ProgramList(STR16("Programs"), sharedListId, kRootUnitId);
+  for (int p = 0; p < kNumPrograms; ++p) {
+    String128 progName;
+    UString(progName, 128).fromAscii(kGMInstruments[p]);
+    programList->addProgram(progName);
+  }
+  addProgramList(programList);
 
-    // Build unit name: "Channel 1" through "Channel 16"
+  // Create 768 channel units (48 ports × 16 channels), each referencing
+  // the shared program list. One unit per channel is required for
+  // getUnitByBus() to correctly map busIndex+channel → unitId.
+  for (int ch = 0; ch < kNumChannels; ++ch) {
+    UnitID unitId = ch + 1; // Units 1-768
+
+    int port = ch / kChannelsPerPort + 1;   // 1-based
+    int portCh = ch % kChannelsPerPort + 1; // 1-based
+
     char unitName[32];
-    snprintf(unitName, sizeof(unitName), "Channel %d", ch + 1);
+    snprintf(unitName, sizeof(unitName), "Port %d Ch %d", port, portCh);
     String128 unitName128;
     UString(unitName128, 128).fromAscii(unitName);
 
-    auto *unit = new Unit(unitName128, unitId, kRootUnitId, listId);
+    auto *unit = new Unit(unitName128, unitId, kRootUnitId, sharedListId);
     addUnit(unit);
 
-    // Create program list for this channel
-    char listName[32];
-    snprintf(listName, sizeof(listName), "Ch %d Programs", ch + 1);
-    String128 listName128;
-    UString(listName128, 128).fromAscii(listName);
-
-    auto *programList = new ProgramList(listName128, listId, unitId);
-    for (int p = 0; p < kNumPrograms; ++p) {
-      String128 progName;
-      UString(progName, 128).fromAscii(kGMInstruments[p]);
-      programList->addProgram(progName);
-    }
-    addProgramList(programList);
-
-    // The ProgramList::getParameter() creates a Parameter with
-    // kIsProgramChange flag — this is what Dorico looks for!
-    // We register it manually with the correct param ID.
+    // Program change parameter for this channel
     ParamID programParamId = kProgramParamBase + ch;
 
-    // Create the program change parameter manually with kIsProgramChange
     ParameterInfo paramInfo{};
     paramInfo.id = programParamId;
     UString(paramInfo.title, 128).fromAscii(unitName);
     UString(paramInfo.shortTitle, 128).fromAscii(unitName);
     paramInfo.units[0] = 0;
-    paramInfo.stepCount = kNumPrograms - 1; // 127 steps for 128 programs
+    paramInfo.stepCount = kNumPrograms - 1;
     paramInfo.defaultNormalizedValue = 0.0;
     paramInfo.unitId = unitId;
     paramInfo.flags =
         ParameterInfo::kIsProgramChange | ParameterInfo::kCanAutomate;
 
     parameters.addParameter(new Parameter(paramInfo));
-
-    // Register all CC parameters (CC0-CC127) per channel
-    for (int cc = 0; cc < kNumCCs; ++cc) {
-      ParameterInfo ccInfo{};
-      ccInfo.id = kCCParamBase + cc * kNumChannels + ch;
-      char title[32];
-      snprintf(title, sizeof(title), "CC%d Ch%d", cc, ch + 1);
-      UString(ccInfo.title, 128).fromAscii(title);
-      UString(ccInfo.shortTitle, 128).fromAscii(title);
-      ccInfo.stepCount = 127;
-      ccInfo.defaultNormalizedValue = 0.0;
-      ccInfo.unitId = unitId;
-      ccInfo.flags = ParameterInfo::kCanAutomate;
-      parameters.addParameter(new Parameter(ccInfo));
-    }
   }
 
   return kResultOk;
@@ -202,10 +188,11 @@ tresult PLUGIN_API FiddleController::getUnitByBus(MediaType type,
                                                   BusDirection dir,
                                                   int32 busIndex, int32 channel,
                                                   UnitID &unitId) {
-  // Map event (MIDI) bus channel to the corresponding channel unit
-  if (type == kEvent && dir == kInput && busIndex == 0) {
-    if (channel >= 0 && channel < kNumChannels) {
-      unitId = channel + 1; // Unit IDs 1-16 for channels 0-15
+  // Map event (MIDI) bus + channel to the corresponding channel unit
+  if (type == kEvent && dir == kInput) {
+    if (busIndex >= 0 && busIndex < kNumPorts && channel >= 0 &&
+        channel < kChannelsPerPort) {
+      unitId = busIndex * kChannelsPerPort + channel + 1;
       return kResultOk;
     }
   }
@@ -217,18 +204,17 @@ tresult PLUGIN_API FiddleController::getUnitByBus(MediaType type,
 tresult PLUGIN_API FiddleController::getMidiControllerAssignment(
     int32 busIndex, int16 channel, CtrlNumber midiControllerNumber,
     ParamID &id) {
-  if (busIndex != 0)
+  if (busIndex < 0 || busIndex >= kNumPorts)
     return kResultFalse;
 
-  if (channel < 0 || channel >= kNumChannels)
+  if (channel < 0 || channel >= kChannelsPerPort)
     return kResultFalse;
 
-  // All CCs use unified formula: paramID = kCCParamBase + cc * kNumChannels +
-  // channel
-  if (midiControllerNumber >= 0 && midiControllerNumber < kNumCCs) {
-    id = kCCParamBase + midiControllerNumber * kNumChannels + channel;
-    return kResultOk;
-  }
+  int logicalCh = busIndex * kChannelsPerPort + channel;
+
+  // CC parameters are not registered (would be 98K+ params at 768 channels).
+  // Return kResultFalse so the host sends CC data via the event bus instead.
+  // Only map kAfterTouch to our program change parameter for Dorico compat.
   return kResultFalse;
 }
 
@@ -272,7 +258,7 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
   if (msgId && strcmp(msgId, "ProgramStates") == 0) {
     auto *attrs = message->getAttributes();
     for (int ch = 0; ch < kNumChannels; ++ch) {
-      char key[4];
+      char key[16];
       snprintf(key, sizeof(key), "P%d", ch);
       int64 prog = -1;
       if (attrs->getInt(key, prog) == kResultOk) {

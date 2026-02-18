@@ -15,14 +15,12 @@ extern const char *kGMInstruments[128];
 /**
  * FiddleController: VST3 edit controller with per-channel program changes.
  *
- * This creates 17 units:
- *   - Root unit (id=0)
- *   - 16 channel units (ids 1-16), each with its own ProgramList
+ * Creates 48 ports × 16 channels = 768 unit slots, each with a program
+ * change parameter. The host (Dorico) uses these to select instruments
+ * per MIDI channel/port.
  *
- * Each channel unit has a kIsProgramChange parameter that the host
- * (Dorico) uses to select instruments per MIDI channel.
- *
- * Also implements IMidiMapping for CC0 (Bank MSB) and CC32 (Bank LSB).
+ * CC data arrives through the event buses directly — we don't expose
+ * per-channel CC parameters to keep the parameter count manageable.
  */
 class FiddleController : public Steinberg::Vst::EditControllerEx1,
                          public Steinberg::Vst::IMidiMapping {
@@ -83,7 +81,11 @@ public:
   static constexpr Steinberg::Vst::ParamID kCCParamBase = 200;
   static constexpr int kNumCCs = 128;
 
-  static constexpr int kNumChannels = 16;
+  // 48 ports × 16 channels = 768 total. Dorico discovers multi-port
+  // layout from the endpoint config (VE Pro-style).
+  static constexpr int kNumPorts = 48;
+  static constexpr int kChannelsPerPort = 16;
+  static constexpr int kNumChannels = kNumPorts * kChannelsPerPort; // 768
   static constexpr int kNumPrograms = 128;
 
   // --- Status queries for the UI ---
@@ -97,8 +99,7 @@ private:
   void loadPresetNames();
 
   std::atomic<bool> isConnected_{false};
-  int channelPrograms_[16] = {-1, -1, -1, -1, -1, -1, -1, -1,
-                              -1, -1, -1, -1, -1, -1, -1, -1};
+  int channelPrograms_[kNumChannels];
   /// program number → human-readable name (parsed from presets.xml)
   std::map<int, std::string> programNames_;
 };
