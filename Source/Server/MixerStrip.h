@@ -126,12 +126,7 @@ struct MixerStrip {
             pluginUid = desc.uniqueId;
           }
           // oldPlugin is safely destroyed here, off the audio thread lock.
-
-          // Open editor
-          if (auto *editor = pluginInstance->createEditor()) {
-            editorWindow =
-                std::make_unique<PluginEditorWindow>(desc.name, editor);
-          }
+          // Editor is NOT opened here — user opens it via showEditor().
 
           std::cerr << "[MixerStrip " << id << "] Loaded (Async): " << desc.name
                     << std::endl;
