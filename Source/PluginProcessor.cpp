@@ -125,6 +125,10 @@ void FiddleAudioProcessor::prepareToPlay(double sampleRate,
                                          int samplesPerBlock) {
   // Reset channel counter so next setCurrentProgram sequence starts at ch 1
   nextProgramChangeChannel = 1;
+
+  // Report the 1-second playback delay to the host (matches the +1000ms
+  // trigger offset in FiddleServer's note event processing).
+  setLatencySamples(static_cast<int>(sampleRate * 1.0));
 }
 
 void FiddleAudioProcessor::releaseResources() {}
