@@ -162,6 +162,25 @@
                     <!-- Input Selector -->
                     <div class="strip-section">
                         <label class="strip-label">Input</label>
+                        {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
+                            {@const match = availableInputs.find(
+                                (i) =>
+                                    i.port === strip.inputPort &&
+                                    i.channel === strip.inputChannel,
+                            )}
+                            <div class="input-display">
+                                <div class="input-name">
+                                    {match ? (match.isSolo ? "👤" : "👥") : ""}
+                                    {match
+                                        ? match.label || match.name
+                                        : `Input ${strip.inputPort + 1}:${strip.inputChannel + 1}`}
+                                </div>
+                                <div class="input-port-ch">
+                                    P{strip.inputPort + 1} Ch{strip.inputChannel +
+                                        1}
+                                </div>
+                            </div>
+                        {/if}
                         <select
                             class="strip-select"
                             value={`${strip.inputPort}:${strip.inputChannel}`}
@@ -172,14 +191,15 @@
                                 setInput(strip.id, p, c);
                             }}
                         >
-                            <option value="-1:-1">— None —</option>
+                            <option value="-1:-1">-- None --</option>
                             {#each availableInputs as input}
                                 {@const icon = input.isSolo ? "👤" : "👥"}
                                 <option
                                     value={`${input.port}:${input.channel}`}
                                 >
-                                    {icon} [P{input.port + 1} Ch{input.channel +
-                                        1}] {input.label || input.name}
+                                    {icon}
+                                    {input.label || input.name} (P{input.port +
+                                        1} Ch{input.channel + 1})
                                 </option>
                             {/each}
                         </select>
@@ -373,6 +393,26 @@
     .strip-select:focus {
         outline: none;
         border-color: #3b82f6;
+    }
+
+    .input-display {
+        text-align: center;
+        margin-bottom: 2px;
+    }
+
+    .input-name {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .input-port-ch {
+        font-size: 0.55rem;
+        color: #64748b;
+        letter-spacing: 0.03em;
     }
 
     .strip-spacer {
