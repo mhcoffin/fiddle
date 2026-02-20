@@ -5,6 +5,7 @@
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
     let playbackDelay = $state(1000);
+    let editingDelay = $state(false);
 
     /** @type {any} */
     const w = window;
@@ -178,15 +179,32 @@
             <div class="delay-control">
                 <label class="delay-label">Delay</label>
                 <input
-                    class="delay-input"
-                    type="number"
+                    class="delay-slider"
+                    type="range"
                     min="0"
-                    max="5000"
-                    step="100"
+                    max="3000"
+                    step="50"
                     value={playbackDelay}
-                    onchange={(e) => updateDelay(e.target.value)}
+                    oninput={(e) => updateDelay(e.target.value)}
                 />
-                <span class="delay-unit">ms</span>
+                {#if editingDelay}
+                    <input
+                        class="delay-value-input"
+                        type="number"
+                        min="0"
+                        max="5000"
+                        value={playbackDelay}
+                        onchange={(e) => { updateDelay(e.target.value); editingDelay = false; }}
+                        onblur={() => { editingDelay = false; }}
+                        onkeydown={(e) => { if (e.key === 'Escape') editingDelay = false; }}
+                    />
+                {:else}
+                    <span
+                        class="delay-value"
+                        ondblclick={() => { editingDelay = true; }}
+                        title="Double-click to type"
+                    >{playbackDelay}ms</span>
+                {/if}
             </div>
             <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button>
         </div>
@@ -357,32 +375,41 @@
         font-weight: 500;
     }
 
-    .delay-input {
-        width: 60px;
-        padding: 4px 6px;
-        border: 1px solid #334155;
-        border-radius: 4px;
+    .delay-slider {
+        width: 80px;
+        height: 4px;
+        accent-color: #3b82f6;
+        cursor: pointer;
+    }
+
+    .delay-value {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        min-width: 40px;
+        text-align: right;
+        cursor: default;
+        user-select: none;
+    }
+
+    .delay-value-input {
+        width: 50px;
+        padding: 2px 4px;
+        border: 1px solid #3b82f6;
+        border-radius: 3px;
         background: #0f172a;
         color: #e2e8f0;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         text-align: right;
         -moz-appearance: textfield;
     }
 
-    .delay-input::-webkit-inner-spin-button,
-    .delay-input::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
-    }
-
-    .delay-input:focus {
+    .delay-value-input:focus {
         outline: none;
-        border-color: #3b82f6;
     }
 
-    .delay-unit {
-        font-size: 0.65rem;
-        color: #64748b;
+    .delay-value-input::-webkit-inner-spin-button,
+    .delay-value-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
     }
 
     .empty-state {
