@@ -21,8 +21,11 @@ class MainComponent : public juce::Component,
                       private juce::Timer,
                       public juce::AudioIODeviceCallback {
 public:
-  MainComponent();
+  MainComponent(const juce::File &configFile);
   ~MainComponent() override;
+
+  /// Save current state to the active config file
+  void saveConfig();
 
   void paint(juce::Graphics &) override;
   void resized() override;

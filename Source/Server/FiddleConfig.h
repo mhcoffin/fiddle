@@ -11,14 +11,100 @@ namespace fiddle {
 
 class FiddleConfig {
 public:
-  static juce::File getConfigPath() {
-    auto appDataDir =
+  /// Root app data directory: ~/Library/Application Support/Fiddle/
+  static juce::File getAppDataDir() {
+    auto dir =
         juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
             .getChildFile("Fiddle");
-    if (!appDataDir.exists()) {
-      appDataDir.createDirectory();
+    if (!dir.exists())
+      dir.createDirectory();
+    return dir;
+  }
+
+  /// Config files directory: ~/Library/Application Support/Fiddle/configs/
+  static juce::File getConfigDir() {
+    auto dir = getAppDataDir().getChildFile("configs");
+    if (!dir.exists())
+      dir.createDirectory();
+    return dir;
+  }
+
+  /// Legacy single-config path (for migration)
+  static juce::File getConfigPath() {
+    return getAppDataDir().getChildFile("config.yaml");
+  }
+
+  /// Recent configs tracking file
+  static juce::File getRecentConfigsFile() {
+    return getAppDataDir().getChildFile("recent_configs.json");
+  }
+
+  /// Load list of recently-used config files (most recent first)
+  static juce::StringArray loadRecentConfigs() {
+    juce::StringArray paths;
+    auto file = getRecentConfigsFile();
+    if (!file.existsAsFile())
+      return paths;
+
+    auto parsed = juce::JSON::parse(file);
+    if (auto *arr = parsed.getArray()) {
+      for (auto &v : *arr)
+        paths.add(v.toString());
     }
-    return appDataDir.getChildFile("config.yaml");
+    return paths;
+  }
+
+  /// Add/move a config path to the front of the recents list (max 10)
+  static void saveRecentConfig(const juce::File &configFile) {
+    auto paths = loadRecentConfigs();
+    juce::String fullPath = configFile.getFullPathName();
+
+    // Remove if already in list, then prepend
+    paths.removeString(fullPath);
+    paths.insert(0, fullPath);
+
+    // Cap at 10
+    while (paths.size() > 10)
+      paths.remove(paths.size() - 1);
+
+    // Write JSON array
+    juce::var arr;
+    for (auto &p : paths)
+      arr.append(p);
+
+    auto json = juce::JSON::toString(arr);
+    getRecentConfigsFile().replaceWithText(json);
+  }
+
+  /// Create a new empty config file in the configs directory
+  static juce::File createNewConfig(const juce::String &name) {
+    auto file = getConfigDir().getChildFile(name + ".yaml");
+    if (!file.existsAsFile()) {
+      // Write a minimal YAML skeleton
+      file.replaceWithText("# Fiddle Configuration: " + name +
+                           "\n"
+                           "mixer_strips: []\n");
+    }
+    return file;
+  }
+
+  /// Migrate legacy ~/Library/Application Support/Fiddle/config.yaml -> 
+  /// configs/Default.yaml if needed.
+  /// Returns the migrated file, or juce::File() if nothing to migrate.
+  static juce::File migrateLegacyConfig() {
+    auto legacy = getConfigPath();
+    if (!legacy.existsAsFile())
+      return {};
+
+    auto dest = getConfigDir().getChildFile("Default.yaml");
+    if (!dest.existsAsFile()) {
+      legacy.copyFileTo(dest);
+      saveRecentConfig(dest);
+      std::cerr
+          << "[FiddleConfig] Migrated legacy config.yaml -> configs/Default.yaml"
+          << std::endl;
+    }
+    return dest;
   }
 
   static void save(const PluginScanner &scanner, const MixerModel &mixer,

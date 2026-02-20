@@ -13,7 +13,7 @@
 
 namespace fiddle {
 
-MainComponent::MainComponent()
+MainComponent::MainComponent(const juce::File &configFile)
     : webComponent(
           juce::WebBrowserComponent::Options{}
               .withNativeIntegrationEnabled(true)
@@ -878,8 +878,8 @@ MainComponent::MainComponent()
     deviceManager.addAudioCallback(this);
   }
 
-  // Establish initial config file location (fallback or last-saved)
-  currentConfigFile = FiddleConfig::getConfigPath();
+  // Establish initial config file location
+  currentConfigFile = configFile;
 
   // Defer config restore to after the constructor returns.
   // loadPlugin() uses createPluginInstanceAsync() which requires the message
@@ -900,6 +900,12 @@ MainComponent::MainComponent()
     }
     pushMixerState();
   });
+}
+
+void MainComponent::saveConfig() {
+  std::cerr << "[MainComponent] Saving config to "
+            << currentConfigFile.getFullPathName() << std::endl;
+  FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
 }
 
 MainComponent::~MainComponent() {

@@ -393,6 +393,7 @@ void FiddleAudioProcessor::setConfigPath(const juce::String &path) {
   if (tcpRelay != nullptr && tcpRelay->isConnected()) {
     fiddle::MidiEvent configEvent;
     configEvent.set_timestamp_samples(0);
+    configEvent.mutable_load_config()->set_config_path(path.toStdString());
     tcpRelay->pushMessage(configEvent);
   }
 }

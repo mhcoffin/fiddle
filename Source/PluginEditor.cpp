@@ -3,39 +3,11 @@
 
 FiddleAudioProcessorEditor::FiddleAudioProcessorEditor(FiddleAudioProcessor &p)
     : AudioProcessorEditor(&p), audioProcessor(p) {
-  // Make the window resizable so user can expand it manually
   setResizable(true, true);
-  setResizeLimits(400, 150, 800, 500); // min: 400x150, max: 800x500
-  setSize(400, 400); // Increased height to ensure buttons are visible
+  setResizeLimits(400, 120, 800, 400);
+  setSize(400, 200);
 
-  // Setup load button
-  addAndMakeVisible(loadConfigButton);
-  loadConfigButton.setButtonText("Browse...");
-  loadConfigButton.setColour(juce::TextButton::buttonColourId,
-                             juce::Colours::darkgrey);
-  loadConfigButton.onClick = [this]() {
-    auto startDir =
-        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
-
-    // Create new chooser
-    fileChooser = std::make_unique<juce::FileChooser>("Select Fiddle Config...",
-                                                      startDir, "*.yaml", true);
-
-    auto folderChooserFlags = juce::FileBrowserComponent::openMode |
-                              juce::FileBrowserComponent::canSelectFiles;
-
-    fileChooser->launchAsync(
-        folderChooserFlags, [this](const juce::FileChooser &chooser) {
-          auto result = chooser.getResult();
-          if (result.existsAsFile()) {
-            auto path = result.getFullPathName();
-            audioProcessor.setConfigPath(path);
-            configPathLabel.setText(path, juce::dontSendNotification);
-          }
-        });
-  };
-
-  // Setup Label
+  // Config path label (read-only)
   addAndMakeVisible(configPathLabel);
   configPathLabel.setFont(juce::FontOptions(14.0f));
   configPathLabel.setJustificationType(juce::Justification::centredLeft);
@@ -44,14 +16,7 @@ FiddleAudioProcessorEditor::FiddleAudioProcessorEditor(FiddleAudioProcessor &p)
   configPathLabel.setColour(juce::Label::backgroundColourId,
                             juce::Colours::black.withAlpha(0.3f));
 
-  juce::String currentPath = audioProcessor.getConfigPath();
-  if (currentPath.isEmpty()) {
-    configPathLabel.setText("No config loaded (Using FiddleServer defaults)",
-                            juce::dontSendNotification);
-  } else {
-    configPathLabel.setText(currentPath, juce::dontSendNotification);
-  }
-
+  updateConfigLabel();
   startTimer(250);
 }
 
@@ -98,17 +63,26 @@ void FiddleAudioProcessorEditor::resized() {
   bounds.removeFromTop(40); // Title
   bounds.removeFromTop(30); // Status
   bounds.removeFromTop(20); // Info
-  bounds.removeFromTop(10); // Small gap
+  bounds.removeFromTop(10); // Gap
 
-  // Now place config selector in remaining space
-  auto configArea = bounds.removeFromTop(30);
-
-  // Left side: Browse Button (~100px)
-  loadConfigButton.setBounds(configArea.removeFromLeft(100));
-  configArea.removeFromLeft(10); // Spacing
-
-  // Right side: Active Path Label (takes remaining width)
+  // Config path label
+  auto configArea = bounds.removeFromTop(24);
   configPathLabel.setBounds(configArea);
 }
 
-void FiddleAudioProcessorEditor::timerCallback() { repaint(); }
+void FiddleAudioProcessorEditor::timerCallback() {
+  updateConfigLabel();
+  repaint();
+}
+
+void FiddleAudioProcessorEditor::updateConfigLabel() {
+  juce::String currentPath = audioProcessor.getConfigPath();
+  if (currentPath.isEmpty()) {
+    configPathLabel.setText("Config: (using FiddleServer defaults)",
+                            juce::dontSendNotification);
+  } else {
+    juce::File f(currentPath);
+    configPathLabel.setText("Config: " + f.getFileNameWithoutExtension(),
+                            juce::dontSendNotification);
+  }
+}
