@@ -162,25 +162,6 @@
                     <!-- Input Selector -->
                     <div class="strip-section">
                         <label class="strip-label">Input</label>
-                        {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
-                            {@const match = availableInputs.find(
-                                (i) =>
-                                    i.port === strip.inputPort &&
-                                    i.channel === strip.inputChannel,
-                            )}
-                            <div class="input-display">
-                                <div class="input-name">
-                                    {match ? (match.isSolo ? "👤" : "👥") : ""}
-                                    {match
-                                        ? match.label || match.name
-                                        : `Input ${strip.inputPort + 1}:${strip.inputChannel + 1}`}
-                                </div>
-                                <div class="input-port-ch">
-                                    P{strip.inputPort + 1} Ch{strip.inputChannel +
-                                        1}
-                                </div>
-                            </div>
-                        {/if}
                         <select
                             class="strip-select"
                             value={`${strip.inputPort}:${strip.inputChannel}`}
@@ -197,12 +178,13 @@
                                 <option
                                     value={`${input.port}:${input.channel}`}
                                 >
-                                    {icon}
-                                    {input.label || input.name} (P{input.port +
-                                        1} Ch{input.channel + 1})
+                                    {icon} {input.label || input.name}
                                 </option>
                             {/each}
                         </select>
+                        {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
+                            <div class="input-port-ch">P{strip.inputPort + 1} Ch{strip.inputChannel + 1}</div>
+                        {/if}
                     </div>
 
                     <!-- Spacer -->
