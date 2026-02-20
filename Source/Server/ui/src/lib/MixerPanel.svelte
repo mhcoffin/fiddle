@@ -227,7 +227,7 @@
                             <button
                                 class="editor-btn"
                                 onclick={() => showEditor(strip.id)}
-                                title="Show plugin editor">🎛️</button
+                                title="Show plugin editor">⚙️</button
                             >
                         {/if}
                     </div>
