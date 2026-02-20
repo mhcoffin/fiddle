@@ -69,15 +69,32 @@ public:
   juce::String getConfigPath() const { return currentConfigPath; }
   void setConfigPath(const juce::String &path);
 
-  /// Read the active config path written by FiddleServer
+  /// Read the active config path written by FiddleServer (line 1)
   juce::String getActiveServerConfig() const {
     auto f =
         juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
             .getChildFile("Fiddle")
             .getChildFile("active_config.txt");
-    if (f.existsAsFile())
-      return f.loadFileAsString().trim();
+    if (f.existsAsFile()) {
+      auto lines = juce::StringArray::fromLines(f.loadFileAsString());
+      if (lines.size() > 0)
+        return lines[0].trim();
+    }
     return {};
+  }
+
+  /// Read the playback delay in ms written by FiddleServer (line 2)
+  int getActiveServerDelay() const {
+    auto f =
+        juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Fiddle")
+            .getChildFile("active_config.txt");
+    if (f.existsAsFile()) {
+      auto lines = juce::StringArray::fromLines(f.loadFileAsString());
+      if (lines.size() > 1)
+        return lines[1].trim().getIntValue();
+    }
+    return 1000; // default
   }
 
   // Test methods

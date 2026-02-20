@@ -677,7 +677,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          scriptEngine->execute("void processNote(Note@)", (void *)&n);
 
          double triggerTimeMs =
-             juce::Time::getMillisecondCounterHiRes() + 1000.0;
+             juce::Time::getMillisecondCounterHiRes() + mixer_.getPlaybackDelayMs();
          // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
          // payload
          juce::MidiMessage msg = juce::MidiMessage::noteOn(
@@ -704,7 +704,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          subnoteGenerator.onNoteEnded(n);
 
          double triggerTimeMs =
-             juce::Time::getMillisecondCounterHiRes() + 1000.0;
+             juce::Time::getMillisecondCounterHiRes() + mixer_.getPlaybackDelayMs();
          // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
          // payload
          juce::MidiMessage msg = juce::MidiMessage::noteOff(
@@ -836,7 +836,7 @@ MainComponent::MainComponent(const juce::File &configFile)
           pushLogMessage(
               "<b>[Host]</b> Plugin has no config, using server's: " +
               currentConfigFile.getFileName());
-          FiddleConfig::writeActiveConfig(currentConfigFile);
+          FiddleConfig::writeActiveConfig(currentConfigFile, mixer_.getPlaybackDelayMs());
           return;
         }
 
@@ -871,7 +871,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                 // Keep current - push our config to the plugin
                 pushLogMessage("<b>[Host]</b> Keeping current config: " +
                                currentConfigFile.getFileName());
-                FiddleConfig::writeActiveConfig(currentConfigFile);
+                FiddleConfig::writeActiveConfig(currentConfigFile, mixer_.getPlaybackDelayMs());
               } else if (result == 3) {
                 // Reject - disconnect the client
                 pushLogMessage(
@@ -961,7 +961,7 @@ void MainComponent::saveConfigAs(const juce::File &newFile) {
             << currentConfigFile.getFullPathName() << std::endl;
   FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
   FiddleConfig::saveRecentConfig(currentConfigFile);
-  FiddleConfig::writeActiveConfig(currentConfigFile);
+  FiddleConfig::writeActiveConfig(currentConfigFile, mixer_.getPlaybackDelayMs());
 }
 
 void MainComponent::loadConfigFromFile(const juce::File &file) {
@@ -973,7 +973,7 @@ void MainComponent::loadConfigFromFile(const juce::File &file) {
     pushLogMessage(log, false);
   }
   pushMixerState();
-  FiddleConfig::writeActiveConfig(currentConfigFile);
+  FiddleConfig::writeActiveConfig(currentConfigFile, mixer_.getPlaybackDelayMs());
   FiddleConfig::saveRecentConfig(currentConfigFile);
 
   if (onConfigChanged)

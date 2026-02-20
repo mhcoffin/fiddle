@@ -126,9 +126,10 @@ void FiddleAudioProcessor::prepareToPlay(double sampleRate,
   // Reset channel counter so next setCurrentProgram sequence starts at ch 1
   nextProgramChangeChannel = 1;
 
-  // Report the 1-second playback delay to the host (matches the +1000ms
-  // trigger offset in FiddleServer's note event processing).
-  setLatencySamples(static_cast<int>(sampleRate * 1.0));
+  // Report the playback delay to the host (read from active_config.txt,
+  // written by FiddleServer). This allows Dorico to compensate cursor position.
+  int delayMs = getActiveServerDelay();
+  setLatencySamples(static_cast<int>(sampleRate * delayMs / 1000.0));
 }
 
 void FiddleAudioProcessor::releaseResources() {}

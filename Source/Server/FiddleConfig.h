@@ -113,22 +113,41 @@ public:
     return getAppDataDir().getChildFile("active_config.txt");
   }
 
-  /// Write the active config path (called by FiddleServer on config change)
-  static void writeActiveConfig(const juce::File &configFile) {
-    getActiveConfigFile().replaceWithText(configFile.getFullPathName());
+  /// Write the active config path and delay (called by FiddleServer)
+  static void writeActiveConfig(const juce::File &configFile,
+                                int delayMs = 1000) {
+    getActiveConfigFile().replaceWithText(configFile.getFullPathName() + "\n" +
+                                          juce::String(delayMs));
   }
 
   /// Read the active config path (called by VST plugin)
   static juce::String readActiveConfig() {
     auto f = getActiveConfigFile();
-    if (f.existsAsFile())
-      return f.loadFileAsString().trim();
+    if (f.existsAsFile()) {
+      auto lines = juce::StringArray::fromLines(f.loadFileAsString());
+      if (lines.size() > 0)
+        return lines[0].trim();
+    }
     return {};
+  }
+
+  /// Read the playback delay in ms (called by VST plugin)
+  static int readActiveDelay() {
+    auto f = getActiveConfigFile();
+    if (f.existsAsFile()) {
+      auto lines = juce::StringArray::fromLines(f.loadFileAsString());
+      if (lines.size() > 1)
+        return lines[1].trim().getIntValue();
+    }
+    return 1000; // default
   }
 
   static void save(const PluginScanner &scanner, const MixerModel &mixer,
                    const juce::File &targetFile) {
     YAML::Node root;
+
+    // Save playback delay
+    root["playback_delay_ms"] = mixer.getPlaybackDelayMs();
 
     // Save Plugin Scanner Cache
     if (auto xml = scanner.getKnownPluginList().createXml()) {
@@ -195,6 +214,11 @@ public:
     try {
       YAML::Node root = YAML::LoadFile(path.getFullPathName().toStdString());
       logs.push_back("Loaded config YAML from " + path.getFullPathName());
+
+      // Load playback delay
+      if (root["playback_delay_ms"].IsDefined()) {
+        mixer.setPlaybackDelayMs(root["playback_delay_ms"].as<int>());
+      }
 
       // Load Scanner Cache
       if (root["plugin_cache"].IsDefined() && !root["plugin_cache"].IsNull()) {

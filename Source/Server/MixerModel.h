@@ -111,6 +111,11 @@ private:
   int nextStripNumber_ = 1;
   double currentSampleRate_ = 44100.0;
   int currentBlockSize_ = 512;
+  int playbackDelayMs_ = 1000;
+
+public:
+  int getPlaybackDelayMs() const { return playbackDelayMs_; }
+  void setPlaybackDelayMs(int ms) { playbackDelayMs_ = ms; }
 };
 
 } // namespace fiddle
