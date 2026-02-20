@@ -227,7 +227,7 @@
                             <button
                                 class="editor-btn"
                                 onclick={() => showEditor(strip.id)}
-                                title="Show plugin editor">⚙️</button
+                                title="Show plugin editor">⚙️ Open</button
                             >
                         {/if}
                     </div>
@@ -418,15 +418,14 @@
 
     .editor-btn {
         margin-top: 3px;
-        padding: 6px 6px;
+        padding: 4px 6px;
         border: 1px solid #334155;
         border-radius: 4px;
         background: #0f172a;
         color: #94a3b8;
-        font-size: 0.9rem;
+        font-size: 0.7rem;
         cursor: pointer;
         text-align: center;
-        line-height: 1;
     }
 
     .editor-btn:hover {
