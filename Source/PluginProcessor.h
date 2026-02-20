@@ -13,6 +13,7 @@ class FiddleVST3Extensions;
 using namespace juce;
 
 class FiddleAudioProcessor : public juce::AudioProcessor,
+                             private juce::Timer,
                              public juce::AudioProcessorParameter::Listener {
 public:
   static constexpr int kParamIdProgram = 1000;
@@ -132,6 +133,21 @@ private:
   // Dorico calls setCurrentProgram() once per instrument in channel order,
   // but the VST3 API is channel-agnostic. We assign channels 1, 2, 3...
   int nextProgramChangeChannel = 1;
+
+  // Delay polling
+  int lastKnownDelayMs_ = 1000;
+  double cachedSampleRate_ = 44100.0;
+
+  void timerCallback() override {
+    int newDelay = getActiveServerDelay();
+    if (newDelay != lastKnownDelayMs_) {
+      lastKnownDelayMs_ = newDelay;
+      setLatencySamples(
+          static_cast<int>(cachedSampleRate_ * newDelay / 1000.0));
+      updateHostDisplay(
+          AudioProcessor::ChangeDetails().withLatencyChanged(true));
+    }
+  }
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessor)
 };

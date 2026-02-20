@@ -128,8 +128,12 @@ void FiddleAudioProcessor::prepareToPlay(double sampleRate,
 
   // Report the playback delay to the host (read from active_config.txt,
   // written by FiddleServer). This allows Dorico to compensate cursor position.
-  int delayMs = getActiveServerDelay();
-  setLatencySamples(static_cast<int>(sampleRate * delayMs / 1000.0));
+  cachedSampleRate_ = sampleRate;
+  lastKnownDelayMs_ = getActiveServerDelay();
+  setLatencySamples(static_cast<int>(sampleRate * lastKnownDelayMs_ / 1000.0));
+
+  // Poll for delay changes every 1 second
+  startTimer(1000);
 }
 
 void FiddleAudioProcessor::releaseResources() {}
