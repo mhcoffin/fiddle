@@ -961,6 +961,7 @@ void MainComponent::saveConfigAs(const juce::File &newFile) {
             << currentConfigFile.getFullPathName() << std::endl;
   FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
   FiddleConfig::saveRecentConfig(currentConfigFile);
+  FiddleConfig::writeActiveConfig(currentConfigFile);
 }
 
 void MainComponent::loadConfigFromFile(const juce::File &file) {
