@@ -975,6 +975,9 @@ void MainComponent::loadConfigFromFile(const juce::File &file) {
   pushMixerState();
   FiddleConfig::writeActiveConfig(currentConfigFile);
   FiddleConfig::saveRecentConfig(currentConfigFile);
+
+  if (onConfigChanged)
+    onConfigChanged(currentConfigFile);
 }
 
 MainComponent::~MainComponent() {

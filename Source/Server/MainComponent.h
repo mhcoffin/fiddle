@@ -39,6 +39,10 @@ public:
   /// Get the MIDI TCP server for disconnect control
   MidiTcpServer *getMidiServer() { return server.get(); }
 
+  /// Callback fired when the active config file changes (e.g. auto-loaded from
+  /// plugin)
+  std::function<void(const juce::File &)> onConfigChanged;
+
   void paint(juce::Graphics &) override;
   void resized() override;
 

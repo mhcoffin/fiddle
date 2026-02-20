@@ -134,6 +134,17 @@ public:
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(this);
 #endif
+
+    // Listen for config changes from MainComponent (e.g. auto-loaded from
+    // plugin)
+    if (auto *mc =
+            dynamic_cast<MainComponent *>(mainWindow->getContentComponent())) {
+      mc->onConfigChanged = [this](const juce::File &newConfig) {
+        activeConfigFile = newConfig;
+        mainWindow->setName(getApplicationName() + " - " +
+                            newConfig.getFileNameWithoutExtension());
+      };
+    }
   }
 
   void saveCurrentConfig() {
