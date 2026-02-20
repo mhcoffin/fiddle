@@ -908,6 +908,14 @@ void MainComponent::saveConfig() {
   FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
 }
 
+void MainComponent::saveConfigAs(const juce::File &newFile) {
+  currentConfigFile = newFile;
+  std::cerr << "[MainComponent] Save As -> "
+            << currentConfigFile.getFullPathName() << std::endl;
+  FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
+  FiddleConfig::saveRecentConfig(currentConfigFile);
+}
+
 MainComponent::~MainComponent() {
   std::cerr << "[MainComponent] Destructor Invoked. Saving Config..."
             << std::endl;

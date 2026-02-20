@@ -75,6 +75,7 @@ public:
       menu.addItem(2, "New Config...");
       menu.addSeparator();
       menu.addItem(3, "Save Config  (Cmd+S)");
+      menu.addItem(4, "Save As...");
     }
     return menu;
   }
@@ -86,6 +87,8 @@ public:
       showNewConfigDialog();
     } else if (menuItemID == 3) {
       saveCurrentConfig();
+    } else if (menuItemID == 4) {
+      showSaveAsDialog();
     }
   }
 
@@ -113,6 +116,7 @@ public:
 
     activeConfigFile = configFile;
     FiddleConfig::saveRecentConfig(configFile);
+    FiddleConfig::writeActiveConfig(configFile);
     mainWindow = std::make_unique<MainWindow>(
         getApplicationName() + " - " + configFile.getFileNameWithoutExtension(),
         configFile);
@@ -146,6 +150,34 @@ public:
             if (name.isNotEmpty()) {
               auto file = FiddleConfig::createNewConfig(name);
               openConfig(file);
+            }
+          }
+          delete aw;
+        }),
+        true);
+  }
+  void showSaveAsDialog() {
+    auto *aw = new juce::AlertWindow("Save Configuration As",
+                                     "Enter a name for the configuration:",
+                                     juce::MessageBoxIconType::NoIcon);
+    aw->addTextEditor("name", "", "Config name:");
+    aw->addButton("Save", 1);
+    aw->addButton("Cancel", 0);
+    aw->enterModalState(
+        true, juce::ModalCallbackFunction::create([this, aw](int result) {
+          if (result == 1) {
+            auto name = aw->getTextEditorContents("name").trim();
+            if (name.isNotEmpty()) {
+              auto file =
+                  FiddleConfig::getConfigDir().getChildFile(name + ".yaml");
+              if (mainWindow) {
+                if (auto *mc = dynamic_cast<MainComponent *>(
+                        mainWindow->getContentComponent())) {
+                  mc->saveConfigAs(file);
+                }
+                activeConfigFile = file;
+                mainWindow->setName(getApplicationName() + " - " + name);
+              }
             }
           }
           delete aw;

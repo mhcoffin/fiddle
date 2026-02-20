@@ -69,6 +69,17 @@ public:
   juce::String getConfigPath() const { return currentConfigPath; }
   void setConfigPath(const juce::String &path);
 
+  /// Read the active config path written by FiddleServer
+  juce::String getActiveServerConfig() const {
+    auto f =
+        juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Fiddle")
+            .getChildFile("active_config.txt");
+    if (f.existsAsFile())
+      return f.loadFileAsString().trim();
+    return {};
+  }
+
   // Test methods
   int sendTestProgramChange();
   int sendTestContextUpdate();

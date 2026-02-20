@@ -27,6 +27,9 @@ public:
   /// Save current state to the active config file
   void saveConfig();
 
+  /// Save current state to a new named config file, switch to it
+  void saveConfigAs(const juce::File &newFile);
+
   void paint(juce::Graphics &) override;
   void resized() override;
 

@@ -88,7 +88,7 @@ public:
     return file;
   }
 
-  /// Migrate legacy ~/Library/Application Support/Fiddle/config.yaml -> 
+  /// Migrate legacy ~/Library/Application Support/Fiddle/config.yaml ->
   /// configs/Default.yaml if needed.
   /// Returns the migrated file, or juce::File() if nothing to migrate.
   static juce::File migrateLegacyConfig() {
@@ -100,11 +100,30 @@ public:
     if (!dest.existsAsFile()) {
       legacy.copyFileTo(dest);
       saveRecentConfig(dest);
-      std::cerr
-          << "[FiddleConfig] Migrated legacy config.yaml -> configs/Default.yaml"
-          << std::endl;
+      std::cerr << "[FiddleConfig] Migrated legacy config.yaml -> "
+                   "configs/Default.yaml"
+                << std::endl;
     }
     return dest;
+  }
+
+  /// File that FiddleServer writes to indicate the currently active config.
+  /// The VST plugin reads this to display the current config name.
+  static juce::File getActiveConfigFile() {
+    return getAppDataDir().getChildFile("active_config.txt");
+  }
+
+  /// Write the active config path (called by FiddleServer on config change)
+  static void writeActiveConfig(const juce::File &configFile) {
+    getActiveConfigFile().replaceWithText(configFile.getFullPathName());
+  }
+
+  /// Read the active config path (called by VST plugin)
+  static juce::String readActiveConfig() {
+    auto f = getActiveConfigFile();
+    if (f.existsAsFile())
+      return f.loadFileAsString().trim();
+    return {};
   }
 
   static void save(const PluginScanner &scanner, const MixerModel &mixer,
