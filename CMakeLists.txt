@@ -96,11 +96,6 @@ juce_add_gui_app(FiddleServer
     ICON_BIG "Source/Server/Resources/fiddle_icon.png"
 )
 
-juce_add_gui_app(FiddlePilot
-    COMPANY_NAME "Antigravity"
-    PRODUCT_NAME "FiddlePilot"
-    BUNDLE_ID "com.antigravity.fiddlepilot"
-)
 
 target_sources(Fiddle PRIVATE
     Source/PluginProcessor.cpp
@@ -158,29 +153,6 @@ add_custom_command(TARGET FiddleServer POST_BUILD
     COMMENT "Copying Fiddle_Universal.doricolib to FiddleServer bundle"
 )
 
-target_sources(FiddlePilot PRIVATE
-    Source/Pilot/Main.cpp
-    Source/Pilot/MainComponent.cpp
-    Source/Pilot/MainComponent.h
-    Source/Pilot/MidiPlayer.h
-    Source/Pilot/PluginHost.h
-    Source/PluginProcessor.cpp
-    Source/PluginProcessor.h
-    Source/PluginEditor.cpp
-    Source/PluginEditor.h
-    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
-    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fobject.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fdebug.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/updatehandler.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fstring.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/thread/source/flock.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/funknown.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/ustring.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/coreiids.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/baseiids.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/public.sdk/source/vst/vstinitiids.cpp"
-)
 
 # Protobuf Generation (Manual for v21+)
 add_custom_command(
@@ -218,17 +190,6 @@ target_link_libraries(FiddleServer PRIVATE
     yaml-cpp
 )
 
-target_link_libraries(FiddlePilot PRIVATE
-    juce::juce_audio_utils
-    juce::juce_audio_processors
-    juce::juce_audio_devices
-    juce::juce_audio_basics
-    juce::juce_graphics
-    juce::juce_gui_basics
-    juce::juce_gui_extra
-    juce::juce_core
-    libprotobuf
-)
 
 target_compile_definitions(Fiddle PRIVATE
     JUCE_VST3_CAN_REPLACE_VST2=0
@@ -249,11 +210,6 @@ target_include_directories(Fiddle PRIVATE
     "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK"
 )
 
-target_include_directories(FiddlePilot PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    Source
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK"
-)
 
 target_include_directories(FiddleServer PRIVATE 
     Source/Server 
@@ -264,7 +220,7 @@ target_include_directories(FiddleServer PRIVATE
 
 juce_generate_juce_header(Fiddle)
 juce_generate_juce_header(FiddleServer)
-juce_generate_juce_header(FiddlePilot)
+
 
 # Post-build copy for scripts and UI
 add_custom_command(TARGET FiddleServer POST_BUILD
