@@ -418,14 +418,15 @@
 
     .editor-btn {
         margin-top: 3px;
-        padding: 2px 6px;
+        padding: 6px 6px;
         border: 1px solid #334155;
         border-radius: 4px;
         background: #0f172a;
         color: #94a3b8;
-        font-size: 0.65rem;
+        font-size: 0.9rem;
         cursor: pointer;
         text-align: center;
+        line-height: 1;
     }
 
     .editor-btn:hover {
