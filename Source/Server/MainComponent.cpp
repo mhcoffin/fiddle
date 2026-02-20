@@ -809,31 +809,78 @@ MainComponent::MainComponent(const juce::File &configFile)
 
       juce::MessageManager::callAsync([this, path]() {
         juce::File targetFile(path);
-        if (targetFile.existsAsFile()) {
-          pushLogMessage("<b>[Host]</b> Commanded config switch to " +
-                         targetFile.getFileName());
 
-          // 1. Wipe current strips
-          mixer_.clear();
-
-          // 2. Load new config
-          currentConfigFile = targetFile;
-          std::vector<juce::String> configLogs =
-              FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
-
-          // 3. Output results
-          for (const auto &log : configLogs) {
-            pushLogMessage(log, false);
+        // Case 1: No config loaded (waiting state) - auto-load
+        if (!currentConfigFile.existsAsFile()) {
+          if (targetFile.existsAsFile()) {
+            pushLogMessage("<b>[Host]</b> Loading config: " +
+                           targetFile.getFileName());
+            loadConfigFromFile(targetFile);
+          } else if (path.isNotEmpty()) {
+            pushLogMessage("<span style=\"color: orange;\"><b>[Host]</b> "
+                           "Plugin requested config not found: " +
+                           path + " - remaining in waiting state</span>");
           }
-
-          // 4. Update UI instantly
-          pushMixerState();
-        } else {
-          pushLogMessage("<span style=\"color: red;\"><b>[Host Error]</b> "
-                         "Requested config file not found: " +
-                             targetFile.getFullPathName() + "</span>",
-                         true);
+          return;
         }
+
+        // Case 2: Same config - no conflict
+        if (targetFile == currentConfigFile) {
+          pushLogMessage("<b>[Host]</b> Plugin config matches: " +
+                         targetFile.getFileName());
+          return;
+        }
+
+        // Case 3: Plugin has no config - push ours to it
+        if (path.isEmpty() || !targetFile.existsAsFile()) {
+          pushLogMessage(
+              "<b>[Host]</b> Plugin has no config, using server's: " +
+              currentConfigFile.getFileName());
+          FiddleConfig::writeActiveConfig(currentConfigFile);
+          return;
+        }
+
+        // Case 4: Conflict - different configs
+        pushLogMessage("<span style=\"color: orange;\"><b>[Host]</b> "
+                       "Config conflict: server has '" +
+                       currentConfigFile.getFileNameWithoutExtension() +
+                       "', plugin wants '" +
+                       targetFile.getFileNameWithoutExtension() + "'</span>");
+
+        auto *aw = new juce::AlertWindow(
+            "Config Conflict",
+            "The Dorico plugin wants to load '" +
+                targetFile.getFileNameWithoutExtension() +
+                "' but FiddleServer is using '" +
+                currentConfigFile.getFileNameWithoutExtension() + "'.",
+            juce::MessageBoxIconType::QuestionIcon);
+        aw->addButton("Load Dorico's Config", 1);
+        aw->addButton("Keep Current", 2);
+        aw->addButton("Reject Connection", 3);
+        aw->enterModalState(
+            true,
+            juce::ModalCallbackFunction::create([this, targetFile](int result) {
+              if (result == 1) {
+                // Load Dorico's config
+                pushLogMessage("<b>[Host]</b> Switching to Dorico's config: " +
+                               targetFile.getFileName());
+                FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
+                mixer_.clear();
+                loadConfigFromFile(targetFile);
+              } else if (result == 2) {
+                // Keep current - push our config to the plugin
+                pushLogMessage("<b>[Host]</b> Keeping current config: " +
+                               currentConfigFile.getFileName());
+                FiddleConfig::writeActiveConfig(currentConfigFile);
+              } else if (result == 3) {
+                // Reject - disconnect the client
+                pushLogMessage(
+                    "<b>[Host]</b> Rejected connection. Disconnecting plugin.");
+                if (server)
+                  server->disconnectClient();
+              }
+            }),
+            true);
       });
     }
 
@@ -913,6 +960,19 @@ void MainComponent::saveConfigAs(const juce::File &newFile) {
   std::cerr << "[MainComponent] Save As -> "
             << currentConfigFile.getFullPathName() << std::endl;
   FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
+  FiddleConfig::saveRecentConfig(currentConfigFile);
+}
+
+void MainComponent::loadConfigFromFile(const juce::File &file) {
+  mixer_.clear();
+  currentConfigFile = file;
+  std::vector<juce::String> configLogs =
+      FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
+  for (const auto &log : configLogs) {
+    pushLogMessage(log, false);
+  }
+  pushMixerState();
+  FiddleConfig::writeActiveConfig(currentConfigFile);
   FiddleConfig::saveRecentConfig(currentConfigFile);
 }
 

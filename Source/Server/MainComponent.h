@@ -30,6 +30,15 @@ public:
   /// Save current state to a new named config file, switch to it
   void saveConfigAs(const juce::File &newFile);
 
+  /// Whether a config file has been loaded (false in "waiting" state)
+  bool isConfigLoaded() const { return currentConfigFile.existsAsFile(); }
+
+  /// Get the current config file path
+  juce::File getConfigFile() const { return currentConfigFile; }
+
+  /// Get the MIDI TCP server for disconnect control
+  MidiTcpServer *getMidiServer() { return server.get(); }
+
   void paint(juce::Graphics &) override;
   void resized() override;
 
@@ -70,6 +79,7 @@ private:
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
   void pushSubnoteToWebView(const fiddle::Subnote &subnote);
+  void loadConfigFromFile(const juce::File &file);
   std::optional<juce::WebBrowserComponent::Resource>
   getResource(const juce::String &url);
 

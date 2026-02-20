@@ -109,17 +109,26 @@ public:
 
   void openConfig(const juce::File &configFile) {
     // Save current config before switching
-    if (mainWindow) {
+    if (mainWindow && activeConfigFile.existsAsFile()) {
       saveCurrentConfig();
       mainWindow.reset();
     }
 
     activeConfigFile = configFile;
-    FiddleConfig::saveRecentConfig(configFile);
-    FiddleConfig::writeActiveConfig(configFile);
-    mainWindow = std::make_unique<MainWindow>(
-        getApplicationName() + " - " + configFile.getFileNameWithoutExtension(),
-        configFile);
+
+    if (configFile.existsAsFile()) {
+      // Normal config load
+      FiddleConfig::saveRecentConfig(configFile);
+      FiddleConfig::writeActiveConfig(configFile);
+      mainWindow = std::make_unique<MainWindow>(
+          getApplicationName() + " - " +
+              configFile.getFileNameWithoutExtension(),
+          configFile);
+    } else {
+      // Waiting state — no config loaded, listen for plugin connection
+      mainWindow = std::make_unique<MainWindow>(
+          getApplicationName() + " - Waiting for connection", juce::File());
+    }
 
     // Set menu bar on macOS
 #if JUCE_MAC

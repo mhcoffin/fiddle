@@ -27,6 +27,9 @@ public:
 
   void onConnectionChanged(std::function<void(bool, juce::String)> callback);
 
+  /// Request that the current client connection be closed.
+  void disconnectClient();
+
 private:
   int port;
   juce::StreamingSocket listenerSocket;
@@ -35,6 +38,8 @@ private:
   std::function<void(bool, juce::String)> connectionCallback;
 
   void handleConnection(std::unique_ptr<juce::StreamingSocket> clientSocket);
+
+  std::atomic<bool> shouldDisconnect{false};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTcpServer)
 };

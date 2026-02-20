@@ -33,9 +33,6 @@ public:
   void pushMessage(const fiddle::MidiEvent &event) {
     const juce::ScopedLock sl(lock);
 
-    // Serialize to a string buffer to move most work out of the lock/audio
-    // thread if needed, but here we just store the proto and serialize in the
-    // background thread.
     if (pendingMessages.size() < 1000) { // Safety cap
       pendingMessages.push_back(event);
       notify();
@@ -43,6 +40,12 @@ public:
   }
 
   bool isConnected() const { return connected.load(); }
+
+  /// Store the config path to announce on connect
+  void setConfigPath(const juce::String &path) {
+    const juce::ScopedLock sl(lock);
+    announcedConfigPath = path;
+  }
 
   void run() override {
     uint32_t lastConnectAttempt = 0;
@@ -68,6 +71,18 @@ public:
 
           if (socket->connect("127.0.0.1", 5252, 500)) {
             connected.store(true);
+
+            // Announce our config path on connect
+            juce::String pathToAnnounce;
+            {
+              const juce::ScopedLock sl(lock);
+              pathToAnnounce = announcedConfigPath;
+            }
+            fiddle::MidiEvent hello;
+            hello.set_timestamp_samples(0);
+            hello.mutable_load_config()->set_config_path(
+                pathToAnnounce.toStdString());
+            pushMessage(hello);
           }
         }
       }
@@ -82,22 +97,38 @@ public:
 
       if (messagesToSend.empty()) {
         if (connected.load()) {
-          // Heartbeat check (Disabled to reduce noise)
-          wait(5000);
-          const juce::ScopedLock sl(lock);
-          // if (pendingMessages.empty() && connected.load()) {
-          //   fiddle::MidiEvent heartbeat;
-          //   heartbeat.mutable_other()->set_description("Heartbeat");
-          //   messagesToSend.push_back(heartbeat);
-          // }
+          // Wait briefly, then probe the socket to detect dead connections.
+          // TCP won't tell us the server closed unless we try to read/write.
+          wait(2000);
+
+          // Probe: attempt a non-blocking read. If server closed, read
+          // returns 0 or -1.
+          if (socket != nullptr && connected.load()) {
+            char probe;
+            int ready = socket->waitUntilReady(true, 0); // readable?
+            if (ready > 0) {
+              int r = socket->read(&probe, 1, false);
+              if (r <= 0) {
+                // Server closed the connection
+                const juce::ScopedLock sl(lock);
+                if (socket != nullptr)
+                  socket->close();
+                connected.store(false);
+              }
+            } else if (ready < 0) {
+              // Socket error
+              const juce::ScopedLock sl(lock);
+              if (socket != nullptr)
+                socket->close();
+              connected.store(false);
+            }
+          }
+          continue;
         } else {
           wait(500); // Shorter wait when disconnected to keep loop responsive
           continue;
         }
       }
-
-      if (messagesToSend.empty())
-        continue;
 
       for (const auto &msg : messagesToSend) {
         if (threadShouldExit())
@@ -142,6 +173,7 @@ private:
   juce::CriticalSection lock;
   std::vector<fiddle::MidiEvent> pendingMessages;
   std::atomic<bool> connected{false};
+  juce::String announcedConfigPath;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTcpRelay)
 };

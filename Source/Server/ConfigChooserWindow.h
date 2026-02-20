@@ -47,6 +47,16 @@ public:
         onCancelled();
     };
 
+    addAndMakeVisible(waitButton);
+    waitButton.setButtonText("Wait for Dorico");
+    waitButton.setColour(juce::TextButton::buttonColourId,
+                         juce::Colour(0xFF2D5F2D));
+    waitButton.onClick = [this]() {
+      // Return empty file = waiting state
+      if (onConfigSelected)
+        onConfigSelected(juce::File());
+    };
+
     // New config name field (initially hidden)
     addChildComponent(newNameEditor);
     newNameEditor.setTextToShowWhenEmpty("Enter config name...",
@@ -94,11 +104,13 @@ public:
       createButton.setBounds(newConfigRow);
     }
 
-    // Bottom button row
-    int buttonW = (buttonRow.getWidth() - 20) / 3;
+    // Bottom button row (4 buttons)
+    int buttonW = (buttonRow.getWidth() - 30) / 4;
     browseButton.setBounds(buttonRow.removeFromLeft(buttonW));
     buttonRow.removeFromLeft(10);
     newConfigButton.setBounds(buttonRow.removeFromLeft(buttonW));
+    buttonRow.removeFromLeft(10);
+    waitButton.setBounds(buttonRow.removeFromLeft(buttonW));
     buttonRow.removeFromLeft(10);
     cancelButton.setBounds(buttonRow);
   }
@@ -146,7 +158,8 @@ public:
 private:
   juce::Label titleLabel;
   juce::ListBox recentListBox;
-  juce::TextButton browseButton, newConfigButton, cancelButton, createButton;
+  juce::TextButton browseButton, newConfigButton, cancelButton, createButton,
+      waitButton;
   juce::TextEditor newNameEditor;
   juce::StringArray recentPaths;
   std::unique_ptr<juce::FileChooser> fileChooser;

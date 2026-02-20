@@ -389,7 +389,11 @@ void FiddleAudioProcessor::setStateInformation(const void *data,
 void FiddleAudioProcessor::setConfigPath(const juce::String &path) {
   currentConfigPath = path;
 
-  // Fire IPC msg to FiddleServer immediately
+  // Update relay so it announces this path on (re)connect
+  if (tcpRelay != nullptr)
+    tcpRelay->setConfigPath(path);
+
+  // Fire IPC msg to FiddleServer immediately if connected
   if (tcpRelay != nullptr && tcpRelay->isConnected()) {
     fiddle::MidiEvent configEvent;
     configEvent.set_timestamp_samples(0);

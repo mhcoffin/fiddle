@@ -24,6 +24,8 @@ void MidiTcpServer::onConnectionChanged(
   connectionCallback = callback;
 }
 
+void MidiTcpServer::disconnectClient() { shouldDisconnect.store(true); }
+
 void MidiTcpServer::run() {
   if (!listenerSocket.createListener(port)) {
     DBG("MidiTcpServer: Failed to create listener on port " << port);
@@ -52,7 +54,8 @@ void MidiTcpServer::handleConnection(
     std::unique_ptr<juce::StreamingSocket> clientSocket) {
   DBG("MidiTcpServer: Client connected from " << clientSocket->getHostName());
 
-  while (!threadShouldExit() && clientSocket->isConnected()) {
+  while (!threadShouldExit() && clientSocket->isConnected() &&
+         !shouldDisconnect.load()) {
     // Read 4-byte length prefix
     uint32_t networkSize = 0;
     int bytesRead = clientSocket->read(&networkSize, 4, true);
@@ -100,6 +103,7 @@ void MidiTcpServer::handleConnection(
     }
   }
 
+  shouldDisconnect.store(false);
   DBG("MidiTcpServer: Connection closed");
 }
 
