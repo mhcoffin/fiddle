@@ -51,7 +51,9 @@ public:
     // Migrate legacy config if needed
     FiddleConfig::migrateLegacyConfig();
 
-    showConfigChooser(true);
+    // Start immediately in waiting mode — TCP server runs, ready for Dorico.
+    // User can load a config manually via File > Open Config.
+    openConfig(juce::File());
   }
 
   void shutdown() override {
