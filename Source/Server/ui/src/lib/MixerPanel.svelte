@@ -4,6 +4,7 @@
     let strips = $state([]);
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
+    let playbackDelay = $state(1000);
 
     /** @type {any} */
     const w = window;
@@ -35,6 +36,24 @@
         } catch (e) {
             console.error("[Mixer] Failed to parse available inputs:", e);
         }
+    };
+
+    // Playback delay callback from C++
+    w.setPlaybackDelay = (ms) => {
+        playbackDelay = ms;
+    };
+
+    // Request current delay on mount
+    onMount(() => {
+        const fn = getNative("getPlaybackDelay");
+        if (fn) fn();
+    });
+
+    const updateDelay = (ms) => {
+        const val = Math.max(0, Math.min(5000, parseInt(ms) || 0));
+        playbackDelay = val;
+        const fn = getNative("setPlaybackDelay");
+        if (fn) fn(val);
     };
 
     // Also listen for plugin list updates (reuse from PluginsPanel)
@@ -155,7 +174,22 @@
 <div class="mixer-container">
     <div class="mixer-header">
         <h2>Mixer</h2>
-        <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button>
+        <div class="header-controls">
+            <div class="delay-control">
+                <label class="delay-label">Delay</label>
+                <input
+                    class="delay-input"
+                    type="number"
+                    min="0"
+                    max="5000"
+                    step="100"
+                    value={playbackDelay}
+                    onchange={(e) => updateDelay(e.target.value)}
+                />
+                <span class="delay-unit">ms</span>
+            </div>
+            <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button>
+        </div>
     </div>
 
     {#if strips.length === 0}
@@ -303,6 +337,52 @@
     .add-strip-btn:hover {
         background: #2563eb;
         color: #fff;
+    }
+
+    .header-controls {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .delay-control {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .delay-label {
+        font-size: 0.7rem;
+        color: #94a3b8;
+        font-weight: 500;
+    }
+
+    .delay-input {
+        width: 60px;
+        padding: 4px 6px;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        background: #0f172a;
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        text-align: right;
+        -moz-appearance: textfield;
+    }
+
+    .delay-input::-webkit-inner-spin-button,
+    .delay-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    .delay-input:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+
+    .delay-unit {
+        font-size: 0.65rem;
+        color: #64748b;
     }
 
     .empty-state {
