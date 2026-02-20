@@ -74,6 +74,21 @@
     const setInput = (stripId, port, channel) => {
         const fn = getNative("setStripInput");
         if (fn) fn(stripId, port, channel);
+
+        // Auto-name strip based on input instrument
+        const input = availableInputs.find(
+            (i) => i.port === port && i.channel === channel,
+        );
+        if (input) {
+            const instrumentName = input.label || input.name;
+            const defaultName = `${instrumentName} Audio`;
+            const strip = strips.find((s) => s.id === stripId);
+            // Only auto-rename if name is still a default
+            if (strip && (strip.name.startsWith("Strip") || strip.name === "")) {
+                const renameFn = getNative("setStripName");
+                if (renameFn) renameFn(stripId, defaultName);
+            }
+        }
     };
 
     const setPlugin = (stripId, pluginUid) => {
