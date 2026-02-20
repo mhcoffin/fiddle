@@ -36,6 +36,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(angelscript)
 
+# Fetch yaml-cpp
+FetchContent_Declare(
+    yaml-cpp
+    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+    GIT_TAG 0.8.0
+    PATCH_COMMAND sed -i "" "s/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/" CMakeLists.txt
+)
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools" FORCE)
+FetchContent_MakeAvailable(yaml-cpp)
+
 # Fetch the full VST3 SDK (JUCE's bundled copy lacks public.sdk/source/main/)
 FetchContent_Declare(
     vst3sdk
@@ -82,6 +93,7 @@ juce_add_gui_app(FiddleServer
     COMPANY_NAME "Antigravity"
     PRODUCT_NAME "FiddleServer"
     BUNDLE_ID "com.antigravity.fiddleserver"
+    ICON_BIG "Source/Server/Resources/fiddle_icon.png"
 )
 
 juce_add_gui_app(FiddlePilot
@@ -115,16 +127,24 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MainComponent.h
     Source/Server/DoricoConfigGenerator.cpp
     Source/Server/DoricoConfigGenerator.h
-    Source/Server/DoricoSetupComponent.cpp
-    Source/Server/DoricoSetupComponent.h
+    Source/Server/DoricoInstrumentBrowser.cpp
+    Source/Server/DoricoInstrumentBrowser.h
+    Source/Server/MasterInstrumentList.cpp
+    Source/Server/MasterInstrumentList.h
     Source/Server/MidiTcpServer.cpp
     Source/Server/MidiTcpServer.h
     Source/Server/NoteStreamTracker.h
     Source/Server/SubnoteGenerator.h
+    Source/Server/PluginScanner.h
+    Source/Server/PluginHost.h
+    Source/Server/PluginEditorWindow.h
+    Source/Server/MixerStrip.h
+    Source/Server/MixerModel.h
     Source/Server/ScriptEngine.cpp
     Source/Server/ScriptEngine.h
     Source/Server/ScriptBindings.cpp
     Source/Server/ScriptBindings.h
+    Source/Server/FiddleConfig.h
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring/scriptstdstring.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
@@ -188,8 +208,14 @@ target_link_libraries(FiddleServer PRIVATE
     juce::juce_events
     juce::juce_data_structures
     juce::juce_core
+    juce::juce_audio_processors
+    juce::juce_audio_basics
+    juce::juce_audio_devices
+    juce::juce_audio_formats
+    juce::juce_audio_utils
     libprotobuf
     angelscript
+    yaml-cpp
 )
 
 target_link_libraries(FiddlePilot PRIVATE
@@ -210,6 +236,7 @@ target_compile_definitions(Fiddle PRIVATE
 
 target_compile_definitions(FiddleServer PRIVATE
     JUCE_WEB_BROWSER=1
+    JUCE_PLUGINHOST_VST3=1
 )
 
 if(APPLE OR UNIX)
@@ -246,11 +273,18 @@ add_custom_command(TARGET FiddleServer POST_BUILD
     "$<TARGET_FILE_DIR:FiddleServer>/scripts"
 )
 
-add_custom_command(TARGET FiddleServer POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/dist"
-    "$<TARGET_FILE_DIR:FiddleServer>/ui"
+# Sync UI dist → app bundle. This custom target runs every build, so
+# JS/CSS-only changes are picked up without touching C++ sources.
+set(UI_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/dist")
+set(UI_BUNDLE_DIR "$<TARGET_FILE_DIR:FiddleServer>/ui")
+set(UI_STAMP "${CMAKE_CURRENT_BINARY_DIR}/ui_copy.stamp")
+
+add_custom_target(FiddleServerUI ALL
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${UI_BUNDLE_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${UI_DIST_DIR}" "${UI_BUNDLE_DIR}"
+    COMMENT "Syncing UI dist → FiddleServer bundle"
 )
+add_dependencies(FiddleServer FiddleServerUI)
 
 # ==============================================================================
 # FiddleNative — Native VST3 plugin with per-channel program changes

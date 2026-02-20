@@ -3,6 +3,9 @@
   import { onMount } from "svelte";
   import Timeline from "./lib/Timeline.svelte";
   import EventLog from "./lib/EventLog.svelte";
+  import SetupPanel from "./lib/SetupPanel.svelte";
+  import PluginsPanel from "./lib/PluginsPanel.svelte";
+  import MixerPanel from "./lib/MixerPanel.svelte";
 
   // Use Svelte 5 Runes for reactivity
   let logs = $state([]);
@@ -18,6 +21,7 @@
   let midiEvents = $state([]);
   let serverVersion = $state("");
   let isConnected = $state(false);
+  let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }
   let sessionOffset = $derived.by(() => {
     let min = Infinity;
     if (noteHistory.length > 0) {
@@ -44,6 +48,7 @@
     if (keepEvents !== true) midiEvents = [];
     logs = [];
     heartbeat = 0;
+    channelInstruments = {};
   };
 
   let logId = 0;
@@ -65,6 +70,25 @@
       ...channelInstruments,
       [channel]: name,
     };
+  };
+
+  window.setInstrumentMap = (jsonStr) => {
+    try {
+      const arr = JSON.parse(jsonStr);
+      const map = {};
+      for (const item of arr) {
+        const key = `${item.port}:${item.channel}`;
+        map[key] = {
+          name: item.label || item.name,
+          family: item.family,
+          isSolo: item.isSolo,
+        };
+      }
+      instrumentMap = map;
+      console.log(`[Setup] Instrument map: ${Object.keys(map).length} entries`);
+    } catch (e) {
+      console.error("[Setup] Failed to parse instrument map:", e);
+    }
   };
 
   const getNative = (name) => {
@@ -287,32 +311,6 @@
 </script>
 
 <div class="app-container">
-  <header class="app-header">
-    <h1>
-      Fiddle Server <small style="font-size: 0.6em; color: #64748b;"
-        >v{serverVersion || "?.?"}</small
-      >
-    </h1>
-    <div class="header-controls">
-      <div
-        class="connection-indicator {isConnected
-          ? 'connected'
-          : 'disconnected'}"
-        title={isConnected ? "Connected to Plugin" : "Disconnected"}
-      ></div>
-      <span class="status-pill"
-        >Active: {activeNotes.length} | History: {noteHistory.length}</span
-      >
-      <button onclick={addTestNote}>Add Test Note</button>
-      <button onclick={clearHistory}>Clear History</button>
-      <button onclick={clearLogs}>Clear Logs</button>
-    </div>
-    <div class="nav-actions">
-      <button class="reset-btn" onclick={() => resetSession(false)}
-        >Reset Session</button
-      >
-    </div>
-  </header>
   <nav class="tab-nav">
     <button
       class:active={activeTab === "timeline"}
@@ -321,6 +319,18 @@
     <button
       class:active={activeTab === "eventlog"}
       onclick={() => (activeTab = "eventlog")}>Event Log</button
+    >
+    <button
+      class:active={activeTab === "setup"}
+      onclick={() => (activeTab = "setup")}>Setup</button
+    >
+    <button
+      class:active={activeTab === "plugins"}
+      onclick={() => (activeTab = "plugins")}>Plugins</button
+    >
+    <button
+      class:active={activeTab === "mixer"}
+      onclick={() => (activeTab = "mixer")}>Mixer</button
     >
   </nav>
 
@@ -332,13 +342,36 @@
           {heartbeat}
           firstSample={sessionOffset}
           {channelInstruments}
+          {instrumentMap}
           onHover={handleHover}
           onLeave={handleLeave}
         />
       </div>
-    {:else}
+    {:else if activeTab === "eventlog"}
       <div class="panel-eventlog">
-        <EventLog {midiEvents} {sessionOffset} />
+        <EventLog
+          {midiEvents}
+          {sessionOffset}
+          {isConnected}
+          activeCount={activeNotes.length}
+          historyCount={noteHistory.length}
+          onAddTestNote={addTestNote}
+          onClearHistory={clearHistory}
+          onClearLogs={clearLogs}
+          onResetSession={() => resetSession(false)}
+        />
+      </div>
+    {:else if activeTab === "setup"}
+      <div class="panel-setup">
+        <SetupPanel />
+      </div>
+    {:else if activeTab === "plugins"}
+      <div class="panel-plugins">
+        <PluginsPanel />
+      </div>
+    {:else if activeTab === "mixer"}
+      <div class="panel-mixer">
+        <MixerPanel />
       </div>
     {/if}
   </main>
@@ -397,22 +430,6 @@
     flex-direction: column;
   }
 
-  .app-header {
-    height: 50px;
-    background: #0f172a;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 20px;
-    border-bottom: 1px solid #1e293b;
-  }
-
-  .app-header h1 {
-    font-size: 1.2rem;
-    color: #38bdf8;
-    margin: 0;
-  }
-
   .main-content {
     flex: 1;
     display: flex;
@@ -450,7 +467,17 @@
   }
 
   .panel-timeline,
-  .panel-eventlog {
+  .panel-eventlog,
+  .panel-setup,
+  .panel-plugins {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .panel-mixer {
     flex: 1;
     min-width: 0;
     position: relative;
@@ -502,40 +529,5 @@
     border: 0;
     border-top: 1px solid #334155;
     margin: 5px 0;
-  }
-
-  .nav-actions {
-    margin-left: 20px;
-  }
-
-  .reset-btn {
-    padding: 6px 12px;
-    background: #475569;
-    border: 1px solid #64748b;
-    border-radius: 4px;
-    color: white;
-    font-size: 0.8rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .reset-btn:hover {
-    background: #ef4444;
-    border-color: #f87171;
-  }
-
-  .connection-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #ef4444; /* Red */
-    box-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
-    transition: all 0.3s;
-    margin-right: 15px;
-  }
-
-  .connection-indicator.connected {
-    background: #4ade80; /* Green */
-    box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
   }
 </style>

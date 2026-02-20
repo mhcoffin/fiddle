@@ -151,11 +151,8 @@ bool FiddleAudioProcessor::isBusesLayoutSupported(
 void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
                                         juce::MidiBuffer &midiMessages) {
   juce::ScopedNoDenormals noDenormals;
-  auto totalNumInputChannels = getTotalNumInputChannels();
-  auto totalNumOutputChannels = getTotalNumOutputChannels();
-
-  for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-    buffer.clear(i, 0, buffer.getNumSamples());
+  // Pull audio from FiddleServer via lock-free shared memory
+  audioSharedMemory_.pullAudio(buffer);
 
   // DEBUG LOGGING
   static std::ofstream debugFile;
@@ -164,6 +161,45 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
     debugFile.open("/tmp/fiddle_plugin_debug.log", std::ios::app);
     debugFileOpened = true;
     debugFile << "--- Plugin Process Block Started ---" << std::endl;
+  }
+
+  // Calculate peak amplitude to verify audio is arriving
+  float peak = 0.0f;
+  for (int c = 0; c < buffer.getNumChannels(); ++c) {
+    if (auto *channelData = buffer.getReadPointer(c)) {
+      for (int i = 0; i < buffer.getNumSamples(); ++i) {
+        peak = std::max(peak, std::abs(channelData[i]));
+      }
+    }
+  }
+
+  static int logCounter = 0;
+  if (debugFile.is_open() && ++logCounter % 50 == 0) {
+    if (audioSharedMemory_.isReady()) {
+      debugFile << "[Audio] Block size: " << buffer.getNumSamples()
+                << " | SharedMem Ready: YES"
+                << " | Peak Amp: " << peak << std::endl;
+    } else {
+      auto *map = audioSharedMemory_.getMemoryMap();
+      auto file = audioSharedMemory_.getMapFile();
+      bool fileExists = file.existsAsFile();
+      bool hasDataPtr = map != nullptr && map->getData() != nullptr;
+
+      uint64_t magic = 0;
+      if (hasDataPtr) {
+        auto *state =
+            reinterpret_cast<fiddle::AudioSharedMemory::SharedState *>(
+                map->getData());
+        magic = state->magic.load(std::memory_order_acquire);
+      }
+
+      debugFile << "[Audio] SharedMem Ready: NO"
+                << " | File Exists: " << (fileExists ? "YES" : "NO")
+                << " | Map Ptr OK: " << (hasDataPtr ? "YES" : "NO")
+                << " | Magic: 0x" << std::hex << magic << std::dec
+                << " | Path: " << file.getFullPathName().toStdString()
+                << std::endl;
+    }
   }
 
   for (const auto metadata : midiMessages) {
@@ -327,19 +363,44 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
   }
 }
 
+//==============================================================================
+void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
+  // Save the current config path into the VST Host's project file
+  auto xml = std::make_unique<juce::XmlElement>("FiddleState");
+  xml->setAttribute("ConfigPath", currentConfigPath);
+  copyXmlToBinary(*xml, destData);
+}
+
+void FiddleAudioProcessor::setStateInformation(const void *data,
+                                               int sizeInBytes) {
+  // Load the config path saved by the VST Host
+  std::unique_ptr<juce::XmlElement> xmlState(
+      getXmlFromBinary(data, sizeInBytes));
+  if (xmlState != nullptr) {
+    if (xmlState->hasTagName("FiddleState")) {
+      juce::String savedPath = xmlState->getStringAttribute("ConfigPath", "");
+      if (savedPath.isNotEmpty()) {
+        setConfigPath(savedPath);
+      }
+    }
+  }
+}
+
+void FiddleAudioProcessor::setConfigPath(const juce::String &path) {
+  currentConfigPath = path;
+
+  // Fire IPC msg to FiddleServer immediately
+  if (tcpRelay != nullptr && tcpRelay->isConnected()) {
+    fiddle::MidiEvent configEvent;
+    configEvent.set_timestamp_samples(0);
+    tcpRelay->pushMessage(configEvent);
+  }
+}
+
 bool FiddleAudioProcessor::hasEditor() const { return true; }
 
 juce::AudioProcessorEditor *FiddleAudioProcessor::createEditor() {
   return new FiddleAudioProcessorEditor(*this);
-}
-
-void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {}
-
-void FiddleAudioProcessor::setStateInformation(const void *data,
-                                               int sizeInBytes) {
-  // You should use this method to restore your parameters from this memory
-  // block, whose contents will have been created by the getStateInformation()
-  // call.
 }
 
 // Test methods for debugging

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "DoricoInstrumentBrowser.h"
 #include "MasterInstrumentList.h"
 #include <juce_core/juce_core.h>
 #include <vector>
@@ -55,9 +56,9 @@ public:
    * @param numChannels  Total channels to declare in playback template
    * @return Result indicating success or failure with details
    */
-  juce::Result
-  generateAndInstallFiles(const std::vector<InstrumentAssignment> &assignments,
-                          int numChannels);
+  juce::Result generateAndInstallFiles(
+      const std::vector<InstrumentAssignment> &assignments, int numChannels,
+      const std::vector<BrowsableInstrument> &browserInstruments);
 
   /**
    * Get the resolved Dorico application support base directory.
@@ -78,7 +79,8 @@ private:
 
   juce::Result writeEndpointConfigXml(
       const juce::File &baseDir,
-      const std::vector<InstrumentAssignment> &assignments) const;
+      const std::vector<InstrumentAssignment> &assignments,
+      const std::vector<BrowsableInstrument> &browserInstruments) const;
 
   juce::Result writePlaybackTemplateSpecXml(const juce::File &baseDir) const;
 
@@ -88,7 +90,8 @@ private:
 
   juce::Result writePresetsForInstrumentsXml(
       const juce::File &baseDir,
-      const std::vector<InstrumentAssignment> &assignments) const;
+      const std::vector<InstrumentAssignment> &assignments,
+      const std::vector<BrowsableInstrument> &browserInstruments) const;
 
   juce::Result writeExpressionMapLib(const juce::File &baseDir) const;
 };

@@ -17,9 +17,17 @@ message MidiEvent {
         SysEx sys_ex = 10;
         Other other = 11;
         TransportEvent transport = 12;
+        LoadConfigEvent load_config = 15;
     }
 
     optional uint64 host_sample_position = 13;
+
+    // MIDI port (1-based). 0 or absent = port 1 (backward compatible).
+    uint32 port = 14;
+
+    message LoadConfigEvent {
+        string config_path = 1;
+    }
 
     message TransportEvent {
         enum Type {
@@ -123,4 +131,7 @@ message Note {
         CC = 1;         // sustained notes: dynamics = CC1 lane in cc_automation
     }
     DynamicsMode dynamics_mode = 12;
+
+    // MIDI port (1-based, mirrors MidiEvent.port). 0 = port 1.
+    uint32 port = 13;
 }

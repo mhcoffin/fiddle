@@ -1,4 +1,10 @@
 <script>
+    import {
+        FAMILY_ORDER,
+        FAMILY_ALIASES,
+        canonicalFamily,
+    } from "./orchestralOrder.js";
+
     /**
      * InstrumentList — grouped, sorted, collapsible instrument view.
      *
@@ -16,42 +22,6 @@
 
     /** @type {{ instruments: Instrument[], onremove?: (id: string) => void }} */
     let { instruments = [], onremove } = $props();
-
-    // ── Score-order constants ─────────────────────────────────────
-
-    /** Family ordering (top → bottom of score) */
-    const FAMILY_ORDER = [
-        "woodwinds",
-        "brass",
-        "percussion",
-        "keys",
-        "strings",
-        "choir",
-    ];
-
-    /** Map backend family names to canonical color keys */
-    const FAMILY_ALIASES = {
-        wind: "woodwinds",
-        woodwind: "woodwinds",
-        woodwinds: "woodwinds",
-        brass: "brass",
-        drum: "percussion",
-        drums: "percussion",
-        percussion: "percussion",
-        keys: "keys",
-        keyboard: "keys",
-        keyboards: "keys",
-        strings: "strings",
-        string: "strings",
-        choir: "choir",
-        vocal: "choir",
-        vocals: "choir",
-        voice: "choir",
-    };
-
-    /** Normalize a backend family name to a canonical key */
-    const canonicalFamily = (fam) =>
-        FAMILY_ALIASES[fam.toLowerCase()] || fam.toLowerCase();
 
     /** Tessitura ranking within each family — lower = higher pitch = higher on page.
      *  Missing instruments default to 500 (middle). */

@@ -1,5 +1,4 @@
 #include "DoricoConfigGenerator.h"
-#include "DoricoInstruments.h"
 #include <iostream>
 
 namespace fiddle {
@@ -102,7 +101,8 @@ std::vector<InstrumentAssignment> DoricoConfigGenerator::expandSlots(
 // ── Master Install ─────────────────────────────────────────────────────────
 
 juce::Result DoricoConfigGenerator::generateAndInstallFiles(
-    const std::vector<InstrumentAssignment> &assignments, int numChannels) {
+    const std::vector<InstrumentAssignment> &assignments, int numChannels,
+    const std::vector<BrowsableInstrument> &browserInstruments) {
 
   if (assignments.empty())
     return juce::Result::fail("No instruments selected.");
@@ -128,7 +128,7 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
     oldPtgDir.deleteRecursively();
 
   // Write each file
-  auto result = writeEndpointConfigXml(ecDir, assignments);
+  auto result = writeEndpointConfigXml(ecDir, assignments, browserInstruments);
   if (result.failed())
     return result;
 
@@ -140,7 +140,8 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
   if (result.failed())
     return result;
 
-  result = writePresetsForInstrumentsXml(pplDir, assignments);
+  result =
+      writePresetsForInstrumentsXml(pplDir, assignments, browserInstruments);
   if (result.failed())
     return result;
 
@@ -161,8 +162,8 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
 // file directly, bypassing the template generator's 16-channel limit.
 
 juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
-    const juce::File &dir,
-    const std::vector<InstrumentAssignment> &assignments) const {
+    const juce::File &dir, const std::vector<InstrumentAssignment> &assignments,
+    const std::vector<BrowsableInstrument> &browserInstruments) const {
 
   juce::File outFile = dir.getChildFile("endpointconfig.xml");
   backupExistingFile(outFile);
@@ -227,13 +228,17 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
   auto *instruments = root->createNewChildElement("instruments");
   instruments->setAttribute("array", "true");
 
-  // Build lookup from entity ID → instrument metadata for all variants
-  auto instrumentList = getDefaultInstruments();
-  std::map<juce::String, const DoricoInstrument *> entityToInstrument;
-  for (const auto &instr : instrumentList) {
-    for (const auto &eid : instr.doricoEntityIds) {
-      entityToInstrument[eid] = &instr;
-    }
+  // Build lookup from entity ID → all variant entity IDs.
+  // Group by musicXMLSoundID: all instruments sharing the same soundID
+  // are variants of the same instrument.
+  std::map<juce::String, std::vector<juce::String>> soundIdToEntities;
+  for (const auto &bi : browserInstruments) {
+    soundIdToEntities[bi.musicXMLSoundID].push_back(bi.entityID);
+  }
+  // Now build entityID → all sibling entity IDs
+  std::map<juce::String, std::vector<juce::String>> entityToVariants;
+  for (const auto &bi : browserInstruments) {
+    entityToVariants[bi.entityID] = soundIdToEntities[bi.musicXMLSoundID];
   }
 
   // Track how many times each (entityID, playerType) pair has appeared.
@@ -246,10 +251,9 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
 
     // Get all variant entity IDs for this instrument
     std::vector<juce::String> entityIds;
-    auto it = entityToInstrument.find(a.entityID);
-    if (it != entityToInstrument.end()) {
-      for (const auto &eid : it->second->doricoEntityIds)
-        entityIds.push_back(eid);
+    auto it = entityToVariants.find(a.entityID);
+    if (it != entityToVariants.end()) {
+      entityIds = it->second;
     } else {
       entityIds.push_back(a.entityID);
     }
@@ -362,23 +366,22 @@ juce::Result DoricoConfigGenerator::writePresetsXml(
 // (groupSize="kSolo") and one for section players (groupSize="kSection").
 
 juce::Result DoricoConfigGenerator::writePresetsForInstrumentsXml(
-    const juce::File &dir,
-    const std::vector<InstrumentAssignment> &assignments) const {
+    const juce::File &dir, const std::vector<InstrumentAssignment> &assignments,
+    const std::vector<BrowsableInstrument> &browserInstruments) const {
 
   juce::File outFile = dir.getChildFile("presets_for_instruments.xml");
   backupExistingFile(outFile);
 
   auto root = std::make_unique<juce::XmlElement>("PresetsForInstruments");
 
-  // Build a lookup from any entity ID → all entity IDs for that instrument.
-  // This maps, e.g., "instrument.brass.trumpet.a" to the full list of
-  // trumpet variants so that ALL variants get a preset entry.
-  auto instruments = getDefaultInstruments();
-  std::map<juce::String, const DoricoInstrument *> entityToInstrument;
-  for (const auto &instr : instruments) {
-    for (const auto &eid : instr.doricoEntityIds) {
-      entityToInstrument[eid] = &instr;
-    }
+  // Build entity ID → all variant entity IDs via musicXMLSoundID grouping.
+  std::map<juce::String, std::vector<juce::String>> soundIdToEntities;
+  for (const auto &bi : browserInstruments) {
+    soundIdToEntities[bi.musicXMLSoundID].push_back(bi.entityID);
+  }
+  std::map<juce::String, std::vector<juce::String>> entityToVariants;
+  for (const auto &bi : browserInstruments) {
+    entityToVariants[bi.entityID] = soundIdToEntities[bi.musicXMLSoundID];
   }
 
   // Each assignment produces PresetsForInstrument entries.
@@ -386,10 +389,10 @@ juce::Result DoricoConfigGenerator::writePresetsForInstrumentsXml(
   // regardless of which variant the user chose (e.g., Trumpet in Bb vs C).
   for (const auto &a : assignments) {
     // Look up the instrument to get all variant entity IDs
-    auto it = entityToInstrument.find(a.entityID);
-    if (it != entityToInstrument.end()) {
+    auto it = entityToVariants.find(a.entityID);
+    if (it != entityToVariants.end()) {
       // Emit one block per variant
-      for (const auto &variantId : it->second->doricoEntityIds) {
+      for (const auto &variantId : it->second) {
         auto *pfi = root->createNewChildElement("PresetsForInstrument");
         pfi->createNewChildElement("Instrument")->addTextElement(variantId);
 

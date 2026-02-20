@@ -1,0 +1,31 @@
+#!/bin/zsh
+
+# Get the directory of the script
+PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+SERVER_APP="${PROJECT_ROOT}/build/FiddleServer_artefacts/Debug/FiddleServer.app"
+PILOT_APP="${PROJECT_ROOT}/build/FiddlePilot_artefacts/Debug/FiddlePilot.app"
+
+# Check if builds exist
+if [[ ! -d "$SERVER_APP" ]]; then
+    echo "Error: FiddleServer.app not found at $SERVER_APP"
+    echo "Make sure to build the project first."
+    exit 1
+fi
+
+if [[ ! -d "$PILOT_APP" ]]; then
+    echo "Error: FiddlePilot.app not found at $PILOT_APP"
+    echo "Make sure to build the project first."
+    exit 1
+fi
+
+echo "Starting FiddleServer..."
+open "$SERVER_APP"
+
+# Give the server a couple of seconds to start its listener
+sleep 2
+
+echo "Starting FiddlePilot..."
+open "$PILOT_APP"
+
+echo "Both applications launched."

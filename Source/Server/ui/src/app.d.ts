@@ -3,6 +3,8 @@ interface Window {
         backend?: {
             signalReady: () => void;
             nativeLog: (msg: string) => void;
+            requestSetupData: () => void;
+            saveSelectedInstruments: (json: string) => void;
             [key: string]: any;
         };
     };
@@ -19,6 +21,9 @@ interface Window {
     setServerVersion: (ver: string) => void;
     setConnectionState: (connected: boolean) => void;
     setChannelInstrument: (channel: number, name: string) => void;
+    setDoricoInstruments: (json: string) => void;
+    setSelectedInstruments: (json: string) => void;
+    setSaveResult: (result: string) => void;
     nativeLog: (msg: string) => void;
 }
 

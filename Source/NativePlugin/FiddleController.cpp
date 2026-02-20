@@ -137,6 +137,22 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
         ParameterInfo::kIsProgramChange | ParameterInfo::kCanAutomate;
 
     parameters.addParameter(new Parameter(paramInfo));
+
+    // Register selective CC parameters for this channel
+    for (int i = 0; i < kNumSupportedCCs; ++i) {
+      int cc = kSupportedCCs[i];
+      ParameterInfo ccInfo{};
+      ccInfo.id = kCCParamBase + i * kNumChannels + ch;
+      char title[32];
+      snprintf(title, sizeof(title), "CC%d P%dCh%d", cc, port, portCh);
+      UString(ccInfo.title, 128).fromAscii(title);
+      UString(ccInfo.shortTitle, 128).fromAscii(title);
+      ccInfo.stepCount = 127;
+      ccInfo.defaultNormalizedValue = 0.0;
+      ccInfo.unitId = unitId;
+      ccInfo.flags = ParameterInfo::kCanAutomate;
+      parameters.addParameter(new Parameter(ccInfo));
+    }
   }
 
   return kResultOk;
@@ -210,12 +226,13 @@ tresult PLUGIN_API FiddleController::getMidiControllerAssignment(
   if (channel < 0 || channel >= kChannelsPerPort)
     return kResultFalse;
 
-  int logicalCh = busIndex * kChannelsPerPort + channel;
+  int ccIdx = ccToIndex(midiControllerNumber);
+  if (ccIdx < 0)
+    return kResultFalse; // CC not in our supported set
 
-  // CC parameters are not registered (would be 98K+ params at 768 channels).
-  // Return kResultFalse so the host sends CC data via the event bus instead.
-  // Only map kAfterTouch to our program change parameter for Dorico compat.
-  return kResultFalse;
+  int logicalCh = busIndex * kChannelsPerPort + channel;
+  id = kCCParamBase + ccIdx * kNumChannels + logicalCh;
+  return kResultOk;
 }
 
 //----------------------------------------------------------------------

@@ -60,10 +60,10 @@ private:
                      Steinberg::int64 hostSamples);
   void replayProgramState();
 
-  // 48 event input buses (ports), 16 channels each = 768 total.
+  // 16 event input buses (ports), 16 channels each = 256 total.
   // Dorico discovers the multi-port layout from the endpoint config.
-  static constexpr int kNumPorts = 48;
-  static constexpr int kTotalChannels = kNumPorts * 16; // 768
+  static constexpr int kNumPorts = 16;
+  static constexpr int kTotalChannels = kNumPorts * 16; // 256
   void sendConnectionStatus(bool connected);
   void sendProgramStatesToController();
 

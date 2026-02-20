@@ -1,0 +1,79 @@
+[WebView] Navigating to: juce://juce.backend/index.html
+[Scripting] Loading script: /Users/mhc/fiddle/build_check/FiddleServer_artefacts/FiddleServer.app/Contents/MacOS/scripts/default_fiddle.as
+[ExpressionMap] Length Default added: 0 (pt.natural)
+[ExpressionMap] Legato Default added: 0 (pt.natural)
+[ExpressionMap] Attack Default added: 64 (pt.natural)
+[ExpressionMap] Bow Direction Default added: 0 (pt.natural)
+[ExpressionMap] Vibrato Default added: 64 (pt.natural)
+[ExpressionMap] Mute Default added: 0 (pt.natural)
+[ExpressionMap] Playing Position Default added: 0 (pt.natural)
+[ExpressionMap] Harmonics Default added: 0 (pt.natural)
+[ExpressionMap] Tremolo Default added: 0 (pt.natural)
+[ExpressionMap] String technique Default added: 0 (pt.natural)
+[ExpressionMap] Glissando Default added: 0 (pt.natural)
+[ExpressionMap] Arpeggios Default added: 0 (pt.natural)
+[WebView] getResource: /index.html -> /Users/mhc/fiddle/build_check/FiddleServer_artefacts/FiddleServer.app/Contents/MacOS/ui/index.html (FOUND)
+[WebView] getResource: /assets/index-CY3QDA_u.js -> /Users/mhc/fiddle/build_check/FiddleServer_artefacts/FiddleServer.app/Contents/MacOS/ui/assets/index-CY3QDA_u.js (FOUND)
+[WebView] getResource: /assets/index-CGrF9QuD.css -> /Users/mhc/fiddle/build_check/FiddleServer_artefacts/FiddleServer.app/Contents/MacOS/ui/assets/index-CGrF9QuD.css (FOUND)
+[JS NativeLog] JS Booting: Bundle loaded
+[WebView] Handshake: Native function 'signalReady' called
+[WebView] pushLogMessage: <b>[Scripting]</b> Loaded default_fiddle.as succes...
+[WebView] pushLogMessage: <b>[ExpressionMap]</b> Loaded Fiddle Expression Ma...
+[DoricoSetup] Generate button clicked
+[DoricoSetup] Selected 49 instruments
+[DoricoSetup] Base dir: /Users/mhc/Library/Application Support/Steinberg/Dorico 6
+[DoricoSetup] Showing confirmation dialog...
+[DoricoSetup] Dialog result: 1
+[DoricoSetup] Generated 49 assignments
+[DoricoConfig] Installed expression map from: /Users/mhc/fiddle/build_check/FiddleServer_artefacts/FiddleServer.app/Contents/Resources/Fiddle_Universal.doricolib
+[DoricoConfig] All files installed to: /Users/mhc/Library/Application Support/Steinberg/Dorico 6
+[DoricoSetup] Installed 49 instrument assignments:
+  Fiddle_Violin -> Program 1 Bank 0/0
+  Fiddle_Viola -> Program 2 Bank 0/0
+  Fiddle_Cello -> Program 3 Bank 0/0
+  Fiddle_Contrabass -> Program 4 Bank 0/0
+  Fiddle_Harp -> Program 5 Bank 0/0
+  Fiddle_Piccolo -> Program 6 Bank 0/0
+  Fiddle_Flute -> Program 7 Bank 0/0
+  Fiddle_Oboe -> Program 8 Bank 0/0
+  Fiddle_EnglishHorn -> Program 9 Bank 0/0
+  Fiddle_Clarinet -> Program 10 Bank 0/0
+  Fiddle_BassClarinet -> Program 11 Bank 0/0
+  Fiddle_Bassoon -> Program 12 Bank 0/0
+  Fiddle_Contrabassoon -> Program 13 Bank 0/0
+  Fiddle_AltoSax -> Program 14 Bank 0/0
+  Fiddle_TenorSax -> Program 15 Bank 0/0
+  Fiddle_BaritoneSax -> Program 16 Bank 0/0
+  Fiddle_SopranoSax -> Program 17 Bank 0/0
+  Fiddle_Recorder -> Program 18 Bank 0/0
+  Fiddle_Trumpet -> Program 19 Bank 0/0
+  Fiddle_FrenchHorn -> Program 20 Bank 0/0
+  Fiddle_Trombone -> Program 21 Bank 0/0
+  Fiddle_BassTrombone -> Program 22 Bank 0/0
+  Fiddle_Tuba -> Program 23 Bank 0/0
+  Fiddle_Cornet -> Program 24 Bank 0/0
+  Fiddle_Flugelhorn -> Program 25 Bank 0/0
+  Fiddle_Euphonium -> Program 26 Bank 0/0
+  Fiddle_Timpani -> Program 27 Bank 0/0
+  Fiddle_Glockenspiel -> Program 28 Bank 0/0
+  Fiddle_Xylophone -> Program 29 Bank 0/0
+  Fiddle_Marimba -> Program 30 Bank 0/0
+  Fiddle_Vibraphone -> Program 31 Bank 0/0
+  Fiddle_TubularBells -> Program 32 Bank 0/0
+  Fiddle_Crotales -> Program 33 Bank 0/0
+  Fiddle_Piano -> Program 34 Bank 0/0
+  Fiddle_Celesta -> Program 35 Bank 0/0
+  Fiddle_Harpsichord -> Program 36 Bank 0/0
+  Fiddle_Organ -> Program 37 Bank 0/0
+  Fiddle_Accordion -> Program 38 Bank 0/0
+  Fiddle_AcousticGuitar -> Program 39 Bank 0/0
+  Fiddle_ElectricGuitar -> Program 40 Bank 0/0
+  Fiddle_BassGuitar -> Program 41 Bank 0/0
+  Fiddle_Banjo -> Program 42 Bank 0/0
+  Fiddle_Mandolin -> Program 43 Bank 0/0
+  Fiddle_Ukulele -> Program 44 Bank 0/0
+  Fiddle_Soprano -> Program 45 Bank 0/0
+  Fiddle_Alto -> Program 46 Bank 0/0
+  Fiddle_Tenor -> Program 47 Bank 0/0
+  Fiddle_BassVoice -> Program 48 Bank 0/0
+  Fiddle_Choir -> Program 49 Bank 0/0

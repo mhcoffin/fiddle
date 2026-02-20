@@ -20,8 +20,9 @@ public:
 private:
   FiddleAudioProcessor &audioProcessor;
 
-  juce::TextButton testProgramChangeButton;
-  juce::TextButton testContextUpdateButton;
+  std::unique_ptr<juce::FileChooser> fileChooser;
+  juce::TextButton loadConfigButton;
+  juce::Label configPathLabel;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessorEditor)
 };

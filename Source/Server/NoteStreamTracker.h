@@ -4,6 +4,7 @@
 #include "midi_event.pb.h"
 #include <algorithm> // Added for std::find
 #include <array>
+#include <fstream>
 #include <iostream>
 #include <juce_core/juce_core.h>
 #include <map>
@@ -11,6 +12,15 @@
 #include <vector>
 
 namespace fiddle {
+
+namespace {
+inline void noteOffLog(const std::string &msg) {
+  static std::mutex logMtx;
+  std::lock_guard<std::mutex> lock(logMtx);
+  std::ofstream f("/tmp/fiddle_noteoff.log", std::ios::app);
+  f << msg << std::endl;
+}
+} // namespace
 
 /**
  * Tracks active MIDI notes and manages their lifecycle.
@@ -104,7 +114,7 @@ public:
             uint64_t currentSamples =
                 sessionTimestamp + event.timestamp_samples();
             for (auto &note : activeNotes) {
-              if (note.channel() == chan) {
+              if (note.port() == event.port() && note.channel() == chan) {
                 auto &lane = (*note.mutable_cc_automation())[ccNum];
                 auto *pt = lane.add_points();
                 uint64_t offset = (currentSamples > note.start_sample())
@@ -123,7 +133,7 @@ public:
                 sessionTimestamp + event.timestamp_samples();
             for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
               auto &note = activeNotes[i];
-              if (note.channel() == chan) {
+              if (note.port() == event.port() && note.channel() == chan) {
                 uint64_t age = (currentSamples > note.start_sample())
                                    ? (currentSamples - note.start_sample())
                                    : 0;
@@ -215,6 +225,7 @@ private:
     note.set_id(nextNoteId++);
     note.set_note_number(noteOn.note_number());
     note.set_channel(chan);
+    note.set_port(event.port());
     note.set_start_velocity(noteOn.velocity());
     note.set_start_sample(absoluteSamples);
 
@@ -268,27 +279,47 @@ private:
     }
 
     uint32_t chan = event.channel();
+    uint32_t port = event.port();
+
+    noteOffLog("[NoteOff] Looking for port=" + std::to_string(port) + " ch=" +
+               std::to_string(chan) + " note=" + std::to_string(noteNum) +
+               " endSample=" + std::to_string(absoluteSamples) +
+               " activeNotes=" + std::to_string(activeNotes.size()));
 
     for (auto it = activeNotes.begin(); it != activeNotes.end(); ++it) {
-      if (it->channel() == chan && it->note_number() == noteNum) {
+      if (it->port() == port && it->channel() == chan &&
+          it->note_number() == noteNum) {
         uint64_t endSample = absoluteSamples;
         if (endSample < it->start_sample()) {
-          // This NoteOff likely belongs to a previous instance of this pitch
-          // that was already ended by a newer NoteOn. Ignore it.
+          noteOffLog(
+              "[NoteOff] SKIPPED: endSample=" + std::to_string(endSample) +
+              " < startSample=" + std::to_string(it->start_sample()));
           continue;
         }
 
         it->set_duration_samples(endSample - it->start_sample());
 
         if (callbacks.onNoteEnded) {
-          std::cerr << "[NoteStreamTracker] Triggering onNoteEnded: ID="
-                    << it->id() << std::endl;
+          noteOffLog("[NoteOff] MATCHED ID=" + std::to_string(it->id()));
           callbacks.onNoteEnded(*it);
         }
         activeNotes.erase(it);
         return;
       }
     }
+
+    // No match found
+    std::string dump = "[NoteOff] NO MATCH for port=" + std::to_string(port) +
+                       " ch=" + std::to_string(chan) +
+                       " note=" + std::to_string(noteNum) + ". Active notes:";
+    for (const auto &n : activeNotes) {
+      dump += "\n  ID=" + std::to_string(n.id()) +
+              " port=" + std::to_string(n.port()) +
+              " ch=" + std::to_string(n.channel()) +
+              " note=" + std::to_string(n.note_number()) +
+              " start=" + std::to_string(n.start_sample());
+    }
+    noteOffLog(dump);
   }
 };
 

@@ -96,8 +96,14 @@
     const w = window;
 
     w.setDoricoInstruments = (jsonStr) => {
+        console.time("[Setup] setDoricoInstruments total");
+        console.log(
+            `[Setup] setDoricoInstruments received ${jsonStr.length} chars`,
+        );
         try {
+            console.time("[Setup] JSON.parse instruments");
             allInstruments = JSON.parse(jsonStr);
+            console.timeEnd("[Setup] JSON.parse instruments");
             const familySet = new Set(
                 allInstruments.map((i) => i.family).filter(Boolean),
             );
@@ -111,6 +117,7 @@
             statusIsError = true;
         }
         isLoading = false;
+        console.timeEnd("[Setup] setDoricoInstruments total");
     };
 
     w.setSelectedInstruments = (jsonStr) => {
@@ -169,14 +176,22 @@
     };
 
     onMount(() => {
+        console.time("[Setup] onMount to data received");
+        console.log("[Setup] onMount: looking for requestSetupData");
         const fn = getNative("requestSetupData");
         if (fn) {
+            console.log("[Setup] calling requestSetupData immediately");
             fn();
         } else {
+            console.log(
+                "[Setup] requestSetupData not found, retrying in 500ms",
+            );
             setTimeout(() => {
                 const retry = getNative("requestSetupData");
-                if (retry) retry();
-                else {
+                if (retry) {
+                    console.log("[Setup] retry: calling requestSetupData");
+                    retry();
+                } else {
                     isLoading = false;
                     statusMessage = "Could not connect to backend";
                     statusIsError = true;
@@ -186,6 +201,9 @@
     });
 
     // ── Filtered instrument browser ───────────────────────────────
+    const BATCH_SIZE = 50;
+    let visibleLimit = $state(BATCH_SIZE);
+
     let filteredInstruments = $derived.by(() => {
         let result = allInstruments;
         if (searchQuery.trim()) {
@@ -201,6 +219,29 @@
         }
         return result;
     });
+
+    // Reset visible limit when filters change
+    $effect(() => {
+        searchQuery;
+        familyFilter;
+        visibleLimit = BATCH_SIZE;
+    });
+
+    let visibleInstruments = $derived(
+        filteredInstruments.slice(0, visibleLimit),
+    );
+
+    const onBrowserScroll = (e) => {
+        const el = e.target;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+            if (visibleLimit < filteredInstruments.length) {
+                visibleLimit = Math.min(
+                    visibleLimit + BATCH_SIZE,
+                    filteredInstruments.length,
+                );
+            }
+        }
+    };
 
     // ── Actions ───────────────────────────────────────────────────
 
@@ -290,8 +331,8 @@
                     </select>
                 </div>
 
-                <div class="instrument-list">
-                    {#each filteredInstruments as instr (instr.entityID)}
+                <div class="instrument-list" onscroll={onBrowserScroll}>
+                    {#each visibleInstruments as instr (instr.entityID)}
                         <div class="instrument-row">
                             <div class="instr-info">
                                 <span class="instr-name">{instr.name}</span>

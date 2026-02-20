@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioSharedMemory.h"
 #include "MidiTcpRelay.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -64,6 +65,10 @@ public:
   void getStateInformation(juce::MemoryBlock &destData) override;
   void setStateInformation(const void *data, int sizeInBytes) override;
 
+  // Fiddle config routing
+  juce::String getConfigPath() const { return currentConfigPath; }
+  void setConfigPath(const juce::String &path);
+
   // Test methods
   int sendTestProgramChange();
   int sendTestContextUpdate();
@@ -86,12 +91,14 @@ private:
   //==============================================================================
   std::unique_ptr<fiddle::FiddleVST3Extensions> vst3Extensions;
   std::unique_ptr<fiddle::MidiTcpRelay> tcpRelay;
+  fiddle::AudioSharedMemory audioSharedMemory_{false}; // False = Consumer
 
   juce::AudioParameterInt *programParam = nullptr;
   juce::AudioParameterInt *bankMSBParam = nullptr;
   juce::AudioParameterInt *bankLSBParam = nullptr;
 
   bool wasPlaying = false;
+  juce::String currentConfigPath;
 
   // Track sequential channel assignment for setCurrentProgram() calls.
   // Dorico calls setCurrentProgram() once per instrument in channel order,

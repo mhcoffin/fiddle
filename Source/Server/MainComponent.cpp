@@ -1,6 +1,9 @@
 #include "MainComponent.h"
+#include "DoricoConfigGenerator.h"
+#include "FiddleConfig.h"
 #include "ScriptBindings.h"
 #include "midi_event.pb.h"
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <google/protobuf/text_format.h>
@@ -64,6 +67,22 @@ MainComponent::MainComponent()
                           "')");
                     }
 
+                    // Push channel map (port/channel → instrument) to Timeline
+                    {
+                      juce::String mapJson = masterList_.getChannelMapAsJson();
+                      juce::String mapCall =
+                          "setInstrumentMap('" + escapeForJS(mapJson) + "')";
+                      webComponent.evaluateJavascript(mapCall);
+                    }
+
+                    // Push cached plugin list (if any prior scan exists)
+                    if (pluginScanner_.getPluginCount() > 0) {
+                      juce::String json = pluginScanner_.getPluginListAsJson();
+                      juce::String call =
+                          "setPluginList('" + escapeForJS(json) + "')";
+                      webComponent.evaluateJavascript(call);
+                    }
+
                     completion(true);
                   })
               .withNativeFunction(
@@ -75,15 +94,412 @@ MainComponent::MainComponent()
                       std::cerr << "[JS NativeLog] " << args[0].toString()
                                 << std::endl;
                     completion(true);
+                  })
+              .withNativeFunction(
+                  "requestSetupData",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    std::cerr << "[Setup] requestSetupData called" << std::endl;
+
+                    // Build and cache the escaped JS call on first use
+                    if (cachedInstrCall_.isEmpty()) {
+                      auto t0 = std::chrono::steady_clock::now();
+                      juce::String instrJson =
+                          instrumentBrowser_.getInstrumentsAsJson();
+                      cachedInstrCall_ = "setDoricoInstruments('" +
+                                         escapeForJS(instrJson) + "')";
+                      auto t1 = std::chrono::steady_clock::now();
+                      std::cerr << "[Setup] Built instrument call cache: "
+                                << std::chrono::duration_cast<
+                                       std::chrono::milliseconds>(t1 - t0)
+                                       .count()
+                                << "ms, " << cachedInstrCall_.length()
+                                << " chars" << std::endl;
+                    }
+
+                    juce::MessageManager::callAsync([this]() {
+                      webComponent.evaluateJavascript(cachedInstrCall_);
+                    });
+
+                    // Push saved selections to the UI
+                    juce::String selJson = masterList_.getSlotsAsJson();
+                    juce::String selCall = "setSelectedInstruments('" +
+                                           escapeForJS(selJson) + "')";
+                    juce::MessageManager::callAsync([this, selCall]() {
+                      webComponent.evaluateJavascript(selCall);
+                    });
+
+                    // Push channel map (port/channel → instrument) to the UI
+                    juce::String mapJson = masterList_.getChannelMapAsJson();
+                    juce::String mapCall =
+                        "setInstrumentMap('" + escapeForJS(mapJson) + "')";
+                    juce::MessageManager::callAsync([this, mapCall]() {
+                      webComponent.evaluateJavascript(mapCall);
+                    });
+
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "saveSelectedInstruments",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      juce::MessageManager::callAsync([this]() {
+                        webComponent.evaluateJavascript(
+                            "setSaveResult('Error: no data')");
+                      });
+                      completion(true);
+                      return;
+                    }
+                    juce::String json = args[0].toString();
+                    if (masterList_.setSlotsFromJson(json)) {
+                      masterList_.saveDefault();
+
+                      // Generate Dorico config files
+                      DoricoConfigGenerator generator;
+                      auto slots = masterList_.getSlots();
+                      auto assignments =
+                          DoricoConfigGenerator::expandSlots(slots);
+                      int numChannels = masterList_.totalSlotCount();
+
+                      auto result = generator.generateAndInstallFiles(
+                          assignments, numChannels,
+                          instrumentBrowser_.getInstruments());
+                      juce::String msg;
+                      if (result.wasOk()) {
+                        msg = "OK: Installed " +
+                              juce::String((int)assignments.size()) +
+                              " presets (" + juce::String(numChannels) +
+                              " channels)";
+                      } else {
+                        msg = "Error: " + result.getErrorMessage();
+                      }
+                      juce::MessageManager::callAsync([this, msg]() {
+                        webComponent.evaluateJavascript(
+                            "setSaveResult('" + escapeForJS(msg) + "')");
+                      });
+
+                      // Update channel map for Timeline
+                      juce::String mapJson2 = masterList_.getChannelMapAsJson();
+                      juce::String mapCall2 =
+                          "setInstrumentMap('" + escapeForJS(mapJson2) + "')";
+                      juce::MessageManager::callAsync([this, mapCall2]() {
+                        webComponent.evaluateJavascript(mapCall2);
+                      });
+                    } else {
+                      juce::MessageManager::callAsync([this]() {
+                        webComponent.evaluateJavascript(
+                            "setSaveResult('Error: Invalid JSON')");
+                      });
+                    }
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "scanPlugins",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (pluginScanner_.isScanning()) {
+                      completion(true);
+                      return;
+                    }
+                    pushLogMessage(
+                        "<b>[Plugins]</b> Scanning for VST3 plugins...");
+                    pluginScanner_.scanAsync([this]() {
+                      int count = pluginScanner_.getPluginCount();
+                      pushLogMessage("<b>[Plugins]</b> Scan complete: " +
+                                     juce::String(count) + " plugins found");
+                      juce::String json = pluginScanner_.getPluginListAsJson();
+                      juce::String call =
+                          "setPluginList('" + escapeForJS(json) + "')";
+                      webComponent.evaluateJavascript(call);
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "loadPlugin",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    int uid = (int)args[0];
+                    juce::String slotId = juce::String(uid);
+
+                    // Find the PluginDescription by uniqueId
+                    juce::PluginDescription desc;
+                    bool found = false;
+                    for (const auto &d :
+                         pluginScanner_.getKnownPluginList().getTypes()) {
+                      if (d.uniqueId == uid) {
+                        desc = d;
+                        found = true;
+                        break;
+                      }
+                    }
+
+                    if (!found) {
+                      pushLogMessage(
+                          "<b>[Plugins]</b> Plugin not found for UID: " +
+                              slotId,
+                          true);
+                      completion(false);
+                      return;
+                    }
+
+                    // Must run on message thread — native callbacks are on
+                    // WebKit's thread
+                    juce::MessageManager::callAsync([this, slotId, desc]() {
+                      pushLogMessage("<b>[Plugins]</b> Loading: " + desc.name +
+                                     "...");
+
+                      pluginHost_.loadPlugin(
+                          slotId, desc, [this, desc](bool success) {
+                            if (success) {
+                              pushLogMessage("<b>[Plugins]</b> Loaded: " +
+                                             desc.name);
+                              juce::String json =
+                                  pluginHost_.getLoadedPluginsAsJson();
+                              juce::String call = "setLoadedPlugins('" +
+                                                  escapeForJS(json) + "')";
+                              webComponent.evaluateJavascript(call);
+                            } else {
+                              pushLogMessage(
+                                  "<b>[Plugins]</b> Failed to load: " +
+                                      desc.name,
+                                  true);
+                            }
+                          });
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "unloadPlugin",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String slotId = args[0].toString();
+                    juce::MessageManager::callAsync([this, slotId]() {
+                      pluginHost_.unloadPlugin(slotId);
+                      pushLogMessage("<b>[Plugins]</b> Unloaded slot: " +
+                                     slotId);
+                      juce::String json = pluginHost_.getLoadedPluginsAsJson();
+                      juce::String call =
+                          "setLoadedPlugins('" + escapeForJS(json) + "')";
+                      webComponent.evaluateJavascript(call);
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "showPluginEditor",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String slotId = args[0].toString();
+                    juce::MessageManager::callAsync(
+                        [this, slotId]() { pluginHost_.showEditor(slotId); });
+                    completion(true);
+                  })
+              // ── Mixer native functions ──
+              .withNativeFunction(
+                  "addMixerStrip",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    juce::MessageManager::callAsync([this]() {
+                      mixer_.addStrip();
+                      pushMixerState();
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "removeMixerStrip",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    juce::MessageManager::callAsync([this, stripId]() {
+                      mixer_.removeStrip(stripId);
+                      pushMixerState();
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "setStripName",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 2) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    juce::String name = args[1].toString();
+                    juce::MessageManager::callAsync([this, stripId, name]() {
+                      if (auto *s = mixer_.getStrip(stripId)) {
+                        s->name = name;
+                        pushMixerState();
+                      }
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "setStripInput",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 3) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    int port = (int)args[1];
+                    int channel = (int)args[2];
+                    juce::MessageManager::callAsync(
+                        [this, stripId, port, channel]() {
+                          if (auto *s = mixer_.getStrip(stripId)) {
+                            s->inputPort = port;
+                            s->inputChannel = channel;
+                            pushMixerState();
+                          }
+                        });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "setStripPlugin",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 2) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    int pluginUid = (int)args[1];
+
+                    // Find PluginDescription by uid
+                    juce::PluginDescription desc;
+                    bool found = false;
+                    for (const auto &d :
+                         pluginScanner_.getKnownPluginList().getTypes()) {
+                      if (d.uniqueId == pluginUid) {
+                        desc = d;
+                        found = true;
+                        break;
+                      }
+                    }
+
+                    if (!found) {
+                      completion(false);
+                      return;
+                    }
+
+                    juce::MessageManager::callAsync([this, stripId, desc]() {
+                      if (auto *s = mixer_.getStrip(stripId)) {
+                        s->loadPlugin(desc, mixer_.getFormatManager(),
+                                      [this](bool success) {
+                                        if (success) {
+                                          pushMixerState();
+                                        }
+                                      });
+                      }
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "showStripEditor",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    juce::MessageManager::callAsync([this, stripId]() {
+                      if (auto *s = mixer_.getStrip(stripId))
+                        s->showEditor();
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "requestPluginsState",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    juce::MessageManager::callAsync([this]() {
+                      if (pluginScanner_.getPluginCount() > 0) {
+                        juce::String json =
+                            pluginScanner_.getPluginListAsJson();
+                        webComponent.evaluateJavascript(
+                            "setPluginList('" + escapeForJS(json) + "')");
+                      }
+                      juce::String loadedJson =
+                          pluginHost_.getLoadedPluginsAsJson();
+                      webComponent.evaluateJavascript("setLoadedPlugins('" +
+                                                      escapeForJS(loadedJson) +
+                                                      "')");
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "requestMixerState",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    juce::MessageManager::callAsync(
+                        [this]() { pushMixerState(); });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "getAvailableInputs",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    juce::MessageManager::callAsync([this]() {
+                      juce::String json = masterList_.getChannelMapAsJson();
+                      juce::String call =
+                          "setAvailableInputs('" + escapeForJS(json) + "')";
+                      webComponent.evaluateJavascript(call);
+                    });
+                    completion(true);
                   })) {
   setupWebView();
 
-  // Set up tabbed interface: Monitor (WebView) + Dorico Setup
-  tabbedComponent.addTab("Monitor", juce::Colour(0xff1e1e1e), &webComponent,
-                         false);
-  tabbedComponent.addTab("Dorico Setup", juce::Colour(0xff1e1e1e), &doricoSetup,
-                         false);
-  addAndMakeVisible(tabbedComponent);
+  // WebView fills the whole window (no JUCE tabs)
+  addAndMakeVisible(webComponent);
+
+  // Load Dorico instrument browser
+  if (instrumentBrowser_.loadFromDorico()) {
+    pushLogMessage(
+        "<b>[Setup]</b> Loaded " +
+        juce::String((int)instrumentBrowser_.getInstruments().size()) +
+        " instruments from Dorico");
+  } else {
+    pushLogMessage("<b>[Setup]</b> Could not load Dorico instruments", true);
+  }
+
+  // Load saved master instrument list
+  if (masterList_.loadDefault()) {
+    pushLogMessage("<b>[Setup]</b> Loaded " + juce::String(masterList_.size()) +
+                   " saved instruments");
+  }
 
   scriptEngine = std::make_unique<ScriptEngine>();
   ScriptBindings::RegisterFiddleAPI(scriptEngine->getEngine());
@@ -179,6 +595,7 @@ MainComponent::MainComponent()
     obj->setProperty("id", (juce::int64)n.id());
     obj->setProperty("noteNumber", (int)n.note_number());
     obj->setProperty("channel", (int)n.channel());
+    obj->setProperty("port", (int)n.port());
     obj->setProperty("startVelocity", (int)n.start_velocity());
     obj->setProperty("startSample", (juce::int64)n.start_sample());
     obj->setProperty("durationSamples", (juce::int64)n.duration_samples());
@@ -221,6 +638,7 @@ MainComponent::MainComponent()
     juce::DynamicObject::Ptr obj = new juce::DynamicObject();
     obj->setProperty("type", (int)event.event_case());
     obj->setProperty("channel", (int)event.channel());
+    obj->setProperty("port", (int)event.port());
     obj->setProperty("timestamp", (juce::int64)absoluteSamples);
 
     if (event.has_note_on()) {
@@ -258,6 +676,21 @@ MainComponent::MainComponent()
          subnoteGenerator.onNoteStarted(n);
          scriptEngine->execute("void processNote(Note@)", (void *)&n);
 
+         double triggerTimeMs =
+             juce::Time::getMillisecondCounterHiRes() + 1000.0;
+         // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
+         // payload
+         juce::MidiMessage msg = juce::MidiMessage::noteOn(
+             (int)n.channel() + 1, (int)n.note_number(),
+             (juce::uint8)n.start_velocity());
+         // Route the message to the MixerModel.
+         // n.channel() from Dorico protobuf is 1-16, but Mixer model tracks
+         // uses 0-15.
+         std::cerr << "[MainComponent] Routing Note ON (port " << n.port()
+                   << ", ch " << n.channel() << ")" << std::endl;
+         mixer_.routeNoteEvent((int)n.port(), (int)n.channel() - 1, msg,
+                               triggerTimeMs);
+
          juce::String json = noteToJson(n);
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'started')", json.toRawUTF8());
@@ -269,6 +702,19 @@ MainComponent::MainComponent()
          pushLogMessage("<b>[Tracker]</b> Note OFF: " +
                         juce::String((juce::int64)n.id()));
          subnoteGenerator.onNoteEnded(n);
+
+         double triggerTimeMs =
+             juce::Time::getMillisecondCounterHiRes() + 1000.0;
+         // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
+         // payload
+         juce::MidiMessage msg = juce::MidiMessage::noteOff(
+             (int)n.channel() + 1, (int)n.note_number(), (juce::uint8)0);
+
+         std::cerr << "[MainComponent] Routing Note OFF (port " << n.port()
+                   << ", ch " << n.channel() << ")" << std::endl;
+         mixer_.routeNoteEvent((int)n.port(), (int)n.channel() - 1, msg,
+                               triggerTimeMs);
+
          juce::String json = noteToJson(n);
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'ended')", json.toRawUTF8());
@@ -357,6 +803,40 @@ MainComponent::MainComponent()
       }
     }
 
+    // Dynamic Server Load Command (from VST Host)
+    if (event.has_load_config()) {
+      juce::String path = event.load_config().config_path();
+
+      juce::MessageManager::callAsync([this, path]() {
+        juce::File targetFile(path);
+        if (targetFile.existsAsFile()) {
+          pushLogMessage("<b>[Host]</b> Commanded config switch to " +
+                         targetFile.getFileName());
+
+          // 1. Wipe current strips
+          mixer_.clear();
+
+          // 2. Load new config
+          currentConfigFile = targetFile;
+          std::vector<juce::String> configLogs =
+              FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
+
+          // 3. Output results
+          for (const auto &log : configLogs) {
+            pushLogMessage(log, false);
+          }
+
+          // 4. Update UI instantly
+          pushMixerState();
+        } else {
+          pushLogMessage("<span style=\"color: red;\"><b>[Host Error]</b> "
+                         "Requested config file not found: " +
+                             targetFile.getFullPathName() + "</span>",
+                         true);
+        }
+      });
+    }
+
     lastSampleTime = event.timestamp_samples();
     lastSystemTime = juce::Time::getMillisecondCounter();
   });
@@ -388,9 +868,56 @@ MainComponent::MainComponent()
 
   startTimer(20); // 20ms tick for subnotes
   setSize(800, 600);
+
+  // Initialize audio device for driving VST3 plugins
+  juce::String err = deviceManager.initialiseWithDefaultDevices(0, 2);
+  if (err.isNotEmpty()) {
+    std::cerr << "[Audio] Failed to initialize device manager: " << err
+              << std::endl;
+  } else {
+    deviceManager.addAudioCallback(this);
+  }
+
+  // Establish initial config file location (fallback or last-saved)
+  currentConfigFile = FiddleConfig::getConfigPath();
+
+  // Defer config restore to after the constructor returns.
+  // loadPlugin() uses createPluginInstanceAsync() which requires the message
+  // loop to be running — calling it from the constructor deadlocks because
+  // we're on the message thread and the loop hasn't started yet.
+  juce::MessageManager::callAsync([this]() {
+    std::vector<juce::String> configLogs =
+        FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
+    {
+      std::lock_guard<std::mutex> lock(logMutex);
+      for (const auto &log : configLogs) {
+        if (webViewLoaded) {
+          pushLogMessage(log, false);
+        } else {
+          logQueue.push_back({log, false});
+        }
+      }
+    }
+    pushMixerState();
+  });
 }
 
-MainComponent::~MainComponent() { server.reset(); }
+MainComponent::~MainComponent() {
+  std::cerr << "[MainComponent] Destructor Invoked. Saving Config..."
+            << std::endl;
+  try {
+    FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
+    std::cerr << "[MainComponent] Config saved successfully to "
+              << currentConfigFile.getFullPathName() << std::endl;
+  } catch (const std::exception &e) {
+    std::cerr << "[MainComponent] Exception during config save: " << e.what()
+              << std::endl;
+  }
+
+  stopTimer();
+  deviceManager.removeAudioCallback(this);
+  server.reset();
+}
 
 void MainComponent::setupWebView() {
   juce::File current =
@@ -432,6 +959,12 @@ void MainComponent::setupWebView() {
   webComponent.goToURL(root + "index.html");
 }
 
+void MainComponent::pushMixerState() {
+  juce::String json = mixer_.toJson();
+  juce::String call = "setMixerState('" + escapeForJS(json) + "')";
+  webComponent.evaluateJavascript(call);
+}
+
 void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
   std::lock_guard<std::mutex> lock(logMutex);
   if (!webViewLoaded) {
@@ -453,11 +986,31 @@ void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
 }
 
 juce::String MainComponent::escapeForJS(const juce::String &str) {
-  return str.replace("\\", "\\\\")
-      .replace("'", "\\'")
-      .replace("\"", "\\\"")
-      .replace("\r", "\\r")
-      .replace("\n", "\\n");
+  juce::String out;
+  out.preallocateBytes((size_t)str.length() + 256);
+  for (auto c : str) {
+    switch (c) {
+    case '\\':
+      out += "\\\\";
+      break;
+    case '\'':
+      out += "\\'";
+      break;
+    case '"':
+      out += "\\\"";
+      break;
+    case '\r':
+      out += "\\r";
+      break;
+    case '\n':
+      out += "\\n";
+      break;
+    default:
+      out += c;
+      break;
+    }
+  }
+  return out;
 }
 
 std::optional<juce::WebBrowserComponent::Resource>
@@ -532,6 +1085,49 @@ void MainComponent::paint(juce::Graphics &g) {
       getLookAndFeel().findColour(juce::ResizableWindow::backgroundColourId));
 }
 
-void MainComponent::resized() { tabbedComponent.setBounds(getLocalBounds()); }
+void MainComponent::resized() { webComponent.setBounds(getLocalBounds()); }
 
+void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice *device) {
+  // Pass the actual device sample rate and block size down to the mixer and
+  // plugins
+  if (device) {
+    mixer_.prepareToPlay(device->getCurrentSampleRate(),
+                         device->getCurrentBufferSizeSamples());
+  }
+}
+
+void MainComponent::audioDeviceStopped() {}
+
+void MainComponent::audioDeviceIOCallbackWithContext(
+    const float *const *inputChannelData, int numInputChannels,
+    float *const *outputChannelData, int numOutputChannels, int numSamples,
+    const juce::AudioIODeviceCallbackContext &context) {
+  static int tickCounter = 0;
+  if (++tickCounter % 100 == 0) {
+    std::cerr << "[AudioCallback] Ticked " << tickCounter << " blocks"
+              << std::endl;
+  }
+
+  // Clear any garbage from output buffers
+  for (int i = 0; i < numOutputChannels; ++i) {
+    if (outputChannelData[i] != nullptr) {
+      juce::FloatVectorOperations::clear(outputChannelData[i], numSamples);
+    }
+  }
+
+  juce::AudioBuffer<float> audioBuffer(outputChannelData, numOutputChannels,
+                                       numSamples);
+  double currentTime = juce::Time::getMillisecondCounterHiRes();
+
+  // 1. Process VST instruments and mix down to audioBuffer
+  mixer_.processBlock(audioBuffer, currentTime);
+
+  // 2. Transmit the mixed audioBuffer to Dorico via Shared Memory IPC
+  audioSharedMemory_.pushAudio(audioBuffer);
+
+  // 3. Clear the local speaker buffer so FiddleServer doesn't play directly
+  // through macOS CoreAudio.
+  //    This forces us to listen ONLY through the Dorico Mixer return route!
+  audioBuffer.clear();
+}
 } // namespace fiddle

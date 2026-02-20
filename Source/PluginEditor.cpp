@@ -8,47 +8,49 @@ FiddleAudioProcessorEditor::FiddleAudioProcessorEditor(FiddleAudioProcessor &p)
   setResizeLimits(400, 150, 800, 500); // min: 400x150, max: 800x500
   setSize(400, 400); // Increased height to ensure buttons are visible
 
-  // Add test buttons
-  addAndMakeVisible(testProgramChangeButton);
-  testProgramChangeButton.setButtonText("Test Program Change");
-  testProgramChangeButton.setColour(juce::TextButton::buttonColourId,
-                                    juce::Colours::darkblue);
-  testProgramChangeButton.setColour(juce::TextButton::textColourOffId,
-                                    juce::Colours::white);
-  testProgramChangeButton.onClick = [this]() {
-    // IMMEDIATE VISUAL FEEDBACK
-    testProgramChangeButton.setButtonText("Processing...");
-    testProgramChangeButton.setColour(juce::TextButton::buttonColourId,
-                                      juce::Colours::yellow);
+  // Setup load button
+  addAndMakeVisible(loadConfigButton);
+  loadConfigButton.setButtonText("Browse...");
+  loadConfigButton.setColour(juce::TextButton::buttonColourId,
+                             juce::Colours::darkgrey);
+  loadConfigButton.onClick = [this]() {
+    auto startDir =
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory);
 
-    // Call logic
-    int status = audioProcessor.sendTestProgramChange();
+    // Create new chooser
+    fileChooser = std::make_unique<juce::FileChooser>("Select Fiddle Config...",
+                                                      startDir, "*.yaml", true);
 
-    // Update based on result
-    if (status == 0) {
-      testProgramChangeButton.setColour(juce::TextButton::buttonColourId,
-                                        juce::Colours::green);
-      testProgramChangeButton.setButtonText("Sent (OK)");
-    } else if (status == 1) {
-      testProgramChangeButton.setColour(juce::TextButton::buttonColourId,
-                                        juce::Colours::red);
-      testProgramChangeButton.setButtonText("Fail: Disconnected");
-    } else {
-      testProgramChangeButton.setColour(juce::TextButton::buttonColourId,
-                                        juce::Colours::black);
-      testProgramChangeButton.setButtonText("Fail: Null Relay");
-    }
+    auto folderChooserFlags = juce::FileBrowserComponent::openMode |
+                              juce::FileBrowserComponent::canSelectFiles;
+
+    fileChooser->launchAsync(
+        folderChooserFlags, [this](const juce::FileChooser &chooser) {
+          auto result = chooser.getResult();
+          if (result.existsAsFile()) {
+            auto path = result.getFullPathName();
+            audioProcessor.setConfigPath(path);
+            configPathLabel.setText(path, juce::dontSendNotification);
+          }
+        });
   };
 
-  addAndMakeVisible(testContextUpdateButton);
-  testContextUpdateButton.setButtonText("Test ContextUpdate");
-  testContextUpdateButton.setColour(juce::TextButton::buttonColourId,
-                                    juce::Colours::darkgreen);
-  testContextUpdateButton.setColour(juce::TextButton::textColourOffId,
-                                    juce::Colours::white);
-  testContextUpdateButton.onClick = [this]() {
-    audioProcessor.sendTestContextUpdate();
-  };
+  // Setup Label
+  addAndMakeVisible(configPathLabel);
+  configPathLabel.setFont(juce::FontOptions(14.0f));
+  configPathLabel.setJustificationType(juce::Justification::centredLeft);
+  configPathLabel.setColour(juce::Label::textColourId,
+                            juce::Colours::lightgrey);
+  configPathLabel.setColour(juce::Label::backgroundColourId,
+                            juce::Colours::black.withAlpha(0.3f));
+
+  juce::String currentPath = audioProcessor.getConfigPath();
+  if (currentPath.isEmpty()) {
+    configPathLabel.setText("No config loaded (Using FiddleServer defaults)",
+                            juce::dontSendNotification);
+  } else {
+    configPathLabel.setText(currentPath, juce::dontSendNotification);
+  }
 
   startTimer(250);
 }
@@ -98,13 +100,15 @@ void FiddleAudioProcessorEditor::resized() {
   bounds.removeFromTop(20); // Info
   bounds.removeFromTop(10); // Small gap
 
-  // Now place buttons in remaining space
-  auto buttonArea = bounds.removeFromTop(35);
-  testProgramChangeButton.setBounds(buttonArea.removeFromLeft(180));
+  // Now place config selector in remaining space
+  auto configArea = bounds.removeFromTop(30);
 
-  buttonArea.removeFromLeft(10); // Spacing
+  // Left side: Browse Button (~100px)
+  loadConfigButton.setBounds(configArea.removeFromLeft(100));
+  configArea.removeFromLeft(10); // Spacing
 
-  testContextUpdateButton.setBounds(buttonArea.removeFromLeft(180));
+  // Right side: Active Path Label (takes remaining width)
+  configPathLabel.setBounds(configArea);
 }
 
 void FiddleAudioProcessorEditor::timerCallback() { repaint(); }

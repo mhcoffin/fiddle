@@ -73,20 +73,35 @@ public:
   REFCOUNT_METHODS(EditControllerEx1)
 
   // Parameter IDs
-  // Program change params: 100 + channel (0-15) → IDs 100-115
+  // Program change params: kProgramParamBase + logicalChannel
   static constexpr Steinberg::Vst::ParamID kProgramParamBase = 100;
 
-  // All CC params: paramID = kCCParamBase + ccNumber * kNumChannels + channel
-  // CC 0-127 × 16 channels = 2048 params (IDs 200-2247)
-  static constexpr Steinberg::Vst::ParamID kCCParamBase = 200;
-  static constexpr int kNumCCs = 128;
+  // Selective CC params: only CCs we actually use.
+  // paramID = kCCParamBase + ccIndex * kNumChannels + logicalChannel
+  // 21 CCs × 256 channels = 5,376 params
+  static constexpr Steinberg::Vst::ParamID kCCParamBase = 500;
 
-  // 48 ports × 16 channels = 768 total. Dorico discovers multi-port
-  // layout from the endpoint config (VE Pro-style).
-  static constexpr int kNumPorts = 48;
+  // 16 ports × 16 channels = 256 total channels.
+  static constexpr int kNumPorts = 16;
   static constexpr int kChannelsPerPort = 16;
-  static constexpr int kNumChannels = kNumPorts * kChannelsPerPort; // 768
+  static constexpr int kNumChannels = kNumPorts * kChannelsPerPort; // 256
   static constexpr int kNumPrograms = 128;
+
+  // The CCs we register as VST3 parameters.
+  // CC1 (Mod Wheel), CC7 (Volume), CC11 (Expression), CC102-CC119 (switches).
+  static constexpr int kSupportedCCs[] = {1,   7,   11,  102, 103, 104, 105,
+                                          106, 107, 108, 109, 110, 111, 112,
+                                          113, 114, 115, 116, 117, 118, 119};
+  static constexpr int kNumSupportedCCs =
+      sizeof(kSupportedCCs) / sizeof(kSupportedCCs[0]); // 21
+
+  /// Returns the dense index (0-20) for a CC number, or -1 if not supported.
+  static int ccToIndex(int ccNum) {
+    for (int i = 0; i < kNumSupportedCCs; ++i)
+      if (kSupportedCCs[i] == ccNum)
+        return i;
+    return -1;
+  }
 
   // --- Status queries for the UI ---
   bool isConnected() const { return isConnected_.load(); }

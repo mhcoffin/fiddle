@@ -121,8 +121,11 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
   if (data.processContext) {
     if (data.processContext->state & ProcessContext::kPlaying)
       isPlaying = true;
-    if (data.processContext->state & ProcessContext::kProjectTimeMusicValid)
+    if (data.processContext->state & ProcessContext::kProjectTimeMusicValid) {
       hostSamples = data.processContext->projectTimeSamples;
+      if (hostSamples < 0)
+        hostSamples = 0; // Prevent uint64_t overflow
+    }
   }
 
   // Process parameter changes from host (program changes, bank select, etc.)
@@ -162,7 +165,7 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
           protoEvent.set_timestamp_samples(sampleOffset);
           protoEvent.set_host_sample_position(
               static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_port(logicalCh / 16 + 1); // 1-based port
+          protoEvent.set_port(logicalCh / 16); // 0-based port
           protoEvent.set_channel(logicalCh % 16 +
                                  1); // 1-based channel within port
 
@@ -172,9 +175,40 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
           tcpRelay_->pushMessage(protoEvent);
         }
       }
-      // Note: CC parameters are not registered at the controller level
-      // (would be 98K+ params). CC data arrives through event buses.
-      else {
+      // CC params: kCCParamBase + ccIndex * kNumChannels + logicalCh
+      else if (paramId >= FiddleController::kCCParamBase &&
+               paramId < FiddleController::kCCParamBase +
+                             FiddleController::kNumSupportedCCs *
+                                 FiddleController::kNumChannels) {
+        int offset = paramId - FiddleController::kCCParamBase;
+        int ccIdx = offset / FiddleController::kNumChannels;
+        int logicalCh = offset % FiddleController::kNumChannels;
+        int ccNum = FiddleController::kSupportedCCs[ccIdx];
+        int ccVal = static_cast<int>(value * 127.0 + 0.5);
+
+        // Track Bank Select in channel state
+        if (logicalCh >= 0 && logicalCh < kTotalChannels) {
+          if (ccNum == 0)
+            channelStates_[logicalCh].bankMSB = ccVal;
+          else if (ccNum == 32)
+            channelStates_[logicalCh].bankLSB = ccVal;
+        }
+
+        if (tcpRelay_) {
+          MidiEvent protoEvent;
+          protoEvent.set_timestamp_samples(sampleOffset);
+          protoEvent.set_host_sample_position(
+              static_cast<uint64_t>(hostSamples + sampleOffset));
+          protoEvent.set_port(logicalCh / 16);        // 0-based port
+          protoEvent.set_channel(logicalCh % 16 + 1); // 1-based channel
+
+          auto *ccMsg = protoEvent.mutable_cc();
+          ccMsg->set_controller_number(ccNum);
+          ccMsg->set_controller_value(ccVal);
+
+          tcpRelay_->pushMessage(protoEvent);
+        }
+      } else {
         // Log unrecognized parameter IDs so we can discover new params
         pluginLog("Unhandled paramID=" + std::to_string(paramId) +
                   " value=" + std::to_string(value));
@@ -223,7 +257,12 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     if (events->getEvent(i, event) != kResultOk)
       continue;
 
-    pluginLog("Event type=" + std::to_string(event.type));
+    pluginLog("Event type=" + std::to_string(event.type) +
+              " bus=" + std::to_string(event.busIndex) + " ch=" +
+              std::to_string(
+                  event.type == Event::kNoteOnEvent    ? event.noteOn.channel
+                  : event.type == Event::kNoteOffEvent ? event.noteOff.channel
+                                                       : -1));
 
     MidiEvent protoEvent;
     protoEvent.set_timestamp_samples(event.sampleOffset);
@@ -238,7 +277,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
 
     switch (event.type) {
     case Event::kNoteOnEvent: {
-      protoEvent.set_port(eventBus + 1); // 1-based port
+      protoEvent.set_port(eventBus); // 0-based port
       protoEvent.set_channel(event.noteOn.channel +
                              1); // 1-based channel within port
       auto *noteOn = protoEvent.mutable_note_on();
@@ -250,7 +289,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     }
 
     case Event::kNoteOffEvent: {
-      protoEvent.set_port(eventBus + 1);
+      protoEvent.set_port(eventBus);
       protoEvent.set_channel(event.noteOff.channel + 1);
       auto *noteOff = protoEvent.mutable_note_off();
       noteOff->set_note_number(event.noteOff.pitch);
@@ -260,7 +299,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     }
 
     case Event::kPolyPressureEvent: {
-      protoEvent.set_port(eventBus + 1);
+      protoEvent.set_port(eventBus);
       protoEvent.set_channel(event.polyPressure.channel + 1);
       auto *at = protoEvent.mutable_aftertouch();
       at->set_note_number(event.polyPressure.pitch);
@@ -272,7 +311,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     case Event::kLegacyMIDICCOutEvent: {
       // This is how VST3 delivers CC, program change, pitch bend, etc.
       auto &cc = event.midiCCOut;
-      protoEvent.set_port(eventBus + 1);
+      protoEvent.set_port(eventBus);
       protoEvent.set_channel(cc.channel + 1);
 
       if (cc.controlNumber <= 127) {
