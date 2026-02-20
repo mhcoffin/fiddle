@@ -227,7 +227,7 @@
                             <button
                                 class="editor-btn"
                                 onclick={() => showEditor(strip.id)}
-                                title="Show plugin editor">⚙️ Open</button
+                                title="Show plugin editor"><span class="btn-icon">⚙️</span><span class="btn-text">Open</span></button
                             >
                         {/if}
                     </div>
@@ -425,6 +425,19 @@
         color: #94a3b8;
         font-size: 0.7rem;
         cursor: pointer;
+        display: flex;
+        align-items: center;
+        position: relative;
+    }
+
+    .btn-icon {
+        font-size: 0.55rem;
+        position: absolute;
+        left: 5px;
+    }
+
+    .btn-text {
+        flex: 1;
         text-align: center;
     }
 
