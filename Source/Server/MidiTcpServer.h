@@ -4,6 +4,7 @@
 #include <functional>
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
+#include <mutex>
 
 namespace fiddle {
 
@@ -40,6 +41,8 @@ private:
   void handleConnection(std::unique_ptr<juce::StreamingSocket> clientSocket);
 
   std::atomic<bool> shouldDisconnect{false};
+  std::mutex clientMutex_;
+  juce::StreamingSocket *currentClient_{nullptr};
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTcpServer)
 };

@@ -14,10 +14,15 @@ MidiTcpServer::MidiTcpServer(int port)
 }
 
 MidiTcpServer::~MidiTcpServer() {
-  // Close the listener socket FIRST to unblock waitForNextConnection(),
-  // then stop the thread. Without this, the thread blocks indefinitely
-  // in waitForNextConnection() and gets force-killed after 2s.
+  // Close both sockets to unblock wherever the thread is stuck:
+  // - listenerSocket.close() unblocks waitForNextConnection()
+  // - currentClient_ close unblocks clientSocket->read() in handleConnection()
   listenerSocket.close();
+  {
+    std::lock_guard<std::mutex> lock(clientMutex_);
+    if (currentClient_)
+      currentClient_->close();
+  }
   stopThread(2000);
 }
 
@@ -64,6 +69,12 @@ void MidiTcpServer::run() {
 void MidiTcpServer::handleConnection(
     std::unique_ptr<juce::StreamingSocket> clientSocket) {
   DBG("MidiTcpServer: Client connected from " << clientSocket->getHostName());
+
+  // Register client so destructor can close it to unblock read()
+  {
+    std::lock_guard<std::mutex> lock(clientMutex_);
+    currentClient_ = clientSocket.get();
+  }
 
   while (!threadShouldExit() && clientSocket->isConnected() &&
          !shouldDisconnect.load()) {
@@ -114,6 +125,11 @@ void MidiTcpServer::handleConnection(
     }
   }
 
+  // Unregister client
+  {
+    std::lock_guard<std::mutex> lock(clientMutex_);
+    currentClient_ = nullptr;
+  }
   shouldDisconnect.store(false);
   DBG("MidiTcpServer: Connection closed");
 }
