@@ -93,6 +93,19 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     tcpRelay_->setConnectionCallback([this](bool connected) {
       if (connected) {
         replayProgramState();
+        // Read current config path from active_config.txt (written by server)
+        const char *home = getenv("HOME");
+        if (home) {
+          std::string activeConfigPath =
+              std::string(home) + "/Library/Fiddle/active_config.txt";
+          std::ifstream f(activeConfigPath);
+          if (f.is_open()) {
+            std::string line;
+            std::getline(f, line);
+            if (!line.empty())
+              configPath_ = line;
+          }
+        }
         announceConfigToServer();
         // Remap shared memory to pick up server's new mmap file
         audioConsumer_.remap();
