@@ -13,7 +13,13 @@ MidiTcpServer::MidiTcpServer(int port)
   // drop the client.
 }
 
-MidiTcpServer::~MidiTcpServer() { stopThread(2000); }
+MidiTcpServer::~MidiTcpServer() {
+  // Close the listener socket FIRST to unblock waitForNextConnection(),
+  // then stop the thread. Without this, the thread blocks indefinitely
+  // in waitForNextConnection() and gets force-killed after 2s.
+  listenerSocket.close();
+  stopThread(2000);
+}
 
 void MidiTcpServer::onMessageReceived(
     std::function<void(const fiddle::MidiEvent &)> callback) {
