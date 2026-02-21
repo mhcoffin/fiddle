@@ -24,6 +24,12 @@ public:
     titleLabel.setJustificationType(juce::Justification::centred);
     titleLabel.setColour(juce::Label::textColourId, juce::Colours::white);
 
+    // Recent label
+    addAndMakeVisible(recentLabel);
+    recentLabel.setText("Recent Configurations", juce::dontSendNotification);
+    recentLabel.setFont(juce::FontOptions(13.0f));
+    recentLabel.setColour(juce::Label::textColourId, juce::Colours::grey);
+
     // Recent list
     addAndMakeVisible(recentListBox);
     recentListBox.setModel(this);
@@ -45,16 +51,6 @@ public:
     cancelButton.onClick = [this]() {
       if (onCancelled)
         onCancelled();
-    };
-
-    addAndMakeVisible(waitButton);
-    waitButton.setButtonText("Wait for Dorico");
-    waitButton.setColour(juce::TextButton::buttonColourId,
-                         juce::Colour(0xFF2D5F2D));
-    waitButton.onClick = [this]() {
-      // Return empty file = waiting state
-      if (onConfigSelected)
-        onConfigSelected(juce::File());
     };
 
     // New config name field (initially hidden)
@@ -87,8 +83,8 @@ public:
     bounds.removeFromTop(10);
 
     // Recent label
-    auto recentArea = bounds.removeFromTop(20);
-    // Note: we don't add a separate label, but this reserves space
+    recentLabel.setBounds(bounds.removeFromTop(20));
+    bounds.removeFromTop(4);
 
     // List takes up the bulk of the space
     auto buttonRow = bounds.removeFromBottom(40);
@@ -104,13 +100,11 @@ public:
       createButton.setBounds(newConfigRow);
     }
 
-    // Bottom button row (4 buttons)
-    int buttonW = (buttonRow.getWidth() - 30) / 4;
+    // Bottom button row (3 buttons)
+    int buttonW = (buttonRow.getWidth() - 20) / 3;
     browseButton.setBounds(buttonRow.removeFromLeft(buttonW));
     buttonRow.removeFromLeft(10);
     newConfigButton.setBounds(buttonRow.removeFromLeft(buttonW));
-    buttonRow.removeFromLeft(10);
-    waitButton.setBounds(buttonRow.removeFromLeft(buttonW));
     buttonRow.removeFromLeft(10);
     cancelButton.setBounds(buttonRow);
   }
@@ -157,9 +151,9 @@ public:
 
 private:
   juce::Label titleLabel;
+  juce::Label recentLabel;
   juce::ListBox recentListBox;
-  juce::TextButton browseButton, newConfigButton, cancelButton, createButton,
-      waitButton;
+  juce::TextButton browseButton, newConfigButton, cancelButton, createButton;
   juce::TextEditor newNameEditor;
   juce::StringArray recentPaths;
   std::unique_ptr<juce::FileChooser> fileChooser;
