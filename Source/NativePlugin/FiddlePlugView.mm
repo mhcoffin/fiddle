@@ -99,31 +99,9 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
   container.layer.backgroundColor =
       [NSColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:1.0].CGColor;
 
-  // --- Title ---
-  NSTextField *titleLabel = [NSTextField labelWithString:@"Fiddle"];
-  titleLabel.font = [NSFont systemFontOfSize:20 weight:NSFontWeightBold];
-  titleLabel.textColor = [NSColor whiteColor];
-  titleLabel.frame = NSMakeRect(16, kViewHeight - 40, 200, 28);
-  [container addSubview:titleLabel];
-
-  FiddleTagTextField *subtitleLabel = [[FiddleTagTextField alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 58, 300, 16)];
-  subtitleLabel.stringValue = @"No config loaded";
-  subtitleLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightRegular];
-  subtitleLabel.textColor = [NSColor colorWithRed:0.6
-                                            green:0.6
-                                             blue:0.65
-                                            alpha:1.0];
-  subtitleLabel.bezeled = NO;
-  subtitleLabel.drawsBackground = NO;
-  subtitleLabel.editable = NO;
-  subtitleLabel.selectable = NO;
-  subtitleLabel.fiddleTag = 102;
-  [container addSubview:subtitleLabel];
-
   // --- Connection status dot (fiddleTag=100) ---
   FiddleTagView *statusDot = [[FiddleTagView alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 84, 10, 10)];
+      initWithFrame:NSMakeRect(16, kViewHeight - 28, 10, 10)];
   statusDot.wantsLayer = YES;
   statusDot.layer.cornerRadius = 5.0;
   statusDot.layer.backgroundColor =
@@ -133,7 +111,7 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
 
   // --- Connection status text (fiddleTag=101) ---
   FiddleTagTextField *statusLabel = [[FiddleTagTextField alloc]
-      initWithFrame:NSMakeRect(32, kViewHeight - 88, 200, 18)];
+      initWithFrame:NSMakeRect(32, kViewHeight - 32, 260, 18)];
   statusLabel.stringValue = @"Disconnected";
   statusLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
   statusLabel.textColor = [NSColor whiteColor];
@@ -146,66 +124,48 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
 
   // --- Separator ---
   NSView *separator = [[NSView alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 100, kViewWidth - 32, 1)];
+      initWithFrame:NSMakeRect(16, kViewHeight - 44, kViewWidth - 32, 1)];
   separator.wantsLayer = YES;
   separator.layer.backgroundColor =
       [NSColor colorWithRed:0.25 green:0.25 blue:0.28 alpha:1.0].CGColor;
   [container addSubview:separator];
 
-  // --- Column headers ---
-  NSTextField *chHeader = [NSTextField labelWithString:@"Ch"];
-  chHeader.font = [NSFont systemFontOfSize:10 weight:NSFontWeightBold];
-  chHeader.textColor = [NSColor colorWithRed:0.5 green:0.5 blue:0.55 alpha:1.0];
-  chHeader.frame = NSMakeRect(16, kViewHeight - 120, 30, 14);
-  [container addSubview:chHeader];
+  // --- Config name (prominent, fiddleTag=102) ---
+  FiddleTagTextField *configNameLabel = [[FiddleTagTextField alloc]
+      initWithFrame:NSMakeRect(16, kViewHeight - 76, kViewWidth - 32, 24)];
+  configNameLabel.stringValue = @"No config loaded";
+  configNameLabel.font = [NSFont systemFontOfSize:18
+                                           weight:NSFontWeightSemibold];
+  configNameLabel.textColor = [NSColor whiteColor];
+  configNameLabel.bezeled = NO;
+  configNameLabel.drawsBackground = NO;
+  configNameLabel.editable = NO;
+  configNameLabel.selectable = NO;
+  configNameLabel.fiddleTag = 102;
+  [container addSubview:configNameLabel];
 
-  NSTextField *progHeader = [NSTextField labelWithString:@"Instrument"];
-  progHeader.font = [NSFont systemFontOfSize:10 weight:NSFontWeightBold];
-  progHeader.textColor = [NSColor colorWithRed:0.5
-                                         green:0.5
-                                          blue:0.55
-                                         alpha:1.0];
-  progHeader.frame = NSMakeRect(50, kViewHeight - 120, 200, 14);
-  [container addSubview:progHeader];
-
-  // --- 16 channel rows ---
-  CGFloat rowHeight = 16.0;
-  CGFloat startY = kViewHeight - 140;
-
-  for (int ch = 0; ch < 16; ++ch) {
-    CGFloat y = startY - ch * rowHeight;
-
-    // Channel number
-    NSString *chStr = [NSString stringWithFormat:@"%d", ch + 1];
-    NSTextField *chLabel = [NSTextField labelWithString:chStr];
-    chLabel.font = [NSFont monospacedDigitSystemFontOfSize:11
-                                                    weight:NSFontWeightRegular];
-    chLabel.textColor = [NSColor colorWithRed:0.55
-                                        green:0.55
-                                         blue:0.6
-                                        alpha:1.0];
-    chLabel.frame = NSMakeRect(16, y, 30, 14);
-    [container addSubview:chLabel];
-
-    // Program name (fiddleTag = 200 + ch)
-    FiddleTagTextField *progLabel = [[FiddleTagTextField alloc]
-        initWithFrame:NSMakeRect(50, y, kViewWidth - 66, 14)];
-    progLabel.stringValue = @"—";
-    progLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightRegular];
-    progLabel.textColor = [NSColor whiteColor];
-    progLabel.bezeled = NO;
-    progLabel.drawsBackground = NO;
-    progLabel.editable = NO;
-    progLabel.selectable = NO;
-    progLabel.fiddleTag = 200 + ch;
-    [container addSubview:progLabel];
-  }
+  // --- Config path (subdued, fiddleTag=103) ---
+  FiddleTagTextField *configPathLabel = [[FiddleTagTextField alloc]
+      initWithFrame:NSMakeRect(16, kViewHeight - 96, kViewWidth - 32, 14)];
+  configPathLabel.stringValue = @"";
+  configPathLabel.font = [NSFont systemFontOfSize:10
+                                           weight:NSFontWeightRegular];
+  configPathLabel.textColor = [NSColor colorWithRed:0.5
+                                              green:0.5
+                                               blue:0.55
+                                              alpha:1.0];
+  configPathLabel.bezeled = NO;
+  configPathLabel.drawsBackground = NO;
+  configPathLabel.editable = NO;
+  configPathLabel.selectable = NO;
+  configPathLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
+  configPathLabel.fiddleTag = 103;
+  [container addSubview:configPathLabel];
 
   [parentView addSubview:container];
   containerView_ = container;
 
   // Start refresh timer (500ms interval)
-  // Capture raw pointer — safe because we invalidate timer in removed()
   FiddlePlugView *viewPtr = this;
   refreshTimer_ =
       [NSTimer scheduledTimerWithTimeInterval:0.5
@@ -297,47 +257,34 @@ void FiddlePlugView::refreshDisplay() {
                   : [NSColor colorWithRed:0.8 green:0.4 blue:0.4 alpha:1.0];
   }
 
-  // Update config name
-  FiddleTagTextField *configLabel =
+  // Update config name (prominent)
+  FiddleTagTextField *configNameLabel =
       (FiddleTagTextField *)findViewByTag(container, 102);
-  if (configLabel) {
+  if (configNameLabel) {
     std::string configName = controller_->getConfigName();
     if (!configName.empty()) {
-      configLabel.stringValue =
+      configNameLabel.stringValue =
           [NSString stringWithUTF8String:configName.c_str()];
-      configLabel.textColor = [NSColor colorWithRed:0.7
-                                              green:0.8
-                                               blue:1.0
-                                              alpha:1.0];
+      configNameLabel.textColor = [NSColor whiteColor];
     } else {
-      configLabel.stringValue = @"No config loaded";
-      configLabel.textColor = [NSColor colorWithRed:0.6
-                                              green:0.6
-                                               blue:0.65
-                                              alpha:1.0];
+      configNameLabel.stringValue = @"No config loaded";
+      configNameLabel.textColor = [NSColor colorWithRed:0.5
+                                                  green:0.5
+                                                   blue:0.55
+                                                  alpha:1.0];
     }
   }
 
-  // Update channel program labels
-  for (int ch = 0; ch < 16; ++ch) {
-    FiddleTagTextField *progLabel =
-        (FiddleTagTextField *)findViewByTag(container, 200 + ch);
-    if (!progLabel)
-      continue;
-
-    int program = controller_->getChannelProgram(ch);
-    if (program >= 0) {
-      std::string name = controller_->getInstrumentName(program);
-      if (name.empty())
-        name = "Program " + std::to_string(program);
-      progLabel.stringValue = [NSString stringWithUTF8String:name.c_str()];
-      progLabel.textColor = [NSColor whiteColor];
+  // Update config path (subdued)
+  FiddleTagTextField *configPathLabel =
+      (FiddleTagTextField *)findViewByTag(container, 103);
+  if (configPathLabel) {
+    std::string configPath = controller_->getConfigPath();
+    if (!configPath.empty()) {
+      configPathLabel.stringValue =
+          [NSString stringWithUTF8String:configPath.c_str()];
     } else {
-      progLabel.stringValue = @"—";
-      progLabel.textColor = [NSColor colorWithRed:0.4
-                                            green:0.4
-                                             blue:0.45
-                                            alpha:1.0];
+      configPathLabel.stringValue = @"";
     }
   }
 }

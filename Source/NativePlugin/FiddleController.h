@@ -110,6 +110,8 @@ public:
   std::string getInstrumentName(int program) const;
   /// Returns the config file basename (without path and extension).
   std::string getConfigName() const;
+  /// Returns the full config file path.
+  std::string getConfigPath() const { return configPath_; }
 
 private:
   void sendProgramChangeToProcessor(int channel, int program);

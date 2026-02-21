@@ -23,7 +23,7 @@ class FiddleController;
  *
  * Displays:
  * - Connection status (green/red indicator)
- * - Per-channel program assignments (GM instrument names)
+ * - Active config name and path
  *
  * Uses native macOS NSView via Objective-C++.
  * Non-resizable, fixed size.
@@ -64,8 +64,8 @@ public:
   /// Called periodically by NSTimer to refresh the display
   void refreshDisplay();
 
-  static constexpr int kViewWidth = 420;
-  static constexpr int kViewHeight = 420;
+  static constexpr int kViewWidth = 320;
+  static constexpr int kViewHeight = 110;
 
 private:
   FiddleController *controller_; // non-owning
