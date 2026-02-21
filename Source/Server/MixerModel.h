@@ -118,6 +118,7 @@ public:
       int channel;
       juce::String label;
       juce::String family;
+      bool isSolo;
     };
     std::vector<Entry> expected;
     std::set<std::pair<int, int>> expectedSet;
@@ -140,19 +141,19 @@ public:
 
         int port = flatIndex / 16;
         int ch = flatIndex % 16;
-        expected.push_back({port, ch, label, slot.family});
+        expected.push_back({port, ch, label, slot.family, true});
         expectedSet.insert({port, ch});
         ++flatIndex;
       }
       for (int i = 0; i < slot.sectionCount; ++i) {
         int num = ++sectionCounters[slot.name];
-        juce::String label = slot.name + " sect";
+        juce::String label = slot.name;
         if (sectionTotals[slot.name] > 1)
           label += " " + juce::String(num);
 
         int port = flatIndex / 16;
         int ch = flatIndex % 16;
-        expected.push_back({port, ch, label, slot.family});
+        expected.push_back({port, ch, label, slot.family, false});
         expectedSet.insert({port, ch});
         ++flatIndex;
       }
@@ -183,6 +184,7 @@ public:
       auto it2 = expectedMap.find(key);
       if (it2 != expectedMap.end()) {
         s->family = it2->second->family;
+        s->isSolo = it2->second->isSolo;
         // Update name only if it looks auto-generated (not user-renamed)
         if (s->name.startsWith("Strip") || s->name.isEmpty())
           s->name = it2->second->label;
@@ -197,6 +199,7 @@ public:
         strip->id = juce::Uuid().toString();
         strip->name = entry.label;
         strip->family = entry.family;
+        strip->isSolo = entry.isSolo;
         strip->inputPort = entry.port;
         strip->inputChannel = entry.channel;
         strip->prepareToPlay(currentSampleRate_, currentBlockSize_);

@@ -13,6 +13,7 @@ struct MixerStrip {
   juce::String id;
   juce::String name;
   juce::String family; // Instrument family (e.g. "Strings", "Brass")
+  bool isSolo = true;  // true = solo player, false = section
 
   // Input assignment (-1 = unassigned)
   int inputPort = -1;
@@ -166,6 +167,7 @@ struct MixerStrip {
     obj->setProperty("id", id);
     obj->setProperty("name", name);
     obj->setProperty("family", family);
+    obj->setProperty("isSolo", isSolo);
     obj->setProperty("inputPort", inputPort);
     obj->setProperty("inputChannel", inputChannel);
     obj->setProperty("pluginUid", pluginUid);

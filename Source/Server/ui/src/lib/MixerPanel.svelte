@@ -277,6 +277,11 @@
                                                     startEditing(strip)}
                                                 title="Double-click to rename"
                                             >
+                                                <span class="ch-icon"
+                                                    >{strip.isSolo
+                                                        ? "👤"
+                                                        : "👥"}</span
+                                                >
                                                 {strip.name}
                                             </div>
                                         {/if}
@@ -513,6 +518,10 @@
     }
     .channel-strip:hover {
         background: #1e293b;
+    }
+
+    .ch-icon {
+        font-size: 0.55rem;
     }
 
     .ch-name-area {
