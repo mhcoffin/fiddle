@@ -99,44 +99,16 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
   container.layer.backgroundColor =
       [NSColor colorWithRed:0.12 green:0.12 blue:0.14 alpha:1.0].CGColor;
 
-  // --- Connection status dot (fiddleTag=100) ---
-  FiddleTagView *statusDot = [[FiddleTagView alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 28, 10, 10)];
-  statusDot.wantsLayer = YES;
-  statusDot.layer.cornerRadius = 5.0;
-  statusDot.layer.backgroundColor =
-      [NSColor colorWithRed:0.8 green:0.2 blue:0.2 alpha:1.0].CGColor;
-  statusDot.fiddleTag = 100;
-  [container addSubview:statusDot];
-
-  // --- Connection status text (fiddleTag=101) ---
-  FiddleTagTextField *statusLabel = [[FiddleTagTextField alloc]
-      initWithFrame:NSMakeRect(32, kViewHeight - 32, 260, 18)];
-  statusLabel.stringValue = @"Disconnected";
-  statusLabel.font = [NSFont systemFontOfSize:13 weight:NSFontWeightMedium];
-  statusLabel.textColor = [NSColor whiteColor];
-  statusLabel.bezeled = NO;
-  statusLabel.drawsBackground = NO;
-  statusLabel.editable = NO;
-  statusLabel.selectable = NO;
-  statusLabel.fiddleTag = 101;
-  [container addSubview:statusLabel];
-
-  // --- Separator ---
-  NSView *separator = [[NSView alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 44, kViewWidth - 32, 1)];
-  separator.wantsLayer = YES;
-  separator.layer.backgroundColor =
-      [NSColor colorWithRed:0.25 green:0.25 blue:0.28 alpha:1.0].CGColor;
-  [container addSubview:separator];
-
-  // --- Config name (prominent, fiddleTag=102) ---
+  // --- Config name (colored by connection status, fiddleTag=102) ---
   FiddleTagTextField *configNameLabel = [[FiddleTagTextField alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 76, kViewWidth - 32, 24)];
+      initWithFrame:NSMakeRect(16, kViewHeight - 32, kViewWidth - 32, 24)];
   configNameLabel.stringValue = @"No config loaded";
   configNameLabel.font = [NSFont systemFontOfSize:18
                                            weight:NSFontWeightSemibold];
-  configNameLabel.textColor = [NSColor whiteColor];
+  configNameLabel.textColor = [NSColor colorWithRed:0.8
+                                              green:0.3
+                                               blue:0.3
+                                              alpha:1.0];
   configNameLabel.bezeled = NO;
   configNameLabel.drawsBackground = NO;
   configNameLabel.editable = NO;
@@ -146,7 +118,7 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
 
   // --- Config path (subdued, fiddleTag=103) ---
   FiddleTagTextField *configPathLabel = [[FiddleTagTextField alloc]
-      initWithFrame:NSMakeRect(16, kViewHeight - 96, kViewWidth - 32, 14)];
+      initWithFrame:NSMakeRect(16, kViewHeight - 50, kViewWidth - 32, 14)];
   configPathLabel.stringValue = @"";
   configPathLabel.font = [NSFont systemFontOfSize:10
                                            weight:NSFontWeightRegular];
@@ -239,25 +211,7 @@ void FiddlePlugView::refreshDisplay() {
   // Update connection status
   bool connected = controller_->isConnected();
 
-  FiddleTagView *dot = (FiddleTagView *)findViewByTag(container, 100);
-  if (dot) {
-    dot.layer.backgroundColor =
-        connected
-            ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0].CGColor
-            : [NSColor colorWithRed:0.8 green:0.2 blue:0.2 alpha:1.0].CGColor;
-  }
-
-  FiddleTagTextField *statusLabel =
-      (FiddleTagTextField *)findViewByTag(container, 101);
-  if (statusLabel) {
-    statusLabel.stringValue =
-        connected ? @"Connected to FiddleServer" : @"Disconnected";
-    statusLabel.textColor =
-        connected ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0]
-                  : [NSColor colorWithRed:0.8 green:0.4 blue:0.4 alpha:1.0];
-  }
-
-  // Update config name (prominent)
+  // Update config name — colored by connection status
   FiddleTagTextField *configNameLabel =
       (FiddleTagTextField *)findViewByTag(container, 102);
   if (configNameLabel) {
@@ -265,7 +219,9 @@ void FiddlePlugView::refreshDisplay() {
     if (!configName.empty()) {
       configNameLabel.stringValue =
           [NSString stringWithUTF8String:configName.c_str()];
-      configNameLabel.textColor = [NSColor whiteColor];
+      configNameLabel.textColor =
+          connected ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0]
+                    : [NSColor colorWithRed:0.9 green:0.35 blue:0.35 alpha:1.0];
     } else {
       configNameLabel.stringValue = @"No config loaded";
       configNameLabel.textColor = [NSColor colorWithRed:0.5

@@ -65,7 +65,7 @@ public:
   void refreshDisplay();
 
   static constexpr int kViewWidth = 320;
-  static constexpr int kViewHeight = 110;
+  static constexpr int kViewHeight = 60;
 
 private:
   FiddleController *controller_; // non-owning
