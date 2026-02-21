@@ -170,11 +170,24 @@ public:
         ++it;
       }
     }
+    // Build a lookup from port/channel to expected entry
+    std::map<std::pair<int, int>, const Entry *> expectedMap;
+    for (const auto &e : expected)
+      expectedMap[{e.port, e.channel}] = &e;
 
-    // Build set of existing port/channel assignments
+    // Update family/name on existing strips and build existing set
     std::set<std::pair<int, int>> existingSet;
-    for (const auto &s : strips_)
-      existingSet.insert({s->inputPort, s->inputChannel});
+    for (auto &s : strips_) {
+      auto key = std::make_pair(s->inputPort, s->inputChannel);
+      existingSet.insert(key);
+      auto it2 = expectedMap.find(key);
+      if (it2 != expectedMap.end()) {
+        s->family = it2->second->family;
+        // Update name only if it looks auto-generated (not user-renamed)
+        if (s->name.startsWith("Strip") || s->name.isEmpty())
+          s->name = it2->second->label;
+      }
+    }
 
     // Add strips for new instruments
     for (const auto &entry : expected) {
