@@ -117,6 +117,7 @@ public:
       int port;
       int channel;
       juce::String label;
+      juce::String family;
     };
     std::vector<Entry> expected;
     std::set<std::pair<int, int>> expectedSet;
@@ -139,7 +140,7 @@ public:
 
         int port = flatIndex / 16;
         int ch = flatIndex % 16;
-        expected.push_back({port, ch, label});
+        expected.push_back({port, ch, label, slot.family});
         expectedSet.insert({port, ch});
         ++flatIndex;
       }
@@ -151,7 +152,7 @@ public:
 
         int port = flatIndex / 16;
         int ch = flatIndex % 16;
-        expected.push_back({port, ch, label});
+        expected.push_back({port, ch, label, slot.family});
         expectedSet.insert({port, ch});
         ++flatIndex;
       }
@@ -182,6 +183,7 @@ public:
         auto strip = std::make_unique<MixerStrip>();
         strip->id = juce::Uuid().toString();
         strip->name = entry.label;
+        strip->family = entry.family;
         strip->inputPort = entry.port;
         strip->inputChannel = entry.channel;
         strip->prepareToPlay(currentSampleRate_, currentBlockSize_);

@@ -12,6 +12,7 @@ namespace fiddle {
 struct MixerStrip {
   juce::String id;
   juce::String name;
+  juce::String family; // Instrument family (e.g. "Strings", "Brass")
 
   // Input assignment (-1 = unassigned)
   int inputPort = -1;
@@ -164,6 +165,7 @@ struct MixerStrip {
     auto *obj = new juce::DynamicObject();
     obj->setProperty("id", id);
     obj->setProperty("name", name);
+    obj->setProperty("family", family);
     obj->setProperty("inputPort", inputPort);
     obj->setProperty("inputChannel", inputChannel);
     obj->setProperty("pluginUid", pluginUid);

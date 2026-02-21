@@ -1,5 +1,6 @@
 <script>
     import { onMount } from "svelte";
+    import { FAMILY_ORDER, canonicalFamily } from "./orchestralOrder.js";
 
     let strips = $state([]);
     let availableInputs = $state([]);
@@ -21,6 +22,42 @@
             (win.__juce__ && win.__juce__[name])
         );
     };
+
+    /** Family display colors (same as InstrumentList.svelte) */
+    const FAMILY_COLORS = {
+        woodwinds: {
+            accent: "#38bdf8",
+            header: "#0e4d6e",
+            text: "#bae6fd",
+        },
+        brass: {
+            accent: "#f59e0b",
+            header: "#713f12",
+            text: "#fde68a",
+        },
+        percussion: {
+            accent: "#a8896b",
+            header: "#44342a",
+            text: "#d4c4b0",
+        },
+        keys: {
+            accent: "#c084fc",
+            header: "#581c87",
+            text: "#e9d5ff",
+        },
+        strings: {
+            accent: "#34d399",
+            header: "#14532d",
+            text: "#a7f3d0",
+        },
+        choir: {
+            accent: "#94a3b8",
+            header: "#334155",
+            text: "#e2e8f0",
+        },
+    };
+
+    const defaultColors = FAMILY_COLORS.choir;
 
     // Callbacks from C++ backend
     w.setMixerState = (jsonStr) => {
@@ -104,7 +141,10 @@
             const defaultName = `${instrumentName} Audio`;
             const strip = strips.find((s) => s.id === stripId);
             // Only auto-rename if name is still a default
-            if (strip && (strip.name.startsWith("Strip") || strip.name === "")) {
+            if (
+                strip &&
+                (strip.name.startsWith("Strip") || strip.name === "")
+            ) {
                 const renameFn = getNative("setStripName");
                 if (renameFn) renameFn(stripId, defaultName);
             }
@@ -170,6 +210,37 @@
         const match = scannedPlugins.find((p) => p.uid === pluginUid);
         return match ? match.name : `UID:${pluginUid}`;
     };
+
+    // Group strips by family, in orchestral order, omitting empty families
+    let groupedStrips = $derived.by(() => {
+        /** @type {{ family: string, strips: any[], colors: any }[]} */
+        const groups = [];
+        const familyMap = new Map();
+
+        for (const strip of strips) {
+            const fam = canonicalFamily(strip.family || "");
+            if (!familyMap.has(fam)) {
+                const group = {
+                    family: fam,
+                    displayName: strip.family || "Other",
+                    strips: [],
+                    colors: FAMILY_COLORS[fam] || defaultColors,
+                };
+                familyMap.set(fam, group);
+                groups.push(group);
+            }
+            familyMap.get(fam).strips.push(strip);
+        }
+
+        // Sort by FAMILY_ORDER
+        groups.sort((a, b) => {
+            const ia = FAMILY_ORDER.indexOf(a.family);
+            const ib = FAMILY_ORDER.indexOf(b.family);
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+
+        return groups;
+    });
 </script>
 
 <div class="mixer-container">
@@ -194,116 +265,167 @@
                         min="0"
                         max="5000"
                         value={playbackDelay}
-                        onchange={(e) => { updateDelay(e.target.value); editingDelay = false; }}
-                        onblur={() => { editingDelay = false; }}
-                        onkeydown={(e) => { if (e.key === 'Escape') editingDelay = false; }}
+                        onchange={(e) => {
+                            updateDelay(e.target.value);
+                            editingDelay = false;
+                        }}
+                        onblur={() => {
+                            editingDelay = false;
+                        }}
+                        onkeydown={(e) => {
+                            if (e.key === "Escape") editingDelay = false;
+                        }}
                     />
                 {:else}
                     <span
                         class="delay-value"
-                        ondblclick={() => { editingDelay = true; }}
-                        title="Double-click to type"
-                    >{playbackDelay}ms</span>
+                        ondblclick={() => {
+                            editingDelay = true;
+                        }}
+                        title="Double-click to type">{playbackDelay}ms</span
+                    >
                 {/if}
             </div>
-            <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button>
+            <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button
+            >
         </div>
     </div>
 
     {#if strips.length === 0}
         <div class="empty-state">
             <p>
-                No channel strips. Click <strong>+ Add Strip</strong> to create one.
+                No channel strips. Add instruments in the <strong>Setup</strong>
+                tab.
             </p>
         </div>
     {:else}
-        <div class="strips-container">
-            {#each strips as strip (strip.id)}
-                <div class="strip">
-                    <button
-                        class="strip-delete"
-                        onclick={() => removeStrip(strip.id)}
-                        title="Delete strip">✕</button
+        <div class="families-container">
+            {#each groupedStrips as group (group.family)}
+                <div class="family-folder">
+                    <!-- Family header -->
+                    <div
+                        class="family-header"
+                        style="background: {group.colors.header}; color: {group
+                            .colors.text}; border-left: 3px solid {group.colors
+                            .accent};"
                     >
-
-                    <!-- Input Selector -->
-                    <div class="strip-section">
-                        <label class="strip-label">Input</label>
-                        <select
-                            class="strip-select"
-                            value={`${strip.inputPort}:${strip.inputChannel}`}
-                            onchange={(e) => {
-                                const [p, c] = e.target.value
-                                    .split(":")
-                                    .map(Number);
-                                setInput(strip.id, p, c);
-                            }}
+                        <span class="family-name"
+                            >{group.displayName.toUpperCase()}</span
                         >
-                            <option value="-1:-1">-- None --</option>
-                            {#each availableInputs as input}
-                                {@const icon = input.isSolo ? "👤" : "👥"}
-                                <option
-                                    value={`${input.port}:${input.channel}`}
+                        <span
+                            class="count-pill"
+                            style="background: {group.colors
+                                .accent}20; color: {group.colors.accent};"
+                        >
+                            {group.strips.length}
+                        </span>
+                    </div>
+
+                    <!-- Strips in this family -->
+                    <div
+                        class="strips-row"
+                        style="border-left: 3px solid {group.colors.accent};"
+                    >
+                        {#each group.strips as strip (strip.id)}
+                            <div class="strip">
+                                <button
+                                    class="strip-delete"
+                                    onclick={() => removeStrip(strip.id)}
+                                    title="Delete strip">✕</button
                                 >
-                                    {icon} {input.label || input.name}
-                                </option>
-                            {/each}
-                        </select>
-                        {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
-                            <div class="input-port-ch">P{strip.inputPort + 1} Ch{strip.inputChannel + 1}</div>
-                        {/if}
-                    </div>
 
-                    <!-- Spacer -->
-                    <div class="strip-spacer"></div>
+                                <!-- Input Selector -->
+                                <div class="strip-section">
+                                    <label class="strip-label">Input</label>
+                                    <select
+                                        class="strip-select"
+                                        value={`${strip.inputPort}:${strip.inputChannel}`}
+                                        onchange={(e) => {
+                                            const [p, c] = e.target.value
+                                                .split(":")
+                                                .map(Number);
+                                            setInput(strip.id, p, c);
+                                        }}
+                                    >
+                                        <option value="-1:-1">-- None --</option
+                                        >
+                                        {#each availableInputs as input}
+                                            {@const icon = input.isSolo
+                                                ? "👤"
+                                                : "👥"}
+                                            <option
+                                                value={`${input.port}:${input.channel}`}
+                                            >
+                                                {icon}
+                                                {input.label || input.name}
+                                            </option>
+                                        {/each}
+                                    </select>
+                                    {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
+                                        <div class="input-port-ch">
+                                            P{strip.inputPort + 1} Ch{strip.inputChannel +
+                                                1}
+                                        </div>
+                                    {/if}
+                                </div>
 
-                    <!-- Plugin Selector -->
-                    <div class="strip-section">
-                        <label class="strip-label">Plugin</label>
-                        <select
-                            class="strip-select"
-                            value={strip.pluginUid || 0}
-                            onchange={(e) => {
-                                const uid = Number(e.target.value);
-                                if (uid) setPlugin(strip.id, uid);
-                            }}
-                        >
-                            <option value="0">— None —</option>
-                            {#each scannedPlugins as plugin}
-                                <option value={plugin.uid}>
-                                    {plugin.name}
-                                </option>
-                            {/each}
-                        </select>
-                        {#if strip.hasPlugin}
-                            <button
-                                class="editor-btn"
-                                onclick={() => showEditor(strip.id)}
-                                title="Show plugin editor"><span class="btn-icon">⚙️</span><span class="btn-text">Open</span></button
-                            >
-                        {/if}
-                    </div>
+                                <!-- Spacer -->
+                                <div class="strip-spacer"></div>
 
-                    <!-- Name (bottom, editable on double-click) -->
-                    <div class="strip-name-area">
-                        {#if editingId === strip.id}
-                            <input
-                                class="strip-name-input"
-                                type="text"
-                                bind:value={editValue}
-                                onblur={() => commitEdit(strip.id)}
-                                onkeydown={(e) =>
-                                    handleNameKeydown(e, strip.id)}
-                            />
-                        {:else}
-                            <div
-                                class="strip-name"
-                                ondblclick={() => startEditing(strip)}
-                                title="Double-click to rename"
-                            >
-                                {strip.name}
+                                <!-- Plugin Selector -->
+                                <div class="strip-section">
+                                    <label class="strip-label">Plugin</label>
+                                    <select
+                                        class="strip-select"
+                                        value={strip.pluginUid || 0}
+                                        onchange={(e) => {
+                                            const uid = Number(e.target.value);
+                                            if (uid) setPlugin(strip.id, uid);
+                                        }}
+                                    >
+                                        <option value="0">— None —</option>
+                                        {#each scannedPlugins as plugin}
+                                            <option value={plugin.uid}>
+                                                {plugin.name}
+                                            </option>
+                                        {/each}
+                                    </select>
+                                    {#if strip.hasPlugin}
+                                        <button
+                                            class="editor-btn"
+                                            onclick={() => showEditor(strip.id)}
+                                            title="Show plugin editor"
+                                            ><span class="btn-icon">⚙️</span
+                                            ><span class="btn-text">Open</span
+                                            ></button
+                                        >
+                                    {/if}
+                                </div>
+
+                                <!-- Name (bottom, editable on double-click) -->
+                                <div class="strip-name-area">
+                                    {#if editingId === strip.id}
+                                        <input
+                                            class="strip-name-input"
+                                            type="text"
+                                            bind:value={editValue}
+                                            onblur={() => commitEdit(strip.id)}
+                                            onkeydown={(e) =>
+                                                handleNameKeydown(e, strip.id)}
+                                        />
+                                    {:else}
+                                        <div
+                                            class="strip-name"
+                                            ondblclick={() =>
+                                                startEditing(strip)}
+                                            title="Double-click to rename"
+                                        >
+                                            {strip.name}
+                                        </div>
+                                    {/if}
+                                </div>
                             </div>
-                        {/if}
+                        {/each}
                     </div>
                 </div>
             {/each}
@@ -421,14 +543,53 @@
         font-size: 0.85rem;
     }
 
-    .strips-container {
+    /* Families container: vertical scroll of family folders */
+    .families-container {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .family-folder {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+    .family-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+    }
+
+    .family-name {
+        font-weight: 700;
+    }
+
+    .count-pill {
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 1px 7px;
+        border-radius: 99px;
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .strips-row {
         display: flex;
         flex-direction: row;
         gap: 8px;
-        flex: 1;
+        padding: 8px;
         overflow-x: auto;
         overflow-y: hidden;
-        padding-bottom: 8px;
+        margin-left: 0;
+        background: rgba(0, 0, 0, 0.15);
     }
 
     .strip {
@@ -497,20 +658,6 @@
     .strip-select:focus {
         outline: none;
         border-color: #3b82f6;
-    }
-
-    .input-display {
-        text-align: center;
-        margin-bottom: 2px;
-    }
-
-    .input-name {
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #e2e8f0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
     .input-port-ch {
