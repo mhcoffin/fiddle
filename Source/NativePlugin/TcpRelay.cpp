@@ -9,10 +9,25 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <fstream>
+#include <iostream>
+#include <mutex>
+
+namespace {
+std::mutex relayLogMutex;
+void relayLog(const std::string &msg) {
+  std::lock_guard<std::mutex> lock(relayLogMutex);
+  std::ofstream f("/tmp/fiddle_relay.log", std::ios::app);
+  f << msg << std::endl;
+}
+} // namespace
+
 namespace fiddle {
 
 TcpRelay::TcpRelay(const std::string &host, int port)
     : host_(host), port_(port) {
+  relayLog("TcpRelay created, connecting to " + host + ":" +
+           std::to_string(port));
   thread_ = std::thread(&TcpRelay::relayThread, this);
 }
 
@@ -31,9 +46,13 @@ void TcpRelay::pushMessage(const MidiEvent &event) {
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    // Cap queue size to prevent unbounded growth if server is slow
-    if (queue_.size() < 4096)
+    if (queue_.size() < 4096) {
       queue_.push_back(std::move(serialized));
+      relayLog("pushMessage: queued, qsize=" + std::to_string(queue_.size()) +
+               " connected=" + std::to_string(connected_.load()));
+    } else {
+      relayLog("pushMessage: QUEUE FULL");
+    }
   }
   cv_.notify_one();
 }
@@ -49,6 +68,7 @@ void TcpRelay::relayThread() {
     if (!connected_) {
       if (tryConnect()) {
         connected_ = true;
+        relayLog("Connected to server");
         // Copy callback under lock, then invoke OUTSIDE the lock
         // to avoid deadlock (callback may call pushMessage which locks mutex_)
         ConnectionCallback cb;
@@ -106,6 +126,7 @@ void TcpRelay::relayThread() {
     }
 
     if (!sendMessage(msg)) {
+      relayLog("sendMessage FAILED, disconnecting");
       disconnect();
       connected_ = false;
       // Copy callback under lock, invoke outside
@@ -122,13 +143,16 @@ void TcpRelay::relayThread() {
 
 bool TcpRelay::tryConnect() {
   socketFd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (socketFd_ < 0)
+  if (socketFd_ < 0) {
+    relayLog("tryConnect: socket() failed, errno=" + std::to_string(errno));
     return false;
+  }
 
   struct sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port_);
   if (::inet_pton(AF_INET, host_.c_str(), &addr.sin_addr) <= 0) {
+    relayLog("tryConnect: inet_pton failed");
     ::close(socketFd_);
     socketFd_ = -1;
     return false;
@@ -140,6 +164,8 @@ bool TcpRelay::tryConnect() {
 
   int result = ::connect(socketFd_, (struct sockaddr *)&addr, sizeof(addr));
   if (result < 0 && errno != EINPROGRESS) {
+    relayLog("tryConnect: connect() failed, errno=" + std::to_string(errno) +
+             " (" + std::string(strerror(errno)) + ")");
     ::close(socketFd_);
     socketFd_ = -1;
     return false;
@@ -156,6 +182,8 @@ bool TcpRelay::tryConnect() {
 
     result = ::select(socketFd_ + 1, nullptr, &writefds, nullptr, &tv);
     if (result <= 0) {
+      relayLog("tryConnect: select() timeout/error, result=" +
+               std::to_string(result) + " errno=" + std::to_string(errno));
       ::close(socketFd_);
       socketFd_ = -1;
       return false;
@@ -166,6 +194,8 @@ bool TcpRelay::tryConnect() {
     socklen_t optlen = sizeof(optval);
     if (::getsockopt(socketFd_, SOL_SOCKET, SO_ERROR, &optval, &optlen) < 0 ||
         optval != 0) {
+      relayLog("tryConnect: getsockopt SO_ERROR=" + std::to_string(optval) +
+               " (" + std::string(strerror(optval)) + ")");
       ::close(socketFd_);
       socketFd_ = -1;
       return false;
@@ -179,6 +209,7 @@ bool TcpRelay::tryConnect() {
   int nodelay = 1;
   ::setsockopt(socketFd_, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
+  relayLog("tryConnect: SUCCESS, fd=" + std::to_string(socketFd_));
   return true;
 }
 
