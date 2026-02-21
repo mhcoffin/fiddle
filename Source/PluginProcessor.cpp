@@ -35,13 +35,12 @@ FiddleAudioProcessor::FiddleAudioProcessor()
 
   // All 128 CC parameters for VST3 MIDI CC mapping
   for (int cc = 0; cc < 128; ++cc) {
-    // CC 0 and 32 are already mapped as Bank MSB/LSB above,
-    // but we still need entries for getMidiControllerAssignment
     auto paramId = juce::String(kParamIdCCBase + cc);
     auto name = "CC " + juce::String(cc);
     auto *param = new juce::AudioParameterInt(juce::ParameterID(paramId, 1),
                                               name, 0, 127, 0);
     addParameter(param);
+    param->addListener(this);
   }
 
   vst3Extensions = std::make_unique<fiddle::FiddleVST3Extensions>(*this);
@@ -57,7 +56,29 @@ juce::VST3ClientExtensions *FiddleAudioProcessor::getVST3ClientExtensions() {
 
 // Listener removed to enable raw MIDI test
 void FiddleAudioProcessor::parameterValueChanged(int parameterIndex,
-                                                 float newValue) {}
+                                                 float newValue) {
+  // Parameters layout:
+  //   0 = bankMSBParam (CC 0)
+  //   1 = bankLSBParam (CC 32)
+  //   2..129 = CC 0..127 (kParamIdCCBase params)
+  const int ccParamStart = 2;
+  const int ccParamEnd = ccParamStart + 128;
+
+  if (parameterIndex >= ccParamStart && parameterIndex < ccParamEnd) {
+    int ccNumber = parameterIndex - ccParamStart;
+    int ccValue = static_cast<int>(newValue * 127.0f);
+
+    if (tcpRelay != nullptr && tcpRelay->isConnected()) {
+      fiddle::MidiEvent protoEvent;
+      protoEvent.set_timestamp_samples(0);
+      protoEvent.set_channel(1); // VST3 CC params are channel-agnostic
+      auto *cc = protoEvent.mutable_cc();
+      cc->set_controller_number(ccNumber);
+      cc->set_controller_value(ccValue);
+      tcpRelay->pushMessage(protoEvent);
+    }
+  }
+}
 void FiddleAudioProcessor::parameterGestureChanged(int parameterIndex,
                                                    bool gestureIsStarting) {}
 
