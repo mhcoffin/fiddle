@@ -1,8 +1,11 @@
 #pragma once
 
+#include "MasterInstrumentList.h"
 #include "MixerStrip.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <map>
 #include <mutex>
+#include <set>
 #include <vector>
 
 namespace fiddle {
@@ -100,6 +103,89 @@ public:
     for (auto &strip : strips_) {
       if (strip->inputPort == port && strip->inputChannel == channel) {
         strip->addDelayedMessage(triggerTime, msg);
+      }
+    }
+  }
+
+  /// Sync mixer strips to match the ensemble instrument list.
+  /// Creates new strips for new instruments, removes strips whose
+  /// port/channel no longer appears. Preserves existing plugin assignments.
+  void syncStripsToInstruments(const MasterInstrumentList &masterList) {
+    // Build the expected set of {port, channel} → label from the instrument
+    // list, using the same flat-index assignment as getChannelMapAsJson.
+    struct Entry {
+      int port;
+      int channel;
+      juce::String label;
+    };
+    std::vector<Entry> expected;
+    std::set<std::pair<int, int>> expectedSet;
+
+    // Count totals for numbering decisions
+    std::map<juce::String, int> soloTotals, sectionTotals;
+    for (const auto &slot : masterList.getSlots()) {
+      soloTotals[slot.name] += slot.soloCount;
+      sectionTotals[slot.name] += slot.sectionCount;
+    }
+
+    std::map<juce::String, int> soloCounters, sectionCounters;
+    int flatIndex = 0;
+    for (const auto &slot : masterList.getSlots()) {
+      for (int i = 0; i < slot.soloCount; ++i) {
+        int num = ++soloCounters[slot.name];
+        juce::String label = slot.name;
+        if (soloTotals[slot.name] > 1)
+          label += " " + juce::String(num);
+
+        int port = flatIndex / 16;
+        int ch = flatIndex % 16;
+        expected.push_back({port, ch, label});
+        expectedSet.insert({port, ch});
+        ++flatIndex;
+      }
+      for (int i = 0; i < slot.sectionCount; ++i) {
+        int num = ++sectionCounters[slot.name];
+        juce::String label = slot.name + " sect";
+        if (sectionTotals[slot.name] > 1)
+          label += " " + juce::String(num);
+
+        int port = flatIndex / 16;
+        int ch = flatIndex % 16;
+        expected.push_back({port, ch, label});
+        expectedSet.insert({port, ch});
+        ++flatIndex;
+      }
+    }
+
+    std::lock_guard<std::mutex> lock(stripsMutex);
+
+    // Remove strips whose port/channel is no longer in the expected set
+    for (auto it = strips_.begin(); it != strips_.end();) {
+      auto key = std::make_pair((*it)->inputPort, (*it)->inputChannel);
+      if (expectedSet.find(key) == expectedSet.end()) {
+        (*it)->unloadPlugin();
+        it = strips_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+
+    // Build set of existing port/channel assignments
+    std::set<std::pair<int, int>> existingSet;
+    for (const auto &s : strips_)
+      existingSet.insert({s->inputPort, s->inputChannel});
+
+    // Add strips for new instruments
+    for (const auto &entry : expected) {
+      auto key = std::make_pair(entry.port, entry.channel);
+      if (existingSet.find(key) == existingSet.end()) {
+        auto strip = std::make_unique<MixerStrip>();
+        strip->id = juce::Uuid().toString();
+        strip->name = entry.label;
+        strip->inputPort = entry.port;
+        strip->inputChannel = entry.channel;
+        strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
+        strips_.push_back(std::move(strip));
       }
     }
   }

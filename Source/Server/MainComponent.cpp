@@ -181,6 +181,9 @@ MainComponent::MainComponent(const juce::File &configFile)
                             "setSaveResult('" + escapeForJS(msg) + "')");
                       });
 
+                      // Sync mixer strips to match updated instruments
+                      mixer_.syncStripsToInstruments(masterList_);
+
                       // Update channel map for Timeline
                       juce::String mapJson2 = masterList_.getChannelMapAsJson();
                       juce::String mapCall2 =
@@ -188,6 +191,9 @@ MainComponent::MainComponent(const juce::File &configFile)
                       safeCallAsync([this, mapCall2]() {
                         webComponent.evaluateJavascript(mapCall2);
                       });
+
+                      // Push updated mixer state to UI
+                      pushMixerState();
                     } else {
                       safeCallAsync([this]() {
                         webComponent.evaluateJavascript(
@@ -977,6 +983,10 @@ MainComponent::MainComponent(const juce::File &configFile)
         }
       }
     }
+
+    // Ensure mixer strips exist for all ensemble instruments
+    mixer_.syncStripsToInstruments(masterList_);
+
     pushMixerState();
   });
 }
@@ -1006,6 +1016,11 @@ void MainComponent::loadConfigFromFile(const juce::File &file) {
     pushLogMessage(log, false);
   }
   pushMixerState();
+
+  // Ensure mixer strips exist for all ensemble instruments
+  mixer_.syncStripsToInstruments(masterList_);
+  pushMixerState();
+
   FiddleConfig::writeActiveConfig(currentConfigFile,
                                   mixer_.getPlaybackDelayMs());
   FiddleConfig::saveRecentConfig(currentConfigFile);
