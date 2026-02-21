@@ -945,6 +945,8 @@ MainComponent::MainComponent(const juce::File &configFile)
     });
   });
 
+  server->startThread();
+
   startTimer(20); // 20ms tick for subnotes
   setSize(800, 600);
 
