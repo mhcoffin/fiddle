@@ -33,6 +33,17 @@ FiddleAudioProcessor::FiddleAudioProcessor()
   addParameter(bankLSBParam = new juce::AudioParameterInt(
                    juce::ParameterID("1002", 1), "Bank LSB", 0, 127, 0));
 
+  // All 128 CC parameters for VST3 MIDI CC mapping
+  for (int cc = 0; cc < 128; ++cc) {
+    // CC 0 and 32 are already mapped as Bank MSB/LSB above,
+    // but we still need entries for getMidiControllerAssignment
+    auto paramId = juce::String(kParamIdCCBase + cc);
+    auto name = "CC " + juce::String(cc);
+    auto *param = new juce::AudioParameterInt(juce::ParameterID(paramId, 1),
+                                              name, 0, 127, 0);
+    addParameter(param);
+  }
+
   vst3Extensions = std::make_unique<fiddle::FiddleVST3Extensions>(*this);
   tcpRelay = std::make_unique<fiddle::MidiTcpRelay>();
 }

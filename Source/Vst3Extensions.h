@@ -26,14 +26,15 @@ public:
   getMidiControllerAssignment(int32 busIndex, int16 channel,
                               Steinberg::Vst::CtrlNumber midiControllerNumber,
                               Steinberg::Vst::ParamID &id) override {
-    // Map CC 0 -> Bank MSB
-    if (midiControllerNumber == 0) {
-      id = FiddleAudioProcessor::kParamIdBankMSB;
-      return Steinberg::kResultOk;
-    }
-    // Map CC 32 -> Bank LSB
-    if (midiControllerNumber == 32) {
-      id = FiddleAudioProcessor::kParamIdBankLSB;
+    if (midiControllerNumber >= 0 && midiControllerNumber < 128) {
+      // CC 0 -> Bank MSB, CC 32 -> Bank LSB (dedicated params)
+      if (midiControllerNumber == 0) {
+        id = FiddleAudioProcessor::kParamIdBankMSB;
+      } else if (midiControllerNumber == 32) {
+        id = FiddleAudioProcessor::kParamIdBankLSB;
+      } else {
+        id = FiddleAudioProcessor::kParamIdCCBase + midiControllerNumber;
+      }
       return Steinberg::kResultOk;
     }
     return Steinberg::kResultFalse;

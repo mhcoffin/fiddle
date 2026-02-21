@@ -19,6 +19,7 @@ public:
   static constexpr int kParamIdProgram = 1000;
   static constexpr int kParamIdBankMSB = 1001;
   static constexpr int kParamIdBankLSB = 1002;
+  static constexpr int kParamIdCCBase = 2000; // CC N -> paramId 2000+N
 
   //==============================================================================
   FiddleAudioProcessor();
