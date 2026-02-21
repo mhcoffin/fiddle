@@ -124,8 +124,7 @@ private:
 
   void openMapping() {
     std::string path =
-        getHomeDir() +
-        "/Library/Application Support/Caches/Fiddle/fiddle_audio.mmap";
+        getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio.mmap";
 
     fd_ = ::open(path.c_str(), O_RDWR);
     if (fd_ < 0)
