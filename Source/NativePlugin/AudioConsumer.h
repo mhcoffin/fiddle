@@ -99,8 +99,7 @@ public:
   /// Read the playback delay (ms) from active_config.txt line 2.
   /// Returns 1000 if not found.
   static int readActiveDelay() {
-    std::string path =
-        getHomeDir() + "/Library/Application Support/Fiddle/active_config.txt";
+    std::string path = getHomeDir() + "/Library/Fiddle/active_config.txt";
     std::ifstream f(path);
     if (!f.is_open())
       return 1000;
