@@ -71,6 +71,8 @@ private:
   static constexpr int kTotalChannels = kNumPorts * 16; // 256
   void sendConnectionStatus(bool connected);
   void sendProgramStatesToController();
+  void sendConfigToController();
+  void announceConfigToServer();
 
   std::unique_ptr<TcpRelay> tcpRelay_;
 
@@ -87,6 +89,9 @@ private:
   // Set by process() when a program change is received, cleared after
   // sending update to controller. Checked by connection callback timer.
   std::atomic<bool> programStatesDirty_{false};
+
+  // Config path (saved/restored with Dorico project state)
+  std::string configPath_;
 
   // Shared memory audio consumer (pulls audio from FiddleServer)
   AudioConsumer audioConsumer_;

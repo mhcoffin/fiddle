@@ -11,3 +11,18 @@ When Dorico loads a project that contains Fiddle VST3 plugins, it should load th
 The Dorico plugin currently has a file browser interface that allows the user to select a configuration file. This should be replaced with the interface described above. The Fiddle Plugin should display the config path, but not allow the user to change it. 
 
 
+## Addendum
+
+I've noticed an unforeseen interaction between the plugin and the server:
+
+* If the user starts the server before starting Dorico, the server will not be connected. That's perfectly fine --- sometimes the user will want to work on a configuration without Dorico running. But sometimes the user will want to start the server, then start Dorico and have the server immediately load the configuration that is active in Dorico. So I think it might be better to have the server come up in a state where it is ready to load a configuration specified by the plugin. Maybe display "Waiting for connection" or similar. If the user wants to work on a configuration without Dorico running, they can do that by starting the server and then using the menu to load the configuration in the server UI. If Dorico subsequently connects, the server should give the user options: 
+
+* load the configuration that is active in Dorico. If the user chooses this option, the server should save the config the user is working on and then replace it with the config from Dorico. 
+
+* continue with the current configuration. If the user chooses this option, the server should continue with the current configuration. The current config should be transmitted to the plugin and displayed.
+
+* reject the current connection request. The server should continue with the current configuration. The plugin should disconnect and display an affordance to reconnect. 
+
+
+
+

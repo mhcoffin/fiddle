@@ -93,12 +93,14 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     tcpRelay_->setConnectionCallback([this](bool connected) {
       if (connected) {
         replayProgramState();
+        announceConfigToServer();
         // Remap shared memory to pick up server's new mmap file
         audioConsumer_.remap();
       }
 
-      // Notify controller of connection status and program states (for UI)
+      // Notify controller of connection status, config, and program states
       sendConnectionStatus(connected);
+      sendConfigToController();
       sendProgramStatesToController();
     });
 
@@ -424,7 +426,19 @@ tresult PLUGIN_API FiddleProcessor::setState(IBStream *state) {
     channelStates_[ch].program = prog;
   }
 
+  // Read config path (appended after program state)
+  // Format: 4-byte length prefix + UTF-8 string
+  int32 pathLen = 0;
+  if (state->read(&pathLen, sizeof(int32)) == kResultOk && pathLen > 0 &&
+      pathLen < 4096) {
+    std::vector<char> buf(pathLen);
+    if (state->read(buf.data(), pathLen) == kResultOk) {
+      configPath_.assign(buf.data(), pathLen);
+    }
+  }
+
   // Push updated state to controller for UI display
+  sendConfigToController();
   sendProgramStatesToController();
 
   return kResultOk;
@@ -439,6 +453,13 @@ tresult PLUGIN_API FiddleProcessor::getState(IBStream *state) {
   for (int ch = 0; ch < kTotalChannels; ++ch) {
     int32 prog = channelStates_[ch].program;
     state->write(&prog, sizeof(int32));
+  }
+
+  // Write config path (length-prefixed)
+  int32 pathLen = static_cast<int32>(configPath_.size());
+  state->write(&pathLen, sizeof(int32));
+  if (pathLen > 0) {
+    state->write(configPath_.data(), pathLen);
   }
 
   return kResultOk;
@@ -518,6 +539,30 @@ void FiddleProcessor::sendProgramStatesToController() {
     sendMessage(msg);
   }
   programStatesDirty_.store(false, std::memory_order_relaxed);
+}
+
+//----------------------------------------------------------------------
+void FiddleProcessor::sendConfigToController() {
+  if (auto msg = owned(allocateMessage())) {
+    msg->setMessageID("ConfigPath");
+    TChar wpath[1024] = {};
+    Steinberg::UString(wpath, 1024).fromAscii(configPath_.c_str());
+    msg->getAttributes()->setString("Path", wpath);
+    sendMessage(msg);
+  }
+}
+
+//----------------------------------------------------------------------
+void FiddleProcessor::announceConfigToServer() {
+  if (!tcpRelay_ || configPath_.empty())
+    return;
+
+  MidiEvent hello;
+  hello.set_timestamp_samples(0);
+  hello.mutable_load_config()->set_config_path(configPath_);
+  tcpRelay_->pushMessage(hello);
+
+  pluginLog("Announced config to server: " + configPath_);
 }
 
 } // namespace fiddle

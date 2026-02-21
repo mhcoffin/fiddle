@@ -108,6 +108,8 @@ public:
   int getChannelProgram(int ch) const;
   /// Returns the Fiddle preset name for a program number, or "" if unknown.
   std::string getInstrumentName(int program) const;
+  /// Returns the config file basename (without path and extension).
+  std::string getConfigName() const;
 
 private:
   void sendProgramChangeToProcessor(int channel, int program);
@@ -117,6 +119,8 @@ private:
   int channelPrograms_[kNumChannels];
   /// program number → human-readable name (parsed from presets.xml)
   std::map<int, std::string> programNames_;
+  /// Config file path (received from processor)
+  std::string configPath_;
 };
 
 } // namespace fiddle

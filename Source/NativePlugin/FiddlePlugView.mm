@@ -106,14 +106,19 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
   titleLabel.frame = NSMakeRect(16, kViewHeight - 40, 200, 28);
   [container addSubview:titleLabel];
 
-  NSTextField *subtitleLabel =
-      [NSTextField labelWithString:@"VST3 → FiddleServer Relay"];
+  FiddleTagTextField *subtitleLabel = [[FiddleTagTextField alloc]
+      initWithFrame:NSMakeRect(16, kViewHeight - 58, 300, 16)];
+  subtitleLabel.stringValue = @"No config loaded";
   subtitleLabel.font = [NSFont systemFontOfSize:11 weight:NSFontWeightRegular];
   subtitleLabel.textColor = [NSColor colorWithRed:0.6
                                             green:0.6
                                              blue:0.65
                                             alpha:1.0];
-  subtitleLabel.frame = NSMakeRect(16, kViewHeight - 58, 300, 16);
+  subtitleLabel.bezeled = NO;
+  subtitleLabel.drawsBackground = NO;
+  subtitleLabel.editable = NO;
+  subtitleLabel.selectable = NO;
+  subtitleLabel.fiddleTag = 102;
   [container addSubview:subtitleLabel];
 
   // --- Connection status dot (fiddleTag=100) ---
@@ -290,6 +295,27 @@ void FiddlePlugView::refreshDisplay() {
     statusLabel.textColor =
         connected ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0]
                   : [NSColor colorWithRed:0.8 green:0.4 blue:0.4 alpha:1.0];
+  }
+
+  // Update config name
+  FiddleTagTextField *configLabel =
+      (FiddleTagTextField *)findViewByTag(container, 102);
+  if (configLabel) {
+    std::string configName = controller_->getConfigName();
+    if (!configName.empty()) {
+      configLabel.stringValue =
+          [NSString stringWithUTF8String:configName.c_str()];
+      configLabel.textColor = [NSColor colorWithRed:0.7
+                                              green:0.8
+                                               blue:1.0
+                                              alpha:1.0];
+    } else {
+      configLabel.stringValue = @"No config loaded";
+      configLabel.textColor = [NSColor colorWithRed:0.6
+                                              green:0.6
+                                               blue:0.65
+                                              alpha:1.0];
+    }
   }
 
   // Update channel program labels

@@ -181,6 +181,16 @@ tresult PLUGIN_API FiddleController::setComponentState(IBStream *state) {
     }
   }
 
+  // Read config path (same format as processor setState)
+  int32 pathLen = 0;
+  if (state->read(&pathLen, sizeof(int32)) == kResultOk && pathLen > 0 &&
+      pathLen < 4096) {
+    std::vector<char> buf(pathLen);
+    if (state->read(buf.data(), pathLen) == kResultOk) {
+      configPath_.assign(buf.data(), pathLen);
+    }
+  }
+
   return kResultOk;
 }
 
@@ -289,6 +299,17 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
     return kResultOk;
   }
 
+  if (msgId && strcmp(msgId, "ConfigPath") == 0) {
+    Steinberg::Vst::TChar wpath[1024] = {};
+    if (message->getAttributes()->getString("Path", wpath, sizeof(wpath)) ==
+        kResultOk) {
+      char utf8[1024] = {};
+      Steinberg::UString(wpath, 1024).toAscii(utf8, sizeof(utf8));
+      configPath_ = utf8;
+    }
+    return kResultOk;
+  }
+
   return EditControllerEx1::notify(message);
 }
 
@@ -305,6 +326,24 @@ std::string FiddleController::getInstrumentName(int program) const {
   if (it != programNames_.end())
     return it->second;
   return "";
+}
+
+//----------------------------------------------------------------------
+std::string FiddleController::getConfigName() const {
+  if (configPath_.empty())
+    return "";
+
+  // Extract basename without extension
+  std::string name = configPath_;
+  // Remove directory path
+  auto lastSlash = name.rfind('/');
+  if (lastSlash != std::string::npos)
+    name = name.substr(lastSlash + 1);
+  // Remove extension
+  auto lastDot = name.rfind('.');
+  if (lastDot != std::string::npos)
+    name = name.substr(0, lastDot);
+  return name;
 }
 
 //----------------------------------------------------------------------
