@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioConsumer.h"
 #include "TcpRelay.h"
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
@@ -36,6 +37,10 @@ public:
 
   Steinberg::tresult PLUGIN_API
   setupProcessing(Steinberg::Vst::ProcessSetup &setup) override;
+
+  Steinberg::uint32 PLUGIN_API getLatencySamples() override {
+    return latencySamples_;
+  }
 
   Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
 
@@ -82,6 +87,15 @@ private:
   // Set by process() when a program change is received, cleared after
   // sending update to controller. Checked by connection callback timer.
   std::atomic<bool> programStatesDirty_{false};
+
+  // Shared memory audio consumer (pulls audio from FiddleServer)
+  AudioConsumer audioConsumer_;
+
+  // Delay polling and latency reporting
+  double cachedSampleRate_ = 44100.0;
+  int lastKnownDelayMs_ = 1000;
+  Steinberg::int32 delayPollCounter_ = 0;
+  Steinberg::uint32 latencySamples_ = 0;
 };
 
 } // namespace fiddle

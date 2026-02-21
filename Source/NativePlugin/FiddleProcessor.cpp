@@ -1,4 +1,5 @@
 #include "FiddleProcessor.h"
+#include "AudioConsumer.h"
 #include "FiddleCIDs.h"
 #include "FiddleController.h"
 
@@ -70,6 +71,13 @@ tresult PLUGIN_API FiddleProcessor::setBusArrangements(
 }
 
 tresult PLUGIN_API FiddleProcessor::setupProcessing(ProcessSetup &setup) {
+  cachedSampleRate_ = setup.sampleRate;
+
+  // Report initial latency from active_config.txt
+  lastKnownDelayMs_ = AudioConsumer::readActiveDelay();
+  latencySamples_ =
+      static_cast<uint32>(cachedSampleRate_ * lastKnownDelayMs_ / 1000.0);
+
   return AudioEffect::setupProcessing(setup);
 }
 
@@ -83,8 +91,11 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     // Set up connection callback for state replay and UI notification.
     // The callback is invoked from the relay thread.
     tcpRelay_->setConnectionCallback([this](bool connected) {
-      if (connected)
+      if (connected) {
         replayProgramState();
+        // Remap shared memory to pick up server's new mmap file
+        audioConsumer_.remap();
+      }
 
       // Notify controller of connection status and program states (for UI)
       sendConnectionStatus(connected);
@@ -105,14 +116,23 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
   // AUDIO THREAD — no blocking operations (no file I/O, no allocation,
   // no unbounded locks). pushMessage() uses a short mutex lock to enqueue.
 
-  // Output silence
-  if (data.numOutputs > 0) {
-    for (int32 ch = 0; ch < data.outputs[0].numChannels; ++ch) {
-      if (data.outputs[0].channelBuffers32[ch])
-        std::memset(data.outputs[0].channelBuffers32[ch], 0,
-                    data.numSamples * sizeof(float));
+  // Pull audio from FiddleServer via shared memory
+  if (data.numOutputs > 0 && data.outputs[0].numChannels > 0) {
+    audioConsumer_.pullAudio(data.outputs[0].channelBuffers32,
+                             data.outputs[0].numChannels, data.numSamples);
+    data.outputs[0].silenceFlags = 0;
+  }
+
+  // Poll for delay changes (check every ~1 second)
+  delayPollCounter_ += data.numSamples;
+  if (delayPollCounter_ >= static_cast<int32>(cachedSampleRate_)) {
+    delayPollCounter_ = 0;
+    int newDelay = AudioConsumer::readActiveDelay();
+    if (newDelay != lastKnownDelayMs_) {
+      lastKnownDelayMs_ = newDelay;
+      latencySamples_ =
+          static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
     }
-    data.outputs[0].silenceFlags = (1ULL << data.outputs[0].numChannels) - 1;
   }
 
   // Get host position (needed by both parameter changes and event processing)
