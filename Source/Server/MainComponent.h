@@ -92,6 +92,20 @@ private:
   bool webViewLoaded = false;
   juce::String cachedInstrCall_; // Cached escaped JS call for instruments
 
+  /// Post a callback to the message thread, guarded against destruction.
+  /// If this MainComponent is destroyed before the callback fires, it is
+  /// silently skipped. This prevents use-after-free crashes during config
+  /// switches where the old MainComponent is destroyed while async callbacks
+  /// are still pending.
+  template <typename Fn> void safeCallAsync(Fn &&fn) {
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    juce::MessageManager::callAsync(
+        [safeThis, f = std::forward<Fn>(fn)]() mutable {
+          if (safeThis != nullptr)
+            f();
+        });
+  }
+
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
 

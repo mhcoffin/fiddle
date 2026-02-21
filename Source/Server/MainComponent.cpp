@@ -118,7 +118,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                                 << " chars" << std::endl;
                     }
 
-                    juce::MessageManager::callAsync([this]() {
+                    safeCallAsync([this]() {
                       webComponent.evaluateJavascript(cachedInstrCall_);
                     });
 
@@ -126,7 +126,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                     juce::String selJson = masterList_.getSlotsAsJson();
                     juce::String selCall = "setSelectedInstruments('" +
                                            escapeForJS(selJson) + "')";
-                    juce::MessageManager::callAsync([this, selCall]() {
+                    safeCallAsync([this, selCall]() {
                       webComponent.evaluateJavascript(selCall);
                     });
 
@@ -134,7 +134,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                     juce::String mapJson = masterList_.getChannelMapAsJson();
                     juce::String mapCall =
                         "setInstrumentMap('" + escapeForJS(mapJson) + "')";
-                    juce::MessageManager::callAsync([this, mapCall]() {
+                    safeCallAsync([this, mapCall]() {
                       webComponent.evaluateJavascript(mapCall);
                     });
 
@@ -146,7 +146,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
                     if (args.size() < 1) {
-                      juce::MessageManager::callAsync([this]() {
+                      safeCallAsync([this]() {
                         webComponent.evaluateJavascript(
                             "setSaveResult('Error: no data')");
                       });
@@ -176,7 +176,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       } else {
                         msg = "Error: " + result.getErrorMessage();
                       }
-                      juce::MessageManager::callAsync([this, msg]() {
+                      safeCallAsync([this, msg]() {
                         webComponent.evaluateJavascript(
                             "setSaveResult('" + escapeForJS(msg) + "')");
                       });
@@ -185,11 +185,11 @@ MainComponent::MainComponent(const juce::File &configFile)
                       juce::String mapJson2 = masterList_.getChannelMapAsJson();
                       juce::String mapCall2 =
                           "setInstrumentMap('" + escapeForJS(mapJson2) + "')";
-                      juce::MessageManager::callAsync([this, mapCall2]() {
+                      safeCallAsync([this, mapCall2]() {
                         webComponent.evaluateJavascript(mapCall2);
                       });
                     } else {
-                      juce::MessageManager::callAsync([this]() {
+                      safeCallAsync([this]() {
                         webComponent.evaluateJavascript(
                             "setSaveResult('Error: Invalid JSON')");
                       });
@@ -253,7 +253,7 @@ MainComponent::MainComponent(const juce::File &configFile)
 
                     // Must run on message thread — native callbacks are on
                     // WebKit's thread
-                    juce::MessageManager::callAsync([this, slotId, desc]() {
+                    safeCallAsync([this, slotId, desc]() {
                       pushLogMessage("<b>[Plugins]</b> Loading: " + desc.name +
                                      "...");
 
@@ -287,7 +287,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
                     juce::String slotId = args[0].toString();
-                    juce::MessageManager::callAsync([this, slotId]() {
+                    safeCallAsync([this, slotId]() {
                       pluginHost_.unloadPlugin(slotId);
                       pushLogMessage("<b>[Plugins]</b> Unloaded slot: " +
                                      slotId);
@@ -308,7 +308,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
                     juce::String slotId = args[0].toString();
-                    juce::MessageManager::callAsync(
+                    safeCallAsync(
                         [this, slotId]() { pluginHost_.showEditor(slotId); });
                     completion(true);
                   })
@@ -318,7 +318,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
-                    juce::MessageManager::callAsync([this]() {
+                    safeCallAsync([this]() {
                       mixer_.addStrip();
                       pushMixerState();
                     });
@@ -334,7 +334,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
                     juce::String stripId = args[0].toString();
-                    juce::MessageManager::callAsync([this, stripId]() {
+                    safeCallAsync([this, stripId]() {
                       mixer_.removeStrip(stripId);
                       pushMixerState();
                     });
@@ -351,7 +351,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                     }
                     juce::String stripId = args[0].toString();
                     juce::String name = args[1].toString();
-                    juce::MessageManager::callAsync([this, stripId, name]() {
+                    safeCallAsync([this, stripId, name]() {
                       if (auto *s = mixer_.getStrip(stripId)) {
                         s->name = name;
                         pushMixerState();
@@ -371,14 +371,13 @@ MainComponent::MainComponent(const juce::File &configFile)
                     juce::String stripId = args[0].toString();
                     int port = (int)args[1];
                     int channel = (int)args[2];
-                    juce::MessageManager::callAsync(
-                        [this, stripId, port, channel]() {
-                          if (auto *s = mixer_.getStrip(stripId)) {
-                            s->inputPort = port;
-                            s->inputChannel = channel;
-                            pushMixerState();
-                          }
-                        });
+                    safeCallAsync([this, stripId, port, channel]() {
+                      if (auto *s = mixer_.getStrip(stripId)) {
+                        s->inputPort = port;
+                        s->inputChannel = channel;
+                        pushMixerState();
+                      }
+                    });
                     completion(true);
                   })
               .withNativeFunction(
@@ -410,7 +409,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
 
-                    juce::MessageManager::callAsync([this, stripId, desc]() {
+                    safeCallAsync([this, stripId, desc]() {
                       if (auto *s = mixer_.getStrip(stripId)) {
                         s->loadPlugin(desc, mixer_.getFormatManager(),
                                       [this](bool success) {
@@ -432,7 +431,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
                     juce::String stripId = args[0].toString();
-                    juce::MessageManager::callAsync([this, stripId]() {
+                    safeCallAsync([this, stripId]() {
                       if (auto *s = mixer_.getStrip(stripId))
                         s->showEditor();
                     });
@@ -443,7 +442,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
-                    juce::MessageManager::callAsync([this]() {
+                    safeCallAsync([this]() {
                       if (pluginScanner_.getPluginCount() > 0) {
                         juce::String json =
                             pluginScanner_.getPluginListAsJson();
@@ -463,8 +462,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
-                    juce::MessageManager::callAsync(
-                        [this]() { pushMixerState(); });
+                    safeCallAsync([this]() { pushMixerState(); });
                     completion(true);
                   })
               .withNativeFunction(
@@ -472,7 +470,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
-                    juce::MessageManager::callAsync([this]() {
+                    safeCallAsync([this]() {
                       juce::String json = masterList_.getChannelMapAsJson();
                       juce::String call =
                           "setAvailableInputs('" + escapeForJS(json) + "')";
@@ -487,7 +485,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                              completion) {
                     if (args.size() >= 1) {
                       int ms = static_cast<int>(args[0]);
-                      juce::MessageManager::callAsync([this, ms]() {
+                      safeCallAsync([this, ms]() {
                         mixer_.setPlaybackDelayMs(ms);
                         if (currentConfigFile.existsAsFile())
                           FiddleConfig::writeActiveConfig(currentConfigFile,
@@ -503,7 +501,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
-                    juce::MessageManager::callAsync([this]() {
+                    safeCallAsync([this]() {
                       int ms = mixer_.getPlaybackDelayMs();
                       webComponent.evaluateJavascript("setPlaybackDelay(" +
                                                       juce::String(ms) + ")");
@@ -725,7 +723,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'started')", json.toRawUTF8());
          std::cerr << "[MainComponent] Call: " << call << std::endl;
-         juce::MessageManager::callAsync(
+         safeCallAsync(
              [this, call]() { webComponent.evaluateJavascript(call); });
        },
        [this, noteToJson](const fiddle::Note &n) {
@@ -749,14 +747,14 @@ MainComponent::MainComponent(const juce::File &configFile)
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'ended')", json.toRawUTF8());
          std::cerr << "[MainComponent] Call: " << call << std::endl;
-         juce::MessageManager::callAsync(
+         safeCallAsync(
              [this, call]() { webComponent.evaluateJavascript(call); });
        },
        [this, noteToJson](const fiddle::Note &n) {
          juce::String json = noteToJson(n);
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'updated')", json.toRawUTF8());
-         juce::MessageManager::callAsync(
+         safeCallAsync(
              [this, call]() { webComponent.evaluateJavascript(call); });
        },
        [this, midiEventToJson](const fiddle::MidiEvent &event,
@@ -764,7 +762,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          juce::String json = midiEventToJson(event, absoluteSamples, oldCCVal);
          juce::String call =
              juce::String::formatted("pushMidiEvent(%s)", json.toRawUTF8());
-         juce::MessageManager::callAsync(
+         safeCallAsync(
              [this, call]() { webComponent.evaluateJavascript(call); });
        }});
 
@@ -774,7 +772,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          scriptEngine->execute("void processSubnote(Subnote@)", (void *)&s);
 
          pushSubnoteToWebView(s);
-         juce::MessageManager::callAsync([this, id = s.id()]() {
+         safeCallAsync([this, id = s.id()]() {
            webComponent.evaluateJavascript(juce::String::formatted(
                "updateNoteState({id: %llu}, 'subnote')", id));
          });
@@ -785,7 +783,7 @@ MainComponent::MainComponent(const juce::File &configFile)
          juce::String json = noteToJson(n);
          juce::String call = juce::String::formatted(
              "updateNoteState(%s, 'ended')", json.toRawUTF8());
-         juce::MessageManager::callAsync(
+         safeCallAsync(
              [this, call]() { webComponent.evaluateJavascript(call); });
        }});
 
@@ -828,7 +826,7 @@ MainComponent::MainComponent(const juce::File &configFile)
       if (!name.empty()) {
         juce::String jsCall = "setChannelInstrument(" + juce::String(channel) +
                               ", '" + escapeForJS(juce::String(name)) + "')";
-        juce::MessageManager::callAsync(
+        safeCallAsync(
             [this, jsCall]() { webComponent.evaluateJavascript(jsCall); });
       }
     }
@@ -837,7 +835,7 @@ MainComponent::MainComponent(const juce::File &configFile)
     if (event.has_load_config()) {
       juce::String path = event.load_config().config_path();
 
-      juce::MessageManager::callAsync([this, path]() {
+      safeCallAsync([this, path]() {
         juce::File targetFile(path);
 
         // Case 1: No config loaded (waiting state) - auto-load
@@ -921,7 +919,7 @@ MainComponent::MainComponent(const juce::File &configFile)
   });
 
   server->onConnectionChanged([this](bool connected, juce::String host) {
-    juce::MessageManager::callAsync([this, connected, host]() {
+    safeCallAsync([this, connected, host]() {
       // Send explicit status to UI
       webComponent.evaluateJavascript(
           "setConnectionState(" + juce::String(connected ? "true" : "false") +
@@ -939,7 +937,7 @@ MainComponent::MainComponent(const juce::File &configFile)
   });
 
   server->onRawActivity([this](juce::String msg) {
-    juce::MessageManager::callAsync([this, msg]() {
+    safeCallAsync([this, msg]() {
       webComponent.evaluateJavascript("addLogMessage('<small>" + msg +
                                       "</small>')");
     });
@@ -966,7 +964,7 @@ MainComponent::MainComponent(const juce::File &configFile)
   // loadPlugin() uses createPluginInstanceAsync() which requires the message
   // loop to be running — calling it from the constructor deadlocks because
   // we're on the message thread and the loop hasn't started yet.
-  juce::MessageManager::callAsync([this]() {
+  safeCallAsync([this]() {
     std::vector<juce::String> configLogs =
         FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
     {
@@ -1092,7 +1090,7 @@ void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
   std::cerr << "[WebView] pushLogMessage: " << msg.substring(0, 50) << "..."
             << std::endl;
 
-  juce::MessageManager::callAsync([this, escaped, isError]() {
+  safeCallAsync([this, escaped, isError]() {
     webComponent.evaluateJavascript(
         juce::String::formatted("addLogMessage('%s', %s)", escaped.toRawUTF8(),
                                 isError ? "true" : "false"));
@@ -1187,7 +1185,7 @@ void MainComponent::timerCallback() {
 
   static int hbCounter = 0;
   if (++hbCounter % 50 == 0) { // Every 1 second (20ms * 50)
-    juce::MessageManager::callAsync([this, val = hbCounter / 50]() {
+    safeCallAsync([this, val = hbCounter / 50]() {
       webComponent.evaluateJavascript("setHeartbeat(" + juce::String(val) +
                                       ")");
     });
