@@ -5,7 +5,12 @@ namespace fiddle {
 
 MidiTcpServer::MidiTcpServer(int port)
     : juce::Thread("MidiTcpServer"), port(port) {
-  startThread();
+  // Thread is NOT started here — MainComponent::MainComponent() will call
+  // startThread() after all callbacks (onMessageReceived, onConnectionChanged,
+  // onRawActivity) are registered. Starting the thread here would create a
+  // race condition: the server could accept a connection before callbacks are
+  // set, causing handleConnection to run with null callbacks and immediately
+  // drop the client.
 }
 
 MidiTcpServer::~MidiTcpServer() { stopThread(2000); }
