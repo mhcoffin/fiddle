@@ -110,11 +110,13 @@ public:
   }
 
   void openConfig(const juce::File &configFile) {
-    // Save current config before switching
+    // Save current config before switching (only if one was loaded)
     if (mainWindow && activeConfigFile.existsAsFile()) {
       saveCurrentConfig();
-      mainWindow.reset();
     }
+    // Always destroy old MainWindow (and its MidiTcpServer) before creating
+    // the new one, so the TCP listener socket on port 5252 is released.
+    mainWindow.reset();
 
     activeConfigFile = configFile;
 
