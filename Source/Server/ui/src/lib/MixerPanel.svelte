@@ -76,12 +76,10 @@
         }
     };
 
-    // Playback delay callback from C++
     w.setPlaybackDelay = (ms) => {
         playbackDelay = ms;
     };
 
-    // Request current delay on mount
     onMount(() => {
         const fn = getNative("getPlaybackDelay");
         if (fn) fn();
@@ -94,7 +92,6 @@
         if (fn) fn(val);
     };
 
-    // Also listen for plugin list updates (reuse from PluginsPanel)
     const origSetPluginList = w.setPluginList;
     w.setPluginList = (jsonStr) => {
         if (origSetPluginList) origSetPluginList(jsonStr);
@@ -106,13 +103,10 @@
     };
 
     onMount(() => {
-        // Request available inputs
         const fn = getNative("getAvailableInputs");
         if (fn) fn();
-
         const fnMixer = getNative("requestMixerState");
         if (fnMixer) fnMixer();
-
         const fnPlugins = getNative("requestPluginsState");
         if (fnPlugins) fnPlugins();
     });
@@ -131,8 +125,6 @@
     const setInput = (stripId, port, channel) => {
         const fn = getNative("setStripInput");
         if (fn) fn(stripId, port, channel);
-
-        // Auto-name strip based on input instrument
         const input = availableInputs.find(
             (i) => i.port === port && i.channel === channel,
         );
@@ -140,7 +132,6 @@
             const instrumentName = input.label || input.name;
             const defaultName = `${instrumentName} Audio`;
             const strip = strips.find((s) => s.id === stripId);
-            // Only auto-rename if name is still a default
             if (
                 strip &&
                 (strip.name.startsWith("Strip") || strip.name === "")
@@ -191,29 +182,20 @@
         }
     };
 
-    // Build input label from available inputs
-    const getInputLabel = (port, channel) => {
-        if (port < 0 || channel < 0) return "No Input";
-        const match = availableInputs.find(
-            (i) => i.port === port && i.channel === channel,
-        );
-        if (match) {
-            const icon = match.isSolo ? "👤" : "👥";
-            return `${icon} ${match.label || match.name}`;
-        }
-        return `P${port + 1} Ch${channel}`;
-    };
+    // Collapsed state for families
+    /** @type {Record<string, boolean>} */
+    let collapsedFamilies = $state({});
 
-    // Build plugin label
-    const getPluginLabel = (pluginUid) => {
-        if (!pluginUid) return "No Plugin";
-        const match = scannedPlugins.find((p) => p.uid === pluginUid);
-        return match ? match.name : `UID:${pluginUid}`;
+    const toggleFamily = (family) => {
+        collapsedFamilies = {
+            ...collapsedFamilies,
+            [family]: !collapsedFamilies[family],
+        };
     };
 
     // Group strips by family, in orchestral order, omitting empty families
     let groupedStrips = $derived.by(() => {
-        /** @type {{ family: string, strips: any[], colors: any }[]} */
+        /** @type {{ family: string, strips: any[], colors: any, displayName: string }[]} */
         const groups = [];
         const familyMap = new Map();
 
@@ -232,7 +214,6 @@
             familyMap.get(fam).strips.push(strip);
         }
 
-        // Sort by FAMILY_ORDER
         groups.sort((a, b) => {
             const ia = FAMILY_ORDER.indexOf(a.family);
             const ib = FAMILY_ORDER.indexOf(b.family);
@@ -299,134 +280,118 @@
             </p>
         </div>
     {:else}
-        <div class="families-container">
+        <div class="families-row">
             {#each groupedStrips as group (group.family)}
-                <div class="family-folder">
-                    <!-- Family header -->
-                    <div
+                <div
+                    class="family-folder"
+                    class:collapsed={collapsedFamilies[group.family]}
+                >
+                    <!-- Family header (clickable to toggle) -->
+                    <button
                         class="family-header"
                         style="background: {group.colors.header}; color: {group
-                            .colors.text}; border-left: 3px solid {group.colors
+                            .colors.text}; border-top: 3px solid {group.colors
                             .accent};"
+                        onclick={() => toggleFamily(group.family)}
                     >
-                        <span class="family-name"
-                            >{group.displayName.toUpperCase()}</span
+                        <svg
+                            class="chevron"
+                            class:chevron-collapsed={collapsedFamilies[
+                                group.family
+                            ]}
+                            viewBox="0 0 20 20"
+                            width="12"
+                            height="12"
+                            fill="currentColor"
                         >
+                            <path d="M6 4l8 6-8 6z" />
+                        </svg>
+                        <span class="family-name">{group.displayName}</span>
                         <span
                             class="count-pill"
                             style="background: {group.colors
                                 .accent}20; color: {group.colors.accent};"
+                            >{group.strips.length}</span
                         >
-                            {group.strips.length}
-                        </span>
-                    </div>
+                    </button>
 
-                    <!-- Strips in this family -->
-                    <div
-                        class="strips-row"
-                        style="border-left: 3px solid {group.colors.accent};"
-                    >
-                        {#each group.strips as strip (strip.id)}
-                            <div class="strip">
-                                <button
-                                    class="strip-delete"
-                                    onclick={() => removeStrip(strip.id)}
-                                    title="Delete strip">✕</button
-                                >
-
-                                <!-- Input Selector -->
-                                <div class="strip-section">
-                                    <label class="strip-label">Input</label>
-                                    <select
-                                        class="strip-select"
-                                        value={`${strip.inputPort}:${strip.inputChannel}`}
-                                        onchange={(e) => {
-                                            const [p, c] = e.target.value
-                                                .split(":")
-                                                .map(Number);
-                                            setInput(strip.id, p, c);
-                                        }}
+                    <!-- Strips (vertical column, hidden when collapsed) -->
+                    {#if !collapsedFamilies[group.family]}
+                        <div
+                            class="strips-column"
+                            style="border-top: 2px solid {group.colors.accent};"
+                        >
+                            {#each group.strips as strip (strip.id)}
+                                <div class="strip">
+                                    <button
+                                        class="strip-delete"
+                                        onclick={() => removeStrip(strip.id)}
+                                        title="Delete strip">✕</button
                                     >
-                                        <option value="-1:-1">-- None --</option
-                                        >
-                                        {#each availableInputs as input}
-                                            {@const icon = input.isSolo
-                                                ? "👤"
-                                                : "👥"}
-                                            <option
-                                                value={`${input.port}:${input.channel}`}
+
+                                    <!-- Name at top -->
+                                    <div class="strip-name-area">
+                                        {#if editingId === strip.id}
+                                            <input
+                                                class="strip-name-input"
+                                                type="text"
+                                                bind:value={editValue}
+                                                onblur={() =>
+                                                    commitEdit(strip.id)}
+                                                onkeydown={(e) =>
+                                                    handleNameKeydown(
+                                                        e,
+                                                        strip.id,
+                                                    )}
+                                            />
+                                        {:else}
+                                            <div
+                                                class="strip-name"
+                                                ondblclick={() =>
+                                                    startEditing(strip)}
+                                                title="Double-click to rename"
                                             >
-                                                {icon}
-                                                {input.label || input.name}
-                                            </option>
-                                        {/each}
-                                    </select>
-                                    {#if strip.inputPort >= 0 && strip.inputChannel >= 0}
-                                        <div class="input-port-ch">
-                                            P{strip.inputPort + 1} Ch{strip.inputChannel +
-                                                1}
-                                        </div>
-                                    {/if}
-                                </div>
+                                                {strip.name}
+                                            </div>
+                                        {/if}
+                                    </div>
 
-                                <!-- Spacer -->
-                                <div class="strip-spacer"></div>
-
-                                <!-- Plugin Selector -->
-                                <div class="strip-section">
-                                    <label class="strip-label">Plugin</label>
-                                    <select
-                                        class="strip-select"
-                                        value={strip.pluginUid || 0}
-                                        onchange={(e) => {
-                                            const uid = Number(e.target.value);
-                                            if (uid) setPlugin(strip.id, uid);
-                                        }}
-                                    >
-                                        <option value="0">— None —</option>
-                                        {#each scannedPlugins as plugin}
-                                            <option value={plugin.uid}>
-                                                {plugin.name}
-                                            </option>
-                                        {/each}
-                                    </select>
-                                    {#if strip.hasPlugin}
-                                        <button
-                                            class="editor-btn"
-                                            onclick={() => showEditor(strip.id)}
-                                            title="Show plugin editor"
-                                            ><span class="btn-icon">⚙️</span
-                                            ><span class="btn-text">Open</span
-                                            ></button
+                                    <!-- Plugin Selector -->
+                                    <div class="strip-section">
+                                        <select
+                                            class="strip-select"
+                                            value={strip.pluginUid || 0}
+                                            onchange={(e) => {
+                                                const uid = Number(
+                                                    e.target.value,
+                                                );
+                                                if (uid)
+                                                    setPlugin(strip.id, uid);
+                                            }}
                                         >
-                                    {/if}
+                                            <option value="0"
+                                                >— No Plugin —</option
+                                            >
+                                            {#each scannedPlugins as plugin}
+                                                <option value={plugin.uid}>
+                                                    {plugin.name}
+                                                </option>
+                                            {/each}
+                                        </select>
+                                        {#if strip.hasPlugin}
+                                            <button
+                                                class="editor-btn"
+                                                onclick={() =>
+                                                    showEditor(strip.id)}
+                                                title="Show plugin editor"
+                                                >⚙</button
+                                            >
+                                        {/if}
+                                    </div>
                                 </div>
-
-                                <!-- Name (bottom, editable on double-click) -->
-                                <div class="strip-name-area">
-                                    {#if editingId === strip.id}
-                                        <input
-                                            class="strip-name-input"
-                                            type="text"
-                                            bind:value={editValue}
-                                            onblur={() => commitEdit(strip.id)}
-                                            onkeydown={(e) =>
-                                                handleNameKeydown(e, strip.id)}
-                                        />
-                                    {:else}
-                                        <div
-                                            class="strip-name"
-                                            ondblclick={() =>
-                                                startEditing(strip)}
-                                            title="Double-click to rename"
-                                        >
-                                            {strip.name}
-                                        </div>
-                                    {/if}
-                                </div>
-                            </div>
-                        {/each}
-                    </div>
+                            {/each}
+                        </div>
+                    {/if}
                 </div>
             {/each}
         </div>
@@ -451,7 +416,7 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
         flex-shrink: 0;
     }
 
@@ -473,7 +438,6 @@
         cursor: pointer;
         transition: all 0.15s ease;
     }
-
     .add-strip-btn:hover {
         background: #2563eb;
         color: #fff;
@@ -490,20 +454,17 @@
         align-items: center;
         gap: 4px;
     }
-
     .delay-label {
         font-size: 0.7rem;
         color: #94a3b8;
         font-weight: 500;
     }
-
     .delay-slider {
         width: 80px;
         height: 4px;
         accent-color: #3b82f6;
         cursor: pointer;
     }
-
     .delay-value {
         font-size: 0.7rem;
         color: #94a3b8;
@@ -512,7 +473,6 @@
         cursor: default;
         user-select: none;
     }
-
     .delay-value-input {
         width: 50px;
         padding: 2px 4px;
@@ -524,11 +484,9 @@
         text-align: right;
         -moz-appearance: textfield;
     }
-
     .delay-value-input:focus {
         outline: none;
     }
-
     .delay-value-input::-webkit-inner-spin-button,
     .delay-value-input::-webkit-outer-spin-button {
         -webkit-appearance: none;
@@ -543,78 +501,100 @@
         font-size: 0.85rem;
     }
 
-    /* Families container: vertical scroll of family folders */
-    .families-container {
+    /* Families laid out horizontally */
+    .families-row {
         display: flex;
-        flex-direction: column;
-        gap: 12px;
+        flex-direction: row;
+        gap: 6px;
         flex: 1;
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow-x: auto;
+        overflow-y: hidden;
+        align-items: flex-start;
     }
 
     .family-folder {
+        display: flex;
+        flex-direction: column;
         border-radius: 8px;
         overflow: hidden;
+        min-width: 110px;
+        max-height: 100%;
+        background: rgba(0, 0, 0, 0.12);
+    }
+    .family-folder.collapsed {
+        max-height: none;
     }
 
     .family-header {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 6px 12px;
+        gap: 6px;
+        padding: 6px 10px;
+        border: none;
+        cursor: pointer;
         font-size: 0.7rem;
         font-weight: 600;
-        letter-spacing: 0.08em;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        transition: filter 0.15s;
+    }
+    .family-header:hover {
+        filter: brightness(1.25);
+    }
+
+    .chevron {
+        transition: transform 0.2s ease;
+        transform: rotate(90deg);
+        flex-shrink: 0;
+    }
+    .chevron-collapsed {
+        transform: rotate(0deg);
     }
 
     .family-name {
         font-weight: 700;
+        flex: 1;
     }
 
     .count-pill {
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         font-weight: 700;
-        padding: 1px 7px;
+        padding: 1px 6px;
         border-radius: 99px;
-        min-width: 18px;
+        min-width: 16px;
         text-align: center;
     }
 
-    .strips-row {
+    .strips-column {
         display: flex;
-        flex-direction: row;
-        gap: 8px;
-        padding: 8px;
-        overflow-x: auto;
-        overflow-y: hidden;
-        margin-left: 0;
-        background: rgba(0, 0, 0, 0.15);
+        flex-direction: column;
+        gap: 4px;
+        padding: 6px;
+        overflow-y: auto;
     }
 
     .strip {
         display: flex;
         flex-direction: column;
-        width: 100px;
-        min-width: 100px;
         background: #1e293b;
         border: 1px solid #334155;
-        border-radius: 8px;
-        padding: 8px;
+        border-radius: 6px;
+        padding: 6px 8px;
         position: relative;
-        gap: 6px;
+        gap: 4px;
+        min-width: 100px;
     }
 
     .strip-delete {
         position: absolute;
-        top: 4px;
-        right: 4px;
-        width: 18px;
-        height: 18px;
+        top: 3px;
+        right: 3px;
+        width: 16px;
+        height: 16px;
         border: none;
         background: transparent;
         color: #475569;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         cursor: pointer;
         border-radius: 3px;
         display: flex;
@@ -623,7 +603,6 @@
         padding: 0;
         line-height: 1;
     }
-
     .strip-delete:hover {
         background: #dc2626;
         color: #fff;
@@ -631,70 +610,37 @@
 
     .strip-section {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         gap: 3px;
-    }
-
-    .strip-label {
-        font-size: 0.6rem;
-        color: #64748b;
-        text-transform: uppercase;
-        font-weight: 600;
-        letter-spacing: 0.05em;
+        align-items: center;
     }
 
     .strip-select {
-        width: 100%;
-        padding: 3px 4px;
+        flex: 1;
+        padding: 2px 3px;
         border: 1px solid #334155;
         border-radius: 4px;
         background: #0f172a;
         color: #cbd5e1;
-        font-size: 0.65rem;
+        font-size: 0.6rem;
         cursor: pointer;
         appearance: auto;
     }
-
     .strip-select:focus {
         outline: none;
         border-color: #3b82f6;
     }
 
-    .input-port-ch {
-        font-size: 0.55rem;
-        color: #64748b;
-        letter-spacing: 0.03em;
-    }
-
-    .strip-spacer {
-        flex: 1;
-    }
-
     .editor-btn {
-        margin-top: 3px;
-        padding: 4px 6px;
+        padding: 2px 5px;
         border: 1px solid #334155;
         border-radius: 4px;
         background: #0f172a;
         color: #94a3b8;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         cursor: pointer;
-        display: flex;
-        align-items: center;
-        position: relative;
+        flex-shrink: 0;
     }
-
-    .btn-icon {
-        font-size: 0.55rem;
-        position: absolute;
-        left: 5px;
-    }
-
-    .btn-text {
-        flex: 1;
-        text-align: center;
-    }
-
     .editor-btn:hover {
         background: #1e3a5f;
         color: #93c5fd;
@@ -702,15 +648,13 @@
     }
 
     .strip-name-area {
-        border-top: 1px solid #334155;
-        padding-top: 6px;
+        padding-right: 16px;
     }
 
     .strip-name {
         font-size: 0.7rem;
         font-weight: 600;
         color: #f1f5f9;
-        text-align: center;
         cursor: default;
         user-select: none;
         white-space: nowrap;
@@ -720,17 +664,15 @@
 
     .strip-name-input {
         width: 100%;
-        padding: 2px 4px;
+        padding: 1px 3px;
         border: 1px solid #3b82f6;
         border-radius: 3px;
         background: #0f172a;
         color: #f1f5f9;
         font-size: 0.7rem;
         font-weight: 600;
-        text-align: center;
         box-sizing: border-box;
     }
-
     .strip-name-input:focus {
         outline: none;
     }
