@@ -51,9 +51,15 @@ public:
     // Migrate legacy config if needed
     FiddleConfig::migrateLegacyConfig();
 
-    // Start immediately in waiting mode — TCP server runs, ready for Dorico.
-    // User can load a config manually via File > Open Config.
-    openConfig(juce::File());
+    // Load the active config from active_config.txt (single source of truth).
+    // Falls back to waiting mode if no active config exists.
+    juce::String activePath = FiddleConfig::readActiveConfig();
+    juce::File activeFile(activePath);
+    if (activePath.isNotEmpty() && activeFile.existsAsFile()) {
+      openConfig(activeFile);
+    } else {
+      openConfig(juce::File());
+    }
   }
 
   void shutdown() override {
