@@ -23,59 +23,30 @@
         );
     };
 
-    /** Family display colors (same as InstrumentList.svelte) */
     const FAMILY_COLORS = {
-        woodwinds: {
-            accent: "#38bdf8",
-            header: "#0e4d6e",
-            text: "#bae6fd",
-        },
-        brass: {
-            accent: "#f59e0b",
-            header: "#713f12",
-            text: "#fde68a",
-        },
-        percussion: {
-            accent: "#a8896b",
-            header: "#44342a",
-            text: "#d4c4b0",
-        },
-        keys: {
-            accent: "#c084fc",
-            header: "#581c87",
-            text: "#e9d5ff",
-        },
-        strings: {
-            accent: "#34d399",
-            header: "#14532d",
-            text: "#a7f3d0",
-        },
-        choir: {
-            accent: "#94a3b8",
-            header: "#334155",
-            text: "#e2e8f0",
-        },
+        woodwinds: { accent: "#38bdf8", header: "#0e4d6e", text: "#bae6fd" },
+        brass: { accent: "#f59e0b", header: "#713f12", text: "#fde68a" },
+        percussion: { accent: "#a8896b", header: "#44342a", text: "#d4c4b0" },
+        keys: { accent: "#c084fc", header: "#581c87", text: "#e9d5ff" },
+        strings: { accent: "#34d399", header: "#14532d", text: "#a7f3d0" },
+        choir: { accent: "#94a3b8", header: "#334155", text: "#e2e8f0" },
     };
-
     const defaultColors = FAMILY_COLORS.choir;
 
-    // Callbacks from C++ backend
     w.setMixerState = (jsonStr) => {
         try {
             strips = JSON.parse(jsonStr);
         } catch (e) {
-            console.error("[Mixer] Failed to parse mixer state:", e);
+            console.error("[Mixer] parse error:", e);
         }
     };
-
     w.setAvailableInputs = (jsonStr) => {
         try {
             availableInputs = JSON.parse(jsonStr);
         } catch (e) {
-            console.error("[Mixer] Failed to parse available inputs:", e);
+            console.error("[Mixer] parse error:", e);
         }
     };
-
     w.setPlaybackDelay = (ms) => {
         playbackDelay = ms;
     };
@@ -111,56 +82,30 @@
         if (fnPlugins) fnPlugins();
     });
 
-    // Actions
     const addStrip = () => {
         const fn = getNative("addMixerStrip");
         if (fn) fn();
     };
-
     const removeStrip = (id) => {
         const fn = getNative("removeMixerStrip");
         if (fn) fn(id);
-    };
-
-    const setInput = (stripId, port, channel) => {
-        const fn = getNative("setStripInput");
-        if (fn) fn(stripId, port, channel);
-        const input = availableInputs.find(
-            (i) => i.port === port && i.channel === channel,
-        );
-        if (input) {
-            const instrumentName = input.label || input.name;
-            const defaultName = `${instrumentName} Audio`;
-            const strip = strips.find((s) => s.id === stripId);
-            if (
-                strip &&
-                (strip.name.startsWith("Strip") || strip.name === "")
-            ) {
-                const renameFn = getNative("setStripName");
-                if (renameFn) renameFn(stripId, defaultName);
-            }
-        }
     };
 
     const setPlugin = (stripId, pluginUid) => {
         const fn = getNative("setStripPlugin");
         if (fn) fn(stripId, pluginUid);
     };
-
     const showEditor = (stripId) => {
         const fn = getNative("showStripEditor");
         if (fn) fn(stripId);
     };
 
-    // Editable name logic
     let editingId = $state(null);
     let editValue = $state("");
-
     const startEditing = (strip) => {
         editingId = strip.id;
         editValue = strip.name;
     };
-
     const commitEdit = (stripId) => {
         if (editValue.trim()) {
             const fn = getNative("setStripName");
@@ -168,24 +113,18 @@
         }
         editingId = null;
     };
-
     const cancelEdit = () => {
         editingId = null;
     };
-
     const handleNameKeydown = (e, stripId) => {
         if (e.key === "Enter") {
             e.preventDefault();
             commitEdit(stripId);
-        } else if (e.key === "Escape") {
-            cancelEdit();
-        }
+        } else if (e.key === "Escape") cancelEdit();
     };
 
-    // Collapsed state for families
     /** @type {Record<string, boolean>} */
     let collapsedFamilies = $state({});
-
     const toggleFamily = (family) => {
         collapsedFamilies = {
             ...collapsedFamilies,
@@ -193,12 +132,9 @@
         };
     };
 
-    // Group strips by family, in orchestral order, omitting empty families
     let groupedStrips = $derived.by(() => {
-        /** @type {{ family: string, strips: any[], colors: any, displayName: string }[]} */
         const groups = [];
         const familyMap = new Map();
-
         for (const strip of strips) {
             const fam = canonicalFamily(strip.family || "");
             if (!familyMap.has(fam)) {
@@ -213,21 +149,19 @@
             }
             familyMap.get(fam).strips.push(strip);
         }
-
         groups.sort((a, b) => {
             const ia = FAMILY_ORDER.indexOf(a.family);
             const ib = FAMILY_ORDER.indexOf(b.family);
             return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
         });
-
         return groups;
     });
 </script>
 
 <div class="mixer-container">
-    <div class="mixer-header">
+    <div class="mixer-toolbar">
         <h2>Mixer</h2>
-        <div class="header-controls">
+        <div class="toolbar-right">
             <div class="delay-control">
                 <label class="delay-label">Delay</label>
                 <input
@@ -267,8 +201,6 @@
                     >
                 {/if}
             </div>
-            <button class="add-strip-btn" onclick={addStrip}>+ Add Strip</button
-            >
         </div>
     </div>
 
@@ -280,60 +212,54 @@
             </p>
         </div>
     {:else}
-        <div class="families-row">
+        <div class="console">
             {#each groupedStrips as group (group.family)}
-                <div
-                    class="family-folder"
-                    class:collapsed={collapsedFamilies[group.family]}
-                >
-                    <!-- Family header (clickable to toggle) -->
+                {@const collapsed = collapsedFamilies[group.family]}
+                <div class="folder" class:folder-collapsed={collapsed}>
+                    <!-- Folder tab (always visible, vertical when collapsed) -->
                     <button
-                        class="family-header"
+                        class="folder-tab"
+                        class:folder-tab-collapsed={collapsed}
                         style="background: {group.colors.header}; color: {group
-                            .colors.text}; border-top: 3px solid {group.colors
-                            .accent};"
+                            .colors.text}; border-bottom: 3px solid {group
+                            .colors.accent};"
                         onclick={() => toggleFamily(group.family)}
+                        title={collapsed
+                            ? `Expand ${group.displayName}`
+                            : `Collapse ${group.displayName}`}
                     >
                         <svg
-                            class="chevron"
-                            class:chevron-collapsed={collapsedFamilies[
-                                group.family
-                            ]}
+                            class="tab-chevron"
+                            class:tab-chevron-collapsed={collapsed}
                             viewBox="0 0 20 20"
-                            width="12"
-                            height="12"
+                            width="10"
+                            height="10"
                             fill="currentColor"
                         >
                             <path d="M6 4l8 6-8 6z" />
                         </svg>
-                        <span class="family-name">{group.displayName}</span>
+                        <span class="tab-label">{group.displayName}</span>
                         <span
-                            class="count-pill"
+                            class="tab-count"
                             style="background: {group.colors
-                                .accent}20; color: {group.colors.accent};"
+                                .accent}25; color: {group.colors.accent};"
                             >{group.strips.length}</span
                         >
                     </button>
 
-                    <!-- Strips (vertical column, hidden when collapsed) -->
-                    {#if !collapsedFamilies[group.family]}
-                        <div
-                            class="strips-column"
-                            style="border-top: 2px solid {group.colors.accent};"
-                        >
+                    {#if !collapsed}
+                        <div class="folder-strips">
                             {#each group.strips as strip (strip.id)}
-                                <div class="strip">
-                                    <button
-                                        class="strip-delete"
-                                        onclick={() => removeStrip(strip.id)}
-                                        title="Delete strip">✕</button
-                                    >
-
-                                    <!-- Name at top -->
-                                    <div class="strip-name-area">
+                                <div
+                                    class="channel-strip"
+                                    style="border-top: 3px solid {group.colors
+                                        .accent};"
+                                >
+                                    <!-- Strip name -->
+                                    <div class="ch-name-area">
                                         {#if editingId === strip.id}
                                             <input
-                                                class="strip-name-input"
+                                                class="ch-name-input"
                                                 type="text"
                                                 bind:value={editValue}
                                                 onblur={() =>
@@ -346,7 +272,7 @@
                                             />
                                         {:else}
                                             <div
-                                                class="strip-name"
+                                                class="ch-name"
                                                 ondblclick={() =>
                                                     startEditing(strip)}
                                                 title="Double-click to rename"
@@ -356,10 +282,13 @@
                                         {/if}
                                     </div>
 
-                                    <!-- Plugin Selector -->
-                                    <div class="strip-section">
+                                    <!-- Spacer pushes plugin to bottom -->
+                                    <div class="ch-spacer"></div>
+
+                                    <!-- Plugin -->
+                                    <div class="ch-plugin">
                                         <select
-                                            class="strip-select"
+                                            class="ch-select"
                                             value={strip.pluginUid || 0}
                                             onchange={(e) => {
                                                 const uid = Number(
@@ -369,23 +298,30 @@
                                                     setPlugin(strip.id, uid);
                                             }}
                                         >
-                                            <option value="0"
-                                                >— No Plugin —</option
-                                            >
+                                            <option value="0">—</option>
                                             {#each scannedPlugins as plugin}
-                                                <option value={plugin.uid}>
-                                                    {plugin.name}
-                                                </option>
+                                                <option value={plugin.uid}
+                                                    >{plugin.name}</option
+                                                >
                                             {/each}
                                         </select>
                                         {#if strip.hasPlugin}
                                             <button
-                                                class="editor-btn"
+                                                class="ch-edit-btn"
                                                 onclick={() =>
                                                     showEditor(strip.id)}
-                                                title="Show plugin editor"
-                                                >⚙</button
+                                                title="Open editor">⚙</button
                                             >
+                                        {/if}
+                                    </div>
+
+                                    <!-- Port/Channel label -->
+                                    <div class="ch-input-label">
+                                        {#if strip.inputPort >= 0}
+                                            P{strip.inputPort +
+                                                1}.{strip.inputChannel + 1}
+                                        {:else}
+                                            —
                                         {/if}
                                     </div>
                                 </div>
@@ -403,7 +339,6 @@
         display: flex;
         flex-direction: column;
         height: 100%;
-        padding: 16px;
         color: #e2e8f0;
         font-family:
             "Inter",
@@ -412,38 +347,21 @@
         overflow: hidden;
     }
 
-    .mixer-header {
+    .mixer-toolbar {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 12px;
+        padding: 10px 16px;
         flex-shrink: 0;
+        border-bottom: 1px solid #1e293b;
     }
-
-    .mixer-header h2 {
+    .mixer-toolbar h2 {
         margin: 0;
-        font-size: 1.1rem;
+        font-size: 1rem;
         font-weight: 600;
         color: #f1f5f9;
     }
-
-    .add-strip-btn {
-        padding: 6px 16px;
-        border: 1px solid #3b82f6;
-        border-radius: 6px;
-        background: #1e3a5f;
-        color: #93c5fd;
-        font-size: 0.8rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.15s ease;
-    }
-    .add-strip-btn:hover {
-        background: #2563eb;
-        color: #fff;
-    }
-
-    .header-controls {
+    .toolbar-right {
         display: flex;
         align-items: center;
         gap: 12px;
@@ -501,179 +419,180 @@
         font-size: 0.85rem;
     }
 
-    /* Families laid out horizontally */
-    .families-row {
+    /* ── Console: horizontal strip layout ────────── */
+    .console {
         display: flex;
         flex-direction: row;
-        gap: 6px;
         flex: 1;
         overflow-x: auto;
         overflow-y: hidden;
-        align-items: flex-start;
+        align-items: stretch;
     }
 
-    .family-folder {
+    /* ── Folder ────────────────────────────────── */
+    .folder {
         display: flex;
         flex-direction: column;
-        border-radius: 8px;
-        overflow: hidden;
-        min-width: 110px;
-        max-height: 100%;
-        background: rgba(0, 0, 0, 0.12);
+        border-right: 1px solid #0f172a;
+        min-height: 0; /* allow flex shrink */
     }
-    .family-folder.collapsed {
-        max-height: none;
+    .folder-collapsed {
+        /* When collapsed, show only the tab as a vertical bar */
     }
 
-    .family-header {
+    .folder-tab {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 6px 10px;
+        padding: 5px 10px;
         border: none;
         cursor: pointer;
         font-size: 0.7rem;
-        font-weight: 600;
+        font-weight: 700;
         letter-spacing: 0.04em;
         white-space: nowrap;
         transition: filter 0.15s;
+        flex-shrink: 0;
     }
-    .family-header:hover {
-        filter: brightness(1.25);
+    .folder-tab:hover {
+        filter: brightness(1.3);
     }
 
-    .chevron {
+    /* Collapsed: rotate tab to vertical sidebar */
+    .folder-tab-collapsed {
+        writing-mode: vertical-lr;
+        text-orientation: mixed;
+        padding: 10px 5px;
+        flex: 1;
+        justify-content: flex-start;
+        min-width: 28px;
+    }
+
+    .tab-chevron {
         transition: transform 0.2s ease;
         transform: rotate(90deg);
         flex-shrink: 0;
     }
-    .chevron-collapsed {
+    .tab-chevron-collapsed {
         transform: rotate(0deg);
     }
 
-    .family-name {
-        font-weight: 700;
-        flex: 1;
+    .tab-label {
+        flex-shrink: 0;
     }
 
-    .count-pill {
+    .tab-count {
         font-size: 0.6rem;
         font-weight: 700;
-        padding: 1px 6px;
+        padding: 0px 5px;
         border-radius: 99px;
-        min-width: 16px;
+        min-width: 14px;
         text-align: center;
     }
 
-    .strips-column {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        padding: 6px;
-        overflow-y: auto;
-    }
-
-    .strip {
-        display: flex;
-        flex-direction: column;
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 6px;
-        padding: 6px 8px;
-        position: relative;
-        gap: 4px;
-        min-width: 100px;
-    }
-
-    .strip-delete {
-        position: absolute;
-        top: 3px;
-        right: 3px;
-        width: 16px;
-        height: 16px;
-        border: none;
-        background: transparent;
-        color: #475569;
-        font-size: 0.6rem;
-        cursor: pointer;
-        border-radius: 3px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0;
-        line-height: 1;
-    }
-    .strip-delete:hover {
-        background: #dc2626;
-        color: #fff;
-    }
-
-    .strip-section {
+    /* ── Strips row within folder ────────────── */
+    .folder-strips {
         display: flex;
         flex-direction: row;
-        gap: 3px;
-        align-items: center;
-    }
-
-    .strip-select {
         flex: 1;
-        padding: 2px 3px;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        background: #0f172a;
-        color: #cbd5e1;
-        font-size: 0.6rem;
-        cursor: pointer;
-        appearance: auto;
-    }
-    .strip-select:focus {
-        outline: none;
-        border-color: #3b82f6;
+        overflow-x: visible;
+        overflow-y: hidden;
+        min-height: 0;
     }
 
-    .editor-btn {
-        padding: 2px 5px;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        background: #0f172a;
-        color: #94a3b8;
+    /* ── Channel strip: full-height vertical column ── */
+    .channel-strip {
+        display: flex;
+        flex-direction: column;
+        width: 80px;
+        min-width: 80px;
+        background: #1a2233;
+        border-right: 1px solid #0f172a;
+        padding: 6px 4px;
+        gap: 4px;
+    }
+    .channel-strip:hover {
+        background: #1e293b;
+    }
+
+    .ch-name-area {
+        min-height: 18px;
+    }
+    .ch-name {
         font-size: 0.65rem;
-        cursor: pointer;
-        flex-shrink: 0;
-    }
-    .editor-btn:hover {
-        background: #1e3a5f;
-        color: #93c5fd;
-        border-color: #3b82f6;
-    }
-
-    .strip-name-area {
-        padding-right: 16px;
-    }
-
-    .strip-name {
-        font-size: 0.7rem;
         font-weight: 600;
-        color: #f1f5f9;
+        color: #e2e8f0;
+        text-align: center;
         cursor: default;
         user-select: none;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        line-height: 1.3;
     }
-
-    .strip-name-input {
+    .ch-name-input {
         width: 100%;
-        padding: 1px 3px;
+        padding: 1px 2px;
         border: 1px solid #3b82f6;
-        border-radius: 3px;
+        border-radius: 2px;
         background: #0f172a;
         color: #f1f5f9;
-        font-size: 0.7rem;
+        font-size: 0.65rem;
         font-weight: 600;
+        text-align: center;
         box-sizing: border-box;
     }
-    .strip-name-input:focus {
+    .ch-name-input:focus {
         outline: none;
+    }
+
+    .ch-spacer {
+        flex: 1;
+    }
+
+    .ch-plugin {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .ch-select {
+        width: 100%;
+        padding: 2px 2px;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #0f172a;
+        color: #94a3b8;
+        font-size: 0.55rem;
+        cursor: pointer;
+        appearance: auto;
+    }
+    .ch-select:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+
+    .ch-edit-btn {
+        width: 100%;
+        padding: 2px;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #0f172a;
+        color: #64748b;
+        font-size: 0.6rem;
+        cursor: pointer;
+        text-align: center;
+    }
+    .ch-edit-btn:hover {
+        background: #1e3a5f;
+        color: #93c5fd;
+        border-color: #3b82f6;
+    }
+
+    .ch-input-label {
+        font-size: 0.55rem;
+        color: #475569;
+        text-align: center;
+        padding-top: 2px;
+        border-top: 1px solid #1e293b;
     }
 </style>
