@@ -106,6 +106,33 @@ public:
            state->magic.load(std::memory_order_acquire) == 0xF1DD1E00A0D10000;
   }
 
+  /// Re-open the memory-mapped file. Call this on the consumer side when the
+  /// server restarts, since the old mapping becomes stale.
+  void remap() {
+    if (producer)
+      return; // Only consumers need to remap
+
+    state = nullptr;
+    memoryMap.reset();
+
+    File cacheDir = File::getSpecialLocation(File::userApplicationDataDirectory)
+                        .getChildFile("Caches")
+                        .getChildFile("Fiddle");
+    File mapFile = cacheDir.getChildFile("fiddle_audio.mmap");
+    size_t fileSize = sizeof(SharedState);
+
+    if (!mapFile.existsAsFile())
+      return;
+
+    auto mode = MemoryMappedFile::readWrite;
+    memoryMap = std::make_unique<MemoryMappedFile>(
+        mapFile, Range<juce::int64>(0, fileSize), mode, false);
+
+    if (memoryMap->getData() != nullptr) {
+      state = reinterpret_cast<SharedState *>(memoryMap->getData());
+    }
+  }
+
   MemoryMappedFile *getMemoryMap() const { return memoryMap.get(); }
 
   File getMapFile() const {

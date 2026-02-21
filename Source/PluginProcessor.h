@@ -134,11 +134,13 @@ private:
   // but the VST3 API is channel-agnostic. We assign channels 1, 2, 3...
   int nextProgramChangeChannel = 1;
 
-  // Delay polling
+  // Delay polling & connection monitoring
   int lastKnownDelayMs_ = 1000;
   double cachedSampleRate_ = 44100.0;
+  bool wasConnected_ = false;
 
   void timerCallback() override {
+    // Check for delay changes
     int newDelay = getActiveServerDelay();
     if (newDelay != lastKnownDelayMs_) {
       lastKnownDelayMs_ = newDelay;
@@ -147,6 +149,14 @@ private:
       updateHostDisplay(
           AudioProcessor::ChangeDetails().withLatencyChanged(true));
     }
+
+    // Detect reconnection and remap shared memory
+    bool nowConnected = tcpRelay && tcpRelay->isConnected();
+    if (nowConnected && !wasConnected_) {
+      // Server (re)connected — remap the shared memory file
+      audioSharedMemory_.remap();
+    }
+    wasConnected_ = nowConnected;
   }
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FiddleAudioProcessor)
