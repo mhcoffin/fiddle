@@ -390,6 +390,8 @@
                                                         ) / 10,
                                                     );
                                                 }}
+                                                ondblclick={() =>
+                                                    setGain(strip.id, 0)}
                                             />
                                         </div>
                                         <span class="fader-tick fader-bot"
