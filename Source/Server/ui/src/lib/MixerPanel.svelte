@@ -287,6 +287,16 @@
                                         {/if}
                                     </div>
 
+                                    <!-- Port/Channel -->
+                                    <div class="ch-input-label">
+                                        {#if strip.inputPort >= 0}
+                                            P{strip.inputPort +
+                                                1}.{strip.inputChannel + 1}
+                                        {:else}
+                                            —
+                                        {/if}
+                                    </div>
+
                                     <!-- Spacer pushes plugin to bottom -->
                                     <div class="ch-spacer"></div>
 
@@ -317,16 +327,6 @@
                                                     showEditor(strip.id)}
                                                 title="Open editor">⚙</button
                                             >
-                                        {/if}
-                                    </div>
-
-                                    <!-- Port/Channel label -->
-                                    <div class="ch-input-label">
-                                        {#if strip.inputPort >= 0}
-                                            P{strip.inputPort +
-                                                1}.{strip.inputChannel + 1}
-                                        {:else}
-                                            —
                                         {/if}
                                     </div>
                                 </div>
@@ -598,10 +598,9 @@
     }
 
     .ch-input-label {
-        font-size: 0.55rem;
-        color: #475569;
+        font-size: 0.6rem;
+        color: #64748b;
         text-align: center;
-        padding-top: 2px;
-        border-top: 1px solid #1e293b;
+        padding: 1px 0;
     }
 </style>
