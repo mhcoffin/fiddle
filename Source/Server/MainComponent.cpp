@@ -403,6 +403,27 @@ MainComponent::MainComponent(const juce::File &configFile)
                     completion(true);
                   })
               .withNativeFunction(
+                  "setStripGain",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 2) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    float gainDb = static_cast<float>((double)args[1]);
+                    // Clamp to valid range
+                    gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
+                    safeCallAsync([this, stripId, gainDb]() {
+                      if (auto *s = mixer_.getStrip(stripId)) {
+                        s->gainDb.store(gainDb, std::memory_order_relaxed);
+                        pushMixerState();
+                      }
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
                   "setStripPlugin",
                   [this](const juce::Array<juce::var> &args,
                          juce::WebBrowserComponent::NativeFunctionCompletion

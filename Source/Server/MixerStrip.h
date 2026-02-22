@@ -1,6 +1,8 @@
 #pragma once
 
 #include "PluginEditorWindow.h"
+#include <atomic>
+#include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <mutex>
 #include <vector>
@@ -29,6 +31,10 @@ struct MixerStrip {
   std::vector<std::pair<double, juce::MidiMessage>> delayedMessages;
   double currentSampleRate = 44100.0;
   int currentBlockSize = 512;
+
+  /// Fader gain in dB. Atomic for lock-free audio thread reads.
+  /// Range: +6 dB to -120 dB. Values <= -120 treated as silence.
+  std::atomic<float> gainDb{0.0f};
 
   juce::AudioBuffer<float> tempBuffer;
 
@@ -79,11 +85,17 @@ struct MixerStrip {
         tempBuffer.clear();
         pluginInstance->processBlock(tempBuffer, midiBuffer);
 
-        // Mix down (sum) output to the main host buffer
-        int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
-                                       tempBuffer.getNumChannels());
-        for (int i = 0; i < channelsToSum; ++i) {
-          audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples);
+        // Apply fader gain and mix down to the main host buffer
+        float db = gainDb.load(std::memory_order_relaxed);
+        if (db <= -120.0f) {
+          // Silence — skip summing entirely
+        } else {
+          float gain = juce::Decibels::decibelsToGain(db, -120.0f);
+          int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
+                                         tempBuffer.getNumChannels());
+          for (int i = 0; i < channelsToSum; ++i) {
+            audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples, gain);
+          }
         }
       }
     }
@@ -172,6 +184,7 @@ struct MixerStrip {
     obj->setProperty("inputChannel", inputChannel);
     obj->setProperty("pluginUid", pluginUid);
     obj->setProperty("hasPlugin", pluginInstance != nullptr);
+    obj->setProperty("gainDb", (double)gainDb.load(std::memory_order_relaxed));
     return juce::var(obj);
   }
 };

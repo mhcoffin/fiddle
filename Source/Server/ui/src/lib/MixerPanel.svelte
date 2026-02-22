@@ -131,6 +131,18 @@
         if (fn) fn(stripId);
     };
 
+    const setGain = (stripId, db) => {
+        const fn = getNative("setStripGain");
+        if (fn) fn(stripId, db);
+    };
+
+    /** Format dB for display */
+    const formatDb = (db) => {
+        if (db <= -120) return "-∞";
+        if (db >= 0) return "+" + db.toFixed(1);
+        return db.toFixed(1);
+    };
+
     let editingId = $state(null);
     let editValue = $state("");
     const startEditing = (strip) => {
@@ -324,8 +336,59 @@
                                         </div>
                                     {/if}
 
-                                    <!-- Spacer pushes plugin + name to bottom -->
-                                    <div class="ch-spacer"></div>
+                                    <!-- Vertical fader -->
+                                    <div class="ch-fader">
+                                        <span class="fader-tick fader-top"
+                                            >+6</span
+                                        >
+                                        <div class="fader-track">
+                                            <input
+                                                class="fader-slider"
+                                                type="range"
+                                                min="-120"
+                                                max="6"
+                                                step="0.1"
+                                                value={strip.gainDb ?? 0}
+                                                oninput={(e) =>
+                                                    setGain(
+                                                        strip.id,
+                                                        parseFloat(
+                                                            /** @type {HTMLInputElement} */ (
+                                                                e.target
+                                                            ).value,
+                                                        ),
+                                                    )}
+                                            />
+                                        </div>
+                                        <span class="fader-tick fader-bot"
+                                            >-∞</span
+                                        >
+                                        <input
+                                            class="fader-value"
+                                            type="number"
+                                            min="-120"
+                                            max="6"
+                                            step="0.1"
+                                            value={strip.gainDb != null
+                                                ? Math.round(
+                                                      strip.gainDb * 10,
+                                                  ) / 10
+                                                : 0}
+                                            onchange={(e) => {
+                                                let v = parseFloat(
+                                                    /** @type {HTMLInputElement} */ (
+                                                        e.target
+                                                    ).value,
+                                                );
+                                                if (isNaN(v)) v = 0;
+                                                v = Math.max(
+                                                    -120,
+                                                    Math.min(6, v),
+                                                );
+                                                setGain(strip.id, v);
+                                            }}
+                                        />
+                                    </div>
 
                                     <!-- Plugin -->
                                     <div class="ch-plugin">
@@ -624,8 +687,66 @@
         outline: none;
     }
 
-    .ch-spacer {
+    /* ── Fader ────────────────────────────── */
+    .ch-fader {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
         flex: 1;
+        min-height: 60px;
+        gap: 2px;
+        padding: 2px 0;
+    }
+
+    .fader-tick {
+        font-size: 0.5rem;
+        color: #475569;
+        line-height: 1;
+        flex-shrink: 0;
+    }
+
+    .fader-track {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        position: relative;
+        min-height: 40px;
+    }
+
+    .fader-slider {
+        writing-mode: vertical-lr;
+        direction: rtl; /* top = max (+6), bottom = min (-120) */
+        width: 18px;
+        height: 100%;
+        cursor: pointer;
+        accent-color: #3b82f6;
+        -webkit-appearance: slider-vertical;
+        appearance: slider-vertical;
+        margin: 0;
+    }
+
+    .fader-value {
+        width: 100%;
+        padding: 1px 2px;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #0f172a;
+        color: #94a3b8;
+        font-size: 0.55rem;
+        text-align: center;
+        flex-shrink: 0;
+        -moz-appearance: textfield;
+        box-sizing: border-box;
+    }
+    .fader-value:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+    .fader-value::-webkit-inner-spin-button,
+    .fader-value::-webkit-outer-spin-button {
+        -webkit-appearance: none;
     }
 
     .ch-plugin {

@@ -168,6 +168,7 @@ public:
           strip["inputChannel"] =
               static_cast<int>(obj->getProperty("inputChannel"));
           strip["pluginUid"] = static_cast<int>(obj->getProperty("pluginUid"));
+          strip["gainDb"] = static_cast<double>(obj->getProperty("gainDb"));
 
           // Store raw plugin state if loaded
           if (auto *mixerStrip = const_cast<MixerModel &>(mixer).getStrip(
@@ -249,6 +250,9 @@ public:
               strip->name = node["name"].as<std::string>();
               strip->inputPort = node["inputPort"].as<int>();
               strip->inputChannel = node["inputChannel"].as<int>();
+              if (node["gainDb"].IsDefined())
+                strip->gainDb.store(node["gainDb"].as<float>(),
+                                    std::memory_order_relaxed);
 
               logs.push_back("Restored strip: " + strip->name +
                              " (Port: " + juce::String(strip->inputPort) +
