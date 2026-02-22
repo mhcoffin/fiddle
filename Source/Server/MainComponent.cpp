@@ -331,6 +331,22 @@ MainComponent::MainComponent(const juce::File &configFile)
                     completion(true);
                   })
               .withNativeFunction(
+                  "duplicateStripInput",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    safeCallAsync([this, stripId]() {
+                      mixer_.duplicateStripAfter(stripId);
+                      pushMixerState();
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
                   "removeMixerStrip",
                   [this](const juce::Array<juce::var> &args,
                          juce::WebBrowserComponent::NativeFunctionCompletion

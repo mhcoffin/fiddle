@@ -51,6 +51,52 @@ public:
     return false;
   }
 
+  /// Insert a new strip right after the strip with the given ID,
+  /// copying its input port/channel/family but with no plugin.
+  juce::String duplicateStripAfter(const juce::String &afterId) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    auto it = strips_.begin();
+    for (; it != strips_.end(); ++it) {
+      if ((*it)->id == afterId)
+        break;
+    }
+    if (it == strips_.end())
+      return {};
+
+    auto &source = *it;
+    auto strip = std::make_unique<MixerStrip>();
+    strip->id = juce::Uuid().toString();
+    strip->inputPort = source->inputPort;
+    strip->inputChannel = source->inputChannel;
+    strip->family = source->family;
+    strip->isSolo = source->isSolo;
+    strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
+
+    // Auto-name: base name from source, with (n) disambiguation
+    // Find all strips sharing the same input to determine the count
+    juce::String baseName = source->name;
+    // Strip existing "(n)" suffix to get base name
+    int parenPos = baseName.lastIndexOfChar('(');
+    if (parenPos > 0 && baseName.endsWithChar(')'))
+      baseName = baseName.substring(0, parenPos).trim();
+
+    int count = 0;
+    for (const auto &s : strips_) {
+      if (s->inputPort == strip->inputPort &&
+          s->inputChannel == strip->inputChannel)
+        ++count;
+    }
+    strip->name = baseName + " (" + juce::String(count + 1) + ")";
+
+    // Also rename the source if it doesn't already have a disambiguator
+    if (!source->name.containsChar('('))
+      source->name = baseName + " (1)";
+
+    juce::String newId = strip->id;
+    strips_.insert(it + 1, std::move(strip));
+    return newId;
+  }
+
   /// Find a strip by ID (nullptr if not found).
   MixerStrip *getStrip(const juce::String &id) {
     std::lock_guard<std::mutex> lock(stripsMutex);

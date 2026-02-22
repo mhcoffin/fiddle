@@ -91,6 +91,11 @@
         if (fn) fn(id);
     };
 
+    const duplicateStrip = (id) => {
+        const fn = getNative("duplicateStripInput");
+        if (fn) fn(id);
+    };
+
     const setInput = (stripId, port, channel) => {
         const fn = getNative("setStripInput");
         if (fn) fn(stripId, port, channel);
@@ -380,6 +385,23 @@
                                             </div>
                                         {/if}
                                     </div>
+
+                                    <!-- Strip action buttons -->
+                                    <div class="ch-buttons">
+                                        <button
+                                            class="ch-btn ch-btn-dup"
+                                            onclick={() =>
+                                                duplicateStrip(strip.id)}
+                                            title="Add parallel strip with same input"
+                                            >+</button
+                                        >
+                                        <button
+                                            class="ch-btn ch-btn-del"
+                                            onclick={() =>
+                                                removeStrip(strip.id)}
+                                            title="Delete strip">✕</button
+                                        >
+                                    </div>
                                 </div>
                             {/each}
                         </div>
@@ -649,5 +671,33 @@
         color: #64748b;
         text-align: center;
         padding: 1px 0;
+    }
+
+    .ch-buttons {
+        display: flex;
+        gap: 2px;
+        margin-top: 2px;
+    }
+    .ch-btn {
+        flex: 1;
+        padding: 2px 0;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #0f172a;
+        color: #475569;
+        font-size: 0.65rem;
+        cursor: pointer;
+        text-align: center;
+        transition: all 0.12s;
+    }
+    .ch-btn-dup:hover {
+        background: #1e3a5f;
+        color: #93c5fd;
+        border-color: #3b82f6;
+    }
+    .ch-btn-del:hover {
+        background: #451a1a;
+        color: #f87171;
+        border-color: #dc2626;
     }
 </style>
