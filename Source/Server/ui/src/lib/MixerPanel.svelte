@@ -147,16 +147,17 @@
     const posToDB = (pos) => {
         if (pos <= 0) return FADER_MIN;
         if (pos >= 1) return FADER_MAX;
-        return (
-            FADER_MIN + (FADER_MAX - FADER_MIN) * Math.pow(pos, 1 / FADER_SKEW)
-        );
+        return FADER_MIN + (FADER_MAX - FADER_MIN) * Math.pow(pos, FADER_SKEW);
     };
 
     /** dB → normalized position (0..1) */
     const dbToPos = (db) => {
         if (db <= FADER_MIN) return 0;
         if (db >= FADER_MAX) return 1;
-        return Math.pow((db - FADER_MIN) / (FADER_MAX - FADER_MIN), FADER_SKEW);
+        return Math.pow(
+            (db - FADER_MIN) / (FADER_MAX - FADER_MIN),
+            1 / FADER_SKEW,
+        );
     };
 
     /** Format dB for display */
