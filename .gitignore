@@ -32,3 +32,4 @@ Thumbs.db
 fs.log
 .cache/
 .tmp.driveupload/
+log
