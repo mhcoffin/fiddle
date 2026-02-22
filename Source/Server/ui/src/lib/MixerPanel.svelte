@@ -91,6 +91,32 @@
         if (fn) fn(id);
     };
 
+    const setInput = (stripId, port, channel) => {
+        const fn = getNative("setStripInput");
+        if (fn) fn(stripId, port, channel);
+
+        // Auto-name: use input label, with (n) disambiguation for duplicates
+        const input = availableInputs.find(
+            (i) => i.port === port && i.channel === channel,
+        );
+        if (input) {
+            const baseName = input.label || input.name;
+            // Count how many other strips share this same input
+            const sameInput = strips.filter(
+                (s) =>
+                    s.id !== stripId &&
+                    s.inputPort === port &&
+                    s.inputChannel === channel,
+            );
+            const name =
+                sameInput.length > 0
+                    ? `${baseName} (${sameInput.length + 1})`
+                    : baseName;
+            const renameFn = getNative("setStripName");
+            if (renameFn) renameFn(stripId, name);
+        }
+    };
+
     const setPlugin = (stripId, pluginUid) => {
         const fn = getNative("setStripPlugin");
         if (fn) fn(stripId, pluginUid);
@@ -255,7 +281,80 @@
                                     style="border-top: 3px solid {group.colors
                                         .accent};"
                                 >
-                                    <!-- Strip name -->
+                                    <!-- Input selector at top -->
+                                    <div class="ch-input">
+                                        <select
+                                            class="ch-select"
+                                            value={`${strip.inputPort}:${strip.inputChannel}`}
+                                            onchange={(e) => {
+                                                const [p, c] =
+                                                    /** @type {HTMLSelectElement} */ (
+                                                        e.target
+                                                    ).value
+                                                        .split(":")
+                                                        .map(Number);
+                                                setInput(strip.id, p, c);
+                                            }}
+                                        >
+                                            <option value="-1:-1"
+                                                >— None —</option
+                                            >
+                                            {#each availableInputs as input}
+                                                {@const icon = input.isSolo
+                                                    ? "👤"
+                                                    : "👥"}
+                                                <option
+                                                    value={`${input.port}:${input.channel}`}
+                                                    >{icon}
+                                                    {input.label ||
+                                                        input.name}</option
+                                                >
+                                            {/each}
+                                        </select>
+                                    </div>
+                                    {#if strip.inputPort >= 0}
+                                        <div class="ch-input-label">
+                                            P{strip.inputPort +
+                                                1}.{strip.inputChannel + 1}
+                                        </div>
+                                    {/if}
+
+                                    <!-- Spacer pushes plugin + name to bottom -->
+                                    <div class="ch-spacer"></div>
+
+                                    <!-- Plugin -->
+                                    <div class="ch-plugin">
+                                        <select
+                                            class="ch-select"
+                                            value={strip.pluginUid || 0}
+                                            onchange={(e) => {
+                                                const uid = Number(
+                                                    /** @type {HTMLSelectElement} */ (
+                                                        e.target
+                                                    ).value,
+                                                );
+                                                if (uid)
+                                                    setPlugin(strip.id, uid);
+                                            }}
+                                        >
+                                            <option value="0">—</option>
+                                            {#each scannedPlugins as plugin}
+                                                <option value={plugin.uid}
+                                                    >{plugin.name}</option
+                                                >
+                                            {/each}
+                                        </select>
+                                        {#if strip.hasPlugin}
+                                            <button
+                                                class="ch-edit-btn"
+                                                onclick={() =>
+                                                    showEditor(strip.id)}
+                                                title="Open editor">⚙</button
+                                            >
+                                        {/if}
+                                    </div>
+
+                                    <!-- Editable strip name at bottom -->
                                     <div class="ch-name-area">
                                         {#if editingId === strip.id}
                                             <input
@@ -277,56 +376,8 @@
                                                     startEditing(strip)}
                                                 title="Double-click to rename"
                                             >
-                                                <span class="ch-icon"
-                                                    >{strip.isSolo
-                                                        ? "👤"
-                                                        : "👥"}</span
-                                                >
                                                 {strip.name}
                                             </div>
-                                        {/if}
-                                    </div>
-
-                                    <!-- Port/Channel -->
-                                    <div class="ch-input-label">
-                                        {#if strip.inputPort >= 0}
-                                            P{strip.inputPort +
-                                                1}.{strip.inputChannel + 1}
-                                        {:else}
-                                            —
-                                        {/if}
-                                    </div>
-
-                                    <!-- Spacer pushes plugin to bottom -->
-                                    <div class="ch-spacer"></div>
-
-                                    <!-- Plugin -->
-                                    <div class="ch-plugin">
-                                        <select
-                                            class="ch-select"
-                                            value={strip.pluginUid || 0}
-                                            onchange={(e) => {
-                                                const uid = Number(
-                                                    e.target.value,
-                                                );
-                                                if (uid)
-                                                    setPlugin(strip.id, uid);
-                                            }}
-                                        >
-                                            <option value="0">—</option>
-                                            {#each scannedPlugins as plugin}
-                                                <option value={plugin.uid}
-                                                    >{plugin.name}</option
-                                                >
-                                            {/each}
-                                        </select>
-                                        {#if strip.hasPlugin}
-                                            <button
-                                                class="ch-edit-btn"
-                                                onclick={() =>
-                                                    showEditor(strip.id)}
-                                                title="Open editor">⚙</button
-                                            >
                                         {/if}
                                     </div>
                                 </div>
@@ -518,10 +569,6 @@
     }
     .channel-strip:hover {
         background: #1e293b;
-    }
-
-    .ch-icon {
-        font-size: 0.55rem;
     }
 
     .ch-name-area {
