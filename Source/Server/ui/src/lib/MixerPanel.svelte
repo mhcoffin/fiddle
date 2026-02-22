@@ -136,6 +136,29 @@
         if (fn) fn(stripId, db);
     };
 
+    // ── Fader skew (JUCE-style NormalisableRange) ────────────
+    // Maps slider position (0..1) ↔ dB (-120..+6) with a power curve.
+    // Skew < 1 gives more resolution at the top (useful range).
+    const FADER_MIN = -120;
+    const FADER_MAX = 6;
+    const FADER_SKEW = 0.25;
+
+    /** Normalized position (0..1) → dB */
+    const posToDB = (pos) => {
+        if (pos <= 0) return FADER_MIN;
+        if (pos >= 1) return FADER_MAX;
+        return (
+            FADER_MIN + (FADER_MAX - FADER_MIN) * Math.pow(pos, 1 / FADER_SKEW)
+        );
+    };
+
+    /** dB → normalized position (0..1) */
+    const dbToPos = (db) => {
+        if (db <= FADER_MIN) return 0;
+        if (db >= FADER_MAX) return 1;
+        return Math.pow((db - FADER_MIN) / (FADER_MAX - FADER_MIN), FADER_SKEW);
+    };
+
     /** Format dB for display */
     const formatDb = (db) => {
         if (db <= -120) return "-∞";
@@ -345,19 +368,27 @@
                                             <input
                                                 class="fader-slider"
                                                 type="range"
-                                                min="-120"
-                                                max="6"
-                                                step="0.1"
-                                                value={strip.gainDb ?? 0}
-                                                oninput={(e) =>
-                                                    setGain(
-                                                        strip.id,
+                                                min="0"
+                                                max="1000"
+                                                step="1"
+                                                value={Math.round(
+                                                    dbToPos(strip.gainDb ?? 0) *
+                                                        1000,
+                                                )}
+                                                oninput={(e) => {
+                                                    const pos =
                                                         parseFloat(
                                                             /** @type {HTMLInputElement} */ (
                                                                 e.target
                                                             ).value,
-                                                        ),
-                                                    )}
+                                                        ) / 1000;
+                                                    setGain(
+                                                        strip.id,
+                                                        Math.round(
+                                                            posToDB(pos) * 10,
+                                                        ) / 10,
+                                                    );
+                                                }}
                                             />
                                         </div>
                                         <span class="fader-tick fader-bot"
