@@ -57,23 +57,25 @@ public:
     size_t fileSize = sizeof(SharedState);
 
     if (producer) {
-      if (mapFile.existsAsFile())
-        mapFile.deleteFile();
-      mapFile.create();
+      // Reuse existing file if it's the right size — do NOT delete+recreate!
+      // Deleting invalidates FiddleNative's existing mmap (stale mapping).
+      bool needCreate = !mapFile.existsAsFile() ||
+                        mapFile.getSize() != static_cast<juce::int64>(fileSize);
+      if (needCreate) {
+        if (mapFile.existsAsFile())
+          mapFile.deleteFile();
+        mapFile.create();
+        mapFile.setReadOnly(false);
 
-      // Make sure Dorico Sandbox can access this file regardless of owner
-      // (Using juce::File::setReadOnly)
-      mapFile.setReadOnly(false);
-
-      // Initialize the file to the correct physical size with zeros
-      FileOutputStream out(mapFile);
-      if (out.openedOk()) {
-        out.setPosition(fileSize - 1);
-        out.writeByte(0); // This forces the OS to allocate the bytes on disk
-        out.flush();
-      } else {
-        Logger::writeToLog(
-            "Fatal Error: Could not allocate shared memory file size");
+        FileOutputStream out(mapFile);
+        if (out.openedOk()) {
+          out.setPosition(fileSize - 1);
+          out.writeByte(0);
+          out.flush();
+        } else {
+          Logger::writeToLog(
+              "Fatal Error: Could not allocate shared memory file size");
+        }
       }
     } else {
       // Consumer might start before producer. Wait until it exists.
@@ -151,8 +153,14 @@ public:
    * Fails silently if there is not enough space (buffer full).
    */
   void pushAudio(const AudioBuffer<float> &buffer) {
-    if (!isReady() || !producer)
+    if (!isReady() || !producer) {
+      static int skipCount = 0;
+      if (++skipCount % 5000 == 1) {
+        std::cerr << "[AudioShm] pushAudio SKIPPED: ready=" << isReady()
+                  << " producer=" << producer << std::endl;
+      }
       return;
+    }
 
     const int numSamples = buffer.getNumSamples();
     const int numChannels =
@@ -164,8 +172,14 @@ public:
     // Check available space
     if (writePos - readPos + numSamples > kBufferCapacity) {
       // Buffer Overflow/Underrun. Consumer is too slow.
-      // We could skip, but we'll aggressively jump the write head to force a
-      // reset. state->writeIndex.store(readPos, std::memory_order_relaxed);
+      static int dropCount = 0;
+      if (++dropCount % 500 == 1) {
+        std::cerr << "[AudioShm] pushAudio DROPPED (buffer full) count="
+                  << dropCount << " writePos=" << writePos
+                  << " readPos=" << readPos
+                  << " avail=" << (kBufferCapacity - (writePos - readPos))
+                  << std::endl;
+      }
       return;
     }
 

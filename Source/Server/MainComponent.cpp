@@ -1286,6 +1286,25 @@ void MainComponent::audioDeviceIOCallbackWithContext(
   // 1. Process VST instruments and mix down to audioBuffer
   mixer_.processBlock(audioBuffer, currentTime);
 
+  // Diagnostic: check if the mixer produced any audio
+  {
+    static int diagCounter = 0;
+    if (++diagCounter % 500 == 0) {
+      float peak = 0.0f;
+      for (int ch = 0; ch < audioBuffer.getNumChannels(); ++ch) {
+        float chPeak =
+            audioBuffer.getMagnitude(ch, 0, audioBuffer.getNumSamples());
+        if (chPeak > peak)
+          peak = chPeak;
+      }
+      if (peak > 0.0f) {
+        std::cerr << "[AudioDiag] Peak after mixer: " << peak
+                  << " dB=" << juce::Decibels::gainToDecibels(peak)
+                  << std::endl;
+      }
+    }
+  }
+
   // 2. Transmit the mixed audioBuffer to Dorico via Shared Memory IPC
   audioSharedMemory_.pushAudio(audioBuffer);
 
