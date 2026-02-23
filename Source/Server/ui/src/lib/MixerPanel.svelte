@@ -167,6 +167,16 @@
         return db.toFixed(1);
     };
 
+    /** Get the input instrument name for a strip */
+    const getInputName = (strip) => {
+        if (strip.inputPort < 0) return "";
+        const input = availableInputs.find(
+            (i) =>
+                i.port === strip.inputPort && i.channel === strip.inputChannel,
+        );
+        return input ? input.label || input.name : "";
+    };
+
     let editingId = $state(null);
     let editValue = $state("");
     const startEditing = (strip) => {
@@ -462,12 +472,19 @@
                                         </div>
                                     </div>
 
-                                    <!-- Editable strip name at bottom -->
+                                    <!-- Strip name area -->
                                     <div class="ch-name-area">
+                                        <div
+                                            class="ch-input-name"
+                                            title={getInputName(strip)}
+                                        >
+                                            {getInputName(strip) || "—"}
+                                        </div>
                                         {#if editingId === strip.id}
                                             <input
                                                 class="ch-name-input"
                                                 type="text"
+                                                placeholder="lib"
                                                 bind:value={editValue}
                                                 onblur={() =>
                                                     commitEdit(strip.id)}
@@ -479,12 +496,12 @@
                                             />
                                         {:else}
                                             <div
-                                                class="ch-name"
+                                                class="ch-lib-name"
                                                 ondblclick={() =>
                                                     startEditing(strip)}
-                                                title="Double-click to rename"
+                                                title="Double-click to set library name"
                                             >
-                                                {strip.name}
+                                                {strip.name || "—"}
                                             </div>
                                         {/if}
                                     </div>
@@ -698,10 +715,19 @@
     .ch-name-area {
         min-height: 18px;
     }
-    .ch-name {
-        font-size: 0.65rem;
+    .ch-input-name {
+        font-size: 0.6rem;
         font-weight: 600;
         color: #e2e8f0;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.3;
+    }
+    .ch-lib-name {
+        font-size: 0.55rem;
+        color: #94a3b8;
         text-align: center;
         cursor: default;
         user-select: none;
