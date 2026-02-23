@@ -614,8 +614,9 @@
     .folder {
         display: flex;
         flex-direction: column;
+        flex-shrink: 0;
         border-right: 1px solid #0f172a;
-        min-height: 0; /* allow flex shrink */
+        min-height: 0;
     }
     .folder-collapsed {
         /* When collapsed, show only the tab as a vertical bar */
@@ -676,8 +677,6 @@
         display: flex;
         flex-direction: row;
         flex: 1;
-        overflow-x: visible;
-        overflow-y: hidden;
         min-height: 0;
     }
 
