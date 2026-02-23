@@ -426,34 +426,40 @@
 
                                     <!-- Plugin -->
                                     <div class="ch-plugin">
-                                        <select
-                                            class="ch-select"
-                                            value={strip.pluginUid || 0}
-                                            onchange={(e) => {
-                                                const uid = Number(
-                                                    /** @type {HTMLSelectElement} */ (
-                                                        e.target
-                                                    ).value,
-                                                );
-                                                if (uid)
-                                                    setPlugin(strip.id, uid);
-                                            }}
-                                        >
-                                            <option value="0">—</option>
-                                            {#each scannedPlugins as plugin}
-                                                <option value={plugin.uid}
-                                                    >{plugin.name}</option
-                                                >
-                                            {/each}
-                                        </select>
-                                        {#if strip.hasPlugin}
-                                            <button
-                                                class="ch-edit-btn"
-                                                onclick={() =>
-                                                    showEditor(strip.id)}
-                                                title="Open editor">⚙</button
+                                        <div class="ch-plugin-row">
+                                            <select
+                                                class="ch-select"
+                                                value={strip.pluginUid || 0}
+                                                onchange={(e) => {
+                                                    const uid = Number(
+                                                        /** @type {HTMLSelectElement} */ (
+                                                            e.target
+                                                        ).value,
+                                                    );
+                                                    if (uid)
+                                                        setPlugin(
+                                                            strip.id,
+                                                            uid,
+                                                        );
+                                                }}
                                             >
-                                        {/if}
+                                                <option value="0">—</option>
+                                                {#each scannedPlugins as plugin}
+                                                    <option value={plugin.uid}
+                                                        >{plugin.name}</option
+                                                    >
+                                                {/each}
+                                            </select>
+                                            {#if strip.hasPlugin}
+                                                <button
+                                                    class="ch-edit-btn"
+                                                    onclick={() =>
+                                                        showEditor(strip.id)}
+                                                    title="Open editor"
+                                                    >e</button
+                                                >
+                                            {/if}
+                                        </div>
                                     </div>
 
                                     <!-- Editable strip name at bottom -->
@@ -788,8 +794,14 @@
         flex-direction: column;
         gap: 2px;
     }
+    .ch-plugin-row {
+        display: flex;
+        gap: 2px;
+        align-items: center;
+    }
     .ch-select {
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         padding: 2px 2px;
         border: 1px solid #334155;
         border-radius: 3px;
@@ -805,15 +817,16 @@
     }
 
     .ch-edit-btn {
-        width: 100%;
-        padding: 2px;
+        padding: 1px 4px;
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
         color: #64748b;
         font-size: 0.6rem;
+        font-style: italic;
         cursor: pointer;
-        text-align: center;
+        line-height: 1;
+        flex-shrink: 0;
     }
     .ch-edit-btn:hover {
         background: #1e3a5f;
