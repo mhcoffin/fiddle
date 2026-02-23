@@ -99,27 +99,6 @@
     const setInput = (stripId, port, channel) => {
         const fn = getNative("setStripInput");
         if (fn) fn(stripId, port, channel);
-
-        // Auto-name: use input label, with (n) disambiguation for duplicates
-        const input = availableInputs.find(
-            (i) => i.port === port && i.channel === channel,
-        );
-        if (input) {
-            const baseName = input.label || input.name;
-            // Count how many other strips share this same input
-            const sameInput = strips.filter(
-                (s) =>
-                    s.id !== stripId &&
-                    s.inputPort === port &&
-                    s.inputChannel === channel,
-            );
-            const name =
-                sameInput.length > 0
-                    ? `${baseName} (${sameInput.length + 1})`
-                    : baseName;
-            const renameFn = getNative("setStripName");
-            if (renameFn) renameFn(stripId, name);
-        }
     };
 
     const setPlugin = (stripId, pluginUid) => {
@@ -484,7 +463,7 @@
                                             <input
                                                 class="ch-name-input"
                                                 type="text"
-                                                placeholder="lib"
+                                                placeholder="Library"
                                                 bind:value={editValue}
                                                 onblur={() =>
                                                     commitEdit(strip.id)}

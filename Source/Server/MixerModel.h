@@ -30,7 +30,7 @@ public:
   juce::String addStrip() {
     auto strip = std::make_unique<MixerStrip>();
     strip->id = juce::Uuid().toString();
-    strip->name = "Strip " + juce::String(nextStripNumber_++);
+    strip->name = ""; // Library label — user fills in later
 
     std::lock_guard<std::mutex> lock(stripsMutex);
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
@@ -72,25 +72,8 @@ public:
     strip->isSolo = source->isSolo;
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
 
-    // Auto-name: base name from source, with (n) disambiguation
-    // Find all strips sharing the same input to determine the count
-    juce::String baseName = source->name;
-    // Strip existing "(n)" suffix to get base name
-    int parenPos = baseName.lastIndexOfChar('(');
-    if (parenPos > 0 && baseName.endsWithChar(')'))
-      baseName = baseName.substring(0, parenPos).trim();
-
-    int count = 0;
-    for (const auto &s : strips_) {
-      if (s->inputPort == strip->inputPort &&
-          s->inputChannel == strip->inputChannel)
-        ++count;
-    }
-    strip->name = baseName + " (" + juce::String(count + 1) + ")";
-
-    // Also rename the source if it doesn't already have a disambiguator
-    if (!source->name.containsChar('('))
-      source->name = baseName + " (1)";
+    // Library label defaults to empty — user fills in later
+    strip->name = "";
 
     juce::String newId = strip->id;
     strips_.insert(it + 1, std::move(strip));
