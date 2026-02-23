@@ -13,9 +13,9 @@ namespace fiddle {
 /// window. Identified by a unique string ID.
 struct MixerStrip {
   juce::String id;
-  juce::String name;
-  juce::String family; // Instrument family (e.g. "Strings", "Brass")
-  bool isSolo = true;  // true = solo player, false = section
+  juce::String library; // User-supplied VST library label (e.g. "SSP")
+  juce::String family;  // Instrument family (e.g. "Strings", "Brass")
+  bool isSolo = true;   // true = solo player, false = section
 
   // Input assignment (-1 = unassigned)
   int inputPort = -1;
@@ -169,7 +169,7 @@ struct MixerStrip {
       editorWindow->setVisible(true);
       editorWindow->toFront(true);
     } else if (auto *editor = pluginInstance->createEditor()) {
-      editorWindow = std::make_unique<PluginEditorWindow>(name, editor);
+      editorWindow = std::make_unique<PluginEditorWindow>(library, editor);
     }
   }
 
@@ -177,7 +177,7 @@ struct MixerStrip {
   juce::var toJson() const {
     auto *obj = new juce::DynamicObject();
     obj->setProperty("id", id);
-    obj->setProperty("name", name);
+    obj->setProperty("library", library);
     obj->setProperty("family", family);
     obj->setProperty("isSolo", isSolo);
     obj->setProperty("inputPort", inputPort);

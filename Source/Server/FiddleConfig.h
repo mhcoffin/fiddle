@@ -163,7 +163,8 @@ public:
         if (auto *obj = v.getDynamicObject()) {
           YAML::Node strip;
           strip["id"] = obj->getProperty("id").toString().toStdString();
-          strip["name"] = obj->getProperty("name").toString().toStdString();
+          strip["library"] =
+              obj->getProperty("library").toString().toStdString();
           strip["inputPort"] = static_cast<int>(obj->getProperty("inputPort"));
           strip["inputChannel"] =
               static_cast<int>(obj->getProperty("inputChannel"));
@@ -247,14 +248,15 @@ public:
           for (const auto &node : root["mixer_strips"]) {
             juce::String newId = mixer.addStrip();
             if (auto *strip = mixer.getStrip(newId)) {
-              strip->name = node["name"].as<std::string>();
+              strip->library =
+                  node["library"] ? node["library"].as<std::string>() : "";
               strip->inputPort = node["inputPort"].as<int>();
               strip->inputChannel = node["inputChannel"].as<int>();
               if (node["gainDb"].IsDefined())
                 strip->gainDb.store(node["gainDb"].as<float>(),
                                     std::memory_order_relaxed);
 
-              logs.push_back("Restored strip: " + strip->name +
+              logs.push_back("Restored strip: " + strip->library +
                              " (Port: " + juce::String(strip->inputPort) +
                              ", Ch: " + juce::String(strip->inputChannel) +
                              ")");
@@ -288,7 +290,7 @@ public:
                 } else {
                   logs.push_back("WARNING: Plugin UID " + juce::String(pUid) +
                                  " not found in scanner cache for strip " +
-                                 strip->name);
+                                 strip->library);
                 }
               }
             }

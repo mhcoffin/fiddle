@@ -30,7 +30,7 @@ public:
   juce::String addStrip() {
     auto strip = std::make_unique<MixerStrip>();
     strip->id = juce::Uuid().toString();
-    strip->name = ""; // Library label — user fills in later
+    strip->library = "";
 
     std::lock_guard<std::mutex> lock(stripsMutex);
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
@@ -73,7 +73,7 @@ public:
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
 
     // Library label defaults to empty — user fills in later
-    strip->name = "";
+    strip->library = "";
 
     juce::String newId = strip->id;
     strips_.insert(it + 1, std::move(strip));
@@ -214,9 +214,6 @@ public:
       if (it2 != expectedMap.end()) {
         s->family = it2->second->family;
         s->isSolo = it2->second->isSolo;
-        // Update name only if it looks auto-generated (not user-renamed)
-        if (s->name.startsWith("Strip") || s->name.isEmpty())
-          s->name = it2->second->label;
       }
     }
 
@@ -226,7 +223,7 @@ public:
       if (existingSet.find(key) == existingSet.end()) {
         auto strip = std::make_unique<MixerStrip>();
         strip->id = juce::Uuid().toString();
-        strip->name = entry.label;
+        strip->library = "";
         strip->family = entry.family;
         strip->isSolo = entry.isSolo;
         strip->inputPort = entry.port;

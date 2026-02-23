@@ -363,7 +363,7 @@ MainComponent::MainComponent(const juce::File &configFile)
                     completion(true);
                   })
               .withNativeFunction(
-                  "setStripName",
+                  "setStripLibrary",
                   [this](const juce::Array<juce::var> &args,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
@@ -372,10 +372,10 @@ MainComponent::MainComponent(const juce::File &configFile)
                       return;
                     }
                     juce::String stripId = args[0].toString();
-                    juce::String name = args[1].toString();
-                    safeCallAsync([this, stripId, name]() {
+                    juce::String lib = args[1].toString();
+                    safeCallAsync([this, stripId, lib]() {
                       if (auto *s = mixer_.getStrip(stripId)) {
-                        s->name = name;
+                        s->library = lib;
                         pushMixerState();
                       }
                     });

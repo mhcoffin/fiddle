@@ -160,11 +160,11 @@
     let editValue = $state("");
     const startEditing = (strip) => {
         editingId = strip.id;
-        editValue = strip.name;
+        editValue = strip.library || "";
     };
     const commitEdit = (stripId) => {
         if (editValue.trim()) {
-            const fn = getNative("setStripName");
+            const fn = getNative("setStripLibrary");
             if (fn) fn(stripId, editValue.trim());
         }
         editingId = null;
@@ -480,7 +480,7 @@
                                                     startEditing(strip)}
                                                 title="Double-click to set library name"
                                             >
-                                                {strip.name || "—"}
+                                                {strip.library || "—"}
                                             </div>
                                         {/if}
                                     </div>
