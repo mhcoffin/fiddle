@@ -39,6 +39,9 @@ struct MixerStrip {
   /// Peak level in dB (post-fader). Lock-free, written by audio thread.
   std::atomic<float> peakDb{-120.0f};
 
+  /// Peak-hold level in dB. Decays slowly (~5 dB/sec) for visual indicator.
+  std::atomic<float> peakHoldDb{-120.0f};
+
   juce::AudioBuffer<float> tempBuffer;
 
   void prepareToPlay(double sampleRate, int blockSize) {
@@ -93,9 +96,13 @@ struct MixerStrip {
         if (db <= -120.0f) {
           // Silence — skip summing, decay peak
           float decay = 20.0f * numSamples / (float)currentSampleRate;
+          float holdDecay = 5.0f * numSamples / (float)currentSampleRate;
           float prev = peakDb.load(std::memory_order_relaxed);
           peakDb.store(juce::jmax(-120.0f, prev - decay),
                        std::memory_order_relaxed);
+          float prevHold = peakHoldDb.load(std::memory_order_relaxed);
+          peakHoldDb.store(juce::jmax(-120.0f, prevHold - holdDecay),
+                           std::memory_order_relaxed);
         } else {
           float gain = juce::Decibels::decibelsToGain(db, -120.0f);
           int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
@@ -108,11 +115,16 @@ struct MixerStrip {
             blockPeak = juce::jmax(blockPeak, chPeak);
           }
           float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
-          // Decay: ~20 dB/sec
+          // Bar decay: ~20 dB/sec
           float decay = 20.0f * numSamples / (float)currentSampleRate;
           float prev = peakDb.load(std::memory_order_relaxed);
-          float newPeak = juce::jmax(blockDb, prev - decay);
-          peakDb.store(newPeak, std::memory_order_relaxed);
+          peakDb.store(juce::jmax(blockDb, prev - decay),
+                       std::memory_order_relaxed);
+          // Hold decay: ~5 dB/sec (slow)
+          float holdDecay = 5.0f * numSamples / (float)currentSampleRate;
+          float prevHold = peakHoldDb.load(std::memory_order_relaxed);
+          peakHoldDb.store(juce::jmax(blockDb, prevHold - holdDecay),
+                           std::memory_order_relaxed);
         }
       }
     }
@@ -203,6 +215,8 @@ struct MixerStrip {
     obj->setProperty("hasPlugin", pluginInstance != nullptr);
     obj->setProperty("gainDb", (double)gainDb.load(std::memory_order_relaxed));
     obj->setProperty("peakDb", (double)peakDb.load(std::memory_order_relaxed));
+    obj->setProperty("peakHoldDb",
+                     (double)peakHoldDb.load(std::memory_order_relaxed));
 
     if (pluginInstance) {
       int prog = pluginInstance->getCurrentProgram();

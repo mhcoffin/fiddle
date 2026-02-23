@@ -395,6 +395,15 @@
                                                         strip.peakDb ?? -120,
                                                     ) * 100}%"
                                                 ></div>
+                                                <div
+                                                    class="meter-hold"
+                                                    class:meter-hot={strip.peakHoldDb >
+                                                        0}
+                                                    style="bottom: {dbToPos(
+                                                        strip.peakHoldDb ??
+                                                            -120,
+                                                    ) * 100}%"
+                                                ></div>
                                             </div>
                                         </div>
                                         <span class="fader-tick fader-bot"
@@ -799,6 +808,17 @@
     }
     .meter-hot {
         background: #ef4444;
+    }
+    .meter-hold {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: #4ade80;
+        will-change: bottom;
+    }
+    .meter-hold.meter-hot {
+        background: #f87171;
     }
 
     .fader-slider {
