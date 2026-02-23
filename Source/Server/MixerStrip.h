@@ -96,7 +96,7 @@ struct MixerStrip {
         if (db <= -120.0f) {
           // Silence — skip summing, decay peak
           float decay = 20.0f * numSamples / (float)currentSampleRate;
-          float holdDecay = 5.0f * numSamples / (float)currentSampleRate;
+          float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
           float prev = peakDb.load(std::memory_order_relaxed);
           peakDb.store(juce::jmax(-120.0f, prev - decay),
                        std::memory_order_relaxed);
@@ -121,7 +121,7 @@ struct MixerStrip {
           peakDb.store(juce::jmax(blockDb, prev - decay),
                        std::memory_order_relaxed);
           // Hold decay: ~5 dB/sec (slow)
-          float holdDecay = 5.0f * numSamples / (float)currentSampleRate;
+          float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
           float prevHold = peakHoldDb.load(std::memory_order_relaxed);
           peakHoldDb.store(juce::jmax(blockDb, prevHold - holdDecay),
                            std::memory_order_relaxed);
