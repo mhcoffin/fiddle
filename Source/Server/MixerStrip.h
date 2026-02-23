@@ -36,6 +36,9 @@ struct MixerStrip {
   /// Range: +6 dB to -120 dB. Values <= -120 treated as silence.
   std::atomic<float> gainDb{0.0f};
 
+  /// Peak level in dB (post-fader). Lock-free, written by audio thread.
+  std::atomic<float> peakDb{-120.0f};
+
   juce::AudioBuffer<float> tempBuffer;
 
   void prepareToPlay(double sampleRate, int blockSize) {
@@ -88,14 +91,28 @@ struct MixerStrip {
         // Apply fader gain and mix down to the main host buffer
         float db = gainDb.load(std::memory_order_relaxed);
         if (db <= -120.0f) {
-          // Silence — skip summing entirely
+          // Silence — skip summing, decay peak
+          float decay = 20.0f * numSamples / (float)currentSampleRate;
+          float prev = peakDb.load(std::memory_order_relaxed);
+          peakDb.store(juce::jmax(-120.0f, prev - decay),
+                       std::memory_order_relaxed);
         } else {
           float gain = juce::Decibels::decibelsToGain(db, -120.0f);
           int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
                                          tempBuffer.getNumChannels());
+          // Measure peak of the gained signal
+          float blockPeak = 0.0f;
           for (int i = 0; i < channelsToSum; ++i) {
             audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples, gain);
+            float chPeak = tempBuffer.getMagnitude(i, 0, numSamples) * gain;
+            blockPeak = juce::jmax(blockPeak, chPeak);
           }
+          float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
+          // Decay: ~20 dB/sec
+          float decay = 20.0f * numSamples / (float)currentSampleRate;
+          float prev = peakDb.load(std::memory_order_relaxed);
+          float newPeak = juce::jmax(blockDb, prev - decay);
+          peakDb.store(newPeak, std::memory_order_relaxed);
         }
       }
     }
@@ -185,6 +202,7 @@ struct MixerStrip {
     obj->setProperty("pluginUid", pluginUid);
     obj->setProperty("hasPlugin", pluginInstance != nullptr);
     obj->setProperty("gainDb", (double)gainDb.load(std::memory_order_relaxed));
+    obj->setProperty("peakDb", (double)peakDb.load(std::memory_order_relaxed));
 
     if (pluginInstance) {
       int prog = pluginInstance->getCurrentProgram();

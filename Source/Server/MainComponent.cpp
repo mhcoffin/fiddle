@@ -1235,6 +1235,12 @@ void MainComponent::pushSubnoteToWebView(const fiddle::Subnote &subnote) {
 void MainComponent::timerCallback() {
   subnoteGenerator.tick(noteTracker.getSessionSamples());
 
+  // Push meter levels to UI every ~60ms (3 × 20ms timer ticks)
+  static int meterCounter = 0;
+  if (++meterCounter % 3 == 0) {
+    safeCallAsync([this]() { pushMixerState(); });
+  }
+
   static int hbCounter = 0;
   if (++hbCounter % 50 == 0) { // Every 1 second (20ms * 50)
     safeCallAsync([this, val = hbCounter / 50]() {

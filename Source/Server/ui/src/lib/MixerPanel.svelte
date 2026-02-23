@@ -354,34 +354,48 @@
                                         <span class="fader-tick fader-top"
                                             >+6</span
                                         >
-                                        <div class="fader-track">
-                                            <input
-                                                class="fader-slider"
-                                                type="range"
-                                                min="0"
-                                                max="1000"
-                                                step="1"
-                                                value={Math.round(
-                                                    dbToPos(strip.gainDb ?? 0) *
-                                                        1000,
-                                                )}
-                                                oninput={(e) => {
-                                                    const pos =
-                                                        parseFloat(
-                                                            /** @type {HTMLInputElement} */ (
-                                                                e.target
-                                                            ).value,
-                                                        ) / 1000;
-                                                    setGain(
-                                                        strip.id,
-                                                        Math.round(
-                                                            posToDB(pos) * 10,
-                                                        ) / 10,
-                                                    );
-                                                }}
-                                                ondblclick={() =>
-                                                    setGain(strip.id, 0)}
-                                            />
+                                        <div class="fader-meter-row">
+                                            <div class="fader-track">
+                                                <input
+                                                    class="fader-slider"
+                                                    type="range"
+                                                    min="0"
+                                                    max="1000"
+                                                    step="1"
+                                                    value={Math.round(
+                                                        dbToPos(
+                                                            strip.gainDb ?? 0,
+                                                        ) * 1000,
+                                                    )}
+                                                    oninput={(e) => {
+                                                        const pos =
+                                                            parseFloat(
+                                                                /** @type {HTMLInputElement} */ (
+                                                                    e.target
+                                                                ).value,
+                                                            ) / 1000;
+                                                        setGain(
+                                                            strip.id,
+                                                            Math.round(
+                                                                posToDB(pos) *
+                                                                    10,
+                                                            ) / 10,
+                                                        );
+                                                    }}
+                                                    ondblclick={() =>
+                                                        setGain(strip.id, 0)}
+                                                />
+                                            </div>
+                                            <div class="meter-track">
+                                                <div
+                                                    class="meter-fill"
+                                                    class:meter-hot={strip.peakDb >
+                                                        0}
+                                                    style="height: {dbToPos(
+                                                        strip.peakDb ?? -120,
+                                                    ) * 100}%"
+                                                ></div>
+                                            </div>
                                         </div>
                                         <span class="fader-tick fader-bot"
                                             >-∞</span
@@ -749,14 +763,42 @@
         flex-shrink: 0;
     }
 
+    .fader-meter-row {
+        display: flex;
+        flex: 1;
+        gap: 2px;
+        align-items: stretch;
+        width: 100%;
+        min-height: 40px;
+    }
+
     .fader-track {
         flex: 1;
         display: flex;
         align-items: center;
         justify-content: center;
-        width: 100%;
         position: relative;
-        min-height: 40px;
+    }
+
+    .meter-track {
+        width: 4px;
+        flex-shrink: 0;
+        background: #0f172a;
+        border-radius: 2px;
+        position: relative;
+        overflow: hidden;
+    }
+    .meter-fill {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: #22c55e;
+        border-radius: 2px;
+        will-change: height;
+    }
+    .meter-hot {
+        background: #ef4444;
     }
 
     .fader-slider {
