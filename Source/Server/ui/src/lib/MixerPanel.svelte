@@ -596,7 +596,7 @@
         align-items: center;
         justify-content: center;
         flex: 1;
-        color: #64748b;
+        color: #94a3b8;
         font-size: 0.85rem;
     }
 
@@ -739,7 +739,7 @@
 
     .fader-tick {
         font-size: 0.5rem;
-        color: #475569;
+        color: #94a3b8;
         line-height: 1;
         flex-shrink: 0;
     }
@@ -820,7 +820,7 @@
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
-        color: #64748b;
+        color: #cbd5e1;
         font-size: 0.6rem;
         font-style: italic;
         cursor: pointer;
@@ -835,7 +835,7 @@
 
     .ch-input-label {
         font-size: 0.6rem;
-        color: #64748b;
+        color: #94a3b8;
         text-align: center;
         padding: 1px 0;
     }
@@ -851,7 +851,7 @@
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
-        color: #475569;
+        color: #cbd5e1;
         font-size: 0.65rem;
         cursor: pointer;
         text-align: center;
