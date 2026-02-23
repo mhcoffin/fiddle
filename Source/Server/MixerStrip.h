@@ -185,6 +185,15 @@ struct MixerStrip {
     obj->setProperty("pluginUid", pluginUid);
     obj->setProperty("hasPlugin", pluginInstance != nullptr);
     obj->setProperty("gainDb", (double)gainDb.load(std::memory_order_relaxed));
+
+    if (pluginInstance) {
+      int prog = pluginInstance->getCurrentProgram();
+      juce::String progName = pluginInstance->getProgramName(prog);
+      obj->setProperty("programIndex", prog);
+      obj->setProperty("programName", progName);
+      obj->setProperty("numPrograms", pluginInstance->getNumPrograms());
+    }
+
     return juce::var(obj);
   }
 };
