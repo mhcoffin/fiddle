@@ -840,11 +840,26 @@ MainComponent::MainComponent(const juce::File &configFile)
     noteTracker.processEvent(event);
     pushEventToWebView(event);
 
-    // Log CC events with expression map context
+    // Forward CC events to VST plugins
     if (event.has_cc()) {
       int ch = event.channel();
+      int port = event.port();
       int ccNum = event.cc().controller_number();
       int ccVal = event.cc().controller_value();
+
+      // CC 120 (All Sound Off) or CC 123 (All Notes Off) → panic all strips
+      if (ccNum == 120 || ccNum == 123) {
+        mixer_.allNotesOff();
+        std::cerr << "[MainComponent] Panic: CC " << ccNum
+                  << " → allNotesOff on all strips" << std::endl;
+      } else {
+        // Route CC to matching strips (ch is 1-based from protobuf, mixer
+        // uses 0-based)
+        juce::MidiMessage ccMsg =
+            juce::MidiMessage::controllerEvent(ch, ccNum, ccVal);
+        mixer_.routeCCEvent(port, ch - 1, ccMsg);
+      }
+
       juce::String logMsg = "<b>[CC]</b> Ch " + juce::String(ch + 1) + " CC" +
                             juce::String(ccNum) + " = " + juce::String(ccVal);
       auto *dim = expressionMap.getDimensionForCC(ccNum);

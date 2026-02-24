@@ -62,6 +62,28 @@ struct MixerStrip {
     delayedMessages.push_back({triggerTime, msg});
   }
 
+  /// Send All Notes Off + All Sound Off + Reset All Controllers to the plugin.
+  /// Also clears pending delayed messages to prevent stale notes from firing.
+  void allNotesOff() {
+    {
+      std::lock_guard<std::mutex> lock(midiMutex);
+      delayedMessages.clear();
+    }
+    std::lock_guard<std::mutex> lock(processMutex);
+    if (!pluginInstance)
+      return;
+    juce::MidiBuffer panic;
+    for (int ch = 1; ch <= 16; ++ch) {
+      panic.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
+      panic.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
+      panic.addEvent(juce::MidiMessage::allControllersOff(ch), 0);
+    }
+    juce::AudioBuffer<float> dummy(tempBuffer.getNumChannels(),
+                                   currentBlockSize);
+    dummy.clear();
+    pluginInstance->processBlock(dummy, panic);
+  }
+
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime) {
     juce::MidiBuffer midiBuffer;
     {

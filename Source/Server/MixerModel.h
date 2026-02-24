@@ -136,6 +136,25 @@ public:
     }
   }
 
+  /// Route incoming CC event to matching strips (immediate, no delay).
+  void routeCCEvent(int port, int channel, const juce::MidiMessage &msg) {
+    double now = juce::Time::getMillisecondCounterHiRes();
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      if (strip->inputPort == port && strip->inputChannel == channel) {
+        strip->addDelayedMessage(now, msg);
+      }
+    }
+  }
+
+  /// Panic: send All Notes Off to every strip.
+  void allNotesOff() {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      strip->allNotesOff();
+    }
+  }
+
   /// Sync mixer strips to match the ensemble instrument list.
   /// Creates new strips for new instruments, removes strips whose
   /// port/channel no longer appears. Preserves existing plugin assignments.
