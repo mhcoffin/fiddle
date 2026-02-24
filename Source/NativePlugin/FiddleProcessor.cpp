@@ -136,22 +136,6 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     audioConsumer_.pullAudio(data.outputs[0].channelBuffers32,
                              data.outputs[0].numChannels, data.numSamples);
     data.outputs[0].silenceFlags = 0;
-
-    // Diagnostic: check if we got real audio
-    static int diagCount = 0;
-    if (++diagCount % 5000 == 1) {
-      float peak = 0.0f;
-      for (int ch = 0; ch < data.outputs[0].numChannels && ch < 2; ++ch) {
-        for (int i = 0; i < data.numSamples; ++i) {
-          float s = std::abs(data.outputs[0].channelBuffers32[ch][i]);
-          if (s > peak)
-            peak = s;
-        }
-      }
-      pluginLog("[AudioDiag] pullAudio peak=" + std::to_string(peak) +
-                " ready=" + std::to_string(audioConsumer_.isReady()) +
-                " numSamples=" + std::to_string(data.numSamples));
-    }
   }
 
   // Poll for delay changes (check every ~1 second)
@@ -163,6 +147,12 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
       lastKnownDelayMs_ = newDelay;
       latencySamples_ =
           static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
+      // Notify controller so it can call restartComponent(kLatencyChanged)
+      if (auto *msg = allocateMessage()) {
+        msg->setMessageID("LatencyChanged");
+        sendMessage(msg);
+        msg->release();
+      }
     }
   }
 

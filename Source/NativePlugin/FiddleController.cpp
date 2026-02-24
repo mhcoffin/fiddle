@@ -310,6 +310,14 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
     return kResultOk;
   }
 
+  if (msgId && strcmp(msgId, "LatencyChanged") == 0) {
+    // Tell the host to re-query getLatencySamples() from the processor
+    if (componentHandler)
+      componentHandler->restartComponent(
+          Steinberg::Vst::RestartFlags::kLatencyChanged);
+    return kResultOk;
+  }
+
   return EditControllerEx1::notify(message);
 }
 
