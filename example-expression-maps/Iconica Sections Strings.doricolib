@@ -1,0 +1,562 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary>
+	<fileVersion>1.929</fileVersion>
+	<temperaments>
+		<entities array="true"/>
+	</temperaments>
+	<accidentalSystems>
+		<entities array="true"/>
+	</accidentalSystems>
+	<accidentalDefinitions>
+		<entities array="true"/>
+	</accidentalDefinitions>
+	<tonalitySystemDefinitions>
+		<entities array="true"/>
+	</tonalitySystemDefinitions>
+	<ensembles>
+		<entities array="true"/>
+	</ensembles>
+	<instruments>
+		<entities array="true"/>
+	</instruments>
+	<instrumentNames>
+		<entities array="true"/>
+		<language>kEnglish</language>
+	</instrumentNames>
+	<instrumentFamilies>
+		<entities array="true"/>
+	</instrumentFamilies>
+	<clefDefinitions>
+		<entities array="true"/>
+	</clefDefinitions>
+	<ottavaLineDefinitions>
+		<entities array="true"/>
+	</ottavaLineDefinitions>
+	<noteheadSetDefinitions>
+		<entities array="true"/>
+	</noteheadSetDefinitions>
+	<noteheadDefinitions>
+		<entities array="true"/>
+	</noteheadDefinitions>
+	<restSetDefinitions>
+		<entities array="true"/>
+	</restSetDefinitions>
+	<restDefinitions>
+		<entities array="true"/>
+	</restDefinitions>
+	<flagSetDefinitions>
+		<entities array="true"/>
+	</flagSetDefinitions>
+	<flagDefinitions>
+		<entities array="true"/>
+	</flagDefinitions>
+	<graphicDefinitions>
+		<entities array="true"/>
+	</graphicDefinitions>
+	<blobDefinitions>
+		<entities array="true"/>
+	</blobDefinitions>
+	<drawingDefinitions>
+		<entities array="true"/>
+	</drawingDefinitions>
+	<textDefinitions>
+		<entities array="true"/>
+	</textDefinitions>
+	<glyphDefinitions>
+		<entities array="true"/>
+	</glyphDefinitions>
+	<compositeDefinitions>
+		<entities array="true"/>
+	</compositeDefinitions>
+	<tempoPresetDefinitions>
+		<entities array="true"/>
+	</tempoPresetDefinitions>
+	<rhythmicFeelDefinitions>
+		<entities array="true"/>
+	</rhythmicFeelDefinitions>
+	<penstyles>
+		<entities array="true"/>
+	</penstyles>
+	<fontstyles>
+		<entities array="true"/>
+	</fontstyles>
+	<brushstyles>
+		<entities array="true"/>
+	</brushstyles>
+	<pagePairDefinitionSets>
+		<entities array="true"/>
+	</pagePairDefinitionSets>
+	<pageDimensionPresets>
+		<entities array="true"/>
+	</pageDimensionPresets>
+	<paragraphStyles>
+		<entities array="true"/>
+	</paragraphStyles>
+	<characterStyles>
+		<entities array="true"/>
+	</characterStyles>
+	<playingTechniques>
+		<entities array="true"/>
+	</playingTechniques>
+	<ornamentDefinitions>
+		<entities array="true"/>
+	</ornamentDefinitions>
+	<multiSegmentLineDefinitions>
+		<entities array="true"/>
+	</multiSegmentLineDefinitions>
+	<playingTechniqueAppearanceCollectionDefinition>
+		<entities array="true"/>
+	</playingTechniqueAppearanceCollectionDefinition>
+	<expressionMapDefinitions>
+		<entities array="true">
+			<ExpressionMapDefinition>
+				<name>Iconica Sections - Strings</name>
+				<entityID>xmap.steinberg.iconica_sections_strings</entityID>
+				<parentEntityID/>
+				<inheritanceMask>0</inheritanceMask>
+				<creator>Steinberg</creator>
+				<description/>
+				<version>1</version>
+				<pluginNames>HSSE</pluginNames>
+				<initSwitchData>
+					<enabled>true</enabled>
+					<initActions array="true"/>
+				</initSwitchData>
+				<playingTechniqueCombinations array="true">
+					<playingTechniqueCombination>
+						<baseSwitchID>0</baseSwitchID>
+						<techniqueIDs>pt.natural</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>27</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>1</baseSwitchID>
+						<techniqueIDs>pt.legato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>28</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>2</baseSwitchID>
+						<techniqueIDs>pt.tremolo</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>29</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>3</baseSwitchID>
+						<techniqueIDs>pt.marcato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString>NoteLength &lt; kMedium</conditionString>
+						<velocityRange>1,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>26</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>4</baseSwitchID>
+						<techniqueIDs>pt.pizzicato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>1,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>25</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>5</baseSwitchID>
+						<techniqueIDs>pt.staccato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>1,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>24</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>6</baseSwitchID>
+						<techniqueIDs>pt.vibrato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>1</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>25</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>7</baseSwitchID>
+						<techniqueIDs>pt.trill.half</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>1</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>28</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>8</baseSwitchID>
+						<techniqueIDs>pt.trill.whole</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>1</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>29</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>9</baseSwitchID>
+						<techniqueIDs>pt.spiccato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>1,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>2</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>25</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>10</baseSwitchID>
+						<techniqueIDs>pt.legato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString>NoteLength &lt; kShort</conditionString>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>2</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>29</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+					<playingTechniqueCombination>
+						<baseSwitchID>11</baseSwitchID>
+						<name>Marcato (nat fallback for long notes)</name>
+						<techniqueIDs>pt.marcato</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>10,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true">
+							<switchOnAction>
+								<type>kChannelSwitch</type>
+								<param1>1</param1>
+								<param2>0</param2>
+							</switchOnAction>
+							<switchOnAction>
+								<type>kKeySwitch</type>
+								<param1>28</param1>
+								<param2>127</param2>
+							</switchOnAction>
+						</switchOnActions>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+				</playingTechniqueCombinations>
+				<techniqueAddOns array="true"/>
+				<mutualExclusionGroups array="true"/>
+			</ExpressionMapDefinition>
+		</entities>
+	</expressionMapDefinitions>
+	<drumKitNoteMapDefinitions>
+		<entities array="true"/>
+	</drumKitNoteMapDefinitions>
+	<repeatableCompositeCollectionDefinitions>
+		<entities array="true"/>
+	</repeatableCompositeCollectionDefinitions>
+	<chordSymbolAppearanceCollectionDefinitions>
+		<entities array="true"/>
+	</chordSymbolAppearanceCollectionDefinitions>
+	<chordSymbolAppearanceComponentCollectionDefinitions>
+		<entities array="true"/>
+	</chordSymbolAppearanceComponentCollectionDefinitions>
+	<percussionKitDefinitionCollectionDefinition>
+		<entities array="true"/>
+	</percussionKitDefinitionCollectionDefinition>
+	<percussionInstrumentDataCollectionDefinition>
+		<entities array="true"/>
+	</percussionInstrumentDataCollectionDefinition>
+	<frettedInstrumentDataCollectionDefinition>
+		<entities array="true"/>
+	</frettedInstrumentDataCollectionDefinition>
+	<chordDiagramCollectionDefinition>
+		<entities array="true"/>
+	</chordDiagramCollectionDefinition>
+	<lineAnnotationCollectionDefinition>
+		<entities array="true"/>
+	</lineAnnotationCollectionDefinition>
+	<lineBodyStyleCollectionDefinition>
+		<entities array="true"/>
+	</lineBodyStyleCollectionDefinition>
+	<lineStyleCollectionDefinition>
+		<entities array="true"/>
+	</lineStyleCollectionDefinition>
+</kScoreLibrary>

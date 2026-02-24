@@ -335,3 +335,26 @@ if(APPLE)
     )
 endif()
 
+# ==============================================================================
+# ExpressionMapTest — test executable for expression map parser
+# ==============================================================================
+juce_add_console_app(ExpressionMapTest
+    PRODUCT_NAME "ExpressionMapTest"
+)
+
+target_sources(ExpressionMapTest PRIVATE
+    Source/Server/tests/ExpressionMapParserTest.cpp
+    Source/Server/ExpressionMapParser.cpp
+)
+
+target_include_directories(ExpressionMapTest PRIVATE
+    Source/Server
+)
+
+target_link_libraries(ExpressionMapTest PRIVATE
+    juce::juce_core
+    juce::juce_events
+)
+
+target_compile_features(ExpressionMapTest PRIVATE cxx_std_17)
+juce_generate_juce_header(ExpressionMapTest)
