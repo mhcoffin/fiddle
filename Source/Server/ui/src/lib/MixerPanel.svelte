@@ -109,6 +109,10 @@
         const fn = getNative("showStripEditor");
         if (fn) fn(stripId);
     };
+    const loadExpressionMap = (stripId) => {
+        const fn = getNative("loadExpressionMap");
+        if (fn) fn(stripId);
+    };
 
     const setGain = (stripId, db) => {
         const fn = getNative("setStripGain");
@@ -434,6 +438,21 @@
                                                 setGain(strip.id, v);
                                             }}
                                         />
+                                    </div>
+
+                                    <!-- Expression Map -->
+                                    <div class="ch-xmap">
+                                        <button
+                                            class="ch-xmap-btn"
+                                            onclick={() =>
+                                                loadExpressionMap(strip.id)}
+                                            title={strip.expressionMapName ||
+                                                "Load expression map"}
+                                        >
+                                            {strip.expressionMapName
+                                                ? strip.expressionMapName
+                                                : "— xmap —"}
+                                        </button>
                                     </div>
 
                                     <!-- Plugin -->
@@ -853,6 +872,30 @@
     .fader-value::-webkit-inner-spin-button,
     .fader-value::-webkit-outer-spin-button {
         -webkit-appearance: none;
+    }
+
+    .ch-xmap {
+        display: flex;
+        flex-direction: column;
+        margin-bottom: 2px;
+    }
+    .ch-xmap-btn {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        color: #94a3b8;
+        font-size: 0.6rem;
+        padding: 2px 4px;
+        cursor: pointer;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        transition: border-color 0.15s;
+    }
+    .ch-xmap-btn:hover {
+        border-color: #64748b;
+        color: #e2e8f0;
     }
 
     .ch-plugin {

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "ExpressionMapData.h"
 #include "PluginEditorWindow.h"
 #include <atomic>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <memory>
 #include <mutex>
 #include <vector>
 
@@ -25,6 +27,10 @@ struct MixerStrip {
   int pluginUid = 0; // scanned plugin uniqueId (0 = none)
   std::unique_ptr<juce::AudioPluginInstance> pluginInstance;
   std::unique_ptr<PluginEditorWindow> editorWindow;
+
+  // Expression map
+  std::shared_ptr<ExpressionMapData> expressionMap;
+  juce::String expressionMapPath; // file path for persistence
 
   std::mutex processMutex;
   std::mutex midiMutex;
@@ -239,6 +245,8 @@ struct MixerStrip {
     obj->setProperty("peakDb", (double)peakDb.load(std::memory_order_relaxed));
     obj->setProperty("peakHoldDb",
                      (double)peakHoldDb.load(std::memory_order_relaxed));
+    obj->setProperty("expressionMapName",
+                     expressionMap ? juce::String(expressionMap->name) : "");
 
     if (pluginInstance) {
       int prog = pluginInstance->getCurrentProgram();

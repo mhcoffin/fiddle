@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "DoricoConfigGenerator.h"
+#include "ExpressionMapParser.h"
 #include "FiddleConfig.h"
 #include "ScriptBindings.h"
 #include "midi_event.pb.h"
@@ -478,6 +479,55 @@ MainComponent::MainComponent(const juce::File &configFile)
                       if (auto *s = mixer_.getStrip(stripId))
                         s->showEditor();
                     });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "loadExpressionMap",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    if (args.size() < 1) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+
+                    // Keep FileChooser alive during async dialog
+                    auto chooser = std::make_shared<juce::FileChooser>(
+                        "Load Expression Map", juce::File{}, "*.doricolib");
+
+                    chooser->launchAsync(
+                        juce::FileBrowserComponent::openMode |
+                            juce::FileBrowserComponent::canSelectFiles,
+                        [this, stripId, chooser](const juce::FileChooser &fc) {
+                          auto results = fc.getResults();
+                          if (results.isEmpty())
+                            return;
+
+                          auto file = results[0];
+                          auto data = std::make_shared<ExpressionMapData>();
+                          if (!parseExpressionMap(file, *data)) {
+                            std::cerr << "[MainComponent] Failed to parse "
+                                         "expression map: "
+                                      << file.getFullPathName() << std::endl;
+                            return;
+                          }
+
+                          std::cerr << "[MainComponent] Loaded expression "
+                                       "map '"
+                                    << data->name << "' ("
+                                    << data->combinations.size()
+                                    << " combinations) for strip " << stripId
+                                    << std::endl;
+
+                          if (auto *s = mixer_.getStrip(stripId)) {
+                            s->expressionMap = data;
+                            s->expressionMapPath = file.getFullPathName();
+                          }
+
+                          safeCallAsync([this]() { pushMixerState(); });
+                        });
+
                     completion(true);
                   })
               .withNativeFunction(
