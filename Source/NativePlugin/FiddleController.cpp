@@ -312,9 +312,18 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
 
   if (msgId && strcmp(msgId, "LatencyChanged") == 0) {
     // Tell the host to re-query getLatencySamples() from the processor
-    if (componentHandler)
+    if (componentHandler) {
       componentHandler->restartComponent(
           Steinberg::Vst::RestartFlags::kLatencyChanged);
+      // Log for diagnostics
+      std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
+      if (f.is_open())
+        f << "[Controller] LatencyChanged -> restartComponent called\n";
+    } else {
+      std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
+      if (f.is_open())
+        f << "[Controller] LatencyChanged received but no componentHandler!\n";
+    }
     return kResultOk;
   }
 

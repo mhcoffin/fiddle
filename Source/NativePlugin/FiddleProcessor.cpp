@@ -77,6 +77,10 @@ tresult PLUGIN_API FiddleProcessor::setupProcessing(ProcessSetup &setup) {
   lastKnownDelayMs_ = AudioConsumer::readActiveDelay();
   latencySamples_ =
       static_cast<uint32>(cachedSampleRate_ * lastKnownDelayMs_ / 1000.0);
+  pluginLog("[Latency] setupProcessing: delayMs=" +
+            std::to_string(lastKnownDelayMs_) +
+            " samples=" + std::to_string(latencySamples_) +
+            " sampleRate=" + std::to_string(cachedSampleRate_));
 
   return AudioEffect::setupProcessing(setup);
 }
@@ -144,6 +148,9 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     delayPollCounter_ = 0;
     int newDelay = AudioConsumer::readActiveDelay();
     if (newDelay != lastKnownDelayMs_) {
+      pluginLog(
+          "[Latency] delay changed: " + std::to_string(lastKnownDelayMs_) +
+          " -> " + std::to_string(newDelay) + "ms");
       lastKnownDelayMs_ = newDelay;
       latencySamples_ =
           static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
@@ -152,6 +159,9 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         msg->setMessageID("LatencyChanged");
         sendMessage(msg);
         msg->release();
+        pluginLog("[Latency] Sent LatencyChanged message to controller");
+      } else {
+        pluginLog("[Latency] ERROR: allocateMessage() returned null");
       }
     }
   }
