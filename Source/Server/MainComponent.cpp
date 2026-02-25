@@ -1153,36 +1153,41 @@ MainComponent::MainComponent(const juce::File &configFile)
   // Establish initial config file location
   currentConfigFile = configFile;
 
-  // Defer config restore to after the constructor returns.
+  // Open SQLite database
+  auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
+  db_.open(dbFile);
+
+  // Defer state restore to after the constructor returns.
   // loadPlugin() uses createPluginInstanceAsync() which requires the message
   // loop to be running — calling it from the constructor deadlocks because
   // we're on the message thread and the loop hasn't started yet.
   safeCallAsync([this]() {
-    std::vector<juce::String> configLogs =
-        FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
-    {
-      std::lock_guard<std::mutex> lock(logMutex);
+    // Migrate from YAML if DB is empty and a YAML config exists
+    auto dbStrips = db_.loadAllStrips();
+    if (dbStrips.empty() && currentConfigFile.existsAsFile()) {
+      std::cerr << "[MainComponent] Migrating YAML config to SQLite..."
+                << std::endl;
+      std::vector<juce::String> configLogs =
+          FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
       for (const auto &log : configLogs) {
-        if (webViewLoaded) {
-          pushLogMessage(log, false);
-        } else {
-          logQueue.push_back({log, false});
+        pushLogMessage(log, false);
+      }
+      // Resolve expression maps
+      for (auto *strip : mixer_.getAllStrips()) {
+        if (strip->expressionMapPath.isNotEmpty() && !strip->expressionMap) {
+          auto entityID = strip->expressionMapPath.toStdString();
+          strip->expressionMapPath = "";
+          auto data = xmapLibrary_.load(entityID);
+          if (data)
+            strip->expressionMap = data;
         }
       }
-    }
-
-    // Resolve expression map entityIDs stored during config load
-    for (auto *strip : mixer_.getAllStrips()) {
-      if (strip->expressionMapPath.isNotEmpty() && !strip->expressionMap) {
-        auto entityID = strip->expressionMapPath.toStdString();
-        strip->expressionMapPath = "";
-        auto data = xmapLibrary_.load(entityID);
-        if (data) {
-          strip->expressionMap = data;
-          std::cerr << "[loadConfig] Restored xmap '" << data->name
-                    << "' for strip " << strip->id << std::endl;
-        }
-      }
+      // Save migrated data to SQLite
+      saveAllStripsToDB();
+      pushLogMessage("Migrated YAML config to SQLite database");
+    } else {
+      // Normal load from SQLite
+      loadStripsFromDB();
     }
 
     // Ensure mixer strips exist for all ensemble instruments
@@ -1192,73 +1197,106 @@ MainComponent::MainComponent(const juce::File &configFile)
   });
 }
 
-void MainComponent::saveConfig() {
-  if (!currentConfigFile.existsAsFile()) {
-    // Auto-create a default config if none exists
-    currentConfigFile = FiddleConfig::createNewConfig("Default");
-    std::cerr << "[MainComponent] Created default config: "
-              << currentConfigFile.getFullPathName() << std::endl;
-  }
-  std::cerr << "[MainComponent] Saving config to "
-            << currentConfigFile.getFullPathName() << std::endl;
-  FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
-}
+void MainComponent::saveConfig() { saveAllStripsToDB(); }
 
 void MainComponent::saveConfigAs(const juce::File &newFile) {
-  currentConfigFile = newFile;
-  std::cerr << "[MainComponent] Save As -> "
-            << currentConfigFile.getFullPathName() << std::endl;
-  FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
-  FiddleConfig::saveRecentConfig(currentConfigFile);
-  FiddleConfig::writeActiveConfig(currentConfigFile,
-                                  mixer_.getPlaybackDelayMs());
+  // Save as a named config in the database
+  db_.saveConfig(newFile.getFileNameWithoutExtension());
 }
 
 void MainComponent::loadConfigFromFile(const juce::File &file) {
+  // Load a named config from the database
+  juce::String configName = file.getFileNameWithoutExtension();
   mixer_.clear();
-  currentConfigFile = file;
-  std::vector<juce::String> configLogs =
-      FiddleConfig::load(pluginScanner_, mixer_, currentConfigFile);
-  for (const auto &log : configLogs) {
-    pushLogMessage(log, false);
+  undoManager_.clear();
+
+  if (db_.loadConfig(configName)) {
+    loadStripsFromDB();
   }
 
-  // Resolve expression map entityIDs stored during config load
-  // (entityID was temporarily placed in expressionMapPath by
-  // FiddleConfig::load)
-  for (auto *strip : mixer_.getAllStrips()) {
-    if (strip->expressionMapPath.isNotEmpty() && !strip->expressionMap) {
-      auto entityID = strip->expressionMapPath.toStdString();
-      strip->expressionMapPath = "";
-      auto data = xmapLibrary_.load(entityID);
-      if (data) {
-        strip->expressionMap = data;
-        std::cerr << "[loadConfig] Restored xmap '" << data->name
-                  << "' for strip " << strip->id << std::endl;
+  pushMixerState();
+  mixer_.syncStripsToInstruments(masterList_);
+  pushMixerState();
+}
+
+void MainComponent::saveAllStripsToDB() {
+  auto strips = mixer_.getAllStrips();
+  // First, clear and re-save all strips with correct positions
+  db_.clearStrips();
+  for (int i = 0; i < (int)strips.size(); ++i) {
+    db_.saveStrip(*strips[i], i);
+    // Also save plugin BLOB if loaded
+    if (strips[i]->pluginInstance) {
+      juce::MemoryBlock block;
+      strips[i]->pluginInstance->getStateInformation(block);
+      if (block.getSize() > 0) {
+        db_.savePluginBlob(strips[i]->id, block);
       }
     }
   }
+}
 
-  pushMixerState();
+void MainComponent::saveStripToDB(const juce::String &stripId) {
+  int idx = mixer_.stripIndex(stripId);
+  if (auto *s = mixer_.getStrip(stripId)) {
+    db_.saveStrip(*s, idx >= 0 ? idx : 0);
+  }
+}
 
-  // Ensure mixer strips exist for all ensemble instruments
-  mixer_.syncStripsToInstruments(masterList_);
-  pushMixerState();
+void MainComponent::loadStripsFromDB() {
+  mixer_.clear();
+  auto rows = db_.loadAllStrips();
+  for (auto &row : rows) {
+    juce::String newId = mixer_.addStrip();
+    if (auto *strip = mixer_.getStrip(newId)) {
+      strip->id = row.id;
+      strip->library = row.library;
+      strip->family = row.family;
+      strip->isSolo = row.isSolo;
+      strip->inputPort = row.inputPort;
+      strip->inputChannel = row.inputChannel;
+      strip->gainDb.store(row.gainDb, std::memory_order_relaxed);
 
-  FiddleConfig::writeActiveConfig(currentConfigFile,
-                                  mixer_.getPlaybackDelayMs());
-  FiddleConfig::saveRecentConfig(currentConfigFile);
+      // Restore expression map
+      if (!row.expressionMapEntityID.empty()) {
+        auto data = xmapLibrary_.load(row.expressionMapEntityID);
+        if (data) {
+          strip->expressionMap = data;
+          std::cerr << "[loadDB] Restored xmap '" << data->name
+                    << "' for strip " << strip->id << std::endl;
+        }
+      }
 
-  if (onConfigChanged)
-    onConfigChanged(currentConfigFile);
+      // Restore plugin
+      if (row.pluginUid != 0) {
+        for (const auto &d : pluginScanner_.getKnownPluginList().getTypes()) {
+          if (d.uniqueId == row.pluginUid) {
+            auto stateBlock = row.pluginState;
+            strip->loadPlugin(d, mixer_.getFormatManager(),
+                              [strip, stateBlock](bool success) {
+                                if (success && stateBlock.getSize() > 0 &&
+                                    strip->pluginInstance) {
+                                  strip->pluginInstance->setStateInformation(
+                                      stateBlock.getData(),
+                                      (int)stateBlock.getSize());
+                                }
+                              });
+            break;
+          }
+        }
+      }
+    }
+  }
+  std::cerr << "[MainComponent] Loaded " << rows.size() << " strips from SQLite"
+            << std::endl;
 }
 
 MainComponent::~MainComponent() {
-  std::cerr << "[MainComponent] Destructor Invoked. Saving Config..."
+  std::cerr << "[MainComponent] Destructor Invoked. Saving to SQLite..."
             << std::endl;
   try {
-    FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
-    std::cerr << "[MainComponent] Config saved successfully to "
+    saveAllStripsToDB();
+    std::cerr << "[MainComponent] State saved successfully to SQLite"
               << currentConfigFile.getFullPathName() << std::endl;
   } catch (const std::exception &e) {
     std::cerr << "[MainComponent] Exception during config save: " << e.what()

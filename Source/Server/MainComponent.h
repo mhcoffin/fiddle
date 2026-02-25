@@ -3,6 +3,7 @@
 #include "../AudioSharedMemory.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
+#include "FiddleDatabase.h"
 #include "InstrumentMapper.h"
 #include "MasterInstrumentList.h"
 #include "MidiTcpServer.h"
@@ -71,6 +72,7 @@ private:
   MixerModel mixer_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
+  FiddleDatabase db_;
   std::unique_ptr<ScriptEngine> scriptEngine;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 
@@ -88,6 +90,16 @@ private:
   void pushEventToWebView(const fiddle::MidiEvent &event);
   void pushSubnoteToWebView(const fiddle::Subnote &subnote);
   void loadConfigFromFile(const juce::File &file);
+
+  /// Save all strips to SQLite (called after every mutation).
+  void saveAllStripsToDB();
+
+  /// Load strips from SQLite into the mixer.
+  void loadStripsFromDB();
+
+  /// Save a single strip to the database by index.
+  void saveStripToDB(const juce::String &stripId);
+
   std::optional<juce::WebBrowserComponent::Resource>
   getResource(const juce::String &url);
 

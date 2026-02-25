@@ -47,6 +47,9 @@ set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
 set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools" FORCE)
 FetchContent_MakeAvailable(yaml-cpp)
 
+# Find system SQLite3 (ships with macOS)
+find_package(SQLite3 REQUIRED)
+
 # Fetch the full VST3 SDK (JUCE's bundled copy lacks public.sdk/source/main/)
 FetchContent_Declare(
     vst3sdk
@@ -146,6 +149,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ExpressionMapLibrary.h
     Source/Server/UndoManager.h
     Source/Server/UndoActions.h
+    Source/Server/FiddleDatabase.h
+    Source/Server/FiddleDatabase.cpp
     Source/Server/ConfigChooserWindow.h
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring/scriptstdstring.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
@@ -195,6 +200,7 @@ target_link_libraries(FiddleServer PRIVATE
     libprotobuf
     angelscript
     yaml-cpp
+    SQLite::SQLite3
 )
 
 
