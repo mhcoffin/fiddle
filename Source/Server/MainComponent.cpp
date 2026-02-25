@@ -476,10 +476,12 @@ MainComponent::MainComponent(const juce::File &configFile)
                       if (auto *s = mixer_.getStrip(stripId))
                         oldUid = s->pluginUid;
                       auto action = std::make_unique<SetPluginAction>(
-                          mixer_, pluginScanner_, stripId, oldUid, pluginUid);
+                          mixer_, pluginScanner_, stripId, oldUid, pluginUid,
+                          [this]() {
+                            pushMixerState();
+                            saveConfig();
+                          });
                       undoManager_.perform(std::move(action));
-                      pushMixerState();
-                      saveConfig();
                     });
                     completion(true);
                   })

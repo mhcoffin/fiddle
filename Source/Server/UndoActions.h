@@ -139,9 +139,10 @@ private:
 class SetPluginAction : public UndoableAction {
 public:
   SetPluginAction(MixerModel &mixer, PluginScanner &scanner,
-                  const juce::String &stripId, int oldUid, int newUid)
+                  const juce::String &stripId, int oldUid, int newUid,
+                  std::function<void()> onComplete = nullptr)
       : mixer_(mixer), scanner_(scanner), stripId_(stripId), oldUid_(oldUid),
-        newUid_(newUid) {}
+        newUid_(newUid), onComplete_(std::move(onComplete)) {}
 
   void execute() override { loadPluginByUid(newUid_); }
   void undo() override { loadPluginByUid(oldUid_); }
@@ -157,11 +158,17 @@ private:
     if (uid == 0) {
       s->unloadPlugin();
       s->pluginUid = 0;
+      if (onComplete_)
+        onComplete_();
       return;
     }
     for (const auto &d : scanner_.getKnownPluginList().getTypes()) {
       if (d.uniqueId == uid) {
-        s->loadPlugin(d, mixer_.getFormatManager());
+        auto cb = onComplete_;
+        s->loadPlugin(d, mixer_.getFormatManager(), [cb](bool) {
+          if (cb)
+            cb();
+        });
         return;
       }
     }
@@ -171,6 +178,7 @@ private:
   PluginScanner &scanner_;
   juce::String stripId_;
   int oldUid_, newUid_;
+  std::function<void()> onComplete_;
 };
 
 // ─── Structural actions ──────────────────────────────────────────────
