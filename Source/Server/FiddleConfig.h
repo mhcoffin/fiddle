@@ -171,6 +171,13 @@ public:
           strip["pluginUid"] = static_cast<int>(obj->getProperty("pluginUid"));
           strip["gainDb"] = static_cast<double>(obj->getProperty("gainDb"));
 
+          // Expression map entityID
+          auto xmapID = obj->getProperty("expressionMapEntityID")
+                            .toString()
+                            .toStdString();
+          if (!xmapID.empty())
+            strip["expressionMapEntityID"] = xmapID;
+
           // Store raw plugin state if loaded
           if (auto *mixerStrip = const_cast<MixerModel &>(mixer).getStrip(
                   strip["id"].as<std::string>().c_str())) {
@@ -255,6 +262,11 @@ public:
               if (node["gainDb"].IsDefined())
                 strip->gainDb.store(node["gainDb"].as<float>(),
                                     std::memory_order_relaxed);
+
+              // Store expression map entityID for post-load resolution
+              if (node["expressionMapEntityID"].IsDefined())
+                strip->expressionMapPath =
+                    node["expressionMapEntityID"].as<std::string>();
 
               logs.push_back("Restored strip: " + strip->library +
                              " (Port: " + juce::String(strip->inputPort) +

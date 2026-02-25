@@ -247,6 +247,9 @@ struct MixerStrip {
                      (double)peakHoldDb.load(std::memory_order_relaxed));
     obj->setProperty("expressionMapName",
                      expressionMap ? juce::String(expressionMap->name) : "");
+    obj->setProperty("expressionMapEntityID",
+                     expressionMap ? juce::String(expressionMap->entityID)
+                                   : "");
 
     if (pluginInstance) {
       int prog = pluginInstance->getCurrentProgram();

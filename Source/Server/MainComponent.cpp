@@ -1153,6 +1153,23 @@ void MainComponent::loadConfigFromFile(const juce::File &file) {
   for (const auto &log : configLogs) {
     pushLogMessage(log, false);
   }
+
+  // Resolve expression map entityIDs stored during config load
+  // (entityID was temporarily placed in expressionMapPath by
+  // FiddleConfig::load)
+  for (auto *strip : mixer_.getAllStrips()) {
+    if (strip->expressionMapPath.isNotEmpty() && !strip->expressionMap) {
+      auto entityID = strip->expressionMapPath.toStdString();
+      strip->expressionMapPath = "";
+      auto data = xmapLibrary_.load(entityID);
+      if (data) {
+        strip->expressionMap = data;
+        std::cerr << "[loadConfig] Restored xmap '" << data->name
+                  << "' for strip " << strip->id << std::endl;
+      }
+    }
+  }
+
   pushMixerState();
 
   // Ensure mixer strips exist for all ensemble instruments

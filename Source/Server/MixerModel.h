@@ -90,6 +90,16 @@ public:
     return nullptr;
   }
 
+  /// Get raw pointers to all strips (caller must not hold them long).
+  std::vector<MixerStrip *> getAllStrips() {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::vector<MixerStrip *> result;
+    result.reserve(strips_.size());
+    for (auto &s : strips_)
+      result.push_back(s.get());
+    return result;
+  }
+
   /// Get the shared format manager (for plugin loading).
   juce::AudioPluginFormatManager &getFormatManager() { return formatManager_; }
 
