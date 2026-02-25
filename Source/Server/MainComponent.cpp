@@ -1110,6 +1110,82 @@ MainComponent::MainComponent(const juce::File &configFile)
       });
     }
 
+    // Restore full state from Dorico (setStateInformation)
+    if (event.has_restore_state()) {
+      auto configName = juce::String(event.restore_state().config_name());
+      auto &blobData = event.restore_state().state_blob();
+
+      safeCallAsync([this, configName, blobData]() {
+        auto restored =
+            StateManager::deserializeBlob(blobData.data(), blobData.size());
+        if (!restored) {
+          pushLogMessage("<span style=\"color: red;\"><b>[Restore]</b> "
+                         "Failed to deserialize state blob</span>");
+          return;
+        }
+
+        pushLogMessage("<b>[Restore]</b> Restoring state from Dorico: '" +
+                       configName + "' (" +
+                       juce::String(restored->strips.size()) + " strips)");
+
+        // Save as a named config version
+        db_.saveConfig(configName.isNotEmpty() ? configName : "Dorico Import");
+
+        // Clear and rebuild mixer from blob
+        mixer_.clear();
+        undoManager_.clear();
+
+        for (auto &rs : restored->strips) {
+          juce::String newId = mixer_.addStrip();
+          if (auto *strip = mixer_.getStrip(newId)) {
+            strip->id = rs.id;
+            strip->library = rs.library;
+            strip->family = rs.family;
+            strip->isSolo = rs.isSolo;
+            strip->inputPort = rs.inputPort;
+            strip->inputChannel = rs.inputChannel;
+            strip->pluginUid = rs.pluginUid;
+            strip->gainDb.store(rs.gainDb, std::memory_order_relaxed);
+
+            // Restore expression map
+            if (!rs.expressionMapEntityID.empty()) {
+              auto xmapData = xmapLibrary_.load(rs.expressionMapEntityID);
+              if (xmapData)
+                strip->expressionMap = xmapData;
+            }
+
+            // Load plugin
+            if (strip->pluginUid != 0) {
+              for (const auto &d :
+                   pluginScanner_.getKnownPluginList().getTypes()) {
+                if (d.uniqueId == strip->pluginUid) {
+                  auto stateBlock = rs.pluginState;
+                  strip->loadPlugin(
+                      d, mixer_.getFormatManager(),
+                      [strip, stateBlock](bool success) {
+                        if (success && stateBlock.getSize() > 0 &&
+                            strip->pluginInstance) {
+                          strip->pluginInstance->setStateInformation(
+                              stateBlock.getData(), (int)stateBlock.getSize());
+                        }
+                      });
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        saveAllStripsToDB();
+        pushMixerState();
+        mixer_.syncStripsToInstruments(masterList_);
+        pushMixerState();
+        scheduleStateRebuild();
+
+        pushLogMessage("<b>[Restore]</b> State restored successfully");
+      });
+    }
+
     lastSampleTime = event.timestamp_samples();
     lastSystemTime = juce::Time::getMillisecondCounter();
   });
@@ -1160,6 +1236,9 @@ MainComponent::MainComponent(const juce::File &configFile)
   auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
   db_.open(dbFile);
 
+  // Initialize shadow state manager (creates shared memory file)
+  stateManager_.initialize();
+
   // Defer state restore to after the constructor returns.
   // loadPlugin() uses createPluginInstanceAsync() which requires the message
   // loop to be running — calling it from the constructor deadlocks because
@@ -1197,10 +1276,17 @@ MainComponent::MainComponent(const juce::File &configFile)
     mixer_.syncStripsToInstruments(masterList_);
 
     pushMixerState();
+
+    // Build initial shadow state blob
+    scheduleStateRebuild();
   });
 }
 
-void MainComponent::saveConfig() { saveAllStripsToDB(); }
+void MainComponent::saveConfig() {
+  saveAllStripsToDB();
+  stateManager_.markDirty();
+  scheduleStateRebuild();
+}
 
 void MainComponent::saveConfigAs(const juce::File &newFile) {
   // Save as a named config in the database
@@ -1249,6 +1335,12 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
   if (auto *s = mixer_.getStrip(stripId)) {
     db_.saveStrip(*s, idx >= 0 ? idx : 0);
   }
+}
+
+void MainComponent::scheduleStateRebuild() {
+  stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
+    return stateManager_.buildStateBlob(mixer_);
+  });
 }
 
 void MainComponent::loadStripsFromDB() {

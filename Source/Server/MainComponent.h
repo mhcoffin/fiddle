@@ -12,6 +12,7 @@
 #include "PluginHost.h"
 #include "PluginScanner.h"
 #include "ScriptEngine.h"
+#include "StateManager.h"
 #include "SubnoteGenerator.h"
 #include "UndoActions.h"
 #include "midi_event.pb.h"
@@ -73,6 +74,7 @@ private:
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
   FiddleDatabase db_;
+  StateManager stateManager_;
   std::unique_ptr<ScriptEngine> scriptEngine;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 
@@ -99,6 +101,9 @@ private:
 
   /// Save a single strip to the database by index.
   void saveStripToDB(const juce::String &stripId);
+
+  /// Schedule a background rebuild of the shadow state blob.
+  void scheduleStateRebuild();
 
   std::optional<juce::WebBrowserComponent::Resource>
   getResource(const juce::String &url);

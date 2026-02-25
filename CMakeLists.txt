@@ -105,6 +105,7 @@ target_sources(Fiddle PRIVATE
     Source/PluginProcessor.h
     Source/PluginEditor.cpp
     Source/PluginEditor.h
+    Source/StateSharedMemory.h
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
     "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fobject.cpp"
@@ -151,6 +152,9 @@ target_sources(FiddleServer PRIVATE
     Source/Server/UndoActions.h
     Source/Server/FiddleDatabase.h
     Source/Server/FiddleDatabase.cpp
+    Source/Server/StateManager.h
+    Source/Server/StateManager.cpp
+    Source/StateSharedMemory.h
     Source/Server/ConfigChooserWindow.h
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring/scriptstdstring.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"

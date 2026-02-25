@@ -21,11 +21,10 @@ struct StripRow {
   juce::MemoryBlock pluginState; // binary BLOB
 };
 
-/// Metadata for a saved configuration.
+/// Metadata for a saved configuration version.
 struct SavedConfigInfo {
   juce::String name;
-  juce::String createdAt;
-  juce::String updatedAt;
+  juce::String version; // ISO 8601 timestamp
 };
 
 /// Thread-safe SQLite wrapper for persisting Fiddle server state.
@@ -79,10 +78,13 @@ public:
   /// Restore strips from a saved config (clears current strips first).
   bool loadConfig(const juce::String &name);
 
-  /// List all saved configuration names.
+  /// List all saved configuration names (latest version of each).
   std::vector<SavedConfigInfo> listConfigs();
 
-  /// Delete a saved config by name.
+  /// List all versions of a named config (newest first).
+  std::vector<SavedConfigInfo> listConfigVersions(const juce::String &name);
+
+  /// Delete all versions of a saved config.
   void deleteConfig(const juce::String &name);
 
 private:
@@ -107,6 +109,7 @@ private:
   sqlite3_stmt *stmtSaveConfig_ = nullptr;
   sqlite3_stmt *stmtLoadConfig_ = nullptr;
   sqlite3_stmt *stmtListConfigs_ = nullptr;
+  sqlite3_stmt *stmtListConfigVersions_ = nullptr;
   sqlite3_stmt *stmtDeleteConfig_ = nullptr;
 };
 

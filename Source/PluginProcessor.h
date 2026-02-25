@@ -2,6 +2,7 @@
 
 #include "AudioSharedMemory.h"
 #include "MidiTcpRelay.h"
+#include "StateSharedMemory.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_core/juce_core.h>
@@ -122,6 +123,7 @@ private:
   std::unique_ptr<fiddle::FiddleVST3Extensions> vst3Extensions;
   std::unique_ptr<fiddle::MidiTcpRelay> tcpRelay;
   fiddle::AudioSharedMemory audioSharedMemory_{false}; // False = Consumer
+  fiddle::StateSharedMemory stateSharedMemory_{false}; // False = Consumer
 
   juce::AudioParameterInt *programParam = nullptr;
   juce::AudioParameterInt *bankMSBParam = nullptr;
@@ -154,8 +156,9 @@ private:
     // Detect reconnection and remap shared memory
     bool nowConnected = tcpRelay && tcpRelay->isConnected();
     if (nowConnected && !wasConnected_) {
-      // Server (re)connected — remap the shared memory file
+      // Server (re)connected — remap the shared memory files
       audioSharedMemory_.remap();
+      stateSharedMemory_.remap();
     }
     wasConnected_ = nowConnected;
   }

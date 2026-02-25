@@ -18,6 +18,7 @@ message MidiEvent {
         Other other = 11;
         TransportEvent transport = 12;
         LoadConfigEvent load_config = 15;
+        RestoreStateEvent restore_state = 16;
     }
 
     optional uint64 host_sample_position = 13;
@@ -27,6 +28,11 @@ message MidiEvent {
 
     message LoadConfigEvent {
         string config_path = 1;
+    }
+
+    message RestoreStateEvent {
+        string config_name = 1;
+        bytes state_blob = 2;
     }
 
     message TransportEvent {

@@ -406,7 +406,19 @@ void FiddleAudioProcessor::processBlock(juce::AudioBuffer<float> &buffer,
 
 //==============================================================================
 void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
-  // Save the current config path into the VST Host's project file
+  // Try to read the full shadow state blob from shared memory
+  auto blob = stateSharedMemory_.pullState();
+  if (blob.getSize() > 0) {
+    // Wrap in an XML envelope so we can distinguish from legacy state
+    auto xml = std::make_unique<juce::XmlElement>("FiddleState");
+    xml->setAttribute("Version", 2);
+    xml->setAttribute("ConfigPath", currentConfigPath);
+    xml->setAttribute("StateBlob", blob.toBase64Encoding());
+    copyXmlToBinary(*xml, destData);
+    return;
+  }
+
+  // Fallback: legacy path-only state
   auto xml = std::make_unique<juce::XmlElement>("FiddleState");
   xml->setAttribute("ConfigPath", currentConfigPath);
   copyXmlToBinary(*xml, destData);
@@ -414,15 +426,34 @@ void FiddleAudioProcessor::getStateInformation(juce::MemoryBlock &destData) {
 
 void FiddleAudioProcessor::setStateInformation(const void *data,
                                                int sizeInBytes) {
-  // Load the config path saved by the VST Host
   std::unique_ptr<juce::XmlElement> xmlState(
       getXmlFromBinary(data, sizeInBytes));
-  if (xmlState != nullptr) {
-    if (xmlState->hasTagName("FiddleState")) {
-      juce::String savedPath = xmlState->getStringAttribute("ConfigPath", "");
-      if (savedPath.isNotEmpty()) {
-        setConfigPath(savedPath);
-      }
+  if (!xmlState || !xmlState->hasTagName("FiddleState"))
+    return;
+
+  int version = xmlState->getIntAttribute("Version", 1);
+
+  if (version >= 2) {
+    // New format: full state blob
+    juce::String b64 = xmlState->getStringAttribute("StateBlob", "");
+    juce::String configName = xmlState->getStringAttribute("ConfigPath", "");
+
+    if (b64.isNotEmpty() && tcpRelay && tcpRelay->isConnected()) {
+      juce::MemoryBlock blob;
+      blob.fromBase64Encoding(b64);
+
+      fiddle::MidiEvent restoreEvent;
+      restoreEvent.set_timestamp_samples(0);
+      auto *restore = restoreEvent.mutable_restore_state();
+      restore->set_config_name(configName.toStdString());
+      restore->set_state_blob(blob.getData(), blob.getSize());
+      tcpRelay->pushMessage(restoreEvent);
+    }
+  } else {
+    // Legacy format: just a config path
+    juce::String savedPath = xmlState->getStringAttribute("ConfigPath", "");
+    if (savedPath.isNotEmpty()) {
+      setConfigPath(savedPath);
     }
   }
 }

@@ -62,12 +62,34 @@ void FiddleDatabase::createSchema() {
     )
   )");
 
+  // Migrate old saved_configs schema if needed
+  // Old schema had (name TEXT PRIMARY KEY, data, created_at, updated_at)
+  // New schema has (name, version) composite PK
+  {
+    sqlite3_stmt *checkStmt = nullptr;
+    if (sqlite3_prepare_v2(db_, "PRAGMA table_info(saved_configs)", -1,
+                           &checkStmt, nullptr) == SQLITE_OK) {
+      bool hasCreatedAt = false;
+      while (sqlite3_step(checkStmt) == SQLITE_ROW) {
+        auto *colName = (const char *)sqlite3_column_text(checkStmt, 1);
+        if (colName && std::string(colName) == "created_at")
+          hasCreatedAt = true;
+      }
+      sqlite3_finalize(checkStmt);
+      if (hasCreatedAt) {
+        std::cerr << "[FiddleDB] Migrating saved_configs to versioned schema"
+                  << std::endl;
+        exec("DROP TABLE saved_configs");
+      }
+    }
+  }
+
   exec(R"(
     CREATE TABLE IF NOT EXISTS saved_configs (
-      name       TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      version    TEXT NOT NULL,
       data       TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      PRIMARY KEY (name, version)
     )
   )");
 
@@ -116,17 +138,28 @@ void FiddleDatabase::prepareStatements() {
   prep("SELECT value FROM settings WHERE key = ?", &stmtLoadSetting_);
 
   prep(R"(
-    INSERT OR REPLACE INTO saved_configs (name, data, created_at, updated_at)
-    VALUES (?, ?, COALESCE((SELECT created_at FROM saved_configs WHERE name = ?),
-            datetime('now')), datetime('now'))
+    INSERT INTO saved_configs (name, version, data)
+    VALUES (?, datetime('now'), ?)
   )",
        &stmtSaveConfig_);
 
-  prep("SELECT data FROM saved_configs WHERE name = ?", &stmtLoadConfig_);
+  prep(R"(
+    SELECT data FROM saved_configs
+    WHERE name = ? ORDER BY version DESC LIMIT 1
+  )",
+       &stmtLoadConfig_);
 
-  prep("SELECT name, created_at, updated_at FROM saved_configs ORDER BY "
-       "updated_at DESC",
+  prep(R"(
+    SELECT name, MAX(version) as version FROM saved_configs
+    GROUP BY name ORDER BY version DESC
+  )",
        &stmtListConfigs_);
+
+  prep(R"(
+    SELECT name, version FROM saved_configs
+    WHERE name = ? ORDER BY version DESC
+  )",
+       &stmtListConfigVersions_);
 
   prep("DELETE FROM saved_configs WHERE name = ?", &stmtDeleteConfig_);
 }
@@ -148,6 +181,7 @@ void FiddleDatabase::finalizeStatements() {
   fin(stmtSaveConfig_);
   fin(stmtLoadConfig_);
   fin(stmtListConfigs_);
+  fin(stmtListConfigVersions_);
   fin(stmtDeleteConfig_);
 }
 
@@ -342,13 +376,13 @@ void FiddleDatabase::saveConfig(const juce::String &name) {
   sqlite3_reset(stmtSaveConfig_);
   sqlite3_bind_text(stmtSaveConfig_, 1, name.toRawUTF8(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmtSaveConfig_, 2, json.toRawUTF8(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_text(stmtSaveConfig_, 3, name.toRawUTF8(), -1, SQLITE_TRANSIENT);
 
   if (sqlite3_step(stmtSaveConfig_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] saveConfig failed: " << sqlite3_errmsg(db_)
               << std::endl;
   } else {
-    std::cerr << "[FiddleDB] Saved config '" << name << "'" << std::endl;
+    std::cerr << "[FiddleDB] Saved config '" << name << "' (new version)"
+              << std::endl;
   }
 }
 
@@ -438,8 +472,27 @@ std::vector<SavedConfigInfo> FiddleDatabase::listConfigs() {
   while (sqlite3_step(stmtListConfigs_) == SQLITE_ROW) {
     SavedConfigInfo info;
     info.name = (const char *)sqlite3_column_text(stmtListConfigs_, 0);
-    info.createdAt = (const char *)sqlite3_column_text(stmtListConfigs_, 1);
-    info.updatedAt = (const char *)sqlite3_column_text(stmtListConfigs_, 2);
+    info.version = (const char *)sqlite3_column_text(stmtListConfigs_, 1);
+    result.push_back(std::move(info));
+  }
+  return result;
+}
+
+std::vector<SavedConfigInfo>
+FiddleDatabase::listConfigVersions(const juce::String &name) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<SavedConfigInfo> result;
+  if (!stmtListConfigVersions_)
+    return result;
+
+  sqlite3_reset(stmtListConfigVersions_);
+  sqlite3_bind_text(stmtListConfigVersions_, 1, name.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  while (sqlite3_step(stmtListConfigVersions_) == SQLITE_ROW) {
+    SavedConfigInfo info;
+    info.name = (const char *)sqlite3_column_text(stmtListConfigVersions_, 0);
+    info.version =
+        (const char *)sqlite3_column_text(stmtListConfigVersions_, 1);
     result.push_back(std::move(info));
   }
   return result;
