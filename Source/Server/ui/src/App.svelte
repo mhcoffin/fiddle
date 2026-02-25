@@ -123,6 +123,15 @@
     return false;
   };
 
+  // Register stubs for window functions called by C++ before their
+  // owning components mount. The real handlers overwrite these.
+  window.setMixerState = window.setMixerState || (() => {});
+  window.setPluginList = window.setPluginList || (() => {});
+  window.setLoadedPlugins = window.setLoadedPlugins || (() => {});
+  window.setExpressionMaps = window.setExpressionMaps || (() => {});
+  window.setAvailableInputs = window.setAvailableInputs || (() => {});
+  window.setPlaybackDelay = window.setPlaybackDelay || (() => {});
+
   nativeLog("JS Booting: Bundle loaded");
   window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
 
