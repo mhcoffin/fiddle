@@ -326,8 +326,10 @@ MainComponent::MainComponent(const juce::File &configFile)
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
                     safeCallAsync([this]() {
-                      mixer_.addStrip();
+                      auto action = std::make_unique<AddStripAction>(mixer_);
+                      undoManager_.perform(std::move(action));
                       pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -342,8 +344,11 @@ MainComponent::MainComponent(const juce::File &configFile)
                     }
                     juce::String stripId = args[0].toString();
                     safeCallAsync([this, stripId]() {
-                      mixer_.duplicateStripAfter(stripId);
+                      auto action = std::make_unique<DuplicateStripAction>(
+                          mixer_, stripId);
+                      undoManager_.perform(std::move(action));
                       pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -358,8 +363,11 @@ MainComponent::MainComponent(const juce::File &configFile)
                     }
                     juce::String stripId = args[0].toString();
                     safeCallAsync([this, stripId]() {
-                      mixer_.removeStrip(stripId);
+                      auto action =
+                          std::make_unique<RemoveStripAction>(mixer_, stripId);
+                      undoManager_.perform(std::move(action));
                       pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -375,10 +383,14 @@ MainComponent::MainComponent(const juce::File &configFile)
                     juce::String stripId = args[0].toString();
                     juce::String lib = args[1].toString();
                     safeCallAsync([this, stripId, lib]() {
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        s->library = lib;
-                        pushMixerState();
-                      }
+                      juce::String oldLib;
+                      if (auto *s = mixer_.getStrip(stripId))
+                        oldLib = s->library;
+                      auto action = std::make_unique<SetLibraryAction>(
+                          mixer_, stripId, oldLib, lib);
+                      undoManager_.perform(std::move(action));
+                      pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -395,11 +407,16 @@ MainComponent::MainComponent(const juce::File &configFile)
                     int port = (int)args[1];
                     int channel = (int)args[2];
                     safeCallAsync([this, stripId, port, channel]() {
+                      int oldPort = -1, oldCh = -1;
                       if (auto *s = mixer_.getStrip(stripId)) {
-                        s->inputPort = port;
-                        s->inputChannel = channel;
-                        pushMixerState();
+                        oldPort = s->inputPort;
+                        oldCh = s->inputChannel;
                       }
+                      auto action = std::make_unique<SetInputAction>(
+                          mixer_, stripId, oldPort, oldCh, port, channel);
+                      undoManager_.perform(std::move(action));
+                      pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -414,13 +431,15 @@ MainComponent::MainComponent(const juce::File &configFile)
                     }
                     juce::String stripId = args[0].toString();
                     float gainDb = static_cast<float>((double)args[1]);
-                    // Clamp to valid range
                     gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
                     safeCallAsync([this, stripId, gainDb]() {
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        s->gainDb.store(gainDb, std::memory_order_relaxed);
-                        pushMixerState();
-                      }
+                      float oldGain = 0.0f;
+                      if (auto *s = mixer_.getStrip(stripId))
+                        oldGain = s->gainDb.load(std::memory_order_relaxed);
+                      auto action = std::make_unique<SetGainAction>(
+                          mixer_, stripId, oldGain, gainDb);
+                      undoManager_.perform(std::move(action));
+                      pushMixerState();
                     });
                     completion(true);
                   })
@@ -436,32 +455,31 @@ MainComponent::MainComponent(const juce::File &configFile)
                     juce::String stripId = args[0].toString();
                     int pluginUid = (int)args[1];
 
-                    // Find PluginDescription by uid
-                    juce::PluginDescription desc;
-                    bool found = false;
-                    for (const auto &d :
-                         pluginScanner_.getKnownPluginList().getTypes()) {
-                      if (d.uniqueId == pluginUid) {
-                        desc = d;
-                        found = true;
-                        break;
+                    // Verify plugin exists in scanner
+                    if (pluginUid != 0) {
+                      bool found = false;
+                      for (const auto &d :
+                           pluginScanner_.getKnownPluginList().getTypes()) {
+                        if (d.uniqueId == pluginUid) {
+                          found = true;
+                          break;
+                        }
+                      }
+                      if (!found) {
+                        completion(false);
+                        return;
                       }
                     }
 
-                    if (!found) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, stripId, desc]() {
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        s->loadPlugin(desc, mixer_.getFormatManager(),
-                                      [this](bool success) {
-                                        if (success) {
-                                          pushMixerState();
-                                        }
-                                      });
-                      }
+                    safeCallAsync([this, stripId, pluginUid]() {
+                      int oldUid = 0;
+                      if (auto *s = mixer_.getStrip(stripId))
+                        oldUid = s->pluginUid;
+                      auto action = std::make_unique<SetPluginAction>(
+                          mixer_, pluginScanner_, stripId, oldUid, pluginUid);
+                      undoManager_.perform(std::move(action));
+                      pushMixerState();
+                      saveConfig();
                     });
                     completion(true);
                   })
@@ -495,23 +513,20 @@ MainComponent::MainComponent(const juce::File &configFile)
 
                     auto data = xmapLibrary_.load(entityID);
                     if (!data) {
-                      std::cerr << "[loadExpressionMap] not found: " << entityID
-                                << std::endl;
                       completion(false);
                       return;
                     }
 
-                    std::cerr << "[loadExpressionMap] loaded '" << data->name
-                              << "' (" << data->combinations.size()
-                              << " combinations) for strip " << stripId
-                              << std::endl;
-
-                    if (auto *s = mixer_.getStrip(stripId)) {
-                      s->expressionMap = data;
-                      s->expressionMapPath = "";
-                    }
-
-                    safeCallAsync([this]() {
+                    safeCallAsync([this, stripId, entityID, data]() {
+                      std::string oldEntityID;
+                      if (auto *s = mixer_.getStrip(stripId)) {
+                        if (s->expressionMap)
+                          oldEntityID = s->expressionMap->entityID;
+                      }
+                      auto action = std::make_unique<SetExpressionMapAction>(
+                          mixer_, xmapLibrary_, stripId, oldEntityID, entityID,
+                          data);
+                      undoManager_.perform(std::move(action));
                       pushMixerState();
                       saveConfig();
                     });
@@ -566,6 +581,32 @@ MainComponent::MainComponent(const juce::File &configFile)
                       juce::String json = xmapLibrary_.toJson();
                       webComponent.evaluateJavascript("setExpressionMaps('" +
                                                       escapeForJS(json) + "')");
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "undo",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    safeCallAsync([this]() {
+                      if (undoManager_.undo()) {
+                        pushMixerState();
+                        saveConfig();
+                      }
+                    });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "redo",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    safeCallAsync([this]() {
+                      if (undoManager_.redo()) {
+                        pushMixerState();
+                        saveConfig();
+                      }
                     });
                     completion(true);
                   })

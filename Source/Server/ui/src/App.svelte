@@ -253,6 +253,25 @@
     };
 
     signalReady();
+
+    // Undo/Redo keyboard shortcuts
+    const handleKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          const redo = getNative("redo");
+          if (redo) redo();
+        } else {
+          const undo = getNative("undo");
+          if (undo) undo();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
   });
   const clearHistory = () => {
     noteHistory = [];

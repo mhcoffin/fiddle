@@ -12,6 +12,7 @@
 #include "PluginScanner.h"
 #include "ScriptEngine.h"
 #include "SubnoteGenerator.h"
+#include "UndoActions.h"
 #include "midi_event.pb.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -69,6 +70,7 @@ private:
   PluginHost pluginHost_;
   MixerModel mixer_;
   ExpressionMapLibrary xmapLibrary_;
+  UndoManager undoManager_;
   std::unique_ptr<ScriptEngine> scriptEngine;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 

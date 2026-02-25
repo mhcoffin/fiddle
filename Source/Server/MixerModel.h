@@ -10,6 +10,17 @@
 
 namespace fiddle {
 
+/// Lightweight snapshot of strip state for undo/redo.
+struct StripSnapshot {
+  juce::String id, library, family;
+  bool isSolo = true;
+  int inputPort = -1, inputChannel = -1;
+  int pluginUid = 0;
+  float gainDb = 0.0f;
+  std::string expressionMapEntityID;
+  int index = 0; // position in strips_ vector
+};
+
 /// Manages an ordered list of MixerStrips. Owns a shared
 /// AudioPluginFormatManager for plugin instantiation.
 class MixerModel {
@@ -49,6 +60,62 @@ public:
       }
     }
     return false;
+  }
+
+  /// Remove a strip by ID, returning its ownership (for undo).
+  /// Does NOT unload the plugin. Caller is responsible.
+  std::unique_ptr<MixerStrip> removeStripKeepAlive(const juce::String &id) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto it = strips_.begin(); it != strips_.end(); ++it) {
+      if ((*it)->id == id) {
+        auto strip = std::move(*it);
+        strips_.erase(it);
+        return strip;
+      }
+    }
+    return nullptr;
+  }
+
+  /// Insert a strip at a specific index (for undo of remove).
+  void insertStripAt(std::unique_ptr<MixerStrip> strip, int index) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
+    int idx = juce::jlimit(0, (int)strips_.size(), index);
+    strips_.insert(strips_.begin() + idx, std::move(strip));
+  }
+
+  /// Get the index of a strip by ID (-1 if not found).
+  int stripIndex(const juce::String &id) const {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (int i = 0; i < (int)strips_.size(); ++i) {
+      if (strips_[i]->id == id)
+        return i;
+    }
+    return -1;
+  }
+
+  /// Take a snapshot of a strip's restorable state.
+  StripSnapshot snapshotStrip(const juce::String &id) {
+    StripSnapshot snap;
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (int i = 0; i < (int)strips_.size(); ++i) {
+      if (strips_[i]->id == id) {
+        auto &s = strips_[i];
+        snap.id = s->id;
+        snap.library = s->library;
+        snap.family = s->family;
+        snap.isSolo = s->isSolo;
+        snap.inputPort = s->inputPort;
+        snap.inputChannel = s->inputChannel;
+        snap.pluginUid = s->pluginUid;
+        snap.gainDb = s->gainDb.load(std::memory_order_relaxed);
+        snap.expressionMapEntityID =
+            s->expressionMap ? s->expressionMap->entityID : "";
+        snap.index = i;
+        break;
+      }
+    }
+    return snap;
   }
 
   /// Insert a new strip right after the strip with the given ID,
