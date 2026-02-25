@@ -511,7 +511,10 @@ MainComponent::MainComponent(const juce::File &configFile)
                       s->expressionMapPath = "";
                     }
 
-                    safeCallAsync([this]() { pushMixerState(); });
+                    safeCallAsync([this]() {
+                      pushMixerState();
+                      saveConfig();
+                    });
                     completion(true);
                   })
               .withNativeFunction(
@@ -546,7 +549,10 @@ MainComponent::MainComponent(const juce::File &configFile)
                             s->expressionMapPath = file.getFullPathName();
                           }
 
-                          safeCallAsync([this]() { pushMixerState(); });
+                          safeCallAsync([this]() {
+                            pushMixerState();
+                            saveConfig();
+                          });
                         });
 
                     completion(true);
