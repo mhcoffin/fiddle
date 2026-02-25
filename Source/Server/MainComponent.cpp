@@ -84,6 +84,9 @@ MainComponent::MainComponent(const juce::File &configFile)
                       webComponent.evaluateJavascript(call);
                     }
 
+                    // Push current mixer state
+                    pushMixerState();
+
                     completion(true);
                   })
               .withNativeFunction(
@@ -1349,6 +1352,8 @@ void MainComponent::setupWebView() {
 }
 
 void MainComponent::pushMixerState() {
+  if (!webViewLoaded)
+    return;
   juce::String json = mixer_.toJson();
   juce::String call = "setMixerState('" + escapeForJS(json) + "')";
   webComponent.evaluateJavascript(call);
