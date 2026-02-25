@@ -1136,6 +1136,12 @@ MainComponent::MainComponent(const juce::File &configFile)
 }
 
 void MainComponent::saveConfig() {
+  if (!currentConfigFile.existsAsFile()) {
+    // Auto-create a default config if none exists
+    currentConfigFile = FiddleConfig::createNewConfig("Default");
+    std::cerr << "[MainComponent] Created default config: "
+              << currentConfigFile.getFullPathName() << std::endl;
+  }
   std::cerr << "[MainComponent] Saving config to "
             << currentConfigFile.getFullPathName() << std::endl;
   FiddleConfig::save(pluginScanner_, mixer_, currentConfigFile);
