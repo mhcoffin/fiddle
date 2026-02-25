@@ -1237,6 +1237,11 @@ void MainComponent::saveAllStripsToDB() {
       }
     }
   }
+
+  // Save plugin scanner cache
+  if (auto xml = pluginScanner_.getKnownPluginList().createXml()) {
+    db_.saveSetting("plugin_cache", xml->toString().toStdString());
+  }
 }
 
 void MainComponent::saveStripToDB(const juce::String &stripId) {
@@ -1247,6 +1252,17 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
 }
 
 void MainComponent::loadStripsFromDB() {
+  // Restore plugin scanner cache first so plugins can be loaded
+  std::string cacheXml = db_.loadSetting("plugin_cache");
+  if (!cacheXml.empty()) {
+    auto xml = juce::parseXML(juce::String(cacheXml));
+    if (xml) {
+      pluginScanner_.getKnownPluginListMutable().recreateFromXml(*xml);
+      std::cerr << "[loadDB] Restored plugin cache: "
+                << pluginScanner_.getPluginCount() << " plugins" << std::endl;
+    }
+  }
+
   mixer_.clear();
   auto rows = db_.loadAllStrips();
   for (auto &row : rows) {
