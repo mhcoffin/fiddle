@@ -2,6 +2,7 @@
 
 #include "../AudioSharedMemory.h"
 #include "DoricoInstrumentBrowser.h"
+#include "ExpressionMapLibrary.h"
 #include "InstrumentMapper.h"
 #include "MasterInstrumentList.h"
 #include "MidiTcpServer.h"
@@ -67,6 +68,7 @@ private:
   PluginScanner pluginScanner_;
   PluginHost pluginHost_;
   MixerModel mixer_;
+  ExpressionMapLibrary xmapLibrary_;
   std::unique_ptr<ScriptEngine> scriptEngine;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 

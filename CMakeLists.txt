@@ -142,6 +142,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/FiddleConfig.h
     Source/Server/ExpressionMapParser.cpp
     Source/Server/ExpressionMapParser.h
+    Source/Server/ExpressionMapLibrary.cpp
+    Source/Server/ExpressionMapLibrary.h
     Source/Server/ConfigChooserWindow.h
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring/scriptstdstring.cpp"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"

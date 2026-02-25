@@ -486,13 +486,45 @@ MainComponent::MainComponent(const juce::File &configFile)
                   [this](const juce::Array<juce::var> &args,
                          juce::WebBrowserComponent::NativeFunctionCompletion
                              completion) {
+                    if (args.size() < 2) {
+                      completion(false);
+                      return;
+                    }
+                    juce::String stripId = args[0].toString();
+                    std::string entityID = args[1].toString().toStdString();
+
+                    auto data = xmapLibrary_.load(entityID);
+                    if (!data) {
+                      std::cerr << "[loadExpressionMap] not found: " << entityID
+                                << std::endl;
+                      completion(false);
+                      return;
+                    }
+
+                    std::cerr << "[loadExpressionMap] loaded '" << data->name
+                              << "' (" << data->combinations.size()
+                              << " combinations) for strip " << stripId
+                              << std::endl;
+
+                    if (auto *s = mixer_.getStrip(stripId)) {
+                      s->expressionMap = data;
+                      s->expressionMapPath = "";
+                    }
+
+                    safeCallAsync([this]() { pushMixerState(); });
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "loadExpressionMapFromFile",
+                  [this](const juce::Array<juce::var> &args,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
                     if (args.size() < 1) {
                       completion(false);
                       return;
                     }
                     juce::String stripId = args[0].toString();
 
-                    // Keep FileChooser alive during async dialog
                     auto chooser = std::make_shared<juce::FileChooser>(
                         "Load Expression Map", juce::File{}, "*.doricolib");
 
@@ -506,19 +538,8 @@ MainComponent::MainComponent(const juce::File &configFile)
 
                           auto file = results[0];
                           auto data = std::make_shared<ExpressionMapData>();
-                          if (!parseExpressionMap(file, *data)) {
-                            std::cerr << "[MainComponent] Failed to parse "
-                                         "expression map: "
-                                      << file.getFullPathName() << std::endl;
+                          if (!parseExpressionMap(file, *data))
                             return;
-                          }
-
-                          std::cerr << "[MainComponent] Loaded expression "
-                                       "map '"
-                                    << data->name << "' ("
-                                    << data->combinations.size()
-                                    << " combinations) for strip " << stripId
-                                    << std::endl;
 
                           if (auto *s = mixer_.getStrip(stripId)) {
                             s->expressionMap = data;
@@ -528,6 +549,18 @@ MainComponent::MainComponent(const juce::File &configFile)
                           safeCallAsync([this]() { pushMixerState(); });
                         });
 
+                    completion(true);
+                  })
+              .withNativeFunction(
+                  "requestExpressionMaps",
+                  [this](const juce::Array<juce::var> &,
+                         juce::WebBrowserComponent::NativeFunctionCompletion
+                             completion) {
+                    safeCallAsync([this]() {
+                      juce::String json = xmapLibrary_.toJson();
+                      webComponent.evaluateJavascript("setExpressionMaps('" +
+                                                      escapeForJS(json) + "')");
+                    });
                     completion(true);
                   })
               .withNativeFunction(
@@ -605,6 +638,9 @@ MainComponent::MainComponent(const juce::File &configFile)
 
   // WebView fills the whole window (no JUCE tabs)
   addAndMakeVisible(webComponent);
+
+  // Scan for expression maps in Dorico directories
+  xmapLibrary_.scanDefaultDirectories();
 
   // Load Dorico instrument browser
   if (instrumentBrowser_.loadFromDorico()) {

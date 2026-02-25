@@ -63,6 +63,7 @@ struct ExpressionMapData {
   std::string entityID; // e.g. "xmap.user.babylonwaves.vsysw_01_..."
   std::string creator;
   std::string description;
+  int version = 0; // for deduplication: keep highest version
 
   std::vector<TechniqueCombination> combinations;
 

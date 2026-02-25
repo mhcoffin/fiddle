@@ -124,30 +124,11 @@ static std::pair<int, int> parseRange(const std::string &rangeStr,
 }
 
 // ---------------------------------------------------------------------------
-// Core parser
+// Core parser — operates on a single ExpressionMapDefinition element
 // ---------------------------------------------------------------------------
 
-static bool parseFromXml(juce::XmlElement *xml, ExpressionMapData &result) {
-  if (!xml)
-    return false;
-
-  // Navigate: kScoreLibrary → expressionMapDefinitions → entities
-  auto *exprMapDefs = xml->getChildByName("expressionMapDefinitions");
-  if (!exprMapDefs)
-    return false;
-
-  auto *entities = exprMapDefs->getChildByName("entities");
-  if (!entities)
-    return false;
-
-  // Find the first ExpressionMapDefinition
-  juce::XmlElement *mapDef = nullptr;
-  for (auto *child : entities->getChildIterator()) {
-    if (child->getTagName() == "ExpressionMapDefinition") {
-      mapDef = child;
-      break;
-    }
-  }
+static bool parseDefinition(const juce::XmlElement *mapDef,
+                            ExpressionMapData &result) {
   if (!mapDef)
     return false;
 
@@ -156,6 +137,7 @@ static bool parseFromXml(juce::XmlElement *xml, ExpressionMapData &result) {
   result.entityID = getChildText(mapDef, "entityID");
   result.creator = getChildText(mapDef, "creator");
   result.description = getChildText(mapDef, "description");
+  result.version = getChildInt(mapDef, "version", 0);
   result.autoMutualExclusion =
       getChildBool(mapDef, "autoMutualExclusion", true);
   result.pitchBendRange = getChildInt(mapDef, "pitchBendRange", 2);
@@ -205,6 +187,34 @@ static bool parseFromXml(juce::XmlElement *xml, ExpressionMapData &result) {
   return !result.combinations.empty();
 }
 
+/// Navigate to the entities element, or nullptr.
+static const juce::XmlElement *findEntities(const juce::XmlElement *xml) {
+  if (!xml)
+    return nullptr;
+  auto *exprMapDefs = xml->getChildByName("expressionMapDefinitions");
+  if (!exprMapDefs)
+    return nullptr;
+  return exprMapDefs->getChildByName("entities");
+}
+
+/// Parse all ExpressionMapDefinitions from an XML tree.
+static std::vector<ExpressionMapData>
+parseAllFromXml(const juce::XmlElement *xml) {
+  std::vector<ExpressionMapData> results;
+  auto *entities = findEntities(xml);
+  if (!entities)
+    return results;
+
+  for (auto *child : entities->getChildIterator()) {
+    if (child->getTagName() != "ExpressionMapDefinition")
+      continue;
+    ExpressionMapData data;
+    if (parseDefinition(child, data))
+      results.push_back(std::move(data));
+  }
+  return results;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -213,17 +223,59 @@ bool parseExpressionMap(const juce::File &file, ExpressionMapData &result) {
   if (!file.existsAsFile())
     return false;
   auto xml = juce::XmlDocument::parse(file);
-  if (!xml)
+  auto all = parseAllFromXml(xml.get());
+  if (all.empty())
     return false;
-  return parseFromXml(xml.get(), result);
+  result = std::move(all[0]);
+  return true;
 }
 
 bool parseExpressionMapXml(const juce::String &xmlString,
                            ExpressionMapData &result) {
   auto xml = juce::XmlDocument::parse(xmlString);
-  if (!xml)
+  auto all = parseAllFromXml(xml.get());
+  if (all.empty())
     return false;
-  return parseFromXml(xml.get(), result);
+  result = std::move(all[0]);
+  return true;
+}
+
+std::vector<ExpressionMapData> parseAllExpressionMaps(const juce::File &file) {
+  if (!file.existsAsFile())
+    return {};
+  auto xml = juce::XmlDocument::parse(file);
+  return parseAllFromXml(xml.get());
+}
+
+std::vector<ExpressionMapData>
+parseAllExpressionMapsXml(const juce::String &xmlString) {
+  auto xml = juce::XmlDocument::parse(xmlString);
+  return parseAllFromXml(xml.get());
+}
+
+std::vector<ExpressionMapMeta>
+scanExpressionMapMetadata(const juce::File &file) {
+  std::vector<ExpressionMapMeta> results;
+  if (!file.existsAsFile())
+    return results;
+
+  auto xml = juce::XmlDocument::parse(file);
+  auto *entities = findEntities(xml.get());
+  if (!entities)
+    return results;
+
+  for (auto *child : entities->getChildIterator()) {
+    if (child->getTagName() != "ExpressionMapDefinition")
+      continue;
+    ExpressionMapMeta meta;
+    meta.name = getChildText(child, "name");
+    meta.entityID = getChildText(child, "entityID");
+    meta.version = getChildInt(child, "version", 0);
+    meta.creator = getChildText(child, "creator");
+    if (!meta.entityID.empty())
+      results.push_back(std::move(meta));
+  }
+  return results;
 }
 
 } // namespace fiddle

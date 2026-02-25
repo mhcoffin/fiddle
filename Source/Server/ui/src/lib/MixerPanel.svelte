@@ -5,6 +5,7 @@
     let strips = $state([]);
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
+    let availableXmaps = $state([]);
     let playbackDelay = $state(1000);
     let editingDelay = $state(false);
 
@@ -73,6 +74,14 @@
         }
     };
 
+    w.setExpressionMaps = (jsonStr) => {
+        try {
+            availableXmaps = JSON.parse(jsonStr);
+        } catch (e) {
+            console.error("[Mixer] xmap parse error:", e);
+        }
+    };
+
     onMount(() => {
         const fn = getNative("getAvailableInputs");
         if (fn) fn();
@@ -80,6 +89,8 @@
         if (fnMixer) fnMixer();
         const fnPlugins = getNative("requestPluginsState");
         if (fnPlugins) fnPlugins();
+        const fnXmaps = getNative("requestExpressionMaps");
+        if (fnXmaps) fnXmaps();
     });
 
     const addStrip = () => {
@@ -109,8 +120,12 @@
         const fn = getNative("showStripEditor");
         if (fn) fn(stripId);
     };
-    const loadExpressionMap = (stripId) => {
+    const loadExpressionMap = (stripId, entityID) => {
         const fn = getNative("loadExpressionMap");
+        if (fn) fn(stripId, entityID);
+    };
+    const loadExpressionMapFromFile = (stripId) => {
+        const fn = getNative("loadExpressionMapFromFile");
         if (fn) fn(stripId);
     };
 
@@ -442,17 +457,55 @@
 
                                     <!-- Expression Map -->
                                     <div class="ch-xmap">
-                                        <button
-                                            class="ch-xmap-btn"
-                                            onclick={() =>
-                                                loadExpressionMap(strip.id)}
-                                            title={strip.expressionMapName ||
-                                                "Load expression map"}
+                                        <select
+                                            class="ch-select ch-xmap-select"
+                                            value={strip.expressionMapName
+                                                ? "__loaded__"
+                                                : ""}
+                                            onchange={(e) => {
+                                                const val =
+                                                    /** @type {HTMLSelectElement} */ (
+                                                        e.target
+                                                    ).value;
+                                                if (val === "__file__") {
+                                                    loadExpressionMapFromFile(
+                                                        strip.id,
+                                                    );
+                                                    // reset select after
+                                                    /** @type {HTMLSelectElement} */ (
+                                                        e.target
+                                                    ).value =
+                                                        strip.expressionMapName
+                                                            ? "__loaded__"
+                                                            : "";
+                                                } else if (
+                                                    val &&
+                                                    val !== "__loaded__"
+                                                ) {
+                                                    loadExpressionMap(
+                                                        strip.id,
+                                                        val,
+                                                    );
+                                                }
+                                            }}
                                         >
-                                            {strip.expressionMapName
-                                                ? strip.expressionMapName
-                                                : "— xmap —"}
-                                        </button>
+                                            <option value="">— xmap —</option>
+                                            {#if strip.expressionMapName}
+                                                <option
+                                                    value="__loaded__"
+                                                    selected
+                                                    >{strip.expressionMapName}</option
+                                                >
+                                            {/if}
+                                            {#each availableXmaps as xmap}
+                                                <option value={xmap.entityID}
+                                                    >{xmap.name}</option
+                                                >
+                                            {/each}
+                                            <option value="__file__"
+                                                >Load from file…</option
+                                            >
+                                        </select>
                                     </div>
 
                                     <!-- Plugin -->
@@ -879,23 +932,9 @@
         flex-direction: column;
         margin-bottom: 2px;
     }
-    .ch-xmap-btn {
-        background: #1e293b;
-        border: 1px solid #334155;
-        border-radius: 3px;
-        color: #94a3b8;
+    .ch-xmap-select {
         font-size: 0.6rem;
-        padding: 2px 4px;
-        cursor: pointer;
-        text-align: center;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        transition: border-color 0.15s;
-    }
-    .ch-xmap-btn:hover {
-        border-color: #64748b;
-        color: #e2e8f0;
+        max-width: 100%;
     }
 
     .ch-plugin {
