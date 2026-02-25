@@ -1497,11 +1497,6 @@ void MainComponent::audioDeviceIOCallbackWithContext(
     const float *const *inputChannelData, int numInputChannels,
     float *const *outputChannelData, int numOutputChannels, int numSamples,
     const juce::AudioIODeviceCallbackContext &context) {
-  static int tickCounter = 0;
-  if (++tickCounter % 100 == 0) {
-    std::cerr << "[AudioCallback] Ticked " << tickCounter << " blocks"
-              << std::endl;
-  }
 
   // Clear any garbage from output buffers
   for (int i = 0; i < numOutputChannels; ++i) {
