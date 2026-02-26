@@ -5,7 +5,7 @@ namespace fiddle {
 
 StateManager::StateManager() = default;
 
-StateManager::~StateManager() { threadPool_.removeAllJobs(true, 2000); }
+StateManager::~StateManager() = default;
 
 void StateManager::initialize() {
   sharedMemory_ = std::make_unique<StateSharedMemory>(true /* producer */);
@@ -101,7 +101,7 @@ void StateManager::scheduleRebuild(std::function<juce::MemoryBlock()> buildFn) {
   if (!rebuildPending_.compare_exchange_strong(expected, true))
     return;
 
-  threadPool_.addJob([this, fn = std::move(buildFn)]() {
+  juce::MessageManager::callAsync([this, fn = std::move(buildFn)]() {
     auto blob = fn();
     publishBlob(blob);
     rebuildPending_.store(false, std::memory_order_release);

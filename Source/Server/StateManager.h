@@ -15,8 +15,8 @@ namespace fiddle {
  *
  * Architecture:
  *   - markDirty() called after every strip mutation
- *   - Background thread rebuilds the blob (coalesced / debounced)
- *   - Triple-buffered shared memory lets VST read without blocking
+ *   - Blob rebuild is coalesced via callAsync on the message thread
+ *   - State file lets VST plugin read without blocking
  *
  * Blob format: see serializeState()
  */
@@ -57,8 +57,7 @@ public:
   /// Push a pre-built blob to shared memory.
   void publishBlob(const juce::MemoryBlock &blob);
 
-  /// Schedule an async rebuild on the thread pool.
-  /// mixerFn is called on the background thread to gather strip data.
+  /// Schedule a rebuild on the message thread (coalesced).
   void scheduleRebuild(std::function<juce::MemoryBlock()> buildFn);
 
   // ── Restore (from Dorico setStateInformation) ───────────────────────
@@ -88,7 +87,6 @@ private:
   mutable juce::SpinLock nameLock_;
 
   std::unique_ptr<StateSharedMemory> sharedMemory_;
-  juce::ThreadPool threadPool_{1}; // single background thread
   std::atomic<bool> rebuildPending_{false};
 };
 
