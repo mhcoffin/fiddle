@@ -1297,6 +1297,27 @@ void MainComponent::saveConfigAs(const juce::File &newFile) {
   db_.saveConfig(newFile.getFileNameWithoutExtension());
 }
 
+void MainComponent::clearForNewConfig() {
+  // Unload all plugins first
+  pluginHost_.unloadAll();
+
+  // Clear mixer strips and undo history
+  mixer_.clear();
+  undoManager_.clear();
+
+  // Clear the DB strips table so we start fresh
+  db_.clearStrips();
+
+  // Sync with instruments to create default empty strips
+  mixer_.syncStripsToInstruments(masterList_);
+
+  // Update UI
+  pushMixerState();
+  scheduleStateRebuild();
+
+  std::cerr << "[MainComponent] Cleared for new config" << std::endl;
+}
+
 void MainComponent::loadConfigFromFile(const juce::File &file) {
   // Load a named config from the database
   juce::String configName = file.getFileNameWithoutExtension();

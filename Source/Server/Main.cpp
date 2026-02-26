@@ -180,6 +180,11 @@ public:
             if (name.isNotEmpty()) {
               auto file = FiddleConfig::createNewConfig(name);
               openConfig(file);
+              // Clear all strips for a fresh start
+              if (auto *mc = dynamic_cast<MainComponent *>(
+                      mainWindow->getContentComponent())) {
+                mc->clearForNewConfig();
+              }
             }
           }
           delete aw;

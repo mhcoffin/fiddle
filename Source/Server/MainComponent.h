@@ -34,6 +34,9 @@ public:
   /// Save current state to a new named config file, switch to it
   void saveConfigAs(const juce::File &newFile);
 
+  /// Clear all strips and plugins for a fresh new config
+  void clearForNewConfig();
+
   /// Whether a config file has been loaded (false in "waiting" state)
   bool isConfigLoaded() const { return currentConfigFile.existsAsFile(); }
 
