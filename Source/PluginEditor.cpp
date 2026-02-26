@@ -79,24 +79,21 @@ void FiddleAudioProcessorEditor::updateConfigLabel() {
   juce::String displayPath;
 
   if (audioProcessor.isConnected()) {
-    // Read the active config from FiddleServer's shared file
+    // Read the active config name from FiddleServer's shared file
     juce::String serverConfig = audioProcessor.getActiveServerConfig();
     if (serverConfig.isNotEmpty()) {
-      // Update the processor's stored path to match the server
+      // Update the processor's stored config to match the server
       if (serverConfig != audioProcessor.getConfigPath())
         audioProcessor.setConfigPath(serverConfig);
 
-      juce::File f(serverConfig);
-      displayPath = "Config: " + f.getFileNameWithoutExtension();
+      displayPath = "Config: " + serverConfig;
     } else {
       displayPath = "Config: (server active, unknown config)";
     }
   } else {
     juce::String stored = audioProcessor.getConfigPath();
     if (stored.isNotEmpty()) {
-      juce::File f(stored);
-      displayPath =
-          "Config: " + f.getFileNameWithoutExtension() + " (disconnected)";
+      displayPath = "Config: " + stored + " (disconnected)";
     } else {
       displayPath = "Config: (not connected)";
     }

@@ -665,9 +665,11 @@ MainComponent::MainComponent(const juce::File &configFile)
                       int ms = static_cast<int>(args[0]);
                       safeCallAsync([this, ms]() {
                         mixer_.setPlaybackDelayMs(ms);
-                        if (currentConfigFile.existsAsFile())
-                          FiddleConfig::writeActiveConfig(currentConfigFile,
-                                                          ms);
+                        if (currentConfigFile.getFileNameWithoutExtension()
+                                .isNotEmpty())
+                          FiddleConfig::writeActiveConfig(
+                              currentConfigFile.getFileNameWithoutExtension(),
+                              ms);
                         pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
                                        juce::String(ms) + " ms");
                       });
@@ -1060,8 +1062,9 @@ MainComponent::MainComponent(const juce::File &configFile)
           pushLogMessage(
               "<b>[Host]</b> Plugin has no config, using server's: " +
               currentConfigFile.getFileName());
-          FiddleConfig::writeActiveConfig(currentConfigFile,
-                                          mixer_.getPlaybackDelayMs());
+          FiddleConfig::writeActiveConfig(
+              currentConfigFile.getFileNameWithoutExtension(),
+              mixer_.getPlaybackDelayMs());
           return;
         }
 
@@ -1096,8 +1099,9 @@ MainComponent::MainComponent(const juce::File &configFile)
                 // Keep current - push our config to the plugin
                 pushLogMessage("<b>[Host]</b> Keeping current config: " +
                                currentConfigFile.getFileName());
-                FiddleConfig::writeActiveConfig(currentConfigFile,
-                                                mixer_.getPlaybackDelayMs());
+                FiddleConfig::writeActiveConfig(
+                    currentConfigFile.getFileNameWithoutExtension(),
+                    mixer_.getPlaybackDelayMs());
               } else if (result == 3) {
                 // Reject - disconnect the client
                 pushLogMessage(
@@ -1411,8 +1415,9 @@ MainComponent::~MainComponent() {
             << std::endl;
   try {
     saveAllStripsToDB();
-    std::cerr << "[MainComponent] State saved successfully to SQLite"
-              << currentConfigFile.getFullPathName() << std::endl;
+    std::cerr << "[MainComponent] State saved successfully to SQLite ("
+              << currentConfigFile.getFileNameWithoutExtension() << ")"
+              << std::endl;
   } catch (const std::exception &e) {
     std::cerr << "[MainComponent] Exception during config save: " << e.what()
               << std::endl;

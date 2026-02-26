@@ -129,7 +129,7 @@ public:
     if (configFile.existsAsFile()) {
       // Normal config load
       FiddleConfig::saveRecentConfig(configFile);
-      FiddleConfig::writeActiveConfig(configFile);
+      FiddleConfig::writeActiveConfig(configFile.getFileNameWithoutExtension());
       mainWindow = std::make_unique<MainWindow>(
           getApplicationName() + " - " +
               configFile.getFileNameWithoutExtension(),

@@ -113,10 +113,10 @@ public:
     return getAppDataDir().getChildFile("active_config.txt");
   }
 
-  /// Write the active config path and delay (called by FiddleServer)
-  static void writeActiveConfig(const juce::File &configFile,
+  /// Write the active config name and delay (called by FiddleServer)
+  static void writeActiveConfig(const juce::String &configName,
                                 int delayMs = 1000) {
-    getActiveConfigFile().replaceWithText(configFile.getFullPathName() + "\n" +
+    getActiveConfigFile().replaceWithText(configName + "\n" +
                                           juce::String(delayMs));
   }
 
