@@ -1303,6 +1303,10 @@ void MainComponent::loadConfigFromFile(const juce::File &file) {
     loadStripsFromDB();
   }
 
+  currentConfigFile = file;
+  if (onConfigChanged)
+    onConfigChanged(file);
+
   pushMixerState();
   mixer_.syncStripsToInstruments(masterList_);
   pushMixerState();
