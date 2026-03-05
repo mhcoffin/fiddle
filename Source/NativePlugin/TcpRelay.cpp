@@ -12,16 +12,19 @@
 namespace fiddle {
 
 TcpRelay::TcpRelay(const std::string &host, int port)
-    : host_(host), port_(port) {
-  thread_ = std::thread(&TcpRelay::relayThread, this);
-}
+    : host_(host), port_(port) {}
+
+void TcpRelay::start() { thread_ = std::thread(&TcpRelay::relayThread, this); }
 
 TcpRelay::~TcpRelay() {
   running_ = false;
+  // Close the socket first to unblock any blocking recv() in the relay thread.
+  // cv_.notify_all() only wakes threads waiting on the condition variable,
+  // not threads blocked in syscalls like recv().
+  disconnect();
   cv_.notify_all();
   if (thread_.joinable())
     thread_.join();
-  disconnect();
 }
 
 void TcpRelay::pushMessage(const MidiEvent &event) {
@@ -77,33 +80,21 @@ void TcpRelay::relayThread() {
       if (!running_)
         break;
 
-      if (queue_.empty()) {
-        // No messages to send — check if the server is still alive.
-        // A non-blocking recv() returns 0 on clean close, or -1 with
-        // an error (other than EAGAIN/EWOULDBLOCK) on broken connection.
-        if (connected_ && socketFd_ >= 0) {
-          char probe;
-          ssize_t n = ::recv(socketFd_, &probe, 1, MSG_DONTWAIT | MSG_PEEK);
-          if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-            // Server closed the connection
-            lock.unlock();
-            disconnect();
-            connected_ = false;
-            ConnectionCallback cb;
-            {
-              std::lock_guard<std::mutex> cbLock(mutex_);
-              cb = connectionCallback_;
-            }
-            if (cb)
-              cb(false);
-          }
-        }
-        continue;
+      if (!queue_.empty()) {
+        msg = std::move(queue_.front());
+        queue_.pop_front();
       }
-
-      msg = std::move(queue_.front());
-      queue_.pop_front();
     }
+
+    // Always check for incoming server→plugin messages (non-blocking).
+    // This must run even when the outgoing queue has data, otherwise
+    // a flood of outgoing MIDI events starves config_status reception.
+    if (connected_ && socketFd_ >= 0) {
+      receiveMessages();
+    }
+
+    if (msg.empty())
+      continue;
 
     if (!sendMessage(msg)) {
       disconnect();
@@ -186,6 +177,110 @@ void TcpRelay::disconnect() {
   if (socketFd_ >= 0) {
     ::close(socketFd_);
     socketFd_ = -1;
+  }
+}
+
+void TcpRelay::receiveMessages() {
+  // Try to read all available server→plugin messages.
+  // Non-blocking: returns immediately if nothing to read.
+  while (connected_ && socketFd_ >= 0) {
+    // Peek to see if data is available (non-blocking)
+    char peek;
+    ssize_t n = ::recv(socketFd_, &peek, 1, MSG_DONTWAIT | MSG_PEEK);
+    if (n == 0) {
+      // Server closed the connection
+      disconnect();
+      connected_ = false;
+      ConnectionCallback cb;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cb = connectionCallback_;
+      }
+      if (cb)
+        cb(false);
+      return;
+    }
+    if (n < 0) {
+      if (errno == EAGAIN || errno == EWOULDBLOCK)
+        return; // No data available, all good
+      // Error — connection broken
+      disconnect();
+      connected_ = false;
+      ConnectionCallback cb;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cb = connectionCallback_;
+      }
+      if (cb)
+        cb(false);
+      return;
+    }
+
+    // Read 4-byte big-endian length prefix (blocking, but we know data exists)
+    uint8_t header[4];
+    ssize_t r = ::recv(socketFd_, header, 4, MSG_WAITALL);
+    if (r != 4) {
+      disconnect();
+      connected_ = false;
+      ConnectionCallback cb;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cb = connectionCallback_;
+      }
+      if (cb)
+        cb(false);
+      return;
+    }
+
+    uint32_t size = (uint32_t(header[0]) << 24) | (uint32_t(header[1]) << 16) |
+                    (uint32_t(header[2]) << 8) | uint32_t(header[3]);
+
+    if (size > 1024 * 1024) {
+      // Invalid size, disconnect
+      disconnect();
+      connected_ = false;
+      return;
+    }
+
+    // Read payload
+    std::string payload(size, '\0');
+    size_t totalRead = 0;
+    while (totalRead < size) {
+      ssize_t bytesRead =
+          ::recv(socketFd_, &payload[totalRead], size - totalRead, 0);
+      if (bytesRead <= 0) {
+        disconnect();
+        connected_ = false;
+        ConnectionCallback cb;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          cb = connectionCallback_;
+        }
+        if (cb)
+          cb(false);
+        return;
+      }
+      totalRead += bytesRead;
+    }
+
+    // Parse protobuf
+    MidiEvent event;
+    if (event.ParseFromString(payload)) {
+      if (event.has_config_status()) {
+        auto &cs = event.config_status();
+        int newDelay = cs.delay_ms();
+        int oldDelay = delayMs_.exchange(newDelay, std::memory_order_relaxed);
+        if (oldDelay != newDelay) {
+          latencyChanged_.store(true, std::memory_order_relaxed);
+        }
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          configName_ = cs.config_name();
+          configVersion_ = cs.config_version();
+        }
+        configChanged_.store(true, std::memory_order_relaxed);
+      }
+    }
   }
 }
 

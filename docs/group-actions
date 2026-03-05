@@ -1,0 +1,58 @@
+# Group Actions
+
+We want to be able to group actions that affect multiple strips. 
+
+## Use Cases
+
+- Select multiple strips and adjust volumes by the same amount in db.
+- Select multiple strips and adjust volumes to a fixed level.
+- Select multiple strips and select a common plugin.
+- Select multiple strips and set the expression map to a common value.
+- Select multiple strips and set the library to a common value.
+- Select multiple strips and delete them.
+
+## Implementation
+
+Selection should follow standard selection patterns:
+
+- Click anywhere in the strip background to select a single strip. Clicking in a widget inside the strip (such as the volume slider) should not select the strip.
+- Shift + Click to add all strips between the clicked strip and the last clicked strip to the selection. This should span across instrument families.
+- Command + Click to add or remove the clicked strip from the selection.
+- Command + Shift + Click to select all strips.
+- The escape key or clicking outside of a selected strip should clear the selection.
+
+Selection should work across instrument families. It is not scoped to a single folder.
+
+When a strip is selected, it should be highlighted in the UI. Hightlighting should be removed when the strip is unselected. The actual highlighting should be done by changing the background color of the strip component to lower the contrast between the strip elements and the background. I.e., if the strip is dark, the background should be made lighter, and if the strip is light, the background should be made darker.
+
+In addition, if multiple strips are selected, an indicator should be shown in the header of the mixer tab indicating that multiple strips are selected (and how many). This indicator should be removed when the last strip is unselected.
+
+When multiple strips are selected, operations on any of the selected strips should be applied to all selected strips. The operation should be reversible (undo/redo). This will require some refactoring of the undo/redo system to support compound actions. 
+
+The operations on selected strips that are *not* supported by group actions should be disabled when multiple strips are selected. For example, changing the input of a strip should be disabled when multiple strips are selected.
+
+### Undo/Redo
+
+Operations on multiple strips should be reversible (undo/redo). This means that when multiple strips are selected, the operations on a strip should be grouped into a single undo/redo action. For example, if the user adjusts the volume of multiple strips by the same amount in db, this should be grouped into a single undo/redo action. This is true for all operations on multiple strips.
+
+
+### Volume Fader
+
+Moving the volume fader of a strip should adjust the volume of all selected strips by the same amount in db. However, if the operation exceeds the valid range, the volumes should be clamped to the valid range.
+When the volume fader is moved, the volume faders of all selected strips should be adjusted by the same amount in db, clamped to the valid range.
+
+Entering a volume value in the volume field should set the volume of all selected strips to that value. Again, the volumes should be clamped to the valid range.
+
+### Plugin
+
+Adding a plugin to a strip should add a different instance of the plugin to all selected strips.
+
+### Library
+
+Setting the library of a strip should set the library of all selected strips. (This affect the name of the strip.)
+
+### Expression Map
+
+Setting the expression map of a strip should set the expression map of all selected strips.
+
+

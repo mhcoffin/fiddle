@@ -51,6 +51,16 @@ public:
     configName_ = name;
   }
 
+  /// Current config version (ISO 8601 timestamp)
+  juce::String getConfigVersion() const {
+    juce::SpinLock::ScopedLockType lock(nameLock_);
+    return configVersion_;
+  }
+  void setConfigVersion(const juce::String &version) {
+    juce::SpinLock::ScopedLockType lock(nameLock_);
+    configVersion_ = version;
+  }
+
   /// Build the state blob synchronously. Normally called on background thread.
   juce::MemoryBlock buildStateBlob(MixerModel &mixer);
 
@@ -73,6 +83,7 @@ public:
 
   struct RestoredState {
     juce::String configName;
+    juce::String configVersion;
     bool dirty = false;
     std::vector<RestoredStrip> strips;
   };
@@ -84,6 +95,7 @@ public:
 private:
   std::atomic<bool> dirty_{false};
   juce::String configName_;
+  juce::String configVersion_;
   mutable juce::SpinLock nameLock_;
 
   std::unique_ptr<StateSharedMemory> sharedMemory_;

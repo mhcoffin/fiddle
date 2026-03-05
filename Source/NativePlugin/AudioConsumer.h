@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
-#include <fstream>
 #include <pwd.h>
 #include <string>
 #include <sys/mman.h>
@@ -94,25 +93,6 @@ public:
     }
 
     state_->readIndex.store(readPos + samplesToRead, std::memory_order_release);
-  }
-
-  /// Read the playback delay (ms) from active_config.txt line 2.
-  /// Returns 1000 if not found.
-  static int readActiveDelay() {
-    std::string path = getHomeDir() + "/Library/Fiddle/active_config.txt";
-    std::ifstream f(path);
-    if (!f.is_open())
-      return 1000;
-    std::string line1, line2;
-    std::getline(f, line1); // config path
-    std::getline(f, line2); // delay ms
-    if (line2.empty())
-      return 1000;
-    try {
-      return std::stoi(line2);
-    } catch (...) {
-      return 1000;
-    }
   }
 
 private:

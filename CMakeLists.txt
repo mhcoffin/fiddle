@@ -64,6 +64,18 @@ if(NOT vst3sdk_POPULATED)
     FetchContent_Populate(vst3sdk)
 endif()
 
+# Fetch xxHash (header-only usage via XXH_INLINE_ALL)
+FetchContent_Declare(
+    xxhash
+    GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
+    GIT_TAG v0.8.2
+    GIT_SHALLOW TRUE
+)
+FetchContent_GetProperties(xxhash)
+if(NOT xxhash_POPULATED)
+    FetchContent_Populate(xxhash)
+endif()
+
 # Protobuf targets in v21+ are in the protobuf:: namespace
 # But since we are building from source, they might be just namespaced or local
 
@@ -78,18 +90,7 @@ string(STRIP "${FIDDLE_VERSION}" FIDDLE_VERSION)
 # Re-configure when version.txt changes
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "version.txt")
 
-juce_add_plugin(Fiddle
-    VERSION "${FIDDLE_VERSION}"
-    COMPANY_NAME "Antigravity"
-    IS_SYNTH TRUE
-    NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
-    IS_MIDI_EFFECT FALSE
-    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
-    PLUGIN_CODE "Fidl"
-    FORMATS VST3
-    PRODUCT_NAME "Fiddle"
-)
+
 
 juce_add_gui_app(FiddleServer
     VERSION "${FIDDLE_VERSION}"
@@ -100,25 +101,7 @@ juce_add_gui_app(FiddleServer
 )
 
 
-target_sources(Fiddle PRIVATE
-    Source/PluginProcessor.cpp
-    Source/PluginProcessor.h
-    Source/PluginEditor.cpp
-    Source/PluginEditor.h
-    Source/StateSharedMemory.h
-    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
-    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fobject.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fdebug.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/updatehandler.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/fstring.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/thread/source/flock.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/funknown.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/ustring.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/pluginterfaces/base/coreiids.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/base/source/baseiids.cpp"
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK/public.sdk/source/vst/vstinitiids.cpp"
-)
+
 
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
@@ -135,7 +118,6 @@ target_sources(FiddleServer PRIVATE
     Source/Server/NoteStreamTracker.h
     Source/Server/SubnoteGenerator.h
     Source/Server/PluginScanner.h
-    Source/Server/PluginHost.h
     Source/Server/PluginEditorWindow.h
     Source/Server/MixerStrip.h
     Source/Server/MixerModel.h
@@ -177,17 +159,7 @@ add_custom_command(
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/Source/midi_event.proto" protoc
 )
 
-target_link_libraries(Fiddle PRIVATE
-    juce::juce_audio_utils
-    juce::juce_audio_processors
-    juce::juce_audio_devices
-    juce::juce_audio_basics
-    juce::juce_graphics
-    juce::juce_gui_basics
-    juce::juce_gui_extra
-    juce::juce_core
-    libprotobuf
-)
+
 
 target_link_libraries(FiddleServer PRIVATE
     juce::juce_gui_extra
@@ -208,9 +180,7 @@ target_link_libraries(FiddleServer PRIVATE
 )
 
 
-target_compile_definitions(Fiddle PRIVATE
-    JUCE_VST3_CAN_REPLACE_VST2=0
-)
+
 
 target_compile_definitions(FiddleServer PRIVATE
     JUCE_WEB_BROWSER=1
@@ -221,11 +191,7 @@ if(APPLE OR UNIX)
     target_compile_options(FiddleServer PRIVATE -fno-strict-aliasing)
 endif()
 
-target_include_directories(Fiddle PRIVATE
-    ${CMAKE_CURRENT_BINARY_DIR}
-    Source
-    "${juce_SOURCE_DIR}/modules/juce_audio_processors_headless/format_types/VST3_SDK"
-)
+
 
 
 target_include_directories(FiddleServer PRIVATE 
@@ -235,7 +201,7 @@ target_include_directories(FiddleServer PRIVATE
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring"
 )
 
-juce_generate_juce_header(Fiddle)
+
 juce_generate_juce_header(FiddleServer)
 
 
@@ -374,3 +340,19 @@ target_link_libraries(ExpressionMapTest PRIVATE
 
 target_compile_features(ExpressionMapTest PRIVATE cxx_std_17)
 juce_generate_juce_header(ExpressionMapTest)
+
+# ==============================================================================
+# VersionStoreTest — test executable for version DAG algorithms
+# ==============================================================================
+add_executable(VersionStoreTest
+    Source/Server/tests/VersionStoreTest.cpp
+    Source/Server/VersionStore.cpp
+)
+
+target_include_directories(VersionStoreTest PRIVATE
+    Source/Server
+    Source/Server/tests
+    "${xxhash_SOURCE_DIR}"
+)
+
+target_compile_features(VersionStoreTest PRIVATE cxx_std_17)

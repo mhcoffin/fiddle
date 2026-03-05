@@ -2,7 +2,6 @@
     import { onMount } from "svelte";
 
     let plugins = $state([]);
-    let loadedPlugins = $state([]);
     let isScanning = $state(false);
     let searchQuery = $state("");
     let sortColumn = $state("name");
@@ -11,16 +10,28 @@
     /** @type {any} */
     const w = window;
 
+    /**
+     * Returns a callable function that invokes the named native function
+     * registered via withNativeFunction() on the C++ side.
+     * Uses JUCE's __juce__invoke event system.
+     */
     const getNative = (name) => {
         const win = /** @type {any} */ (window);
-        return (
-            (win.__JUCE__ &&
-                win.__JUCE__.backend &&
-                win.__JUCE__.backend[name]) ||
-            win[name] ||
-            (win.juce && win.juce[name]) ||
-            (win.__juce__ && win.__juce__[name])
-        );
+        if (
+            win.__JUCE__ &&
+            win.__JUCE__.backend &&
+            typeof win.__JUCE__.backend.emitEvent === "function"
+        ) {
+            let nextId = 0;
+            return function () {
+                win.__JUCE__.backend.emitEvent("__juce__invoke", {
+                    name: name,
+                    params: Array.prototype.slice.call(arguments),
+                    resultId: nextId++,
+                });
+            };
+        }
+        return null;
     };
 
     w.setPluginList = (jsonStr) => {
@@ -34,19 +45,12 @@
         }
     };
 
-    w.setLoadedPlugins = (jsonStr) => {
-        try {
-            loadedPlugins = JSON.parse(jsonStr);
-            console.log(`[Plugins] Loaded plugins: ${loadedPlugins.length}`);
-        } catch (e) {
-            console.error("[Plugins] Failed to parse loaded plugins:", e);
-        }
-    };
-
-    const loadedSlotIds = $derived(new Set(loadedPlugins.map((p) => p.slotId)));
-
     onMount(() => {
         const fn = getNative("requestPluginsState");
+        console.log(
+            "[Plugins] onMount: requestPluginsState",
+            fn ? "FOUND" : "NOT FOUND",
+        );
         if (fn) fn();
     });
 
@@ -61,19 +65,15 @@
         }
     };
 
-    const loadPlugin = (uid) => {
-        const fn = getNative("loadPlugin");
-        if (fn) fn(uid);
-    };
-
-    const unloadPlugin = (slotId) => {
-        const fn = getNative("unloadPlugin");
-        if (fn) fn(slotId);
-    };
-
-    const showEditor = (slotId) => {
-        const fn = getNative("showPluginEditor");
-        if (fn) fn(slotId);
+    const startRescan = () => {
+        isScanning = true;
+        const fn = getNative("rescanPlugins");
+        if (fn) {
+            fn();
+        } else {
+            console.error("[Plugins] rescanPlugins native function not found");
+            isScanning = false;
+        }
     };
 
     const setSort = (col) => {
@@ -117,11 +117,15 @@
             >
                 {isScanning ? "Scanning…" : "Scan for Plugins"}
             </button>
+            <button
+                class="scan-button rescan"
+                onclick={startRescan}
+                disabled={isScanning}
+            >
+                Rescan All
+            </button>
             <span class="plugin-count">
                 {plugins.length} plugin{plugins.length !== 1 ? "s" : ""}
-                {#if loadedPlugins.length > 0}
-                    · {loadedPlugins.length} loaded
-                {/if}
                 {#if searchQuery.trim()}
                     · {filteredPlugins.length} shown
                 {/if}
@@ -181,43 +185,22 @@
                                     : "▼"
                                 : ""}
                         </th>
-                        <th class="actions-col">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {#each filteredPlugins as plugin (plugin.uid + plugin.name)}
-                        {@const slotId = String(plugin.uid)}
-                        {@const isLoaded = loadedSlotIds.has(slotId)}
-                        <tr class:loaded={isLoaded}>
-                            <td class="plugin-name">{plugin.name}</td>
-                            <td>{plugin.manufacturer}</td>
-                            <td>{plugin.category}</td>
-                            <td class="actions-cell">
-                                {#if isLoaded}
-                                    <button
-                                        class="action-btn show-btn"
-                                        onclick={() => showEditor(slotId)}
-                                        title="Show editor window"
+                        <tr class:invalid={plugin.valid === false}>
+                            <td class="plugin-name">
+                                {#if plugin.valid === false}
+                                    <span
+                                        class="invalid-badge"
+                                        title="Failed to load">⚠</span
                                     >
-                                        Show
-                                    </button>
-                                    <button
-                                        class="action-btn unload-btn"
-                                        onclick={() => unloadPlugin(slotId)}
-                                        title="Unload plugin"
-                                    >
-                                        Unload
-                                    </button>
-                                {:else}
-                                    <button
-                                        class="action-btn load-btn"
-                                        onclick={() => loadPlugin(plugin.uid)}
-                                        title="Load plugin and show editor"
-                                    >
-                                        Load
-                                    </button>
                                 {/if}
+                                {plugin.name}
                             </td>
+                            <td>{plugin.manufacturer || ""}</td>
+                            <td>{plugin.category || ""}</td>
                         </tr>
                     {/each}
                 </tbody>
@@ -385,11 +368,6 @@
         color: #e2e8f0;
     }
 
-    .actions-col {
-        width: 130px;
-        text-align: center;
-    }
-
     .plugin-table td {
         padding: 6px 12px;
         border-bottom: 1px solid #0f172a;
@@ -400,62 +378,27 @@
         background: #1e293b;
     }
 
-    .plugin-table tr.loaded td {
-        background: #0f2a1f;
-        border-bottom-color: #134e2a;
-    }
-
     .plugin-name {
         color: #f1f5f9;
         font-weight: 500;
     }
 
-    .actions-cell {
-        text-align: center;
-        white-space: nowrap;
+    .rescan {
+        border-color: #64748b;
+        background: #1e293b;
+        color: #94a3b8;
+    }
+    .rescan:hover:not(:disabled) {
+        background: #334155;
+        color: #f1f5f9;
     }
 
-    .action-btn {
-        padding: 3px 10px;
-        border-radius: 4px;
-        font-size: 0.7rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: all 0.15s ease;
-        border: 1px solid;
+    tr.invalid td {
+        opacity: 0.5;
     }
 
-    .load-btn {
-        background: #1e3a5f;
-        color: #93c5fd;
-        border-color: #3b82f6;
-    }
-
-    .load-btn:hover {
-        background: #2563eb;
-        color: #fff;
-    }
-
-    .show-btn {
-        background: #1a3a2a;
-        color: #6ee7b7;
-        border-color: #34d399;
+    .invalid-badge {
+        color: #ef4444;
         margin-right: 4px;
-    }
-
-    .show-btn:hover {
-        background: #059669;
-        color: #fff;
-    }
-
-    .unload-btn {
-        background: #3b1a1a;
-        color: #fca5a5;
-        border-color: #ef4444;
-    }
-
-    .unload-btn:hover {
-        background: #dc2626;
-        color: #fff;
     }
 </style>

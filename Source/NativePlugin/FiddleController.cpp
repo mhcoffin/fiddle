@@ -191,6 +191,16 @@ tresult PLUGIN_API FiddleController::setComponentState(IBStream *state) {
     }
   }
 
+  // Read config version (length-prefixed, added after config path)
+  int32 versionLen = 0;
+  if (state->read(&versionLen, sizeof(int32)) == kResultOk && versionLen > 0 &&
+      versionLen < 4096) {
+    std::vector<char> vbuf(versionLen);
+    if (state->read(vbuf.data(), versionLen) == kResultOk) {
+      configVersion_.assign(vbuf.data(), versionLen);
+    }
+  }
+
   return kResultOk;
 }
 
@@ -306,6 +316,15 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
       char utf8[1024] = {};
       Steinberg::UString(wpath, 1024).toAscii(utf8, sizeof(utf8));
       configPath_ = utf8;
+    }
+
+    // Read version attribute
+    Steinberg::Vst::TChar wversion[1024] = {};
+    if (message->getAttributes()->getString("Version", wversion,
+                                            sizeof(wversion)) == kResultOk) {
+      char vutf8[1024] = {};
+      Steinberg::UString(wversion, 1024).toAscii(vutf8, sizeof(vutf8));
+      configVersion_ = vutf8;
     }
     return kResultOk;
   }

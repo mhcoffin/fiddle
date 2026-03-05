@@ -74,6 +74,9 @@ private:
   void sendConfigToController();
   void announceConfigToServer();
 
+  /// Returns the current config version.
+  std::string getConfigVersion() const { return configVersion_; }
+
   std::unique_ptr<TcpRelay> tcpRelay_;
 
   // Per-channel state
@@ -85,21 +88,28 @@ private:
   std::array<ChannelState, kTotalChannels> channelStates_;
 
   bool wasPlaying_ = false;
+  bool relayStarted_ = false;
 
   // Set by process() when a program change is received, cleared after
   // sending update to controller. Checked by connection callback timer.
   std::atomic<bool> programStatesDirty_{false};
 
-  // Config path (saved/restored with Dorico project state)
+  // Deferred messaging flags — set from the relay thread's connection
+  // callback, consumed from process(). We must not call sendMessage()
+  // from the relay thread because it can deadlock with the host.
+  std::atomic<bool> connectionChanged_{false};
+  std::atomic<bool> lastConnected_{false};
+
+  // Config path and version (saved/restored with Dorico project state)
   std::string configPath_;
+  std::string configVersion_;
 
   // Shared memory audio consumer (pulls audio from FiddleServer)
   AudioConsumer audioConsumer_;
 
-  // Delay polling and latency reporting
+  // Delay and latency reporting (delay pushed via TCP from server)
   double cachedSampleRate_ = 44100.0;
   int lastKnownDelayMs_ = 1000;
-  Steinberg::int32 delayPollCounter_ = 0;
   Steinberg::uint32 latencySamples_ = 0;
 };
 

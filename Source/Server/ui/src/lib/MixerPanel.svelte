@@ -1,6 +1,13 @@
 <script>
     import { onMount } from "svelte";
-    import { FAMILY_ORDER, canonicalFamily } from "./orchestralOrder.js";
+    import {
+        FAMILY_ORDER,
+        canonicalFamily,
+        instrumentOrder,
+    } from "./orchestralOrder.js";
+
+    /** @type {{ onEditSetup?: () => void }} */
+    let { onEditSetup = () => {} } = $props();
 
     let strips = $state([]);
     let availableInputs = $state([]);
@@ -8,20 +15,33 @@
     let availableXmaps = $state([]);
     let playbackDelay = $state(1000);
     let editingDelay = $state(false);
+    let dirty = $state(false);
 
     /** @type {any} */
     const w = window;
 
+    /**
+     * Returns a callable function that invokes the named native function
+     * registered via withNativeFunction() on the C++ side.
+     * Uses JUCE's __juce__invoke event system.
+     */
     const getNative = (name) => {
         const win = /** @type {any} */ (window);
-        return (
-            (win.__JUCE__ &&
-                win.__JUCE__.backend &&
-                win.__JUCE__.backend[name]) ||
-            win[name] ||
-            (win.juce && win.juce[name]) ||
-            (win.__juce__ && win.__juce__[name])
-        );
+        if (
+            win.__JUCE__ &&
+            win.__JUCE__.backend &&
+            typeof win.__JUCE__.backend.emitEvent === "function"
+        ) {
+            let nextId = 0;
+            return function () {
+                win.__JUCE__.backend.emitEvent("__juce__invoke", {
+                    name: name,
+                    params: Array.prototype.slice.call(arguments),
+                    resultId: nextId++,
+                });
+            };
+        }
+        return null;
     };
 
     const FAMILY_COLORS = {
@@ -51,6 +71,9 @@
     w.setPlaybackDelay = (ms) => {
         playbackDelay = ms;
     };
+    w.setDirtyState = (d) => {
+        dirty = d;
+    };
 
     onMount(() => {
         const fn = getNative("getPlaybackDelay");
@@ -62,6 +85,11 @@
         playbackDelay = val;
         const fn = getNative("setPlaybackDelay");
         if (fn) fn(val);
+    };
+
+    const doSaveConfig = () => {
+        const fn = getNative("saveConfig");
+        if (fn) fn();
     };
 
     const origSetPluginList = w.setPluginList;
@@ -82,6 +110,47 @@
         }
     };
 
+    // ── Selection state ───────────────────────────────────
+    let selectedIds = $state(new Set());
+    let lastClickedId = $state(null);
+    let isMultiSelected = $derived(selectedIds.size > 1);
+    let flatStripOrder = $derived(strips.map((s) => s.id));
+
+    const handleStripClick = (stripId, e) => {
+        if (e.metaKey && e.shiftKey) {
+            // Cmd+Shift+Click: select all
+            selectedIds = new Set(flatStripOrder);
+        } else if (e.shiftKey && lastClickedId) {
+            // Shift+Click: range select
+            const a = flatStripOrder.indexOf(lastClickedId);
+            const b = flatStripOrder.indexOf(stripId);
+            if (a >= 0 && b >= 0) {
+                const lo = Math.min(a, b);
+                const hi = Math.max(a, b);
+                const rangeIds = flatStripOrder.slice(lo, hi + 1);
+                selectedIds = new Set([...selectedIds, ...rangeIds]);
+            }
+        } else if (e.metaKey) {
+            // Cmd+Click: toggle
+            const next = new Set(selectedIds);
+            if (next.has(stripId)) next.delete(stripId);
+            else next.add(stripId);
+            selectedIds = next;
+        } else {
+            // Plain click: single select
+            selectedIds = new Set([stripId]);
+        }
+        lastClickedId = stripId;
+    };
+
+    const clearSelection = () => {
+        selectedIds = new Set();
+        lastClickedId = null;
+    };
+
+    /** JSON-encode the selected strip IDs for group native calls */
+    const selectedIdsJson = () => JSON.stringify([...selectedIds]);
+
     onMount(() => {
         const fn = getNative("getAvailableInputs");
         if (fn) fn();
@@ -91,6 +160,13 @@
         if (fnPlugins) fnPlugins();
         const fnXmaps = getNative("requestExpressionMaps");
         if (fnXmaps) fnXmaps();
+
+        // Escape key clears selection
+        const handleKeyDown = (e) => {
+            if (e.key === "Escape") clearSelection();
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
     });
 
     const addStrip = () => {
@@ -98,6 +174,12 @@
         if (fn) fn();
     };
     const removeStrip = (id) => {
+        if (isMultiSelected && selectedIds.has(id)) {
+            const fn = getNative("removeGroupStrips");
+            if (fn) fn(selectedIdsJson());
+            clearSelection();
+            return;
+        }
         const fn = getNative("removeMixerStrip");
         if (fn) fn(id);
     };
@@ -113,6 +195,11 @@
     };
 
     const setPlugin = (stripId, pluginUid) => {
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            const fn = getNative("setGroupPlugin");
+            if (fn) fn(selectedIdsJson(), pluginUid);
+            return;
+        }
         const fn = getNative("setStripPlugin");
         if (fn) fn(stripId, pluginUid);
     };
@@ -121,6 +208,11 @@
         if (fn) fn(stripId);
     };
     const loadExpressionMap = (stripId, entityID) => {
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            const fn = getNative("setGroupExpressionMap");
+            if (fn) fn(selectedIdsJson(), entityID);
+            return;
+        }
         const fn = getNative("loadExpressionMap");
         if (fn) fn(stripId, entityID);
     };
@@ -128,10 +220,86 @@
         const fn = getNative("loadExpressionMapFromFile");
         if (fn) fn(stripId);
     };
+    const clearExpressionMap = (stripId) => {
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            const fn = getNative("setGroupExpressionMap");
+            if (fn) fn(selectedIdsJson(), "");
+            return;
+        }
+        const fn = getNative("clearExpressionMap");
+        if (fn) fn(stripId);
+    };
 
     const setGain = (stripId, db) => {
         const fn = getNative("setStripGain");
         if (fn) fn(stripId, db);
+    };
+
+    // ── Mute / Solo ──────────────────────────────────────────────
+    let anySoloed = $derived(strips.some((s) => s.soloed));
+
+    const isAudible = (strip) => !strip.muted && (!anySoloed || strip.soloed);
+
+    const toggleMute = (stripId) => {
+        const strip = strips.find((s) => s.id === stripId);
+        if (!strip) return;
+        const newVal = !strip.muted;
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            for (const id of selectedIds) {
+                const fn = getNative("setStripMute");
+                if (fn) fn(id, newVal);
+            }
+        } else {
+            const fn = getNative("setStripMute");
+            if (fn) fn(stripId, newVal);
+        }
+    };
+
+    const toggleSolo = (stripId) => {
+        const strip = strips.find((s) => s.id === stripId);
+        if (!strip) return;
+        const newVal = !strip.soloed;
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            for (const id of selectedIds) {
+                const fn = getNative("setStripSolo");
+                if (fn) fn(id, newVal);
+            }
+        } else {
+            const fn = getNative("setStripSolo");
+            if (fn) fn(stripId, newVal);
+        }
+    };
+
+    const clearSolos = () => {
+        const fn = getNative("setStripSolo");
+        if (!fn) return;
+        for (const s of strips) fn(s.id, false);
+    };
+
+    /** Group-aware gain change: fader drag sends delta */
+    const handleFaderInput = (strip, pos) => {
+        const newDb = Math.round(posToDB(pos) * 10) / 10;
+        if (isMultiSelected && selectedIds.has(strip.id)) {
+            const oldDb = strip.gainDb ?? 0;
+            const delta = newDb - oldDb;
+            const fn = getNative("setGroupGainDelta");
+            if (fn) fn(selectedIdsJson(), delta);
+        } else {
+            setGain(strip.id, newDb);
+        }
+    };
+
+    /** Group-aware gain change: typed value sets absolute */
+    const handleGainValueInput = (strip, value) => {
+        let v = parseFloat(value);
+        if (isNaN(v)) v = 0;
+        v = Math.max(-120, Math.min(6, v));
+        if (isMultiSelected && selectedIds.has(strip.id)) {
+            const fn = getNative("setGroupGainAbsolute");
+            if (fn) fn(selectedIdsJson(), v);
+        } else {
+            setGain(strip.id, v);
+        }
     };
 
     // ── Fader skew (JUCE-style NormalisableRange) ────────────
@@ -183,8 +351,14 @@
     };
     const commitEdit = (stripId) => {
         if (editValue.trim()) {
-            const fn = getNative("setStripLibrary");
-            if (fn) fn(stripId, editValue.trim());
+            const lib = editValue.trim();
+            if (isMultiSelected && selectedIds.has(stripId)) {
+                const fn = getNative("setGroupLibrary");
+                if (fn) fn(selectedIdsJson(), lib);
+            } else {
+                const fn = getNative("setStripLibrary");
+                if (fn) fn(stripId, lib);
+            }
         }
         editingId = null;
     };
@@ -229,6 +403,26 @@
             const ib = FAMILY_ORDER.indexOf(b.family);
             return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
         });
+        // Within each group, solos first then sections, then by score order
+        for (const g of groups) {
+            g.strips.sort((a, b) => {
+                if (a.isSolo !== b.isSolo) return a.isSolo ? -1 : 1;
+                // Look up instrument name from availableInputs
+                const nameA =
+                    availableInputs.find(
+                        (i) =>
+                            i.port === a.inputPort &&
+                            i.channel === a.inputChannel,
+                    )?.name || "";
+                const nameB =
+                    availableInputs.find(
+                        (i) =>
+                            i.port === b.inputPort &&
+                            i.channel === b.inputChannel,
+                    )?.name || "";
+                return instrumentOrder(nameA) - instrumentOrder(nameB);
+            });
+        }
         return groups;
     });
 </script>
@@ -236,6 +430,14 @@
 <div class="mixer-container">
     <div class="mixer-toolbar">
         <h2>Mixer</h2>
+        {#if selectedIds.size > 1}
+            <span class="selection-badge">{selectedIds.size} selected</span>
+        {/if}
+        {#if anySoloed}
+            <button class="toolbar-ms-btn solo-clear" onclick={clearSolos}>
+                Clear Solos
+            </button>
+        {/if}
         <div class="toolbar-right">
             <div class="delay-control">
                 <label class="delay-label">Delay</label>
@@ -276,18 +478,44 @@
                     >
                 {/if}
             </div>
+            <button
+                class="toolbar-btn edit-setup-btn"
+                title="Edit Setup"
+                onclick={onEditSetup}
+            >
+                <svg
+                    viewBox="0 0 20 20"
+                    width="14"
+                    height="14"
+                    fill="currentColor"
+                >
+                    <path
+                        d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+                    />
+                </svg>
+            </button>
+            <button
+                class="toolbar-btn save-btn"
+                onclick={doSaveConfig}
+                disabled={!dirty}
+                title="Save config (creates a new version)"
+            >
+                💾 Save
+            </button>
         </div>
     </div>
 
     {#if strips.length === 0}
         <div class="empty-state">
             <p>
-                No channel strips. Add instruments in the <strong>Setup</strong>
-                tab.
+                No channel strips. Click the <strong>✏️ Edit</strong> button to set
+                up your ensemble.
             </p>
         </div>
     {:else}
-        <div class="console">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="console" onclick={clearSelection}>
             {#each groupedStrips as group (group.family)}
                 {@const collapsed = collapsedFamilies[group.family]}
                 <div class="folder" class:folder-collapsed={collapsed}>
@@ -325,15 +553,31 @@
                     {#if !collapsed}
                         <div class="folder-strips">
                             {#each group.strips as strip (strip.id)}
+                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 <div
                                     class="channel-strip"
-                                    style="border-top: 3px solid {group.colors
-                                        .accent};"
+                                    class:selected={selectedIds.has(strip.id)}
+                                    class:suppressed={!isAudible(strip)}
+                                    onclick={(e) => e.stopPropagation()}
                                 >
+                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                    <div
+                                        class="select-bar select-bar-top"
+                                        style="background: {group.colors
+                                            .accent};"
+                                        onclick={(e) => {
+                                            e.stopPropagation();
+                                            handleStripClick(strip.id, e);
+                                        }}
+                                    ></div>
                                     <!-- Input selector at top -->
                                     <div class="ch-input">
                                         <select
                                             class="ch-select"
+                                            disabled={isMultiSelected &&
+                                                selectedIds.has(strip.id)}
                                             value={`${strip.inputPort}:${strip.inputChannel}`}
                                             onchange={(e) => {
                                                 const [p, c] =
@@ -393,16 +637,16 @@
                                                                     e.target
                                                                 ).value,
                                                             ) / 1000;
-                                                        setGain(
-                                                            strip.id,
-                                                            Math.round(
-                                                                posToDB(pos) *
-                                                                    10,
-                                                            ) / 10,
+                                                        handleFaderInput(
+                                                            strip,
+                                                            pos,
                                                         );
                                                     }}
                                                     ondblclick={() =>
-                                                        setGain(strip.id, 0)}
+                                                        handleGainValueInput(
+                                                            strip,
+                                                            "0",
+                                                        )}
                                                 />
                                             </div>
                                             <div class="meter-track">
@@ -440,19 +684,36 @@
                                                   ) / 10
                                                 : 0}
                                             onchange={(e) => {
-                                                let v = parseFloat(
+                                                handleGainValueInput(
+                                                    strip,
                                                     /** @type {HTMLInputElement} */ (
                                                         e.target
                                                     ).value,
                                                 );
-                                                if (isNaN(v)) v = 0;
-                                                v = Math.max(
-                                                    -120,
-                                                    Math.min(6, v),
-                                                );
-                                                setGain(strip.id, v);
                                             }}
                                         />
+                                    </div>
+
+                                    <!-- Mute / Solo -->
+                                    <div class="ch-mute-solo">
+                                        <button
+                                            class="ms-btn mute-btn"
+                                            class:active={strip.muted}
+                                            title={strip.muted
+                                                ? "Unmute"
+                                                : "Mute"}
+                                            onclick={() => toggleMute(strip.id)}
+                                            >M</button
+                                        >
+                                        <button
+                                            class="ms-btn solo-btn"
+                                            class:active={strip.soloed}
+                                            title={strip.soloed
+                                                ? "Unsolo"
+                                                : "Solo"}
+                                            onclick={() => toggleSolo(strip.id)}
+                                            >S</button
+                                        >
                                     </div>
 
                                     <!-- Expression Map -->
@@ -478,8 +739,11 @@
                                                         strip.expressionMapName
                                                             ? "__loaded__"
                                                             : "";
+                                                } else if (val === "") {
+                                                    clearExpressionMap(
+                                                        strip.id,
+                                                    );
                                                 } else if (
-                                                    val &&
                                                     val !== "__loaded__"
                                                 ) {
                                                     loadExpressionMap(
@@ -528,7 +792,7 @@
                                                 }}
                                             >
                                                 <option value="0">—</option>
-                                                {#each scannedPlugins as plugin}
+                                                {#each scannedPlugins.filter((p) => p.valid !== false) as plugin}
                                                     <option value={plugin.uid}
                                                         >{plugin.name}</option
                                                     >
@@ -584,6 +848,8 @@
                                     <div class="ch-buttons">
                                         <button
                                             class="ch-btn ch-btn-dup"
+                                            disabled={isMultiSelected &&
+                                                selectedIds.has(strip.id)}
                                             onclick={() =>
                                                 duplicateStrip(strip.id)}
                                             title="Add parallel strip with same input"
@@ -596,6 +862,17 @@
                                             title="Delete strip">✕</button
                                         >
                                     </div>
+                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                    <div
+                                        class="select-bar select-bar-bottom"
+                                        style="background: {group.colors
+                                            .accent};"
+                                        onclick={(e) => {
+                                            e.stopPropagation();
+                                            handleStripClick(strip.id, e);
+                                        }}
+                                    ></div>
                                 </div>
                             {/each}
                         </div>
@@ -633,12 +910,87 @@
         font-weight: 600;
         color: #f1f5f9;
     }
+    .selection-badge {
+        font-size: 0.7rem;
+        font-weight: 600;
+        color: #38bdf8;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        border-radius: 4px;
+        padding: 2px 8px;
+        margin-left: 8px;
+    }
+
+    .toolbar-ms-btn {
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 2px 10px;
+        border: 1px solid #555;
+        border-radius: 4px;
+        background: #2a2a2a;
+        color: #aaa;
+        cursor: pointer;
+        transition: all 0.12s ease;
+    }
+
+    .toolbar-ms-btn:hover {
+        border-color: #888;
+        color: #e0e0e0;
+        background: #383838;
+    }
+
+    .toolbar-ms-btn.solo-clear {
+        border-color: rgba(34, 197, 94, 0.4);
+        color: #4ade80;
+    }
     .toolbar-right {
         display: flex;
         align-items: center;
         gap: 12px;
     }
 
+    .toolbar-btn {
+        padding: 4px 10px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        border-radius: 4px;
+        cursor: pointer;
+        transition:
+            background 0.15s,
+            transform 0.1s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        box-sizing: border-box;
+    }
+    .toolbar-btn:active {
+        transform: scale(0.97);
+    }
+    .save-btn {
+        color: #e2e8f0;
+        background: #1e40af;
+        border: 1px solid #3b82f6;
+    }
+    .save-btn:hover {
+        background: #2563eb;
+    }
+    .save-btn:disabled {
+        opacity: 0.4;
+        cursor: default;
+        transform: none;
+    }
+    .edit-setup-btn {
+        color: #94a3b8;
+        background: rgba(30, 41, 59, 0.85);
+        border: 1px solid #334155;
+    }
+    .edit-setup-btn:hover {
+        background: rgba(56, 189, 248, 0.15);
+        border-color: #38bdf8;
+        color: #38bdf8;
+    }
     .delay-control {
         display: flex;
         align-items: center;
@@ -777,13 +1129,35 @@
         flex-direction: column;
         width: 80px;
         min-width: 80px;
-        background: #1a2233;
+        background: #111827;
         border-right: 1px solid #0f172a;
         padding: 6px 4px;
         gap: 4px;
+        overflow: hidden;
     }
     .channel-strip:hover {
+        background: #151d2e;
+    }
+    .channel-strip.selected {
         background: #1e293b;
+        outline: 1px solid rgba(56, 189, 248, 0.3);
+        outline-offset: -1px;
+    }
+    .channel-strip.selected:hover {
+        background: #243044;
+    }
+
+    .select-bar {
+        flex-shrink: 0;
+        height: 6px;
+        cursor: pointer;
+        transition: filter 0.15s;
+    }
+    .select-bar:hover {
+        filter: brightness(1.4);
+    }
+    .selected .select-bar {
+        filter: brightness(1.6);
     }
 
     .ch-name-area {
@@ -925,6 +1299,56 @@
     .fader-value::-webkit-inner-spin-button,
     .fader-value::-webkit-outer-spin-button {
         -webkit-appearance: none;
+    }
+
+    /* Mute / Solo buttons */
+    .ch-mute-solo {
+        display: flex;
+        gap: 4px;
+        justify-content: center;
+        padding: 4px 0;
+    }
+
+    .ms-btn {
+        width: 22px;
+        height: 18px;
+        border: 1px solid #555;
+        border-radius: 3px;
+        background: #2a2a2a;
+        color: #888;
+        font-size: 0.6rem;
+        font-weight: 700;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+        transition: all 0.12s ease;
+    }
+
+    .ms-btn:hover {
+        border-color: #888;
+        color: #ccc;
+    }
+
+    .mute-btn.active {
+        background: rgba(245, 158, 11, 0.25);
+        border-color: #f59e0b;
+        color: #fbbf24;
+        box-shadow: 0 0 4px rgba(245, 158, 11, 0.3);
+    }
+
+    .solo-btn.active {
+        background: rgba(34, 197, 94, 0.2);
+        border-color: #22c55e;
+        color: #4ade80;
+        box-shadow: 0 0 4px rgba(34, 197, 94, 0.3);
+    }
+
+    /* Dim non-audible strips */
+    .channel-strip.suppressed {
+        opacity: 0.6;
+    }
+    .channel-strip.suppressed .ms-btn {
+        opacity: 1;
     }
 
     .ch-xmap {

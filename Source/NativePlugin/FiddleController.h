@@ -112,6 +112,8 @@ public:
   std::string getConfigName() const;
   /// Returns the full config file path.
   std::string getConfigPath() const { return configPath_; }
+  /// Returns the config version (ISO 8601 timestamp).
+  std::string getConfigVersion() const { return configVersion_; }
 
 private:
   void sendProgramChangeToProcessor(int channel, int program);
@@ -123,6 +125,8 @@ private:
   std::map<int, std::string> programNames_;
   /// Config file path (received from processor)
   std::string configPath_;
+  /// Config version (ISO 8601 timestamp, received from processor)
+  std::string configVersion_;
 };
 
 } // namespace fiddle

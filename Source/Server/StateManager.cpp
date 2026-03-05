@@ -21,7 +21,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
 
   // Header
   uint32_t magic = kBlobMagic;
-  uint32_t version = kBlobVersion;
+  uint32_t version = kBlobVersion; // kBlobVersion is now 2
   uint32_t totalSizePlaceholder = 0;
   blob.append(&magic, 4);
   blob.append(&version, 4);
@@ -33,6 +33,13 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   uint32_t cfgNameLen = (uint32_t)cfgNameUtf8.size();
   blob.append(&cfgNameLen, 4);
   blob.append(cfgNameUtf8.data(), cfgNameLen);
+
+  // Config version (new in blob v2)
+  juce::String cfgVer = getConfigVersion();
+  std::string cfgVerUtf8 = cfgVer.toStdString();
+  uint32_t cfgVerLen = (uint32_t)cfgVerUtf8.size();
+  blob.append(&cfgVerLen, 4);
+  blob.append(cfgVerUtf8.data(), cfgVerLen);
 
   // Dirty flag
   uint8_t dirtyFlag = isDirty() ? 1 : 0;
@@ -66,18 +73,12 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     blob.append(&jsonLen, 4);
     blob.append(jsonUtf8.data(), jsonLen);
 
-    // Plugin BLOB
-    if (strip->pluginInstance) {
-      juce::MemoryBlock pluginState;
-      strip->pluginInstance->getStateInformation(pluginState);
-      uint32_t blobSize = (uint32_t)pluginState.getSize();
-      blob.append(&blobSize, 4);
-      if (blobSize > 0)
-        blob.append(pluginState.getData(), blobSize);
-    } else {
-      uint32_t zero = 0;
-      blob.append(&zero, 4);
-    }
+    // Plugin BLOB — use cached state (updated on load/change detection)
+    const auto &cached = strip->cachedPluginState_;
+    uint32_t blobSize = (uint32_t)cached.getSize();
+    blob.append(&blobSize, 4);
+    if (blobSize > 0)
+      blob.append(cached.getData(), blobSize);
   }
 
   // Fill in total size (excluding the 12-byte header)
@@ -147,12 +148,19 @@ StateManager::deserializeBlob(const void *data, size_t size) {
   uint32_t totalSize = readU32();
   (void)totalSize;
 
-  if (magic != kBlobMagic || version != kBlobVersion)
+  if (magic != kBlobMagic || version < 1 || version > kBlobVersion)
     return std::nullopt;
 
   // Config name
   uint32_t cfgNameLen = readU32();
   std::string cfgName = readString(cfgNameLen);
+
+  // Config version (new in blob v2, absent in v1)
+  std::string cfgVersion;
+  if (version >= 2) {
+    uint32_t cfgVerLen = readU32();
+    cfgVersion = readString(cfgVerLen);
+  }
 
   // Dirty flag
   uint8_t dirtyFlag = readU8();
@@ -162,6 +170,7 @@ StateManager::deserializeBlob(const void *data, size_t size) {
 
   RestoredState state;
   state.configName = juce::String(cfgName);
+  state.configVersion = juce::String(cfgVersion);
   state.dirty = dirtyFlag != 0;
 
   for (uint32_t i = 0; i < stripCount && offset < size; ++i) {

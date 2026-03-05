@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../AudioSharedMemory.h"
+#include "DebugWindow.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
 #include "FiddleDatabase.h"
@@ -9,7 +10,6 @@
 #include "MidiTcpServer.h"
 #include "MixerModel.h"
 #include "NoteStreamTracker.h"
-#include "PluginHost.h"
 #include "PluginScanner.h"
 #include "ScriptEngine.h"
 #include "StateManager.h"
@@ -25,30 +25,52 @@ class MainComponent : public juce::Component,
                       private juce::Timer,
                       public juce::AudioIODeviceCallback {
 public:
-  MainComponent(const juce::File &configFile);
+  MainComponent(const juce::String &configName);
   ~MainComponent() override;
 
   /// Save current state to the active config file
   void saveConfig();
 
-  /// Save current state to a new named config file, switch to it
-  void saveConfigAs(const juce::File &newFile);
+  /// Save current state under a new name, switch to it
+  void saveConfigAs(const juce::String &newName);
 
   /// Clear all strips and plugins for a fresh new config
   void clearForNewConfig();
 
-  /// Whether a config file has been loaded (false in "waiting" state)
-  bool isConfigLoaded() const { return currentConfigFile.existsAsFile(); }
+  /// Whether a config has been loaded (false in "waiting" state)
+  bool isConfigLoaded() const { return configName_.isNotEmpty(); }
 
-  /// Get the current config file path
-  juce::File getConfigFile() const { return currentConfigFile; }
+  /// Get the current config name
+  juce::String getConfigName() const { return configName_; }
+
+  /// Get the current config version
+  juce::String getConfigVersion() const { return configVersion_; }
+
+  /// Toggle debug window visibility.
+  void toggleDebugWindow();
+
+  /// Check if debug window is visible.
+  bool isDebugWindowVisible() const;
+
+  /// Save main window position/size to database.
+  void saveMainWindowGeometry(int x, int y, int w, int h);
+
+  /// Save debug window geometry + visibility to database.
+  void saveDebugWindowGeometry();
+
+  /// Restore main window geometry from database.
+  /// Returns the stored bounds (or defaults if not found).
+  juce::Rectangle<int> restoreMainWindowGeometry();
 
   /// Get the MIDI TCP server for disconnect control
   MidiTcpServer *getMidiServer() { return server.get(); }
 
-  /// Callback fired when the active config file changes (e.g. auto-loaded from
-  /// plugin)
-  std::function<void(const juce::File &)> onConfigChanged;
+  /// Push current config status (name, version, dirty) to connected plugin.
+  void pushConfigStatus();
+
+  /// Callback fired when the active config changes
+  std::function<void(const juce::String &name, const juce::String &version)>
+      onConfigChanged;
 
   void paint(juce::Graphics &) override;
   void resized() override;
@@ -72,7 +94,6 @@ private:
   SubnoteGenerator subnoteGenerator;
   InstrumentMapper instrumentMapper_;
   PluginScanner pluginScanner_;
-  PluginHost pluginHost_;
   MixerModel mixer_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
@@ -84,17 +105,32 @@ private:
   uint64_t lastSampleTime = 0;
   uint32_t lastSystemTime = 0;
 
-  juce::File currentConfigFile;
+  juce::String configName_;
+  juce::String configVersion_;
+
+  /// Debug window (created eagerly, visibility toggled from View menu)
+  std::unique_ptr<DebugWindow> debugWindow_;
+
+  /// Throttle state for scheduleStateRebuild() — max once per second.
+  uint32_t lastStateRebuildMs_ = 0;
+  bool stateRebuildPending_ = false;
+
+  /// Initialization splash screen state
+  bool initComplete_ = false;
+  juce::StringArray initMessages_;
+  void addInitMessage(const juce::String &msg);
+  void runInitStep(int step);
 
   void timerCallback() override;
   void setupWebView();
   void pushLogMessage(const juce::String &msg, bool isError = false);
-  void pushMixerState();
+  void pushMixerState(bool markDirty = true);
+  void pushToDebugWindow(const juce::String &js);
   static juce::String escapeForJS(const juce::String &str);
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
   void pushSubnoteToWebView(const fiddle::Subnote &subnote);
-  void loadConfigFromFile(const juce::File &file);
+  void loadConfigByName(const juce::String &name);
 
   /// Save all strips to SQLite (called after every mutation).
   void saveAllStripsToDB();
@@ -107,6 +143,26 @@ private:
 
   /// Schedule a background rebuild of the shadow state blob.
   void scheduleStateRebuild();
+
+  /// Poll MixerStrip plugin states for changes (called from timer).
+  /// Skips plugins whose pluginUid is in listenerCapableUids_.
+  void pollPluginStateChanges();
+
+  /// Wire up a strip's PluginChangeListener to point at our shared state.
+  void setupStripListener(MixerStrip &strip);
+
+  /// Counter for throttling plugin state polls (20ms timer × 100 = 2s).
+  int pluginPollCounter_ = 0;
+
+  /// Cached state hashes for each MixerStrip's plugin instance.
+  std::map<juce::String, uint64_t> pluginStateHashes_;
+
+  /// Plugin UIDs that fire AudioProcessorListener callbacks.
+  /// Populated by listeners, read by polling to skip those plugins.
+  std::set<int> listenerCapableUids_;
+
+  /// Atomic flag for debouncing listener callbacks (fire from any thread).
+  std::atomic<bool> listenerDirtyPending_{false};
 
   std::optional<juce::WebBrowserComponent::Resource>
   getResource(const juce::String &url);

@@ -1,0 +1,1194 @@
+{
+    "ensembles": [
+        {
+            "id": "string-quartet",
+            "name": "String Quartet",
+            "description": "Two violins, viola, cello",
+            "instruments": [
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "string-orchestra",
+            "name": "String Orchestra",
+            "description": "Violin I & II sections, viola section, cello section, bass section",
+            "instruments": [
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "woodwind-quintet",
+            "name": "Woodwind Quintet",
+            "description": "Flute, oboe, clarinet, bassoon, horn",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "brass-quintet",
+            "name": "Brass Quintet",
+            "description": "Two trumpets, horn, trombone, tuba",
+            "instruments": [
+                {
+                    "entityID": "instrument.brass.trumpet.bflat",
+                    "name": "Trumpet in Bb",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone",
+                    "name": "Trombone",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.tuba",
+                    "name": "Tuba",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "piano-trio",
+            "name": "Piano Trio",
+            "description": "Piano, violin, cello",
+            "instruments": [
+                {
+                    "entityID": "instrument.keyboard.piano",
+                    "name": "Piano",
+                    "family": "keyboard",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "baroque-orchestra",
+            "name": "Baroque Orchestra",
+            "description": "Flutes, oboes, bassoon, trumpets, timpani, harpsichord, strings",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.c",
+                    "name": "Trumpet in C",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.keyboard.harpsichord",
+                    "name": "Harpsichord",
+                    "family": "keyboard",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "classical-orchestra",
+            "name": "Classical Orchestra",
+            "description": "Pairs of winds, horns, trumpets, timpani, strings (Haydn/Mozart)",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.c",
+                    "name": "Trumpet in C",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "romantic-orchestra",
+            "name": "Romantic Orchestra",
+            "description": "Large orchestra: piccolo, winds in pairs, cor anglais, bass clarinet, contrabassoon, 4 horns, 3 trumpets, 3 trombones, tuba, timpani, harp, strings",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.piccolo",
+                    "name": "Piccolo",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.coranglais",
+                    "name": "Cor Anglais",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bass.bflat",
+                    "name": "Bass Clarinet",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.contrabassoon",
+                    "name": "Contrabassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 4,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.c",
+                    "name": "Trumpet in C",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone",
+                    "name": "Trombone",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone.bass",
+                    "name": "Bass Trombone",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.tuba",
+                    "name": "Tuba",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.harp",
+                    "name": "Harp",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "late-romantic-orchestra",
+            "name": "Late Romantic Orchestra",
+            "description": "Expanded Romantic orchestra: triple/quadruple winds, 8 horns, extra brass, celesta, 2 harps, full percussion (Mahler/Strauss)",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.piccolo",
+                    "name": "Piccolo",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute.alto",
+                    "name": "Alto Flute",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.coranglais",
+                    "name": "Cor Anglais",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bass.bflat",
+                    "name": "Bass Clarinet",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.contrabassoon",
+                    "name": "Contrabassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 8,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.c",
+                    "name": "Trumpet in C",
+                    "family": "brass",
+                    "soloCount": 4,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone",
+                    "name": "Trombone",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone.bass",
+                    "name": "Bass Trombone",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.tuba",
+                    "name": "Tuba",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.snare.drum",
+                    "name": "Snare Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.bass.drum",
+                    "name": "Bass Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.clash.cymbals",
+                    "name": "Clash Cymbals",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.triangle",
+                    "name": "Triangle",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.glockenspiel",
+                    "name": "Glockenspiel",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.xylophone",
+                    "name": "Xylophone",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.keyboard.celesta",
+                    "name": "Celesta",
+                    "family": "keyboard",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.harp",
+                    "name": "Harp",
+                    "family": "pitched-percussion",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "concert-band",
+            "name": "Concert Band",
+            "description": "Winds, brass, and percussion without strings",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.piccolo",
+                    "name": "Piccolo",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.coranglais",
+                    "name": "Cor Anglais",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.eflat",
+                    "name": "Clarinet in Eb",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bass.bflat",
+                    "name": "Bass Clarinet",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.contrabassoon",
+                    "name": "Contrabassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.alto",
+                    "name": "Alto Saxophone",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.tenor",
+                    "name": "Tenor Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.baritone",
+                    "name": "Baritone Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 4,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.cornet.bflat",
+                    "name": "Cornet in Bb",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.bflat",
+                    "name": "Trumpet in Bb",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone",
+                    "name": "Trombone",
+                    "family": "brass",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone.bass",
+                    "name": "Bass Trombone",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.euphonium",
+                    "name": "Euphonium",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.tuba",
+                    "name": "Tuba",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.snare.drum",
+                    "name": "Snare Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.bass.drum",
+                    "name": "Bass Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.clash.cymbals",
+                    "name": "Clash Cymbals",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.glockenspiel",
+                    "name": "Glockenspiel",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.xylophone",
+                    "name": "Xylophone",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.bells.tubular",
+                    "name": "Tubular Bells",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        },
+        {
+            "id": "saxophone-quartet",
+            "name": "Saxophone Quartet",
+            "description": "Soprano, alto, tenor, baritone saxophones",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.saxophone.soprano.bflat",
+                    "name": "Soprano Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.alto",
+                    "name": "Alto Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.tenor",
+                    "name": "Tenor Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.saxophone.baritone",
+                    "name": "Baritone Saxophone",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "percussion-section",
+            "name": "Percussion Section",
+            "description": "Timpani, snare, bass drum, cymbals, triangle, glockenspiel, xylophone, tubular bells",
+            "instruments": [
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.snare.drum",
+                    "name": "Snare Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.bass.drum",
+                    "name": "Bass Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.clash.cymbals",
+                    "name": "Clash Cymbals",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.triangle",
+                    "name": "Triangle",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.percussion.other.tambourine",
+                    "name": "Tambourine",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.glockenspiel",
+                    "name": "Glockenspiel",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.xylophone",
+                    "name": "Xylophone",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.bells.tubular",
+                    "name": "Tubular Bells",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                }
+            ]
+        },
+        {
+            "id": "film-orchestra",
+            "name": "Film Orchestra",
+            "description": "Large Romantic orchestra plus piano, celesta, extra percussion, and extended brass",
+            "instruments": [
+                {
+                    "entityID": "instrument.wind.piccolo",
+                    "name": "Piccolo",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute",
+                    "name": "Flute",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.flute.alto",
+                    "name": "Alto Flute",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.oboe",
+                    "name": "Oboe",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.coranglais",
+                    "name": "Cor Anglais",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bflat",
+                    "name": "Clarinet in Bb",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.clarinet.bass.bflat",
+                    "name": "Bass Clarinet",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.bassoon",
+                    "name": "Bassoon",
+                    "family": "wind",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.wind.contrabassoon",
+                    "name": "Contrabassoon",
+                    "family": "wind",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.horn.f",
+                    "name": "Horn in F",
+                    "family": "brass",
+                    "soloCount": 6,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trumpet.c",
+                    "name": "Trumpet in C",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone",
+                    "name": "Trombone",
+                    "family": "brass",
+                    "soloCount": 3,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.trombone.bass",
+                    "name": "Bass Trombone",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.brass.tuba",
+                    "name": "Tuba",
+                    "family": "brass",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.timpani",
+                    "name": "Timpani",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.snare.drum",
+                    "name": "Snare Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.bass.drum",
+                    "name": "Bass Drum",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.clash.cymbals",
+                    "name": "Clash Cymbals",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.orchestral.unpitched.triangle",
+                    "name": "Triangle",
+                    "family": "percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.glockenspiel",
+                    "name": "Glockenspiel",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.xylophone",
+                    "name": "Xylophone",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.vibraphone.3oct",
+                    "name": "Vibraphone",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.marimba.5oct",
+                    "name": "Marimba",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.bells.tubular",
+                    "name": "Tubular Bells",
+                    "family": "pitched-percussion",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.keyboard.celesta",
+                    "name": "Celesta",
+                    "family": "keyboard",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.keyboard.piano",
+                    "name": "Piano",
+                    "family": "keyboard",
+                    "soloCount": 1,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.pitchedpercussion.harp",
+                    "name": "Harp",
+                    "family": "pitched-percussion",
+                    "soloCount": 2,
+                    "sectionCount": 0
+                },
+                {
+                    "entityID": "instrument.strings.violin",
+                    "name": "Violin",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 2
+                },
+                {
+                    "entityID": "instrument.strings.viola",
+                    "name": "Viola",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.violoncello",
+                    "name": "Violoncello",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                },
+                {
+                    "entityID": "instrument.strings.contrabass",
+                    "name": "Contrabass",
+                    "family": "strings",
+                    "soloCount": 0,
+                    "sectionCount": 1
+                }
+            ]
+        }
+    ]
+}

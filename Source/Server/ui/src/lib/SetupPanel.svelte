@@ -2,6 +2,9 @@
     /** @type {import('svelte')} */
     import { onMount } from "svelte";
     import InstrumentList from "./InstrumentList.svelte";
+    import ensembleData from "./standard_ensembles.json";
+
+    const standardEnsembles = ensembleData.ensembles;
 
     /**
      * Each "chair" in the ensemble — one individual player or section slot.
@@ -18,14 +21,28 @@
     let statusIsError = $state(false);
     let isLoading = $state(true);
 
+    /**
+     * Returns a callable function that invokes the named native function
+     * registered via withNativeFunction() on the C++ side.
+     * Uses JUCE's __juce__invoke event system.
+     */
     const getNative = (name) => {
         const w = /** @type {any} */ (window);
-        return (
-            (w.__JUCE__ && w.__JUCE__.backend && w.__JUCE__.backend[name]) ||
-            window[name] ||
-            (w.juce && w.juce[name]) ||
-            (w.__juce__ && w.__juce__[name])
-        );
+        if (
+            w.__JUCE__ &&
+            w.__JUCE__.backend &&
+            typeof w.__JUCE__.backend.emitEvent === "function"
+        ) {
+            let nextId = 0;
+            return function () {
+                w.__JUCE__.backend.emitEvent("__juce__invoke", {
+                    name: name,
+                    params: Array.prototype.slice.call(arguments),
+                    resultId: nextId++,
+                });
+            };
+        }
+        return null;
     };
 
     // ── Roman numeral helper ──────────────────────────────────────
@@ -263,6 +280,76 @@
         chairs = chairs.filter((c) => c.id !== id);
     };
 
+    // ── Ensemble preset chip logic ───────────────────────────────
+    /**
+     * For each standard ensemble, compute how many instruments are missing.
+     * Returns an array of { ensemble, missing: number, satisfied: boolean }.
+     */
+    let ensembleStatus = $derived.by(() => {
+        // Build a map of current chairs: entityID → { soloCount, sectionCount }
+        const have = {};
+        for (const c of chairs) {
+            if (!have[c.entityID]) have[c.entityID] = { solo: 0, section: 0 };
+            if (c.isSolo) have[c.entityID].solo++;
+            else have[c.entityID].section++;
+        }
+
+        return standardEnsembles.map((ens) => {
+            let missing = 0;
+            for (const inst of ens.instruments) {
+                const h = have[inst.entityID] || { solo: 0, section: 0 };
+                missing += Math.max(0, inst.soloCount - h.solo);
+                missing += Math.max(0, inst.sectionCount - h.section);
+            }
+            return { ensemble: ens, missing, satisfied: missing === 0 };
+        });
+    });
+
+    /**
+     * Add all missing instruments from a standard ensemble.
+     * Only adds what's not already present.
+     */
+    const addEnsemble = (ens) => {
+        const have = {};
+        for (const c of chairs) {
+            if (!have[c.entityID]) have[c.entityID] = { solo: 0, section: 0 };
+            if (c.isSolo) have[c.entityID].solo++;
+            else have[c.entityID].section++;
+        }
+
+        const newChairs = [];
+        for (const inst of ens.instruments) {
+            const h = have[inst.entityID] || { solo: 0, section: 0 };
+            const solosNeeded = Math.max(0, inst.soloCount - h.solo);
+            const sectionsNeeded = Math.max(0, inst.sectionCount - h.section);
+
+            for (let i = 0; i < solosNeeded; i++) {
+                newChairs.push({
+                    entityID: inst.entityID,
+                    name: inst.name,
+                    musicXMLSoundID: "",
+                    family: inst.family || "",
+                    isSolo: true,
+                    id: crypto.randomUUID(),
+                });
+            }
+            for (let i = 0; i < sectionsNeeded; i++) {
+                newChairs.push({
+                    entityID: inst.entityID,
+                    name: inst.name,
+                    musicXMLSoundID: "",
+                    family: inst.family || "",
+                    isSolo: false,
+                    id: crypto.randomUUID(),
+                });
+            }
+        }
+
+        if (newChairs.length > 0) {
+            chairs = [...chairs, ...newChairs];
+        }
+    };
+
     /** Aggregate chairs back into EnsembleSlot format for the backend */
     const chairsToSlots = () => {
         const slotMap = new Map();
@@ -299,6 +386,9 @@
             statusIsError = true;
         }
     };
+
+    // Expose so App.svelte's Save button can trigger us
+    /** @type {any} */ (window).triggerSaveSetup = saveAndGenerate;
 </script>
 
 <div class="setup-container">
@@ -337,7 +427,10 @@
                             <div class="instr-info">
                                 <span class="instr-name">{instr.name}</span>
                                 <span class="instr-family"
-                                    >{instr.family || "—"}</span
+                                    >{instr.entityID.replace(
+                                        /^instrument\./,
+                                        "",
+                                    ) || "—"}</span
                                 >
                             </div>
                             <div class="add-buttons">
@@ -425,8 +518,28 @@
             <!-- Right: Ensemble Chairs -->
             <div class="selected-panel">
                 <div class="panel-header">
-                    <h3>Ensemble</h3>
+                    <h3>Playback Template</h3>
                     <span class="count-badge">{chairs.length} players</span>
+                </div>
+
+                <!-- Ensemble preset chip bar -->
+                <div class="ensemble-chips">
+                    {#each ensembleStatus as { ensemble, missing, satisfied }}
+                        <button
+                            class="ensemble-chip"
+                            class:satisfied
+                            disabled={satisfied}
+                            title={satisfied
+                                ? `${ensemble.name}: all instruments present`
+                                : `${ensemble.name}: add ${missing} missing instrument${missing !== 1 ? "s" : ""}`}
+                            onclick={() => addEnsemble(ensemble)}
+                        >
+                            <span class="chip-name">{ensemble.name}</span>
+                            <span class="chip-badge">
+                                {satisfied ? "✓" : `➕${missing}`}
+                            </span>
+                        </button>
+                    {/each}
                 </div>
 
                 <div class="selected-list">
@@ -442,8 +555,8 @@
                     />
                 </div>
 
-                <div class="action-bar">
-                    {#if statusMessage}
+                {#if statusMessage}
+                    <div class="action-bar">
                         <div
                             class="status-message"
                             class:error={statusIsError}
@@ -451,15 +564,8 @@
                         >
                             {statusMessage}
                         </div>
-                    {/if}
-                    <button
-                        class="generate-btn"
-                        onclick={saveAndGenerate}
-                        disabled={chairs.length === 0}
-                    >
-                        Generate & Install ({chairs.length} presets)
-                    </button>
-                </div>
+                    </div>
+                {/if}
             </div>
         </div>
     {/if}
@@ -467,7 +573,8 @@
 
 <style>
     .setup-container {
-        height: 100%;
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         background: #121212;
@@ -489,6 +596,7 @@
         gap: 1px;
         background: #333;
         overflow: hidden;
+        min-height: 0;
     }
 
     .browser-panel,
@@ -498,6 +606,7 @@
         flex-direction: column;
         background: #1e1e1e;
         overflow: hidden;
+        min-height: 0;
     }
 
     .panel-header {
@@ -522,6 +631,54 @@
         background: rgba(187, 134, 252, 0.15);
         color: #bb86fc;
         border-radius: 10px;
+    }
+
+    .ensemble-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 8px 12px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #2a2a2a;
+        flex-shrink: 0;
+    }
+
+    .ensemble-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        border: 1px solid #444;
+        border-radius: 14px;
+        background: #2a2a2a;
+        color: #ccc;
+        font-size: 0.72em;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        white-space: nowrap;
+    }
+
+    .ensemble-chip:hover:not(:disabled) {
+        background: #383838;
+        border-color: #bb86fc;
+        color: #e0e0e0;
+    }
+
+    .ensemble-chip.satisfied {
+        background: rgba(76, 175, 80, 0.12);
+        border-color: rgba(76, 175, 80, 0.3);
+        color: #81c784;
+        cursor: default;
+        opacity: 0.7;
+    }
+
+    .chip-name {
+        font-weight: 500;
+    }
+
+    .chip-badge {
+        font-size: 0.9em;
+        opacity: 0.8;
     }
 
     .browser-filters {

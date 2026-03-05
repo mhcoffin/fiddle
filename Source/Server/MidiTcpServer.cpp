@@ -42,6 +42,27 @@ void MidiTcpServer::onConnectionChanged(
 
 void MidiTcpServer::disconnectClient() { shouldDisconnect.store(true); }
 
+bool MidiTcpServer::sendToClient(const fiddle::MidiEvent &msg) {
+  std::lock_guard<std::mutex> lock(clientMutex_);
+  if (!currentClient_ || !currentClient_->isConnected())
+    return false;
+
+  std::string binary;
+  if (!msg.SerializeToString(&binary))
+    return false;
+
+  uint32_t size = static_cast<uint32_t>(binary.size());
+  uint32_t networkSize = juce::ByteOrder::swapIfLittleEndian(size);
+
+  if (currentClient_->write(&networkSize, 4) != 4)
+    return false;
+  if (currentClient_->write(binary.data(), (int)binary.size()) !=
+      (int)binary.size())
+    return false;
+
+  return true;
+}
+
 void MidiTcpServer::run() {
   if (!listenerSocket.createListener(port)) {
     DBG("MidiTcpServer: Failed to create listener on port " << port);
@@ -53,6 +74,16 @@ void MidiTcpServer::run() {
   while (!threadShouldExit()) {
     auto *client = listenerSocket.waitForNextConnection();
     if (client != nullptr) {
+      // Register client BEFORE firing the callback so sendToClient() works
+      // from within the connectionCallback (e.g. to push config status).
+      {
+        std::lock_guard<std::mutex> lock(clientMutex_);
+        currentClient_ = client;
+      }
+      // Push cached config_status immediately from the TCP thread.
+      // This avoids waiting for the message thread (which may be busy
+      // loading plugins) to run safeCallAsync.
+      sendCachedConfigStatus();
       if (connectionCallback) {
         connectionCallback(true, client->getHostName());
       }
@@ -70,11 +101,7 @@ void MidiTcpServer::handleConnection(
     std::unique_ptr<juce::StreamingSocket> clientSocket) {
   DBG("MidiTcpServer: Client connected from " << clientSocket->getHostName());
 
-  // Register client so destructor can close it to unblock read()
-  {
-    std::lock_guard<std::mutex> lock(clientMutex_);
-    currentClient_ = clientSocket.get();
-  }
+  // Note: currentClient_ is already set by run() before this is called.
 
   while (!threadShouldExit() && clientSocket->isConnected() &&
          !shouldDisconnect.load()) {
@@ -135,3 +162,25 @@ void MidiTcpServer::handleConnection(
 }
 
 } // namespace fiddle
+
+void fiddle::MidiTcpServer::setCachedConfigStatus(
+    const fiddle::MidiEvent &msg) {
+  std::string binary;
+  if (!msg.SerializeToString(&binary))
+    return;
+  std::lock_guard<std::mutex> lock(clientMutex_);
+  cachedConfigStatus_ = std::move(binary);
+}
+
+void fiddle::MidiTcpServer::sendCachedConfigStatus() {
+  std::lock_guard<std::mutex> lock(clientMutex_);
+  if (!currentClient_ || cachedConfigStatus_.empty())
+    return;
+
+  uint32_t size = static_cast<uint32_t>(cachedConfigStatus_.size());
+  uint32_t networkSize = juce::ByteOrder::swapIfLittleEndian(size);
+
+  currentClient_->write(&networkSize, 4);
+  currentClient_->write(cachedConfigStatus_.data(),
+                        (int)cachedConfigStatus_.size());
+}

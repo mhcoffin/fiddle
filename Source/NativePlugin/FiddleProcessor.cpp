@@ -73,8 +73,7 @@ tresult PLUGIN_API FiddleProcessor::setBusArrangements(
 tresult PLUGIN_API FiddleProcessor::setupProcessing(ProcessSetup &setup) {
   cachedSampleRate_ = setup.sampleRate;
 
-  // Report initial latency from active_config.txt
-  lastKnownDelayMs_ = AudioConsumer::readActiveDelay();
+  // Initial latency uses default; TCP will push the real value once connected
   latencySamples_ =
       static_cast<uint32>(cachedSampleRate_ * lastKnownDelayMs_ / 1000.0);
   pluginLog("[Latency] setupProcessing: delayMs=" +
@@ -97,29 +96,27 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     tcpRelay_->setConnectionCallback([this](bool connected) {
       if (connected) {
         replayProgramState();
-        // Read current config path from active_config.txt (written by server)
-        const char *home = getenv("HOME");
-        if (home) {
-          std::string activeConfigPath =
-              std::string(home) + "/Library/Fiddle/active_config.txt";
-          std::ifstream f(activeConfigPath);
-          if (f.is_open()) {
-            std::string line;
-            std::getline(f, line);
-            if (!line.empty())
-              configPath_ = line;
-          }
-        }
         announceConfigToServer();
         // Remap shared memory to pick up server's new mmap file
         audioConsumer_.remap();
       }
 
-      // Notify controller of connection status, config, and program states
-      sendConnectionStatus(connected);
-      sendConfigToController();
-      sendProgramStatesToController();
+      // Defer all sendMessage() calls to process() — calling them from
+      // the relay thread during setActive() deadlocks with the host.
+      lastConnected_.store(connected, std::memory_order_relaxed);
+      connectionChanged_.store(true, std::memory_order_release);
+      programStatesDirty_.store(true, std::memory_order_relaxed);
+
+      pluginLog("[Connection] " +
+                std::string(connected ? "connected" : "disconnected") +
+                " (deferred to process)");
     });
+
+    // DON'T start the relay thread here — Dorico creates multiple
+    // processor instances during startup, but only one gets process()
+    // called. Starting the relay in the first process() call ensures
+    // only the active instance connects to the server.
+    relayStarted_ = false;
 
     // Reset transport tracking
     wasPlaying_ = false;
@@ -135,6 +132,15 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
   // AUDIO THREAD — no blocking operations (no file I/O, no allocation,
   // no unbounded locks). pushMessage() uses a short mutex lock to enqueue.
 
+  // Start the relay thread on first process() call.
+  // This ensures only the active processor instance (the one Dorico
+  // actually calls process() on) connects to the server.
+  if (tcpRelay_ && !relayStarted_) {
+    relayStarted_ = true;
+    tcpRelay_->start();
+    pluginLog("[process] started relay thread (first process call)");
+  }
+
   // Pull audio from FiddleServer via shared memory
   if (data.numOutputs > 0 && data.outputs[0].numChannels > 0) {
     audioConsumer_.pullAudio(data.outputs[0].channelBuffers32,
@@ -142,28 +148,48 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     data.outputs[0].silenceFlags = 0;
   }
 
-  // Poll for delay changes (check every ~1 second)
-  delayPollCounter_ += data.numSamples;
-  if (delayPollCounter_ >= static_cast<int32>(cachedSampleRate_)) {
-    delayPollCounter_ = 0;
-    int newDelay = AudioConsumer::readActiveDelay();
-    if (newDelay != lastKnownDelayMs_) {
-      pluginLog(
-          "[Latency] delay changed: " + std::to_string(lastKnownDelayMs_) +
-          " -> " + std::to_string(newDelay) + "ms");
-      lastKnownDelayMs_ = newDelay;
-      latencySamples_ =
-          static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
-      // Notify controller so it can call restartComponent(kLatencyChanged)
-      if (auto *msg = allocateMessage()) {
-        msg->setMessageID("LatencyChanged");
-        sendMessage(msg);
-        msg->release();
-        pluginLog("[Latency] Sent LatencyChanged message to controller");
-      } else {
-        pluginLog("[Latency] ERROR: allocateMessage() returned null");
-      }
+  // Handle deferred connection status (set by relay thread callback).
+  // We must send IMessages from process(), not from the relay thread,
+  // because calling sendMessage() from the relay thread during setActive()
+  // can deadlock with the host.
+  if (connectionChanged_.exchange(false, std::memory_order_acquire)) {
+    bool connected = lastConnected_.load(std::memory_order_relaxed);
+    sendConnectionStatus(connected);
+    sendConfigToController();
+    pluginLog("[process] deferred connection status: " +
+              std::string(connected ? "connected" : "disconnected"));
+  }
+
+  // Check for delay changes pushed via TCP (lock-free atomic read)
+  if (tcpRelay_ && tcpRelay_->consumeLatencyChanged()) {
+    int newDelay = tcpRelay_->getDelayMs();
+    pluginLog("[Latency] delay changed via TCP: " +
+              std::to_string(lastKnownDelayMs_) + " -> " +
+              std::to_string(newDelay) + "ms");
+    lastKnownDelayMs_ = newDelay;
+    latencySamples_ =
+        static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
+    // Notify controller so it can call restartComponent(kLatencyChanged)
+    if (auto *msg = allocateMessage()) {
+      msg->setMessageID("LatencyChanged");
+      sendMessage(msg);
+      msg->release();
+      pluginLog("[Latency] Sent LatencyChanged message to controller");
+    } else {
+      pluginLog("[Latency] ERROR: allocateMessage() returned null");
     }
+  }
+
+  // Check for config status changes pushed via TCP (async from server)
+  if (tcpRelay_ && tcpRelay_->consumeConfigChanged()) {
+    std::string name = tcpRelay_->getConfigName();
+    std::string version = tcpRelay_->getConfigVersion();
+    pluginLog("[Config] changed via TCP: name=" + name + " version=" + version);
+    if (!name.empty())
+      configPath_ = name;
+    if (!version.empty())
+      configVersion_ = version;
+    sendConfigToController();
   }
 
   // Get host position (needed by both parameter changes and event processing)
@@ -466,6 +492,16 @@ tresult PLUGIN_API FiddleProcessor::setState(IBStream *state) {
     }
   }
 
+  // Read config version (length-prefixed, added after config path)
+  int32 versionLen = 0;
+  if (state->read(&versionLen, sizeof(int32)) == kResultOk && versionLen > 0 &&
+      versionLen < 4096) {
+    std::vector<char> vbuf(versionLen);
+    if (state->read(vbuf.data(), versionLen) == kResultOk) {
+      configVersion_.assign(vbuf.data(), versionLen);
+    }
+  }
+
   // Push updated state to controller for UI display
   sendConfigToController();
   sendProgramStatesToController();
@@ -489,6 +525,13 @@ tresult PLUGIN_API FiddleProcessor::getState(IBStream *state) {
   state->write(&pathLen, sizeof(int32));
   if (pathLen > 0) {
     state->write(configPath_.data(), pathLen);
+  }
+
+  // Write config version (length-prefixed)
+  int32 versionLen = static_cast<int32>(configVersion_.size());
+  state->write(&versionLen, sizeof(int32));
+  if (versionLen > 0) {
+    state->write(configVersion_.data(), versionLen);
   }
 
   return kResultOk;
@@ -577,6 +620,11 @@ void FiddleProcessor::sendConfigToController() {
     TChar wpath[1024] = {};
     Steinberg::UString(wpath, 1024).fromAscii(configPath_.c_str());
     msg->getAttributes()->setString("Path", wpath);
+
+    TChar wversion[1024] = {};
+    Steinberg::UString(wversion, 1024).fromAscii(configVersion_.c_str());
+    msg->getAttributes()->setString("Version", wversion);
+
     sendMessage(msg);
   }
 }

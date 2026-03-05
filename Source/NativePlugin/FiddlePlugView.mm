@@ -103,7 +103,7 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
   FiddleTagTextField *configNameLabel = [[FiddleTagTextField alloc]
       initWithFrame:NSMakeRect(16, kViewHeight - 32, kViewWidth - 32, 24)];
   configNameLabel.stringValue = @"No config loaded";
-  configNameLabel.font = [NSFont systemFontOfSize:18
+  configNameLabel.font = [NSFont systemFontOfSize:14
                                            weight:NSFontWeightSemibold];
   configNameLabel.textColor = [NSColor colorWithRed:0.8
                                               green:0.3
@@ -113,6 +113,7 @@ tresult PLUGIN_API FiddlePlugView::attached(void *parent, FIDString type) {
   configNameLabel.drawsBackground = NO;
   configNameLabel.editable = NO;
   configNameLabel.selectable = NO;
+  configNameLabel.lineBreakMode = NSLineBreakByTruncatingTail;
   configNameLabel.fiddleTag = 102;
   [container addSubview:configNameLabel];
 
@@ -215,33 +216,92 @@ void FiddlePlugView::refreshDisplay() {
   FiddleTagTextField *configNameLabel =
       (FiddleTagTextField *)findViewByTag(container, 102);
   if (configNameLabel) {
-    std::string configName = controller_->getConfigName();
-    if (!configName.empty()) {
-      configNameLabel.stringValue =
-          [NSString stringWithUTF8String:configName.c_str()];
-      configNameLabel.textColor =
-          connected ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0]
-                    : [NSColor colorWithRed:0.9 green:0.35 blue:0.35 alpha:1.0];
-    } else {
-      configNameLabel.stringValue = @"No config loaded";
-      configNameLabel.textColor = [NSColor colorWithRed:0.5
-                                                  green:0.5
-                                                   blue:0.55
-                                                  alpha:1.0];
+    // Always display "Fiddle" — config names are internal only
+    NSString *display = @"Fiddle";
+
+    // Append formatted timestamp if available
+    std::string version = controller_->getConfigVersion();
+    if (!version.empty()) {
+      NSString *isoStr = [NSString stringWithUTF8String:version.c_str()];
+      NSISO8601DateFormatter *isoFmt = [[NSISO8601DateFormatter alloc] init];
+      isoFmt.formatOptions = NSISO8601DateFormatWithInternetDateTime |
+                             NSISO8601DateFormatWithFractionalSeconds;
+      NSDate *date = [isoFmt dateFromString:isoStr];
+      if (!date) {
+        // Retry without fractional seconds
+        isoFmt.formatOptions = NSISO8601DateFormatWithInternetDateTime;
+        date = [isoFmt dateFromString:isoStr];
+      }
+      if (date) {
+        // Match server's TimeFormat.h exactly:
+        // Today:     "5:03:42 PM"  (with seconds)
+        // Yesterday: "Yesterday 5:03 PM"
+        // This week: "Mon 5:03 PM"
+        // This year: "Feb 20, 5:03 PM"
+        // Older:     "Feb 20, 2025"
+
+        // Time without seconds (for non-today dates)
+        NSCalendar *cal = [NSCalendar currentCalendar];
+        NSDateFormatter *timeFmt = [[NSDateFormatter alloc] init];
+        timeFmt.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+        timeFmt.dateFormat = @"h:mm a";
+        NSString *timeStr = [timeFmt stringFromDate:date];
+
+        NSString *formatted;
+        if ([cal isDateInToday:date]) {
+          // Today: show time WITH seconds
+          NSDateFormatter *secFmt = [[NSDateFormatter alloc] init];
+          secFmt.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+          secFmt.dateFormat = @"h:mm:ss a";
+          formatted = [secFmt stringFromDate:date];
+        } else if ([cal isDateInYesterday:date]) {
+          formatted = [NSString stringWithFormat:@"Yesterday %@", timeStr];
+        } else {
+          // Check if within last 7 days
+          NSDate *weekAgo = [cal dateByAddingUnit:NSCalendarUnitDay
+                                            value:-7
+                                           toDate:[NSDate date]
+                                          options:0];
+          if ([date compare:weekAgo] == NSOrderedDescending) {
+            NSDateFormatter *dayFmt = [[NSDateFormatter alloc] init];
+            dayFmt.dateFormat = @"EEE";
+            formatted = [NSString stringWithFormat:@"%@ %@",
+                                                   [dayFmt stringFromDate:date],
+                                                   timeStr];
+          } else {
+            NSDateFormatter *dateFmt = [[NSDateFormatter alloc] init];
+            dateFmt.dateFormat = @"MMM d";
+            NSInteger pYear = [cal component:NSCalendarUnitYear fromDate:date];
+            NSInteger nYear = [cal component:NSCalendarUnitYear
+                                    fromDate:[NSDate date]];
+            if (pYear == nYear) {
+              formatted = [NSString
+                  stringWithFormat:@"%@, %@", [dateFmt stringFromDate:date],
+                                   timeStr];
+            } else {
+              dateFmt.dateFormat = @"MMM d, yyyy";
+              formatted = [dateFmt stringFromDate:date];
+            }
+          }
+        }
+        display = [display stringByAppendingFormat:@" @ %@", formatted];
+      } else {
+        // Couldn't parse — show raw
+        display = [display stringByAppendingFormat:@" @ %@", isoStr];
+      }
     }
+
+    configNameLabel.stringValue = display;
+    configNameLabel.textColor =
+        connected ? [NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:1.0]
+                  : [NSColor colorWithRed:0.9 green:0.35 blue:0.35 alpha:1.0];
   }
 
-  // Update config path (subdued)
+  // Config path subtitle — no longer shown
   FiddleTagTextField *configPathLabel =
       (FiddleTagTextField *)findViewByTag(container, 103);
   if (configPathLabel) {
-    std::string configPath = controller_->getConfigPath();
-    if (!configPath.empty()) {
-      configPathLabel.stringValue =
-          [NSString stringWithUTF8String:configPath.c_str()];
-    } else {
-      configPathLabel.stringValue = @"";
-    }
+    configPathLabel.stringValue = @"";
   }
 }
 

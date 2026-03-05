@@ -19,6 +19,7 @@ message MidiEvent {
         TransportEvent transport = 12;
         LoadConfigEvent load_config = 15;
         RestoreStateEvent restore_state = 16;
+        ConfigStatusEvent config_status = 17;
     }
 
     optional uint64 host_sample_position = 13;
@@ -28,11 +29,21 @@ message MidiEvent {
 
     message LoadConfigEvent {
         string config_path = 1;
+        string config_version = 2;
     }
 
     message RestoreStateEvent {
         string config_name = 1;
         bytes state_blob = 2;
+        string config_version = 3;
+    }
+
+    // Server → Plugin: pushed whenever config status changes
+    message ConfigStatusEvent {
+        string config_name = 1;
+        string config_version = 2;  // ISO 8601 timestamp
+        bool dirty = 3;
+        int32 delay_ms = 4;
     }
 
     message TransportEvent {

@@ -1,9 +1,12 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <map>
 #include <vector>
 
 namespace fiddle {
+
+class FiddleDatabase;
 
 /**
  * Persists the user's ensemble configuration as JSON.
@@ -39,19 +42,30 @@ public:
   bool save(const juce::File &file) const;
 
   /**
-   * Load from the default save location.
+   * Load from the default save location (legacy JSON file).
    */
   bool loadDefault();
 
   /**
-   * Save to the default save location.
+   * Save to the default save location (legacy JSON file).
    */
   bool saveDefault() const;
 
   /**
-   * Get the default save file path.
+   * Get the default save file path (legacy).
    */
   static juce::File getDefaultFile();
+
+  /**
+   * Load ensemble from the SQLite database.
+   * Falls back to legacy JSON file if DB is empty (one-time migration).
+   */
+  bool loadFromDB(FiddleDatabase &db);
+
+  /**
+   * Save ensemble to the SQLite database.
+   */
+  bool saveToDB(FiddleDatabase &db) const;
 
   /**
    * Get the current list of ensemble slots.
@@ -95,13 +109,28 @@ public:
 
   /**
    * Get a JSON array mapping flat index → {port, channel, name, family,
-   * isSolo}. Same assignment order as DoricoConfigGenerator (index/16=port,
-   * index%16=channel).
+   * isSolo}. Uses persistent assignments if available, falls back to
+   * sequential if not.
    */
   juce::String getChannelMapAsJson() const;
 
+  /**
+   * Reconcile channel assignments against the current slots.
+   * - Keeps existing assignments for instruments still present
+   * - Reclaims graveyard entries for re-added instruments
+   * - Appends new instruments at maxIndex + 1
+   * - Moves removed instruments to graveyard
+   * - Compacts if maxIndex >= 240 (returns true if compacted)
+   */
+  bool reconcileAssignments(FiddleDatabase &db);
+
 private:
   std::vector<EnsembleSlot> slots_;
+
+  /// Persistent flat-index assignments for each chair.
+  /// Key: {entityID, isSolo, instanceNum} → flatIndex.
+  /// Populated by reconcileAssignments().
+  std::map<std::tuple<juce::String, bool, int>, int> assignments_;
 };
 
 } // namespace fiddle

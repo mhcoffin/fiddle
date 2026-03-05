@@ -272,4 +272,42 @@ private:
   juce::String createdId_;
 };
 
+// ─── Compound action (multi-strip group operations) ──────────────────
+
+/// Wraps multiple sub-actions into a single undo step.
+/// execute() runs all sub-actions in order; undo() reverses them.
+class CompoundAction : public UndoableAction {
+public:
+  CompoundAction(juce::String description,
+                 std::vector<std::unique_ptr<UndoableAction>> actions,
+                 juce::String coalesceId = {})
+      : description_(std::move(description)), actions_(std::move(actions)),
+        coalesceId_(std::move(coalesceId)) {}
+
+  void execute() override {
+    for (auto &a : actions_)
+      a->execute();
+  }
+  void undo() override {
+    for (int i = (int)actions_.size() - 1; i >= 0; --i)
+      actions_[(size_t)i]->undo();
+  }
+  juce::String getDescription() const override { return description_; }
+  juce::String getCoalesceId() const override { return coalesceId_; }
+
+  void coalesceWith(const UndoableAction &newer) override {
+    auto &other = static_cast<const CompoundAction &>(newer);
+    // Merge sub-actions pairwise (assumes same count and order)
+    if (actions_.size() == other.actions_.size()) {
+      for (size_t i = 0; i < actions_.size(); ++i)
+        actions_[i]->coalesceWith(*other.actions_[i]);
+    }
+  }
+
+private:
+  juce::String description_;
+  std::vector<std::unique_ptr<UndoableAction>> actions_;
+  juce::String coalesceId_;
+};
+
 } // namespace fiddle

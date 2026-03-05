@@ -7,6 +7,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <vector>
 
 namespace fiddle {
@@ -14,10 +15,47 @@ namespace fiddle {
 /// A single mixer channel strip. Owns a plugin instance + optional editor
 /// window. Identified by a unique string ID.
 struct MixerStrip {
+
+  /// Listener that detects plugin parameter changes via the standard VST3
+  /// notification path. When it fires, we mark the strip dirty and record
+  /// the pluginUid as "listener-capable" so polling can skip it.
+  struct PluginChangeListener : juce::AudioProcessorListener {
+    juce::String stripId;
+    int pluginUid = 0;
+    /// Shared set of pluginUids known to fire listener callbacks.
+    /// Populated by the listener, read by the polling timer.
+    std::set<int> *listenerCapableUids = nullptr;
+    /// Callback to mark Fiddle dirty (set by MainComponent).
+    std::function<void()> onDirty;
+
+    void audioProcessorParameterChanged(juce::AudioProcessor *, int,
+                                        float) override {
+      if (listenerCapableUids && pluginUid != 0)
+        listenerCapableUids->insert(pluginUid);
+      if (onDirty)
+        onDirty();
+    }
+    void audioProcessorChanged(
+        juce::AudioProcessor *,
+        const juce::AudioProcessorListener::ChangeDetails &d) override {
+      if (d.nonParameterStateChanged) {
+        if (listenerCapableUids && pluginUid != 0)
+          listenerCapableUids->insert(pluginUid);
+        if (onDirty)
+          onDirty();
+      }
+    }
+  };
+  PluginChangeListener pluginChangeListener_;
+
   juce::String id;
   juce::String library; // User-supplied VST library label (e.g. "SSP")
   juce::String family;  // Instrument family (e.g. "Strings", "Brass")
   bool isSolo = true;   // true = solo player, false = section
+
+  // Mute/Solo state (standard mixer behavior)
+  bool muted = false;
+  bool soloed = false;
 
   // Input assignment (-1 = unassigned)
   int inputPort = -1;
@@ -27,6 +65,21 @@ struct MixerStrip {
   int pluginUid = 0; // scanned plugin uniqueId (0 = none)
   std::unique_ptr<juce::AudioPluginInstance> pluginInstance;
   std::unique_ptr<PluginEditorWindow> editorWindow;
+
+  /// Cached serialized plugin state. Updated on load, restore, and change
+  /// detection. Used by buildStateBlob() to avoid calling getStateInformation()
+  /// on every plugin for every blob rebuild.
+  juce::MemoryBlock cachedPluginState_;
+
+  /// Re-serialize the live plugin state into cachedPluginState_.
+  void refreshPluginStateCache() {
+    if (pluginInstance) {
+      cachedPluginState_.reset();
+      pluginInstance->getStateInformation(cachedPluginState_);
+    } else {
+      cachedPluginState_.reset();
+    }
+  }
 
   // Expression map
   std::shared_ptr<ExpressionMapData> expressionMap;
@@ -90,7 +143,11 @@ struct MixerStrip {
     pluginInstance->processBlock(dummy, panic);
   }
 
-  void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime) {
+  void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
+                    bool anySoloed = false) {
+    // Effective audibility: not muted AND (no solos active OR this strip
+    // soloed)
+    bool audible = !muted && (!anySoloed || soloed);
     juce::MidiBuffer midiBuffer;
     {
       std::lock_guard<std::mutex> lock(midiMutex);
@@ -117,12 +174,11 @@ struct MixerStrip {
       if (tempBuffer.getNumChannels() > 0 &&
           tempBuffer.getNumSamples() >= numSamples) {
         tempBuffer.clear();
+        // Always process plugin (MIDI stays in sync even when muted)
         pluginInstance->processBlock(tempBuffer, midiBuffer);
 
-        // Apply fader gain and mix down to the main host buffer
-        float db = gainDb.load(std::memory_order_relaxed);
-        if (db <= -120.0f) {
-          // Silence — skip summing, decay peak
+        if (!audible) {
+          // Strip is muted/solo-suppressed: decay meters, don't sum audio
           float decay = 20.0f * numSamples / (float)currentSampleRate;
           float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
           float prev = peakDb.load(std::memory_order_relaxed);
@@ -132,27 +188,41 @@ struct MixerStrip {
           peakHoldDb.store(juce::jmax(-120.0f, prevHold - holdDecay),
                            std::memory_order_relaxed);
         } else {
-          float gain = juce::Decibels::decibelsToGain(db, -120.0f);
-          int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
-                                         tempBuffer.getNumChannels());
-          // Measure peak of the gained signal
-          float blockPeak = 0.0f;
-          for (int i = 0; i < channelsToSum; ++i) {
-            audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples, gain);
-            float chPeak = tempBuffer.getMagnitude(i, 0, numSamples) * gain;
-            blockPeak = juce::jmax(blockPeak, chPeak);
+          // Apply fader gain and mix down to the main host buffer
+          float db = gainDb.load(std::memory_order_relaxed);
+          if (db <= -120.0f) {
+            // Fader at silence — decay peak
+            float decay = 20.0f * numSamples / (float)currentSampleRate;
+            float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
+            float prev = peakDb.load(std::memory_order_relaxed);
+            peakDb.store(juce::jmax(-120.0f, prev - decay),
+                         std::memory_order_relaxed);
+            float prevHold = peakHoldDb.load(std::memory_order_relaxed);
+            peakHoldDb.store(juce::jmax(-120.0f, prevHold - holdDecay),
+                             std::memory_order_relaxed);
+          } else {
+            float gain = juce::Decibels::decibelsToGain(db, -120.0f);
+            int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
+                                           tempBuffer.getNumChannels());
+            // Measure peak of the gained signal
+            float blockPeak = 0.0f;
+            for (int i = 0; i < channelsToSum; ++i) {
+              audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples, gain);
+              float chPeak = tempBuffer.getMagnitude(i, 0, numSamples) * gain;
+              blockPeak = juce::jmax(blockPeak, chPeak);
+            }
+            float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
+            // Bar decay: ~20 dB/sec
+            float decay = 20.0f * numSamples / (float)currentSampleRate;
+            float prev = peakDb.load(std::memory_order_relaxed);
+            peakDb.store(juce::jmax(blockDb, prev - decay),
+                         std::memory_order_relaxed);
+            // Hold decay: ~5 dB/sec (slow)
+            float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
+            float prevHold = peakHoldDb.load(std::memory_order_relaxed);
+            peakHoldDb.store(juce::jmax(blockDb, prevHold - holdDecay),
+                             std::memory_order_relaxed);
           }
-          float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
-          // Bar decay: ~20 dB/sec
-          float decay = 20.0f * numSamples / (float)currentSampleRate;
-          float prev = peakDb.load(std::memory_order_relaxed);
-          peakDb.store(juce::jmax(blockDb, prev - decay),
-                       std::memory_order_relaxed);
-          // Hold decay: ~5 dB/sec (slow)
-          float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
-          float prevHold = peakHoldDb.load(std::memory_order_relaxed);
-          peakHoldDb.store(juce::jmax(blockDb, prevHold - holdDecay),
-                           std::memory_order_relaxed);
         }
       }
     }
@@ -192,10 +262,24 @@ struct MixerStrip {
             std::lock_guard<std::mutex> lock(processMutex);
             tempBuffer.setSize(maxChannels, currentBlockSize);
 
+            // Remove listener from old plugin before swapping
+            if (pluginInstance)
+              pluginInstance->removeListener(&pluginChangeListener_);
+
             oldPlugin = std::move(pluginInstance);
             pluginInstance = std::move(instance);
             pluginUid = desc.uniqueId;
           }
+
+          // Register change listener on the new plugin
+          pluginChangeListener_.stripId = id;
+          pluginChangeListener_.pluginUid = pluginUid;
+          pluginInstance->addListener(&pluginChangeListener_);
+
+          // Populate initial cache (may be overwritten by setStateInformation
+          // in the caller's onComplete callback)
+          refreshPluginStateCache();
+
           // oldPlugin is safely destroyed here, off the audio thread lock.
           // Editor is NOT opened here — user opens it via showEditor().
 
@@ -212,10 +296,12 @@ struct MixerStrip {
 
     std::lock_guard<std::mutex> lock(processMutex);
     if (pluginInstance) {
+      pluginInstance->removeListener(&pluginChangeListener_);
       pluginInstance->releaseResources();
       pluginInstance.reset();
     }
     pluginUid = 0;
+    cachedPluginState_.reset();
   }
 
   /// Show the editor window (create if needed).
@@ -237,6 +323,8 @@ struct MixerStrip {
     obj->setProperty("library", library);
     obj->setProperty("family", family);
     obj->setProperty("isSolo", isSolo);
+    obj->setProperty("muted", muted);
+    obj->setProperty("soloed", soloed);
     obj->setProperty("inputPort", inputPort);
     obj->setProperty("inputChannel", inputChannel);
     obj->setProperty("pluginUid", pluginUid);

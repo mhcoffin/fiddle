@@ -3,6 +3,7 @@
 #include "MixerModel.h"
 #include <juce_core/juce_core.h>
 #include <mutex>
+#include <set>
 #include <sqlite3.h>
 #include <string>
 #include <vector>
@@ -25,6 +26,34 @@ struct StripRow {
 struct SavedConfigInfo {
   juce::String name;
   juce::String version; // ISO 8601 timestamp
+};
+
+/// Persisted window geometry and state.
+struct WindowSettings {
+  juce::String windowId; // "main" or "debug"
+  int x = 0, y = 0;
+  int width = 800, height = 600;
+  bool visible = true;
+  juce::String mode = "mixer"; // main window only
+  bool found = false;          // true if loaded from DB
+};
+
+/// Cached plugin metadata from scanning.
+struct PluginCacheRow {
+  juce::String path;
+  int64_t modTime = 0;
+  juce::String name, manufacturer, category, format;
+  int uid = 0;
+  int numInputs = 0, numOutputs = 0;
+  bool valid = true;
+};
+
+/// A single channel assignment (flat_index → instrument).
+struct ChannelAssignmentRow {
+  int flatIndex = 0;
+  juce::String entityID;
+  bool isSolo = true;
+  int instanceNum = 1;
 };
 
 /// Thread-safe SQLite wrapper for persisting Fiddle server state.
@@ -73,10 +102,22 @@ public:
   // ── Saved configurations ───────────────────────────────────────────
 
   /// Snapshot the current strips table into saved_configs under the given name.
-  void saveConfig(const juce::String &name);
+  /// Returns the generated version string (ISO 8601 timestamp).
+  juce::String saveConfig(const juce::String &name);
 
-  /// Restore strips from a saved config (clears current strips first).
+  /// Save config data with an explicit version (e.g. from Dorico restore).
+  void saveConfigVersion(const juce::String &name, const juce::String &version,
+                         const juce::String &jsonData);
+
+  /// Restore strips from a saved config (latest version). Clears current
+  /// strips.
   bool loadConfig(const juce::String &name);
+
+  /// Restore strips from a specific version of a saved config.
+  bool loadConfigVersion(const juce::String &name, const juce::String &version);
+
+  /// Check if a specific version of a config exists.
+  bool hasConfigVersion(const juce::String &name, const juce::String &version);
 
   /// List all saved configuration names (latest version of each).
   std::vector<SavedConfigInfo> listConfigs();
@@ -86,6 +127,67 @@ public:
 
   /// Delete all versions of a saved config.
   void deleteConfig(const juce::String &name);
+
+  // ── Plugin capabilities ────────────────────────────────────────────
+
+  /// Record that a plugin UID fires AudioProcessorListener callbacks.
+  void savePluginCapability(int pluginUid);
+
+  /// Load all plugin UIDs known to fire listener callbacks.
+  std::set<int> loadListenerCapableUids();
+
+  // ── Window settings ────────────────────────────────────────────────
+
+  /// Save window position, size, visibility, and mode.
+  void saveWindowSettings(const WindowSettings &ws);
+
+  /// Load window settings by id ("main" or "debug"). Returns defaults if
+  /// not found.
+  WindowSettings loadWindowSettings(const juce::String &windowId);
+
+  // ── Plugin cache ───────────────────────────────────────────────────
+
+  /// Insert or update a plugin cache entry.
+  void savePluginCacheEntry(const PluginCacheRow &row);
+
+  /// Load all cached plugin entries.
+  std::vector<PluginCacheRow> loadPluginCache();
+
+  /// Remove a plugin entry by path.
+  void removePluginCacheEntry(const juce::String &path);
+
+  /// Clear the entire plugin cache (for full rescan).
+  void clearPluginCache();
+
+  // ── Ensemble slots ────────────────────────────────────────────────
+
+  /// Replace all ensemble slots with the given JSON array.
+  void saveEnsemble(const juce::String &slotsJson);
+
+  /// Load ensemble slots as a JSON array string. Returns empty string if
+  /// no rows exist.
+  juce::String loadEnsemble();
+
+  // ── Channel assignments ─────────────────────────────────────────
+
+  /// Save all channel assignments (replaces existing).
+  void saveChannelAssignments(const std::vector<ChannelAssignmentRow> &rows);
+
+  /// Load all channel assignments.
+  std::vector<ChannelAssignmentRow> loadChannelAssignments();
+
+  /// Move an assignment row to the graveyard.
+  void moveToGraveyard(const ChannelAssignmentRow &row);
+
+  /// Try to reclaim a graveyard entry for a given entityID + isSolo.
+  /// Returns the flat_index if found, or -1.
+  int reclaimFromGraveyard(const juce::String &entityID, bool isSolo);
+
+  /// Load all graveyard entries.
+  std::vector<ChannelAssignmentRow> loadGraveyard();
+
+  /// Clear the entire graveyard.
+  void clearGraveyard();
 
 private:
   void createSchema();
@@ -107,10 +209,32 @@ private:
   sqlite3_stmt *stmtSaveSetting_ = nullptr;
   sqlite3_stmt *stmtLoadSetting_ = nullptr;
   sqlite3_stmt *stmtSaveConfig_ = nullptr;
+  sqlite3_stmt *stmtSaveConfigVersion_ = nullptr;
   sqlite3_stmt *stmtLoadConfig_ = nullptr;
+  sqlite3_stmt *stmtLoadConfigVersion_ = nullptr;
+  sqlite3_stmt *stmtHasConfigVersion_ = nullptr;
   sqlite3_stmt *stmtListConfigs_ = nullptr;
   sqlite3_stmt *stmtListConfigVersions_ = nullptr;
   sqlite3_stmt *stmtDeleteConfig_ = nullptr;
+  sqlite3_stmt *stmtSavePluginCapability_ = nullptr;
+  sqlite3_stmt *stmtLoadListenerUids_ = nullptr;
+  sqlite3_stmt *stmtSaveWindowSettings_ = nullptr;
+  sqlite3_stmt *stmtLoadWindowSettings_ = nullptr;
+  sqlite3_stmt *stmtSavePluginCache_ = nullptr;
+  sqlite3_stmt *stmtLoadPluginCache_ = nullptr;
+  sqlite3_stmt *stmtRemovePluginCache_ = nullptr;
+  sqlite3_stmt *stmtClearPluginCache_ = nullptr;
+  sqlite3_stmt *stmtClearEnsemble_ = nullptr;
+  sqlite3_stmt *stmtInsertEnsembleSlot_ = nullptr;
+  sqlite3_stmt *stmtLoadEnsemble_ = nullptr;
+  sqlite3_stmt *stmtClearAssignments_ = nullptr;
+  sqlite3_stmt *stmtInsertAssignment_ = nullptr;
+  sqlite3_stmt *stmtLoadAssignments_ = nullptr;
+  sqlite3_stmt *stmtClearGraveyard_ = nullptr;
+  sqlite3_stmt *stmtInsertGraveyard_ = nullptr;
+  sqlite3_stmt *stmtFindGraveyard_ = nullptr;
+  sqlite3_stmt *stmtRemoveGraveyard_ = nullptr;
+  sqlite3_stmt *stmtLoadGraveyard_ = nullptr;
 };
 
 } // namespace fiddle

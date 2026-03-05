@@ -31,6 +31,14 @@ public:
   /// Request that the current client connection be closed.
   void disconnectClient();
 
+  /// Send a protobuf message to the connected client (server → plugin).
+  /// Thread-safe. Returns false if no client connected or write fails.
+  bool sendToClient(const fiddle::MidiEvent &msg);
+
+  /// Cache a config_status message (called from message thread).
+  /// The cached bytes are pushed to new clients immediately on connect.
+  void setCachedConfigStatus(const fiddle::MidiEvent &msg);
+
 private:
   int port;
   juce::StreamingSocket listenerSocket;
@@ -43,6 +51,11 @@ private:
   std::atomic<bool> shouldDisconnect{false};
   std::mutex clientMutex_;
   juce::StreamingSocket *currentClient_{nullptr};
+  std::string cachedConfigStatus_; // guarded by clientMutex_
+
+  /// Send the cached config_status bytes to the current client.
+  /// Must be called with clientMutex_ NOT held (acquires it internally).
+  void sendCachedConfigStatus();
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiTcpServer)
 };

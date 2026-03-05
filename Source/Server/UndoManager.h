@@ -98,12 +98,23 @@ public:
   void clear() {
     undoStack_.clear();
     redoStack_.clear();
+    savePointIndex_ = 0;
+  }
+
+  /// Mark the current undo stack position as the "saved" state.
+  void markSavePoint() { savePointIndex_ = (int)undoStack_.size(); }
+
+  /// Returns true if the undo stack is at the save point (i.e. no unsaved
+  /// changes relative to the last save).
+  bool isAtSavePoint() const {
+    return (int)undoStack_.size() == savePointIndex_;
   }
 
 private:
   std::vector<std::unique_ptr<UndoableAction>> undoStack_;
   std::vector<std::unique_ptr<UndoableAction>> redoStack_;
   uint32_t lastActionTimeMs_ = 0;
+  int savePointIndex_ = 0; ///< Undo stack size at last save
 };
 
 } // namespace fiddle

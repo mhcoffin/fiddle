@@ -174,7 +174,7 @@
     let groupedInstruments = $derived.by(() => {
         const sorted = [...instruments].sort(sortScoreOrder);
 
-        /** @type {{ family: string, instruments: Instrument[], colors: any }[]} */
+        /** @type {{ family: string, solos: Instrument[], sections: Instrument[], colors: any }[]} */
         const groups = [];
         const familyMap = new Map();
 
@@ -183,13 +183,16 @@
             if (!familyMap.has(fam)) {
                 const group = {
                     family: fam,
-                    instruments: [],
+                    solos: [],
+                    sections: [],
                     colors: FAMILY_COLORS[fam] || FAMILY_COLORS.choir,
                 };
                 familyMap.set(fam, group);
                 groups.push(group);
             }
-            familyMap.get(fam).instruments.push(inst);
+            const g = familyMap.get(fam);
+            if (inst.isSection) g.sections.push(inst);
+            else g.solos.push(inst);
         }
 
         return groups;
@@ -253,7 +256,7 @@
                         style="background: {group.colors
                             .accent}20; color: {group.colors.accent};"
                     >
-                        {group.instruments.length}
+                        {group.solos.length + group.sections.length}
                     </span>
                 </button>
 
@@ -263,48 +266,66 @@
                         class="family-items"
                         style="border-left: 3px solid {group.colors.accent};"
                     >
-                        {#each group.instruments as inst (inst.id)}
+                        <!-- Solo instruments -->
+                        {#each group.solos as inst (inst.id)}
                             <div
                                 class="instrument-row"
-                                style="background: {inst.isSection
-                                    ? group.colors.section
-                                    : group.colors.solo};"
+                                style="background: {group.colors.solo};"
                             >
-                                <span
-                                    class="inst-icon"
-                                    title={inst.isSection ? "Section" : "Solo"}
+                                <span class="inst-icon" title="Solo">
+                                    <svg
+                                        viewBox="0 0 20 20"
+                                        width="16"
+                                        height="14"
+                                        fill="currentColor"
+                                    >
+                                        <circle cx="10" cy="6" r="3.5" />
+                                        <path
+                                            d="M3.5 17.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"
+                                        />
+                                    </svg>
+                                </span>
+                                <span class="inst-name">{inst.name}</span>
+                                <span class="inst-channel" title="MIDI Channel"
+                                    >Ch {inst.channel}</span
                                 >
-                                    {#if inst.isSection}
-                                        <!-- Section icon: two people -->
-                                        <svg
-                                            viewBox="0 0 24 20"
-                                            width="18"
-                                            height="14"
-                                            fill="currentColor"
-                                        >
-                                            <circle cx="8" cy="6" r="3" />
-                                            <path
-                                                d="M2 17c0-3.3 2.7-6 6-6s6 2.7 6 6"
-                                            />
-                                            <circle cx="16" cy="6" r="3" />
-                                            <path
-                                                d="M10 17c0-3.3 2.7-6 6-6s6 2.7 6 6"
-                                            />
-                                        </svg>
-                                    {:else}
-                                        <!-- Solo icon: single person -->
-                                        <svg
-                                            viewBox="0 0 20 20"
-                                            width="16"
-                                            height="14"
-                                            fill="currentColor"
-                                        >
-                                            <circle cx="10" cy="6" r="3.5" />
-                                            <path
-                                                d="M3.5 17.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5"
-                                            />
-                                        </svg>
-                                    {/if}
+                                {#if onremove}
+                                    <button
+                                        class="remove-btn"
+                                        onclick={() => onremove(inst.id)}
+                                        title="Remove instrument">✕</button
+                                    >
+                                {/if}
+                            </div>
+                        {/each}
+
+                        <!-- Divider between solo and section within family -->
+                        {#if group.solos.length > 0 && group.sections.length > 0}
+                            <div class="solo-section-divider"></div>
+                        {/if}
+
+                        <!-- Section instruments -->
+                        {#each group.sections as inst (inst.id)}
+                            <div
+                                class="instrument-row"
+                                style="background: {group.colors.section};"
+                            >
+                                <span class="inst-icon" title="Section">
+                                    <svg
+                                        viewBox="0 0 24 20"
+                                        width="18"
+                                        height="14"
+                                        fill="currentColor"
+                                    >
+                                        <circle cx="8" cy="6" r="3" />
+                                        <path
+                                            d="M2 17c0-3.3 2.7-6 6-6s6 2.7 6 6"
+                                        />
+                                        <circle cx="16" cy="6" r="3" />
+                                        <path
+                                            d="M10 17c0-3.3 2.7-6 6-6s6 2.7 6 6"
+                                        />
+                                    </svg>
                                 </span>
                                 <span class="inst-name">{inst.name}</span>
                                 <span class="inst-channel" title="MIDI Channel"
@@ -409,6 +430,12 @@
         display: flex;
         flex-direction: column;
         margin-left: 4px;
+    }
+
+    .solo-section-divider {
+        height: 1px;
+        background: #334155;
+        margin: 4px 8px;
     }
 
     .instrument-row {

@@ -7,6 +7,13 @@
   import PluginsPanel from "./lib/PluginsPanel.svelte";
   import MixerPanel from "./lib/MixerPanel.svelte";
 
+  // Determine window mode from URL parameter
+  const urlParams = new URLSearchParams(window.location.search);
+  const windowMode = urlParams.get("mode") || "main";
+
+  // Main window mode: "mixer" or "setup"
+  let mainMode = $state("mixer");
+
   // Use Svelte 5 Runes for reactivity
   let logs = $state([]);
   let activeNotes = $state([]);
@@ -91,14 +98,32 @@
     }
   };
 
+  /**
+   * Returns a callable function that invokes the named native function
+   * registered via withNativeFunction() on the C++ side.
+   *
+   * JUCE native functions work through the __juce__invoke event system,
+   * NOT as properties on __JUCE__.backend.
+   */
   const getNative = (name) => {
     const w = /** @type {any} */ (window);
-    return (
-      (w.__JUCE__ && w.__JUCE__.backend && w.__JUCE__.backend[name]) ||
-      window[name] ||
-      (w.juce && w.juce[name]) ||
-      (w.__juce__ && w.__juce__[name])
-    );
+    if (
+      w.__JUCE__ &&
+      w.__JUCE__.backend &&
+      typeof w.__JUCE__.backend.emitEvent === "function"
+    ) {
+      // Use a monotonically increasing ID — we don't need the promise result
+      // for fire-and-forget calls like signalReady, nativeLog, scanPlugins, etc.
+      let nextId = 0;
+      return function () {
+        w.__JUCE__.backend.emitEvent("__juce__invoke", {
+          name: name,
+          params: Array.prototype.slice.call(arguments),
+          resultId: nextId++,
+        });
+      };
+    }
+    return null;
   };
 
   const nativeLog = (msg) => {
@@ -127,10 +152,16 @@
   // owning components mount. The real handlers overwrite these.
   window.setMixerState = window.setMixerState || (() => {});
   window.setPluginList = window.setPluginList || (() => {});
-  window.setLoadedPlugins = window.setLoadedPlugins || (() => {});
   window.setExpressionMaps = window.setExpressionMaps || (() => {});
   window.setAvailableInputs = window.setAvailableInputs || (() => {});
   window.setPlaybackDelay = window.setPlaybackDelay || (() => {});
+
+  // Allow C++ to set the main window mode
+  window.setMainMode = (mode) => {
+    if (mode === "mixer" || mode === "setup") {
+      mainMode = mode;
+    }
+  };
 
   nativeLog("JS Booting: Bundle loaded");
   window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
@@ -339,92 +370,124 @@
 </script>
 
 <div class="app-container">
-  <nav class="tab-nav">
-    <button
-      class:active={activeTab === "timeline"}
-      onclick={() => (activeTab = "timeline")}>Timeline</button
-    >
-    <button
-      class:active={activeTab === "eventlog"}
-      onclick={() => (activeTab = "eventlog")}>Event Log</button
-    >
-    <button
-      class:active={activeTab === "setup"}
-      onclick={() => (activeTab = "setup")}>Setup</button
-    >
-    <button
-      class:active={activeTab === "plugins"}
-      onclick={() => (activeTab = "plugins")}>Plugins</button
-    >
-    <button
-      class:active={activeTab === "mixer"}
-      onclick={() => (activeTab = "mixer")}>Mixer</button
-    >
-  </nav>
+  {#if windowMode === "debug"}
+    <!-- DEBUG WINDOW: tab bar with timeline, eventlog, plugins -->
+    <nav class="tab-nav">
+      <button
+        class:active={activeTab === "timeline"}
+        onclick={() => (activeTab = "timeline")}>Timeline</button
+      >
+      <button
+        class:active={activeTab === "eventlog"}
+        onclick={() => (activeTab = "eventlog")}>Event Log</button
+      >
+      <button
+        class:active={activeTab === "plugins"}
+        onclick={() => (activeTab = "plugins")}>Plugins</button
+      >
+    </nav>
 
-  <main class="main-content">
-    {#if activeTab === "timeline"}
-      <div class="panel-timeline">
-        <Timeline
-          {noteHistory}
-          {heartbeat}
-          firstSample={sessionOffset}
-          {channelInstruments}
-          {instrumentMap}
-          onHover={handleHover}
-          onLeave={handleLeave}
-        />
-      </div>
-    {:else if activeTab === "eventlog"}
-      <div class="panel-eventlog">
-        <EventLog
-          {midiEvents}
-          {sessionOffset}
-          {isConnected}
-          activeCount={activeNotes.length}
-          historyCount={noteHistory.length}
-          onAddTestNote={addTestNote}
-          onClearHistory={clearHistory}
-          onClearLogs={clearLogs}
-          onResetSession={() => resetSession(false)}
-        />
-      </div>
-    {:else if activeTab === "setup"}
-      <div class="panel-setup">
-        <SetupPanel />
-      </div>
-    {:else if activeTab === "plugins"}
-      <div class="panel-plugins">
-        <PluginsPanel />
-      </div>
-    {:else if activeTab === "mixer"}
-      <div class="panel-mixer">
-        <MixerPanel />
+    <main class="main-content">
+      {#if activeTab === "timeline"}
+        <div class="panel-timeline">
+          <Timeline
+            {noteHistory}
+            {heartbeat}
+            firstSample={sessionOffset}
+            {channelInstruments}
+            {instrumentMap}
+            onHover={handleHover}
+            onLeave={handleLeave}
+          />
+        </div>
+      {:else if activeTab === "eventlog"}
+        <div class="panel-eventlog">
+          <EventLog
+            {midiEvents}
+            {sessionOffset}
+            {isConnected}
+            activeCount={activeNotes.length}
+            historyCount={noteHistory.length}
+            onAddTestNote={addTestNote}
+            onClearHistory={clearHistory}
+            onClearLogs={clearLogs}
+            onResetSession={() => resetSession(false)}
+          />
+        </div>
+      {:else if activeTab === "plugins"}
+        <div class="panel-plugins">
+          <PluginsPanel />
+        </div>
+      {/if}
+    </main>
+
+    {#if hoveredNote}
+      <div
+        class="global-floating-tooltip {tooltipPlacement}"
+        style="left: {tooltipPos.x}px; top: {tooltipPos.y}px;"
+      >
+        <strong>Note {hoveredNote?.noteNumber ?? "N/A"}</strong><br />
+        Channel: {hoveredNote?.channel ?? "N/A"}<br />
+        Velocity: Start {hoveredNote?.startVelocity ?? 0}, End {hoveredNote?.endVelocity ??
+          0}<br />
+        Start: {hoveredNote?.startSample ?? 0}<br />
+        Duration: {hoveredNote?.durationSamples ?? 0}<br />
+        <hr />
+        {#if hoveredNote?.dimensions}
+          <strong>Dimensions:</strong><br />
+          {#each Object.entries(hoveredNote.dimensions) as [dim, val]}
+            {#if !hoveredNote?.notation_is_default?.[dim]}
+              {dim}: {hoveredNote?.techniques?.[dim] || val}<br />
+            {/if}
+          {/each}
+        {/if}
       </div>
     {/if}
-  </main>
-
-  {#if hoveredNote}
-    <div
-      class="global-floating-tooltip {tooltipPlacement}"
-      style="left: {tooltipPos.x}px; top: {tooltipPos.y}px;"
-    >
-      <strong>Note {hoveredNote?.noteNumber ?? "N/A"}</strong><br />
-      Channel: {hoveredNote?.channel ?? "N/A"}<br />
-      Velocity: Start {hoveredNote?.startVelocity ?? 0}, End {hoveredNote?.endVelocity ??
-        0}<br />
-      Start: {hoveredNote?.startSample ?? 0}<br />
-      Duration: {hoveredNote?.durationSamples ?? 0}<br />
-      <hr />
-      {#if hoveredNote?.dimensions}
-        <strong>Dimensions:</strong><br />
-        {#each Object.entries(hoveredNote.dimensions) as [dim, val]}
-          {#if !hoveredNote?.notation_is_default?.[dim]}
-            {dim}: {hoveredNote?.techniques?.[dim] || val}<br />
-          {/if}
-        {/each}
+  {:else}
+    <!-- MAIN WINDOW: mixer or setup mode -->
+    <main class="main-content">
+      {#if mainMode === "setup"}
+        <div class="panel-setup">
+          <div class="setup-toolbar">
+            <h2>Edit Playback Template</h2>
+            <div class="setup-toolbar-right">
+              <button
+                class="setup-cancel-btn"
+                onclick={() => {
+                  mainMode = "mixer";
+                  const sm = getNative("setMode");
+                  if (sm) sm("mixer");
+                  const f = getNative("cancelSetup");
+                  if (f) f();
+                }}>Cancel</button
+              >
+              <button
+                class="setup-save-btn"
+                onclick={() => {
+                  if (window.triggerSaveSetup) window.triggerSaveSetup();
+                  mainMode = "mixer";
+                  const sm = getNative("setMode");
+                  if (sm) sm("mixer");
+                }}>Save</button
+              >
+            </div>
+          </div>
+          <SetupPanel />
+        </div>
+      {:else}
+        <div class="panel-mixer">
+          <MixerPanel
+            onEditSetup={() => {
+              mainMode = "setup";
+              const sm = getNative("setMode");
+              if (sm) sm("setup");
+              const f = getNative("requestSetupData");
+              if (f) f();
+            }}
+          />
+        </div>
       {/if}
-    </div>
+    </main>
   {/if}
 </div>
 
@@ -500,9 +563,11 @@
   .panel-plugins {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     position: relative;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
 
   .panel-mixer {
@@ -511,6 +576,55 @@
     position: relative;
     display: flex;
     flex-direction: column;
+  }
+
+  /* Setup toolbar with Cancel/Save */
+  .setup-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #0f172a;
+    border-bottom: 1px solid #1e293b;
+  }
+  .setup-toolbar h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #e2e8f0;
+  }
+  .setup-toolbar-right {
+    display: flex;
+    gap: 8px;
+  }
+  .setup-cancel-btn {
+    background: transparent;
+    border: 1px solid #475569;
+    color: #94a3b8;
+    padding: 5px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s;
+  }
+  .setup-cancel-btn:hover {
+    background: rgba(100, 116, 139, 0.2);
+    color: #f1f5f9;
+  }
+  .setup-save-btn {
+    background: #0ea5e9;
+    border: none;
+    color: white;
+    padding: 5px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+  .setup-save-btn:hover {
+    background: #38bdf8;
   }
 
   /* Global scrollbar styling */
