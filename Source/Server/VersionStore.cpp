@@ -1,8 +1,8 @@
 #include "VersionStore.h"
 
 #include <algorithm>
+#include <map>
 #include <random>
-#include <sstream>
 #include <unordered_set>
 
 namespace fiddle::versioning {
@@ -13,7 +13,7 @@ VersionStore::VersionStore(IVersionStorage &storage) : storage_(storage) {}
 // UUID generation
 // ---------------------------------------------------------------------------
 
-BranchId VersionStore::generateUUID() {
+std::string VersionStore::generateUUID() {
   static std::random_device rd;
   static std::mt19937_64 gen(rd());
   static std::uniform_int_distribution<uint64_t> dist;
@@ -23,11 +23,8 @@ BranchId VersionStore::generateUUID() {
 
   // Format as 8-4-4-4-12 hex
   char buf[37];
-  std::snprintf(buf, sizeof(buf),
-                "%08x-%04x-%04x-%04x-%012llx",
-                (uint32_t)(a >> 32),
-                (uint16_t)(a >> 16),
-                (uint16_t)(a),
+  std::snprintf(buf, sizeof(buf), "%08x-%04x-%04x-%04x-%012llx",
+                (uint32_t)(a >> 32), (uint16_t)(a >> 16), (uint16_t)(a),
                 (uint16_t)(b >> 48),
                 (unsigned long long)(b & 0x0000FFFFFFFFFFFFULL));
   return std::string(buf);
@@ -37,37 +34,47 @@ BranchId VersionStore::generateUUID() {
 // Initialization
 // ---------------------------------------------------------------------------
 
-Hash VersionStore::initializeEmpty() {
+VersionId VersionStore::initializeEmpty() {
+  if (storage_.findBranchByName("Main")) {
+    // Already initialized — return current main head
+    return storage_.getBranch(*storage_.findBranchByName("Main"))->second;
+  }
+
+  // Seed default library
+  if (!storage_.getLibraryName(kDefaultLibraryId)) {
+    storage_.putLibrary(kDefaultLibraryId, "");
+  }
+
   // Create an empty fiddle state
   FiddleState rootState;
   rootState.globalState.masterGainDb = 0.0f;
-  // No strips.
 
   Hash stateHash = rootState.computeHash();
   storage_.putFiddleState(stateHash, rootState);
 
-  // Create the root version (no parent, no merge-parent)
+  // Create the root version with a random VersionId
   BranchId mainBranchId = generateUUID();
+  VersionId rootId = generateUUID();
 
   Version rootVersion;
+  rootVersion.id = rootId;
   rootVersion.stateHash = stateHash;
   rootVersion.branchId = mainBranchId;
-  // parentHash and mergeParentHash remain empty
+  // parentId and mergeParentId remain empty (root version)
 
-  Hash versionHash = rootVersion.computeHash();
-  storage_.putVersion(versionHash, rootVersion);
+  storage_.putVersion(rootId, rootVersion);
 
   // Create the "Main" branch pointing to the root version
-  storage_.putBranch(mainBranchId, "Main", versionHash);
+  storage_.putBranch(mainBranchId, "Main", rootId);
 
-  return versionHash;
+  return rootId;
 }
 
 // ---------------------------------------------------------------------------
 // Querying
 // ---------------------------------------------------------------------------
 
-std::optional<Hash>
+std::optional<VersionId>
 VersionStore::getBranchHead(const BranchId &branchId) const {
   auto branch = storage_.getBranch(branchId);
   if (!branch)
@@ -75,8 +82,8 @@ VersionStore::getBranchHead(const BranchId &branchId) const {
   return branch->second;
 }
 
-std::optional<Version> VersionStore::getVersion(const Hash &hash) const {
-  return storage_.getVersion(hash);
+std::optional<Version> VersionStore::getVersion(const VersionId &id) const {
+  return storage_.getVersion(id);
 }
 
 std::optional<FiddleState> VersionStore::getState(const Hash &hash) const {
@@ -87,35 +94,41 @@ std::optional<StripBlob> VersionStore::getStripBlob(const Hash &hash) const {
   return storage_.getStripBlob(hash);
 }
 
-std::vector<Hash>
-VersionStore::getAncestorChain(const Hash &versionHash) const {
+std::vector<VersionId>
+VersionStore::getAncestorChain(const VersionId &versionId) const {
   // Walk parent pointers to root, then reverse.
-  std::vector<Hash> chain;
-  Hash current = versionHash;
+  std::vector<VersionId> chain;
+  VersionId current = versionId;
 
   while (!current.empty()) {
     chain.push_back(current);
     auto ver = storage_.getVersion(current);
     if (!ver)
       break;
-    current = ver->parentHash;
+    current = ver->parentId;
   }
 
   std::reverse(chain.begin(), chain.end());
   return chain;
 }
 
-bool VersionStore::isAncestor(const Hash &candidate, const Hash &of) const {
+std::vector<std::pair<VersionId, Version>>
+VersionStore::listAllVersions() const {
+  return storage_.listAllVersions();
+}
+
+bool VersionStore::isAncestor(const VersionId &candidate,
+                              const VersionId &of) const {
   if (candidate == of)
     return true;
 
   // BFS from `of` walking both parent and merge-parent edges.
-  std::unordered_set<Hash> visited;
-  std::vector<Hash> queue;
+  std::unordered_set<VersionId> visited;
+  std::vector<VersionId> queue;
   queue.push_back(of);
 
   while (!queue.empty()) {
-    Hash current = queue.back();
+    VersionId current = queue.back();
     queue.pop_back();
 
     if (current == candidate)
@@ -129,29 +142,24 @@ bool VersionStore::isAncestor(const Hash &candidate, const Hash &of) const {
     if (!ver)
       continue;
 
-    if (!ver->parentHash.empty())
-      queue.push_back(ver->parentHash);
-    if (!ver->mergeParentHash.empty())
-      queue.push_back(ver->mergeParentHash);
+    if (!ver->parentId.empty())
+      queue.push_back(ver->parentId);
+    if (!ver->mergeParentId.empty())
+      queue.push_back(ver->mergeParentId);
   }
 
   return false;
 }
 
-std::optional<Hash> VersionStore::findCommonAncestor(const Hash &a,
-                                                     const Hash &b) const {
-  // Collect all ancestors of `a`, then walk ancestors of `b` to find the
-  // first match. This finds *a* common ancestor; for LCA we'd need a more
-  // sophisticated algorithm, but for our merge use case this is sufficient
-  // since we primarily follow parent edges.
-
-  // Collect ancestors of `a` (BFS over parent + merge-parent)
-  std::unordered_set<Hash> ancestorsOfA;
+std::optional<VersionId>
+VersionStore::findCommonAncestor(const VersionId &a, const VersionId &b) const {
+  // Collect all ancestors of `a`, then BFS from `b` to find nearest match.
+  std::unordered_set<VersionId> ancestorsOfA;
   {
-    std::vector<Hash> queue;
+    std::vector<VersionId> queue;
     queue.push_back(a);
     while (!queue.empty()) {
-      Hash current = queue.back();
+      VersionId current = queue.back();
       queue.pop_back();
       if (ancestorsOfA.count(current))
         continue;
@@ -159,23 +167,21 @@ std::optional<Hash> VersionStore::findCommonAncestor(const Hash &a,
       auto ver = storage_.getVersion(current);
       if (!ver)
         continue;
-      if (!ver->parentHash.empty())
-        queue.push_back(ver->parentHash);
-      if (!ver->mergeParentHash.empty())
-        queue.push_back(ver->mergeParentHash);
+      if (!ver->parentId.empty())
+        queue.push_back(ver->parentId);
+      if (!ver->mergeParentId.empty())
+        queue.push_back(ver->mergeParentId);
     }
   }
 
-  // BFS from `b`, return first node in ancestorsOfA.
-  // We use BFS to find the *nearest* common ancestor.
   {
-    std::unordered_set<Hash> visited;
-    std::vector<Hash> queue;
+    std::unordered_set<VersionId> visited;
+    std::vector<VersionId> queue;
     queue.push_back(b);
     size_t front = 0;
 
     while (front < queue.size()) {
-      Hash current = queue[front++];
+      VersionId current = queue[front++];
 
       if (ancestorsOfA.count(current))
         return current;
@@ -187,10 +193,10 @@ std::optional<Hash> VersionStore::findCommonAncestor(const Hash &a,
       auto ver = storage_.getVersion(current);
       if (!ver)
         continue;
-      if (!ver->parentHash.empty())
-        queue.push_back(ver->parentHash);
-      if (!ver->mergeParentHash.empty())
-        queue.push_back(ver->mergeParentHash);
+      if (!ver->parentId.empty())
+        queue.push_back(ver->parentId);
+      if (!ver->mergeParentId.empty())
+        queue.push_back(ver->mergeParentId);
     }
   }
 
@@ -201,55 +207,53 @@ std::optional<Hash> VersionStore::findCommonAncestor(const Hash &a,
 // Mutations
 // ---------------------------------------------------------------------------
 
-Hash VersionStore::commitVersion(const BranchId &branchId,
-                                 const FiddleState &state) {
-  // Store strip blobs (caller should have already stored them,
-  // but we ensure the state is stored)
+VersionId VersionStore::commitVersion(const BranchId &branchId,
+                                      const FiddleState &state) {
   Hash stateHash = state.computeHash();
   storage_.putFiddleState(stateHash, state);
 
-  // Get the current branch head (which becomes the parent)
+  // Get the current branch head (becomes the parent)
   auto branch = storage_.getBranch(branchId);
-  Hash parentHash = branch ? branch->second : "";
+  VersionId parentId = branch ? branch->second : "";
 
-  // Create the version
+  // Create the new version with a random UUID
+  VersionId newId = generateUUID();
   Version ver;
+  ver.id = newId;
   ver.stateHash = stateHash;
   ver.branchId = branchId;
-  ver.parentHash = parentHash;
-  // mergeParentHash stays empty
+  ver.parentId = parentId;
+  // mergeParentId stays empty
 
-  Hash versionHash = ver.computeHash();
-  storage_.putVersion(versionHash, ver);
+  storage_.putVersion(newId, ver);
 
   // Advance the branch head
-  storage_.updateBranchHead(branchId, versionHash);
+  storage_.updateBranchHead(branchId, newId);
 
-  return versionHash;
+  return newId;
 }
 
 BranchId VersionStore::createBranch(const std::string &name,
-                                    const Hash &fromVersionHash) {
-  BranchId newId = generateUUID();
+                                    const VersionId &fromVersionId) {
+  BranchId newBranchId = generateUUID();
 
-  // The new branch initially points to the same version
-  // (which is on its original branch — that's fine).
-  // We create a new version on the new branch with the same state.
-  auto sourceVer = storage_.getVersion(fromVersionHash);
+  auto sourceVer = storage_.getVersion(fromVersionId);
   if (!sourceVer)
     return ""; // Error: source version not found
 
+  // Create an initial version on the new branch
+  VersionId branchVerId = generateUUID();
   Version branchVer;
+  branchVer.id = branchVerId;
   branchVer.stateHash = sourceVer->stateHash;
-  branchVer.branchId = newId;
-  branchVer.parentHash = fromVersionHash;
-  // mergeParentHash stays empty
+  branchVer.branchId = newBranchId;
+  branchVer.parentId = fromVersionId;
+  // mergeParentId stays empty
 
-  Hash branchVerHash = branchVer.computeHash();
-  storage_.putVersion(branchVerHash, branchVer);
-  storage_.putBranch(newId, name, branchVerHash);
+  storage_.putVersion(branchVerId, branchVer);
+  storage_.putBranch(newBranchId, name, branchVerId);
 
-  return newId;
+  return newBranchId;
 }
 
 bool VersionStore::renameBranch(const BranchId &branchId,
@@ -270,21 +274,20 @@ bool VersionStore::renameBranch(const BranchId &branchId,
 // Branch deletion
 // ---------------------------------------------------------------------------
 
-std::unordered_set<Hash> VersionStore::collectReachableFromOtherBranches(
+std::unordered_set<VersionId> VersionStore::collectReachableFromOtherBranches(
     const BranchId &excludeBranchId) const {
-  std::unordered_set<Hash> reachable;
+  std::unordered_set<VersionId> reachable;
   auto branches = storage_.listBranches();
 
-  for (const auto &[id, name, headHash] : branches) {
+  for (const auto &[id, name, headId] : branches) {
     if (id == excludeBranchId)
       continue;
 
-    // BFS from this branch's head
-    std::vector<Hash> queue;
-    queue.push_back(headHash);
+    std::vector<VersionId> queue;
+    queue.push_back(headId);
 
     while (!queue.empty()) {
-      Hash current = queue.back();
+      VersionId current = queue.back();
       queue.pop_back();
 
       if (current.empty() || reachable.count(current))
@@ -294,10 +297,10 @@ std::unordered_set<Hash> VersionStore::collectReachableFromOtherBranches(
       auto ver = storage_.getVersion(current);
       if (!ver)
         continue;
-      if (!ver->parentHash.empty())
-        queue.push_back(ver->parentHash);
-      if (!ver->mergeParentHash.empty())
-        queue.push_back(ver->mergeParentHash);
+      if (!ver->parentId.empty())
+        queue.push_back(ver->parentId);
+      if (!ver->mergeParentId.empty())
+        queue.push_back(ver->mergeParentId);
     }
   }
 
@@ -314,7 +317,6 @@ VersionStore::checkBranchDelete(const BranchId &branchId) const {
     return result;
   }
 
-  // Check if the branch head is reachable from any other branch
   auto reachable = collectReachableFromOtherBranches(branchId);
   result.isMerged = reachable.count(branch->second) > 0;
   result.canDelete = true;
@@ -327,16 +329,14 @@ VersionStore::deleteBranch(const BranchId &branchId) {
   if (!branch)
     return {false, "Branch not found"};
 
-  // Collect all versions reachable from other branches
   auto reachable = collectReachableFromOtherBranches(branchId);
 
-  // Walk from the branch head and delete any version not in `reachable`
-  std::vector<Hash> toVisit;
+  std::vector<VersionId> toVisit;
   toVisit.push_back(branch->second);
-  std::unordered_set<Hash> visited;
+  std::unordered_set<VersionId> visited;
 
   while (!toVisit.empty()) {
-    Hash current = toVisit.back();
+    VersionId current = toVisit.back();
     toVisit.pop_back();
 
     if (current.empty() || visited.count(current))
@@ -344,17 +344,16 @@ VersionStore::deleteBranch(const BranchId &branchId) {
     visited.insert(current);
 
     if (reachable.count(current))
-      continue; // This version is reachable from another branch, keep it
+      continue; // Reachable from another branch, keep it
 
     auto ver = storage_.getVersion(current);
     if (!ver)
       continue;
 
-    // Queue parents for visiting before we delete
-    if (!ver->parentHash.empty())
-      toVisit.push_back(ver->parentHash);
-    if (!ver->mergeParentHash.empty())
-      toVisit.push_back(ver->mergeParentHash);
+    if (!ver->parentId.empty())
+      toVisit.push_back(ver->parentId);
+    if (!ver->mergeParentId.empty())
+      toVisit.push_back(ver->mergeParentId);
 
     storage_.removeVersion(current);
   }
@@ -364,91 +363,84 @@ VersionStore::deleteBranch(const BranchId &branchId) {
 }
 
 // ---------------------------------------------------------------------------
-// Merge
+// Merge (Phase 4: strip key = (port, channel, libraryId))
 // ---------------------------------------------------------------------------
 
-FiddleState
-VersionStore::threeWayMerge(const FiddleState &ancestor,
-                            const FiddleState &target,
-                            const FiddleState &mergeParent) const {
-  // Build UUID → hash maps for each state.
-  // We need to extract the UUID from each strip blob to identify strips.
+FiddleState VersionStore::threeWayMerge(const FiddleState &ancestor,
+                                        const FiddleState &target,
+                                        const FiddleState &mergeParent,
+                                        bool mpWins) const {
+  // Key type: (inputPort, inputChannel, libraryId)
+  using StripKey = std::tuple<int, int, std::string>;
 
-  auto buildUuidMap =
-      [&](const std::vector<Hash> &hashes) -> std::unordered_map<std::string, Hash> {
-    std::unordered_map<std::string, Hash> map;
+  auto buildKeyMap =
+      [&](const std::vector<Hash> &hashes) -> std::map<StripKey, Hash> {
+    std::map<StripKey, Hash> map;
     for (const auto &h : hashes) {
       auto blob = storage_.getStripBlob(h);
       if (blob)
-        map[blob->uuid] = h;
+        map[{blob->inputPort, blob->inputChannel, blob->libraryId}] = h;
     }
     return map;
   };
 
-  auto ancestorMap = buildUuidMap(ancestor.stripHashes);
-  auto targetMap = buildUuidMap(target.stripHashes);
-  auto mpMap = buildUuidMap(mergeParent.stripHashes);
+  auto ancestorMap = buildKeyMap(ancestor.stripHashes);
+  auto targetMap = buildKeyMap(target.stripHashes);
+  auto mpMap = buildKeyMap(mergeParent.stripHashes);
 
-  // Start with target's strips
-  FiddleState result;
-  result.globalState = target.globalState; // Keep target's global state
+  // Start with target's strip order; results are collected in a map to
+  // preserve stable (port, channel, libraryId) ordering.
+  std::map<StripKey, Hash> resultMap;
 
-  // Collect the UUIDs in target order first
-  std::vector<std::string> resultUuids;
-  for (const auto &h : target.stripHashes) {
-    auto blob = storage_.getStripBlob(h);
-    if (blob)
-      resultUuids.push_back(blob->uuid);
-  }
+  // Seed from target
+  for (const auto &[key, hash] : targetMap)
+    resultMap[key] = hash;
 
-  // Handle deletions: if strip is in ancestor but not in MP, remove from result
-  for (const auto &[uuid, hash] : ancestorMap) {
-    if (mpMap.find(uuid) == mpMap.end()) {
-      // MP deleted this strip — remove from result
-      resultUuids.erase(
-          std::remove(resultUuids.begin(), resultUuids.end(), uuid),
-          resultUuids.end());
+  // Handle MP deletions: if strip in ancestor but not in MP, remove from result
+  for (const auto &[key, hash] : ancestorMap) {
+    if (mpMap.find(key) == mpMap.end()) {
+      resultMap.erase(key);
     }
   }
 
-  // Handle additions: if strip is in MP but not in ancestor, add to result
-  for (const auto &[uuid, hash] : mpMap) {
-    if (ancestorMap.find(uuid) == ancestorMap.end()) {
-      // MP added this strip — add to result (if not already there)
-      if (std::find(resultUuids.begin(), resultUuids.end(), uuid) ==
-          resultUuids.end()) {
-        resultUuids.push_back(uuid);
+  // Handle MP additions: if strip in MP but not in ancestor, add to result
+  for (const auto &[key, hash] : mpMap) {
+    if (ancestorMap.find(key) == ancestorMap.end()) {
+      if (resultMap.find(key) == resultMap.end()) {
+        resultMap[key] = hash;
       }
     }
   }
 
-  // Build result strip hashes, applying modifications
-  for (const auto &uuid : resultUuids) {
-    // Check if MP modified this strip relative to ancestor
-    auto mpIt = mpMap.find(uuid);
-    auto ancestorIt = ancestorMap.find(uuid);
+  // Apply modifications: if MP changed a strip relative to ancestor → apply
+  for (auto &[key, resultHash] : resultMap) {
+    auto mpIt = mpMap.find(key);
+    auto ancestorIt = ancestorMap.find(key);
 
     if (mpIt != mpMap.end() && ancestorIt != ancestorMap.end() &&
         mpIt->second != ancestorIt->second) {
-      // MP modified this strip — use MP's version (MP wins on conflict too)
-      result.stripHashes.push_back(mpIt->second);
-    } else if (mpIt != mpMap.end() && ancestorIt == ancestorMap.end()) {
-      // This strip was added by MP, use MP's version
-      result.stripHashes.push_back(mpIt->second);
-    } else {
-      // Use target's version (or whatever is available)
-      auto targetIt = targetMap.find(uuid);
-      if (targetIt != targetMap.end()) {
-        result.stripHashes.push_back(targetIt->second);
+      // Both MP and possibly target changed this strip
+      auto targetIt = targetMap.find(key);
+      bool targetChanged = (targetIt != targetMap.end() &&
+                            targetIt->second != ancestorIt->second);
+      if (!targetChanged || mpWins) {
+        // MP wins (or no conflict)
+        resultHash = mpIt->second;
       }
+      // else target wins — resultHash already holds target's hash
     }
   }
+
+  FiddleState result;
+  result.globalState = target.globalState;
+  for (const auto &[key, hash] : resultMap)
+    result.stripHashes.push_back(hash);
 
   return result;
 }
 
 MergeResult VersionStore::merge(const BranchId &sourceBranchId,
-                                const BranchId &targetBranchId) {
+                                const BranchId &targetBranchId, bool mpWins) {
   MergeResult result;
 
   auto sourceBranch = storage_.getBranch(sourceBranchId);
@@ -460,10 +452,10 @@ MergeResult VersionStore::merge(const BranchId &sourceBranchId,
     return result;
   }
 
-  Hash sourceHead = sourceBranch->second;
-  Hash targetHead = targetBranch->second;
+  VersionId sourceHead = sourceBranch->second;
+  VersionId targetHead = targetBranch->second;
 
-  // Check: source must not be an ancestor of target (would be a no-op)
+  // Cannot merge if source is already an ancestor of target
   if (isAncestor(sourceHead, targetHead)) {
     result.kind = MergeResult::Error;
     result.error = "Source is already an ancestor of target (nothing to merge)";
@@ -474,7 +466,7 @@ MergeResult VersionStore::merge(const BranchId &sourceBranchId,
   if (isAncestor(targetHead, sourceHead)) {
     storage_.updateBranchHead(targetBranchId, sourceHead);
     result.kind = MergeResult::FastForward;
-    result.newHeadHash = sourceHead;
+    result.newHeadId = sourceHead;
     return result;
   }
 
@@ -486,12 +478,12 @@ MergeResult VersionStore::merge(const BranchId &sourceBranchId,
     return result;
   }
 
-  auto ancestorState = storage_.getFiddleState(
-      storage_.getVersion(*lca)->stateHash);
-  auto targetState = storage_.getFiddleState(
-      storage_.getVersion(targetHead)->stateHash);
-  auto sourceState = storage_.getFiddleState(
-      storage_.getVersion(sourceHead)->stateHash);
+  auto ancestorState =
+      storage_.getFiddleState(storage_.getVersion(*lca)->stateHash);
+  auto targetState =
+      storage_.getFiddleState(storage_.getVersion(targetHead)->stateHash);
+  auto sourceState =
+      storage_.getFiddleState(storage_.getVersion(sourceHead)->stateHash);
 
   if (!ancestorState || !targetState || !sourceState) {
     result.kind = MergeResult::Error;
@@ -500,107 +492,104 @@ MergeResult VersionStore::merge(const BranchId &sourceBranchId,
   }
 
   FiddleState mergedState =
-      threeWayMerge(*ancestorState, *targetState, *sourceState);
+      threeWayMerge(*ancestorState, *targetState, *sourceState, mpWins);
   Hash mergedStateHash = mergedState.computeHash();
   storage_.putFiddleState(mergedStateHash, mergedState);
 
   // Create merge version
+  VersionId mergeVerId = generateUUID();
   Version mergeVer;
+  mergeVer.id = mergeVerId;
   mergeVer.stateHash = mergedStateHash;
   mergeVer.branchId = targetBranchId;
-  mergeVer.parentHash = targetHead;
-  mergeVer.mergeParentHash = sourceHead;
+  mergeVer.parentId = targetHead;
+  mergeVer.mergeParentId = sourceHead;
 
-  Hash mergeVerHash = mergeVer.computeHash();
-  storage_.putVersion(mergeVerHash, mergeVer);
-  storage_.updateBranchHead(targetBranchId, mergeVerHash);
+  storage_.putVersion(mergeVerId, mergeVer);
+  storage_.updateBranchHead(targetBranchId, mergeVerId);
 
   result.kind = MergeResult::ThreeWay;
-  result.newHeadHash = mergeVerHash;
+  result.newHeadId = mergeVerId;
   return result;
 }
 
 // ---------------------------------------------------------------------------
-// Squash
+// Delete (Phase 3: simplified — UUID PK means no re-hashing cascade)
 // ---------------------------------------------------------------------------
 
-SquashResult VersionStore::squash(const Hash &versionHash) {
-  SquashResult result;
+DeleteResult VersionStore::deleteVersion(const VersionId &versionId) {
+  DeleteResult result;
 
-  auto ver = storage_.getVersion(versionHash);
+  auto ver = storage_.getVersion(versionId);
   if (!ver) {
     result.error = "Version not found";
     return result;
   }
 
-  // Must have exactly one parent (no merge-parent)
-  if (ver->parentHash.empty()) {
-    result.error = "Cannot squash the root version";
-    return result;
-  }
-  if (!ver->mergeParentHash.empty()) {
-    result.error = "Cannot squash a version with a merge-parent";
+  // Cannot delete the root version (no parent to re-parent to).
+  if (ver->parentId.empty()) {
+    result.error = "Cannot delete the root version";
     return result;
   }
 
-  // Must have exactly one child
-  auto children = storage_.getChildVersionHashes(versionHash);
-  if (children.size() != 1) {
-    result.error = children.empty()
-                       ? "Cannot squash a version with no children (it is a "
-                         "branch head)"
-                       : "Cannot squash a version with multiple children";
+  auto children = storage_.getChildVersionIds(versionId);
+
+  // Cannot delete a branch point (2+ children — ambiguous re-parenting).
+  if (children.size() > 1) {
+    result.error =
+        "Cannot delete a branch point (version has multiple children)";
     return result;
   }
 
-  Hash childHash = children[0];
-  auto childVer = storage_.getVersion(childHash);
-  if (!childVer) {
-    result.error = "Child version not found";
+  if (children.empty()) {
+    // ── Leaf deletion ────────────────────────────────────────────────────────
+    // Move the branch head to the parent.
+    BranchId owningBranchId;
+    auto branches = storage_.listBranches();
+    for (const auto &[branchId, branchName, headId] : branches) {
+      if (headId == versionId) {
+        owningBranchId = branchId;
+        storage_.updateBranchHead(branchId, ver->parentId);
+      }
+    }
+    storage_.removeVersion(versionId);
+
+    // Auto-delete the branch if it is now "root-only" (its new head has no
+    // parent, i.e., it IS the root version).  Don't delete the last branch.
+    if (!owningBranchId.empty()) {
+      auto newHead = storage_.getVersion(ver->parentId);
+      bool isRootOnly = newHead && newHead->parentId.empty();
+      auto survivingBranches = storage_.listBranches();
+      bool isLastBranch = (survivingBranches.size() <= 1);
+
+      if (isRootOnly && !isLastBranch) {
+        // deleteBranch only removes versions exclusively reachable through this
+        // branch. The root is shared, so it will be preserved.
+        deleteBranch(owningBranchId);
+        result.deletedBranchId = owningBranchId;
+      }
+    }
+
+    result.success = true;
     return result;
   }
 
-  // Re-parent the child: child's parent becomes the squashed version's parent
-  Version updatedChild = *childVer;
-  updatedChild.parentHash = ver->parentHash;
+  // ── Middle-node deletion (exactly one child) ─────────────────────────────
+  // Because versions now use random UUID PKs (not content hashes), we can
+  // directly update the child's parent reference — no cascade re-hashing.
+  VersionId childId = children[0];
+  storage_.updateVersionParent(childId, ver->parentId);
 
-  // The child's hash changes because its parent changed
-  Hash newChildHash = updatedChild.computeHash();
-
-  // We need to update anything that points to the old child hash.
-  // This includes: other children of the old child, and branch heads.
-
-  // First, update all grandchildren's parent pointers
-  auto grandchildren = storage_.getChildVersionHashes(childHash);
-  for (const auto &gcHash : grandchildren) {
-    auto gc = storage_.getVersion(gcHash);
-    if (!gc)
-      continue;
-    Version updatedGc = *gc;
-    if (updatedGc.parentHash == childHash)
-      updatedGc.parentHash = newChildHash;
-    if (updatedGc.mergeParentHash == childHash)
-      updatedGc.mergeParentHash = newChildHash;
-    Hash newGcHash = updatedGc.computeHash();
-    storage_.removeVersion(gcHash);
-    storage_.putVersion(newGcHash, updatedGc);
-    // Note: this could cascade. For simplicity, we only handle one level.
-    // Deep cascading squash is a future enhancement.
-  }
-
-  // Update branch heads that point to the old child hash
+  // Update any branch heads that pointed to versionId (edge case: shouldn't
+  // normally happen for a middle node, but handle robustly).
   auto branches = storage_.listBranches();
-  for (const auto &[branchId, branchName, headHash] : branches) {
-    if (headHash == childHash) {
-      storage_.updateBranchHead(branchId, newChildHash);
+  for (const auto &[branchId, branchName, headId] : branches) {
+    if (headId == versionId) {
+      storage_.updateBranchHead(branchId, ver->parentId);
     }
   }
 
-  // Remove the old child and the squashed version, insert the updated child
-  storage_.removeVersion(childHash);
-  storage_.removeVersion(versionHash);
-  storage_.putVersion(newChildHash, updatedChild);
-
+  storage_.removeVersion(versionId);
   result.success = true;
   return result;
 }
@@ -609,10 +598,11 @@ SquashResult VersionStore::squash(const Hash &versionHash) {
 // Import from Dorico blob
 // ---------------------------------------------------------------------------
 
-Hash VersionStore::importFromBlob(const FiddleState &state,
-                                  const std::vector<StripBlob> &stripBlobs,
-                                  const std::vector<Hash> &ancestorChain,
-                                  const std::string &branchName) {
+VersionId
+VersionStore::importFromBlob(const FiddleState &state,
+                             const std::vector<StripBlob> &stripBlobs,
+                             const std::vector<VersionId> &ancestorChain,
+                             const std::string &branchName) {
   // Store any missing strip blobs
   for (const auto &blob : stripBlobs) {
     Hash h = blob.computeHash();
@@ -626,7 +616,7 @@ Hash VersionStore::importFromBlob(const FiddleState &state,
     storage_.putFiddleState(stateHash, state);
 
   // Find the closest existing ancestor
-  Hash closestAncestor;
+  VersionId closestAncestor;
   for (auto it = ancestorChain.rbegin(); it != ancestorChain.rend(); ++it) {
     if (storage_.hasVersion(*it)) {
       closestAncestor = *it;
@@ -640,21 +630,20 @@ Hash VersionStore::importFromBlob(const FiddleState &state,
     if (mainBranchId) {
       auto mainBranch = storage_.getBranch(*mainBranchId);
       if (mainBranch) {
-        // Walk to root
-        Hash current = mainBranch->second;
+        VersionId current = mainBranch->second;
         while (!current.empty()) {
-          auto ver = storage_.getVersion(current);
-          if (!ver || ver->parentHash.empty()) {
+          auto v = storage_.getVersion(current);
+          if (!v || v->parentId.empty()) {
             closestAncestor = current;
             break;
           }
-          current = ver->parentHash;
+          current = v->parentId;
         }
       }
     }
   }
 
-  // Resolve branch: create if needed, handle name conflicts
+  // Resolve branch: create if needed
   std::string effectiveName = branchName;
   BranchId branchId;
 
@@ -662,7 +651,6 @@ Hash VersionStore::importFromBlob(const FiddleState &state,
   if (existingBranch) {
     branchId = *existingBranch;
   } else {
-    // Check if name conflicts, generate a unique one
     if (storage_.branchNameExists(effectiveName)) {
       int suffix = 1;
       while (storage_.branchNameExists(effectiveName + " " +
@@ -674,28 +662,23 @@ Hash VersionStore::importFromBlob(const FiddleState &state,
     branchId = generateUUID();
   }
 
-  // Create the new version
+  // Create the new version with a random UUID
+  VersionId importVerId = generateUUID();
   Version importVer;
+  importVer.id = importVerId;
   importVer.stateHash = stateHash;
   importVer.branchId = branchId;
-  importVer.parentHash = closestAncestor;
-  // mergeParentHash stays empty
+  importVer.parentId = closestAncestor;
 
-  Hash importVerHash = importVer.computeHash();
+  storage_.putVersion(importVerId, importVer);
 
-  if (!storage_.hasVersion(importVerHash)) {
-    storage_.putVersion(importVerHash, importVer);
-  }
-
-  // Create or update the branch
   if (existingBranch) {
-    // Branch exists — only update head if the imported version is new
-    storage_.updateBranchHead(branchId, importVerHash);
+    storage_.updateBranchHead(branchId, importVerId);
   } else {
-    storage_.putBranch(branchId, effectiveName, importVerHash);
+    storage_.putBranch(branchId, effectiveName, importVerId);
   }
 
-  return importVerHash;
+  return importVerId;
 }
 
 } // namespace fiddle::versioning

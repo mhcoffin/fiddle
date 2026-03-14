@@ -31,6 +31,8 @@ bool FiddleDatabase::open(const juce::File &dbFile) {
 
   createSchema();
   prepareStatements();
+  versionStorage_ =
+      std::make_unique<versioning::SqliteVersionStorage>(db_, mutex_);
 
   std::cerr << "[FiddleDB] Opened: " << dbFile.getFullPathName() << std::endl;
   return true;
@@ -163,6 +165,60 @@ void FiddleDatabase::createSchema() {
       instance_num  INTEGER NOT NULL DEFAULT 1
     )
   )");
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS strip_blobs (
+      hash          TEXT PRIMARY KEY,
+      library_id    TEXT NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+      library       TEXT NOT NULL,
+      family        TEXT NOT NULL,
+      is_solo       INTEGER NOT NULL,
+      input_port    INTEGER NOT NULL,
+      input_channel INTEGER NOT NULL,
+      plugin_uid    INTEGER NOT NULL,
+      gain_db       REAL NOT NULL,
+      expression_map TEXT NOT NULL,
+      plugin_state  BLOB
+    )
+  )");
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS fiddle_states (
+      hash TEXT PRIMARY KEY,
+      master_gain REAL NOT NULL,
+      strip_hashes TEXT NOT NULL
+    )
+  )");
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS versions (
+      id               TEXT PRIMARY KEY,
+      state_hash       TEXT NOT NULL,
+      branch_id        TEXT NOT NULL,
+      parent_id        TEXT NOT NULL DEFAULT '',
+      merge_parent_id  TEXT NOT NULL DEFAULT '',
+      created_at       DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  )");
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS branches (
+      id      TEXT PRIMARY KEY,
+      name    TEXT UNIQUE NOT NULL,
+      head_id TEXT NOT NULL
+    )
+  )");
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS libraries (
+      id   TEXT PRIMARY KEY,
+      name TEXT NOT NULL
+    )
+  )");
+
+  // Seed the default library on first boot
+  exec("INSERT OR IGNORE INTO libraries (id, name) VALUES "
+       "('00000000-0000-0000-0000-000000000000', '')");
 }
 
 void FiddleDatabase::prepareStatements() {

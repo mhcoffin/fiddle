@@ -171,15 +171,7 @@ public:
 
     // Check available space
     if (writePos - readPos + numSamples > kBufferCapacity) {
-      // Buffer Overflow/Underrun. Consumer is too slow.
-      static int dropCount = 0;
-      if (++dropCount % 500 == 1) {
-        std::cerr << "[AudioShm] pushAudio DROPPED (buffer full) count="
-                  << dropCount << " writePos=" << writePos
-                  << " readPos=" << readPos
-                  << " avail=" << (kBufferCapacity - (writePos - readPos))
-                  << std::endl;
-      }
+      // Buffer Overflow/Underrun. Consumer is too slow — drop silently.
       return;
     }
 

@@ -229,6 +229,36 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
     }
   }
 
+  // Sort by (port, channel) ascending — foundational stability invariant.
+  {
+    std::vector<juce::var> entries;
+    entries.reserve((size_t)arr.size());
+    for (int i = 0; i < arr.size(); ++i)
+      entries.push_back(arr[i]);
+
+    std::stable_sort(entries.begin(), entries.end(),
+                     [](const juce::var &a, const juce::var &b) {
+                       auto *oa = a.getDynamicObject();
+                       auto *ob = b.getDynamicObject();
+                       if (!oa || !ob)
+                         return false;
+                       int pa = (int)oa->getProperty("port");
+                       int pb = (int)ob->getProperty("port");
+                       if (pa != pb)
+                         return pa < pb;
+                       int ca = (int)oa->getProperty("channel");
+                       int cb = (int)ob->getProperty("channel");
+                       return ca < cb;
+                     });
+
+    arr.clearQuick();
+    for (auto &e : entries)
+      arr.add(e);
+
+    std::cerr << "[MasterList] Channel map sorted: " << arr.size()
+              << " entries (port/channel ascending)" << std::endl;
+  }
+
   return juce::JSON::toString(juce::var(arr), true);
 }
 

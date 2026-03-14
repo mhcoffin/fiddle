@@ -4,6 +4,7 @@
 #include "FiddleDatabase.h"
 #include "MixerModel.h"
 #include "PluginScanner.h"
+#include "VersionStore.h"
 #include <atomic>
 #include <juce_core/juce_core.h>
 
@@ -24,7 +25,7 @@ class StateManager {
 public:
   // Magic bytes at the start of every state blob
   static constexpr uint32_t kBlobMagic = 0x46444C53; // "FDLS"
-  static constexpr uint32_t kBlobVersion = 1;
+  static constexpr uint32_t kBlobVersion = 3;
 
   StateManager();
   ~StateManager();
@@ -51,7 +52,7 @@ public:
     configName_ = name;
   }
 
-  /// Current config version (ISO 8601 timestamp)
+  /// Current config version (ISO 8601 timestamp) - v2 legacy
   juce::String getConfigVersion() const {
     juce::SpinLock::ScopedLockType lock(nameLock_);
     return configVersion_;
@@ -61,8 +62,29 @@ public:
     configVersion_ = version;
   }
 
+  void setVersionStore(versioning::VersionStore *store) {
+    versionStore_ = store;
+  }
+
+  /// Set the current branch UUID so buildStateBlob can look up ancestors.
+  void setCurrentBranchId(const std::string &branchId) {
+    juce::SpinLock::ScopedLockType lock(nameLock_);
+    currentBranchId_ = branchId;
+  }
+  std::string getCurrentBranchId() const {
+    juce::SpinLock::ScopedLockType lock(nameLock_);
+    return currentBranchId_;
+  }
+
   /// Build the state blob synchronously. Normally called on background thread.
+  /// Builds a state blob for Dorico synchronization. Constantly called on
+  /// changes.
   juce::MemoryBlock buildStateBlob(MixerModel &mixer);
+
+  /// Commits the current live mixer state as a permanent snapshot node in the
+  /// DAG.
+  versioning::Hash commitCurrentState(MixerModel &mixer,
+                                      const std::string &branchId);
 
   /// Push a pre-built blob to shared memory.
   void publishBlob(const juce::MemoryBlock &blob);
@@ -85,6 +107,8 @@ public:
     juce::String configName;
     juce::String configVersion;
     bool dirty = false;
+    std::string stateHash;
+    std::vector<std::string> ancestorHashes;
     std::vector<RestoredStrip> strips;
   };
 
@@ -100,6 +124,8 @@ private:
 
   std::unique_ptr<StateSharedMemory> sharedMemory_;
   std::atomic<bool> rebuildPending_{false};
+  versioning::VersionStore *versionStore_ = nullptr;
+  std::string currentBranchId_;
 };
 
 } // namespace fiddle

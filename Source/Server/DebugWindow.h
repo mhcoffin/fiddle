@@ -36,61 +36,46 @@ public:
                 .withNativeIntegrationEnabled(true)
                 .withResourceProvider(std::move(resourceProvider))
                 .withNativeFunction(
-                    "signalReady",
-                    [this](const juce::Array<juce::var> &,
-                           juce::WebBrowserComponent::NativeFunctionCompletion
-                               completion) {
-                      debugReady_ = true;
-                      std::cerr << "[DebugWindow] signalReady fired"
-                                << std::endl;
-                      if (callbacks_.onSignalReady)
-                        callbacks_.onSignalReady();
-                      completion(true);
-                    })
-                .withNativeFunction(
-                    "nativeLog",
+                    "dispatchMessage",
                     [this](const juce::Array<juce::var> &args,
                            juce::WebBrowserComponent::NativeFunctionCompletion
                                completion) {
-                      if (args.size() > 0) {
-                        auto msg = args[0].toString();
-                        std::cerr << "[Debug JS] " << msg << std::endl;
-                        if (callbacks_.onNativeLog)
-                          callbacks_.onNativeLog(msg);
+                      // Optionally forward/handle DebugWindow JS messages here
+                      // if needed
+                      if (args.isEmpty() || !args[0].isObject()) {
+                        completion(true);
+                        return;
                       }
-                      completion(true);
-                    })
-                .withNativeFunction(
-                    "scanPlugins",
-                    [this](const juce::Array<juce::var> &,
-                           juce::WebBrowserComponent::NativeFunctionCompletion
-                               completion) {
-                      std::cerr << "[DebugWindow] scanPlugins called"
-                                << std::endl;
-                      if (callbacks_.onScanPlugins)
-                        callbacks_.onScanPlugins();
-                      completion(true);
-                    })
-                .withNativeFunction(
-                    "rescanPlugins",
-                    [this](const juce::Array<juce::var> &,
-                           juce::WebBrowserComponent::NativeFunctionCompletion
-                               completion) {
-                      std::cerr << "[DebugWindow] rescanPlugins called"
-                                << std::endl;
-                      if (callbacks_.onRescanPlugins)
-                        callbacks_.onRescanPlugins();
-                      completion(true);
-                    })
-                .withNativeFunction(
-                    "requestPluginsState",
-                    [this](const juce::Array<juce::var> &,
-                           juce::WebBrowserComponent::NativeFunctionCompletion
-                               completion) {
-                      std::cerr << "[DebugWindow] requestPluginsState called"
-                                << std::endl;
-                      if (callbacks_.onRequestPluginsState)
-                        callbacks_.onRequestPluginsState();
+                      auto *obj = args[0].getDynamicObject();
+                      juce::String type = obj->getProperty("type").toString();
+                      juce::var payload = obj->getProperty("payload");
+
+                      // Handle old legacy events internally or ignore them
+                      if (type == "signalReady") {
+                        debugReady_ = true;
+                        std::cerr << "[DebugWindow] signalReady fired"
+                                  << std::endl;
+                        if (callbacks_.onSignalReady)
+                          callbacks_.onSignalReady();
+                      } else if (type == "nativeLog") {
+                        if (payload.isArray() &&
+                            payload.getArray()->size() > 0) {
+                          auto msg =
+                              payload.getArray()->getReference(0).toString();
+                          std::cerr << "[Debug JS] " << msg << std::endl;
+                          if (callbacks_.onNativeLog)
+                            callbacks_.onNativeLog(msg);
+                        }
+                      } else if (type == "scanPlugins") {
+                        if (callbacks_.onScanPlugins)
+                          callbacks_.onScanPlugins();
+                      } else if (type == "rescanPlugins") {
+                        if (callbacks_.onRescanPlugins)
+                          callbacks_.onRescanPlugins();
+                      } else if (type == "requestPluginsState") {
+                        if (callbacks_.onRequestPluginsState)
+                          callbacks_.onRequestPluginsState();
+                      }
                       completion(true);
                     })) {
     setUsingNativeTitleBar(true);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixerModel.h"
+#include "SqliteVersionStorage.h"
 #include <juce_core/juce_core.h>
 #include <mutex>
 #include <set>
@@ -74,6 +75,10 @@ public:
   void close();
 
   bool isOpen() const { return db_ != nullptr; }
+
+  versioning::SqliteVersionStorage *getVersionStorage() const {
+    return versionStorage_.get();
+  }
 
   // ── Strip operations (message thread) ──────────────────────────────
 
@@ -199,6 +204,7 @@ private:
 
   sqlite3 *db_ = nullptr;
   mutable std::mutex mutex_;
+  std::unique_ptr<versioning::SqliteVersionStorage> versionStorage_;
 
   // Prepared statements
   sqlite3_stmt *stmtSaveStrip_ = nullptr;

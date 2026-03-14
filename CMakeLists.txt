@@ -115,6 +115,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MasterInstrumentList.h
     Source/Server/MidiTcpServer.cpp
     Source/Server/MidiTcpServer.h
+    Source/Server/JsTestBridge.cpp
+    Source/Server/JsTestBridge.h
     Source/Server/NoteStreamTracker.h
     Source/Server/SubnoteGenerator.h
     Source/Server/PluginScanner.h
@@ -132,8 +134,13 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ExpressionMapLibrary.h
     Source/Server/UndoManager.h
     Source/Server/UndoActions.h
-    Source/Server/FiddleDatabase.h
     Source/Server/FiddleDatabase.cpp
+    Source/Server/SqliteVersionStorage.h
+    Source/Server/SqliteVersionStorage.cpp
+    Source/Server/VersionTypes.h
+    Source/Server/VersionStoreInterface.h
+    Source/Server/VersionStore.h
+    Source/Server/VersionStore.cpp
     Source/Server/StateManager.h
     Source/Server/StateManager.cpp
     Source/StateSharedMemory.h
@@ -199,6 +206,7 @@ target_include_directories(FiddleServer PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}"
     "${angelscript_SOURCE_DIR}/angelscript/include"
     "${angelscript_SOURCE_DIR}/add_on/scriptstdstring"
+    "${xxhash_SOURCE_DIR}"
 )
 
 
@@ -356,3 +364,21 @@ target_include_directories(VersionStoreTest PRIVATE
 )
 
 target_compile_features(VersionStoreTest PRIVATE cxx_std_17)
+
+# ==============================================================================
+# FiddleMock — CLI tool for testing Dorico save/load without Dorico
+# ==============================================================================
+add_executable(FiddleMock
+    Source/Server/tests/fiddle_mock.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+
+target_include_directories(FiddleMock PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}"   # for midi_event.pb.h
+)
+
+target_link_libraries(FiddleMock PRIVATE
+    libprotobuf
+)
+
+target_compile_features(FiddleMock PRIVATE cxx_std_17)

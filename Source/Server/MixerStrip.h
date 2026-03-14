@@ -16,6 +16,17 @@ namespace fiddle {
 /// window. Identified by a unique string ID.
 struct MixerStrip {
 
+  /// Lifetime sentinel: shared_ptr set to false when the strip is destroyed.
+  /// The async loadPlugin callback captures a weak_ptr to this and checks
+  /// liveness before touching any member — prevents use-after-free when a
+  /// strip is removed from the mixer while a plugin load is still in flight.
+  std::shared_ptr<bool> lifetimeToken_ = std::make_shared<bool>(true);
+
+  ~MixerStrip() {
+    if (lifetimeToken_)
+      *lifetimeToken_ = false;
+  }
+
   /// Listener that detects plugin parameter changes via the standard VST3
   /// notification path. When it fires, we mark the strip dirty and record
   /// the pluginUid as "listener-capable" so polling can skip it.
@@ -233,11 +244,18 @@ struct MixerStrip {
                   juce::AudioPluginFormatManager &formatManager,
                   std::function<void(bool)> onComplete = nullptr) {
 
+    std::weak_ptr<bool> weakToken = lifetimeToken_;
     formatManager.createPluginInstanceAsync(
         desc, currentSampleRate, currentBlockSize,
-        [this, desc,
-         onComplete](std::unique_ptr<juce::AudioPluginInstance> instance,
-                     const juce::String &error) {
+        [this, desc, onComplete,
+         weakToken](std::unique_ptr<juce::AudioPluginInstance> instance,
+                    const juce::String &error) {
+          // Guard against use-after-free: if the strip was destroyed while
+          // the async load was in flight, abort silently.
+          auto token = weakToken.lock();
+          if (!token || !*token)
+            return;
+
           if (!instance) {
             std::cerr << "[MixerStrip " << id << "] Failed to load "
                       << desc.name << ": " << error << std::endl;

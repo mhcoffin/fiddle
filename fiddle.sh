@@ -18,7 +18,7 @@ cd ../../..
 echo ""
 echo "🔌 Building Fiddle Plugin (VST3)..."
 ./scripts/bump_version.sh
-cmake --build build --target Fiddle_VST3
+cmake --build build --target FiddleNative
 
 # Step 3: Build the Server
 echo ""
@@ -33,10 +33,10 @@ echo "📦 Installing Fiddle Plugin to ~/Library/Audio/Plug-Ins/VST3/..."
 rm -rf ~/Library/Audio/Plug-Ins/VST3/Fiddle.vst3
 
 # Check for VST3 in Debug folder first (CMake default on Mac for some generators)
-if [ -d "build/Fiddle_artefacts/Debug/VST3/Fiddle.vst3" ]; then
-    cp -R build/Fiddle_artefacts/Debug/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
-elif [ -d "build/Fiddle_artefacts/VST3/Fiddle.vst3" ]; then
-    cp -R build/Fiddle_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
+if [ -d "build/FiddleNative_artefacts/Debug/VST3/Fiddle.vst3" ]; then
+    cp -R build/FiddleNative_artefacts/Debug/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
+elif [ -d "build/FiddleNative_artefacts/VST3/Fiddle.vst3" ]; then
+    cp -R build/FiddleNative_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
 else
     echo "❌ Error: Could not find built Fiddle.vst3!"
     exit 1

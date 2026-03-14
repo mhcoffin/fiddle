@@ -39,8 +39,7 @@ public:
     fiddleStates_[hash] = state;
   }
 
-  std::optional<FiddleState>
-  getFiddleState(const Hash &hash) const override {
+  std::optional<FiddleState> getFiddleState(const Hash &hash) const override {
     auto it = fiddleStates_.find(hash);
     if (it == fiddleStates_.end())
       return std::nullopt;
@@ -53,41 +52,58 @@ public:
 
   // ── Versions ─────────────────────────────────────────────────────────
 
-  void putVersion(const Hash &hash, const Version &version) override {
-    versions_[hash] = version;
+  void putVersion(const VersionId &id, const Version &version) override {
+    versions_[id] = version;
   }
 
-  std::optional<Version> getVersion(const Hash &hash) const override {
-    auto it = versions_.find(hash);
+  std::optional<Version> getVersion(const VersionId &id) const override {
+    auto it = versions_.find(id);
     if (it == versions_.end())
       return std::nullopt;
     return it->second;
   }
 
-  bool hasVersion(const Hash &hash) const override {
-    return versions_.count(hash) > 0;
+  bool hasVersion(const VersionId &id) const override {
+    return versions_.count(id) > 0;
   }
 
-  void removeVersion(const Hash &hash) override { versions_.erase(hash); }
+  void removeVersion(const VersionId &id) override { versions_.erase(id); }
 
-  std::vector<Hash> getChildVersionHashes(const Hash &hash) const override {
-    std::vector<Hash> children;
-    for (const auto &[h, v] : versions_) {
-      if (v.parentHash == hash || v.mergeParentHash == hash) {
-        children.push_back(h);
+  void updateVersionParent(const VersionId &id,
+                           const VersionId &newParentId) override {
+    auto it = versions_.find(id);
+    if (it != versions_.end())
+      it->second.parentId = newParentId;
+  }
+
+  std::vector<VersionId>
+  getChildVersionIds(const VersionId &parentId) const override {
+    std::vector<VersionId> children;
+    for (const auto &[id, v] : versions_) {
+      if (v.parentId == parentId || v.mergeParentId == parentId) {
+        children.push_back(id);
       }
     }
     return children;
   }
 
+  std::vector<std::pair<VersionId, Version>> listAllVersions() const override {
+    std::vector<std::pair<VersionId, Version>> result;
+    result.reserve(versions_.size());
+    for (const auto &[id, v] : versions_) {
+      result.emplace_back(id, v);
+    }
+    return result;
+  }
+
   // ── Branches ─────────────────────────────────────────────────────────
 
   void putBranch(const BranchId &id, const std::string &name,
-                 const Hash &headHash) override {
-    branches_[id] = {name, headHash};
+                 const VersionId &headId) override {
+    branches_[id] = {name, headId};
   }
 
-  std::optional<std::pair<std::string, Hash>>
+  std::optional<std::pair<std::string, VersionId>>
   getBranch(const BranchId &id) const override {
     auto it = branches_.find(id);
     if (it == branches_.end())
@@ -95,17 +111,18 @@ public:
     return it->second;
   }
 
-  void updateBranchHead(const BranchId &id, const Hash &newHead) override {
+  void updateBranchHead(const BranchId &id,
+                        const VersionId &newHeadId) override {
     auto it = branches_.find(id);
     if (it != branches_.end())
-      it->second.second = newHead;
+      it->second.second = newHeadId;
   }
 
   void deleteBranch(const BranchId &id) override { branches_.erase(id); }
 
-  std::vector<std::tuple<BranchId, std::string, Hash>>
+  std::vector<std::tuple<BranchId, std::string, VersionId>>
   listBranches() const override {
-    std::vector<std::tuple<BranchId, std::string, Hash>> result;
+    std::vector<std::tuple<BranchId, std::string, VersionId>> result;
     result.reserve(branches_.size());
     for (const auto &[id, pair] : branches_) {
       result.emplace_back(id, pair.first, pair.second);
@@ -114,9 +131,8 @@ public:
   }
 
   bool branchNameExists(const std::string &name) const override {
-    return std::any_of(
-        branches_.begin(), branches_.end(),
-        [&](const auto &kv) { return kv.second.first == name; });
+    return std::any_of(branches_.begin(), branches_.end(),
+                       [&](const auto &kv) { return kv.second.first == name; });
   }
 
   std::optional<BranchId>
@@ -128,11 +144,48 @@ public:
     return std::nullopt;
   }
 
+  // ── Libraries ────────────────────────────────────────────────────────
+
+  void putLibrary(const LibraryId &id, const std::string &name) override {
+    libraries_[id] = name;
+  }
+
+  std::optional<std::string>
+  getLibraryName(const LibraryId &id) const override {
+    auto it = libraries_.find(id);
+    if (it == libraries_.end())
+      return std::nullopt;
+    return it->second;
+  }
+
+  std::vector<std::pair<LibraryId, std::string>>
+  listLibraries() const override {
+    std::vector<std::pair<LibraryId, std::string>> result;
+    result.reserve(libraries_.size());
+    for (const auto &[id, name] : libraries_)
+      result.emplace_back(id, name);
+    return result;
+  }
+
+  bool libraryNameExists(const std::string &name) const override {
+    return std::any_of(libraries_.begin(), libraries_.end(),
+                       [&](const auto &kv) { return kv.second == name; });
+  }
+
+  bool renameLibrary(const LibraryId &id, const std::string &name) override {
+    auto it = libraries_.find(id);
+    if (it == libraries_.end())
+      return false;
+    it->second = name;
+    return true;
+  }
+
 private:
   std::unordered_map<Hash, StripBlob> stripBlobs_;
   std::unordered_map<Hash, FiddleState> fiddleStates_;
-  std::unordered_map<Hash, Version> versions_;
-  std::unordered_map<BranchId, std::pair<std::string, Hash>> branches_;
+  std::unordered_map<VersionId, Version> versions_;
+  std::unordered_map<BranchId, std::pair<std::string, VersionId>> branches_;
+  std::unordered_map<LibraryId, std::string> libraries_;
 };
 
 } // namespace fiddle::versioning

@@ -19,6 +19,17 @@ using Hash = std::string;
 /// A branch identifier: a UUID string.
 using BranchId = std::string;
 
+/// A library identifier: a UUID string (stable UUID, mutable name).
+/// The nil UUID "00000000-0000-0000-0000-000000000000" is the default library.
+using LibraryId = std::string;
+
+/// A version identifier: a random UUID string (not content-addressed).
+using VersionId = std::string;
+
+/// The nil UUID used for the default library.
+inline const LibraryId kDefaultLibraryId =
+    "00000000-0000-0000-0000-000000000000";
+
 // ---------------------------------------------------------------------------
 // Hashing utilities
 // ---------------------------------------------------------------------------
@@ -42,14 +53,14 @@ inline Hash xxh3_128(const std::string &s) {
 // StripBlob — all settings for a single strip
 // ---------------------------------------------------------------------------
 
-/// A strip blob contains every setting for a mixer strip, including a UUID
-/// to ensure distinct strips always produce distinct hashes even if their
-/// settings are otherwise identical.
+/// A strip blob contains every setting for a mixer strip. A strip is now
+/// uniquely identified by (inputPort, inputChannel, libraryId) — there is no
+/// longer a random UUID for uniqueness; the triple provides stable identity.
 struct StripBlob {
-  std::string uuid; ///< Embedded UUID — ensures unique hashes.
+  std::string libraryId; ///< Library UUID (default = kDefaultLibraryId)
 
   // Strip settings (serialized as JSON for readability/debuggability)
-  std::string library;
+  std::string library; ///< Human-readable library label (e.g. "SSP")
   std::string family;
   bool isSolo = true;
   int inputPort = -1;
@@ -62,12 +73,12 @@ struct StripBlob {
   std::vector<uint8_t> pluginState;
 
   /// Serialize all fields into a canonical byte sequence for hashing.
-  /// The format is not meant to be human-readable — it's just for hashing.
+  /// Identity key: (inputPort, inputChannel, libraryId) + content fields.
   std::string serializeForHash() const {
     std::ostringstream os;
-    os << uuid << '\0' << library << '\0' << family << '\0'
-       << (isSolo ? '1' : '0') << '\0' << inputPort << '\0' << inputChannel
-       << '\0' << pluginUid << '\0';
+    os << inputPort << '\0' << inputChannel << '\0' << libraryId << '\0'
+       << library << '\0' << family << '\0' << (isSolo ? '1' : '0') << '\0'
+       << pluginUid << '\0';
     // Use fixed-precision for float to ensure deterministic hashing
     os << std::fixed << std::setprecision(6) << gainDb << '\0';
     os << expressionMapEntityId << '\0';
@@ -110,7 +121,7 @@ struct GlobalState {
 
 struct FiddleState {
   GlobalState globalState;
-  std::vector<Hash> stripHashes; ///< Ordered left-to-right.
+  std::vector<Hash> stripHashes; ///< Ordered left-to-right by (port, channel).
 
   Hash computeHash() const {
     // Hash = xxh3_128(globalState.hash + ":" + stripHash[0] + ":" + ...)
@@ -128,16 +139,15 @@ struct FiddleState {
 // ---------------------------------------------------------------------------
 
 struct Version {
-  Hash stateHash;       ///< Points to a FiddleState.
-  BranchId branchId;    ///< The branch this version belongs to.
-  Hash parentHash;      ///< Parent version hash (empty for root).
-  Hash mergeParentHash; ///< Merge-parent hash (empty if not a merge).
+  VersionId id;            ///< Random UUID primary key.
+  Hash stateHash;          ///< Points to a FiddleState.
+  BranchId branchId;       ///< The branch this version belongs to.
+  VersionId parentId;      ///< Parent version ID (empty for root).
+  VersionId mergeParentId; ///< Merge-parent version ID (empty if not a merge).
 
-  Hash computeHash() const {
-    std::string combined =
-        stateHash + ":" + branchId + ":" + parentHash + ":" + mergeParentHash;
-    return xxh3_128(combined);
-  }
+  /// Wall-clock creation time (ISO-8601 from SQLite CURRENT_TIMESTAMP).
+  /// This is display metadata — it is NOT included in any hash.
+  std::string createdAt;
 };
 
 } // namespace fiddle::versioning

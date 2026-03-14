@@ -14,955 +14,56 @@
 
 namespace fiddle {
 
+juce::WebBrowserComponent::Options MainComponent::createWebOptions() {
+  return juce::WebBrowserComponent::Options{}
+      .withNativeIntegrationEnabled(true)
+      .withResourceProvider(
+          [this](const juce::String &url) { return getResource(url); })
+      .withNativeFunction(
+          "dispatchMessage",
+          [this](
+              const juce::Array<juce::var> &args,
+              juce::WebBrowserComponent::NativeFunctionCompletion completion) {
+            if (args.isEmpty() || !args[0].isObject()) {
+              completion(true);
+              return;
+            }
+            auto *obj = args[0].getDynamicObject();
+            juce::String type = obj->getProperty("type").toString();
+            juce::var payload = obj->getProperty("payload");
+
+            safeCallAsync(
+                [this, type, payload]() { handleJsMessage(type, payload); });
+            completion(true);
+          })
+      .withUserScript(
+          "if (window.__JUCE__ && window.__JUCE__.initialisationData "
+          "&& window.__JUCE__.initialisationData.__juce__functions) {"
+          "  var funcs = "
+          "window.__JUCE__.initialisationData.__juce__functions;"
+          "  funcs.forEach(function(name) {"
+          "    if (window.__JUCE__.backend && "
+          "!window.__JUCE__.backend[name]) {"
+          "      window.__JUCE__.backend[name] = function() {"
+          "        var args = Array.prototype.slice.call(arguments);"
+          "        window.__JUCE__.backend.emitEvent('__juce__invoke', "
+          "{"
+          "          name: name, params: args, resultId: Date.now()"
+          "        });"
+          "      };"
+          "    }"
+          "  });"
+          "}")
+
+      // ── Mixer native functions ──
+
+      // ── Branch / Version native functions ──
+
+      ;
+}
+
 MainComponent::MainComponent(const juce::String &configName)
-    : webComponent(
-          juce::WebBrowserComponent::Options{}
-              .withNativeIntegrationEnabled(true)
-              .withResourceProvider(
-                  [this](const juce::String &url) { return getResource(url); })
-              .withUserScript(
-                  "if (window.__JUCE__ && window.__JUCE__.initialisationData "
-                  "&& window.__JUCE__.initialisationData.__juce__functions) {"
-                  "  var funcs = "
-                  "window.__JUCE__.initialisationData.__juce__functions;"
-                  "  funcs.forEach(function(name) {"
-                  "    if (window.__JUCE__.backend && "
-                  "!window.__JUCE__.backend[name]) {"
-                  "      window.__JUCE__.backend[name] = function() {"
-                  "        var args = Array.prototype.slice.call(arguments);"
-                  "        window.__JUCE__.backend.emitEvent('__juce__invoke', "
-                  "{"
-                  "          name: name, params: args, resultId: Date.now()"
-                  "        });"
-                  "      };"
-                  "    }"
-                  "  });"
-                  "}")
-              .withNativeFunction(
-                  "signalReady",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    std::cerr << "[WebView] Handshake: Native function "
-                                 "'signalReady' called"
-                              << std::endl;
-
-                    std::vector<std::pair<juce::String, bool>> pending;
-                    {
-                      std::lock_guard<std::mutex> lock(logMutex);
-                      webViewLoaded = true;
-                      pending.swap(logQueue);
-                    }
-                    for (const auto &item : pending) {
-                      pushLogMessage(item.first, item.second);
-                    }
-
-                    webComponent.evaluateJavascript(
-                        "addLogMessage('<i>Server started and listening for "
-                        "connections...</i>')");
-
-                    // Send Version
-                    if (auto *app = juce::JUCEApplication::getInstance()) {
-                      webComponent.evaluateJavascript(
-                          "setServerVersion('" + app->getApplicationVersion() +
-                          "')");
-                    }
-
-                    // Push channel map (port/channel → instrument) to Timeline
-                    {
-                      juce::String mapJson = masterList_.getChannelMapAsJson();
-                      juce::String mapCall =
-                          "setInstrumentMap('" + escapeForJS(mapJson) + "')";
-                      webComponent.evaluateJavascript(mapCall);
-                    }
-
-                    // Push cached plugin list (if any prior scan exists)
-                    if (pluginScanner_.getPluginCount() > 0) {
-                      juce::String json = pluginScanner_.getPluginListAsJson();
-                      juce::String call =
-                          "setPluginList('" + escapeForJS(json) + "')";
-                      webComponent.evaluateJavascript(call);
-                    }
-
-                    // Push current mixer state
-                    pushMixerState(false);
-
-                    // Restore saved main window mode.
-                    // If ensemble is empty and no explicit mode saved,
-                    // default to setup (first-run behavior).
-                    {
-                      auto mws = db_.loadWindowSettings("main");
-                      juce::String mode = mws.mode;
-                      if (masterList_.isEmpty() && mode != "setup")
-                        mode = "setup";
-                      webComponent.evaluateJavascript(
-                          "if(window.setMainMode) setMainMode('" + mode + "')");
-                    }
-
-                    // Reveal the WebView now that it's fully loaded
-                    initComplete_ = true;
-                    webComponent.setBounds(getLocalBounds());
-                    repaint();
-
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setMode",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() > 0) {
-                      juce::String mode = args[0].toString();
-                      if (mode == "mixer" || mode == "setup") {
-                        // Save mode to window_settings for the main window
-                        auto ws = db_.loadWindowSettings("main");
-                        ws.mode = mode;
-                        db_.saveWindowSettings(ws);
-                      }
-                    }
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "nativeLog",
-                  [](const juce::Array<juce::var> &args,
-                     juce::WebBrowserComponent::NativeFunctionCompletion
-                         completion) {
-                    if (args.size() > 0)
-                      std::cerr << "[JS NativeLog] " << args[0].toString()
-                                << std::endl;
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "requestSetupData",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    std::cerr << "[Setup] requestSetupData called" << std::endl;
-
-                    // Build and cache the escaped JS call on first use
-                    if (cachedInstrCall_.isEmpty()) {
-                      auto t0 = std::chrono::steady_clock::now();
-                      juce::String instrJson =
-                          instrumentBrowser_.getInstrumentsAsJson();
-                      cachedInstrCall_ = "setDoricoInstruments('" +
-                                         escapeForJS(instrJson) + "')";
-                      auto t1 = std::chrono::steady_clock::now();
-                      std::cerr << "[Setup] Built instrument call cache: "
-                                << std::chrono::duration_cast<
-                                       std::chrono::milliseconds>(t1 - t0)
-                                       .count()
-                                << "ms, " << cachedInstrCall_.length()
-                                << " chars" << std::endl;
-                    }
-
-                    safeCallAsync([this]() {
-                      webComponent.evaluateJavascript(cachedInstrCall_);
-                    });
-
-                    // Push saved selections to the UI
-                    juce::String selJson = masterList_.getSlotsAsJson();
-                    juce::String selCall = "setSelectedInstruments('" +
-                                           escapeForJS(selJson) + "')";
-                    safeCallAsync([this, selCall]() {
-                      webComponent.evaluateJavascript(selCall);
-                    });
-
-                    // Push channel map (port/channel → instrument) to the UI
-                    juce::String mapJson = masterList_.getChannelMapAsJson();
-                    juce::String mapCall =
-                        "setInstrumentMap('" + escapeForJS(mapJson) + "')";
-                    safeCallAsync([this, mapCall]() {
-                      webComponent.evaluateJavascript(mapCall);
-                    });
-
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "saveSelectedInstruments",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      safeCallAsync([this]() {
-                        webComponent.evaluateJavascript(
-                            "setSaveResult('Error: no data')");
-                      });
-                      completion(true);
-                      return;
-                    }
-                    juce::String json = args[0].toString();
-                    if (masterList_.setSlotsFromJson(json)) {
-                      masterList_.saveToDB(db_);
-
-                      // Reconcile stable channel assignments
-                      bool compacted = masterList_.reconcileAssignments(db_);
-
-                      // Generate Dorico config files
-                      DoricoConfigGenerator generator;
-                      auto slots = masterList_.getSlots();
-                      auto assignments =
-                          DoricoConfigGenerator::expandSlots(slots);
-                      int numChannels = masterList_.totalSlotCount();
-
-                      auto result = generator.generateAndInstallFiles(
-                          assignments, numChannels,
-                          instrumentBrowser_.getInstruments());
-                      juce::String msg;
-                      if (result.wasOk()) {
-                        msg = "OK: Installed " +
-                              juce::String((int)assignments.size()) +
-                              " presets (" + juce::String(numChannels) +
-                              " channels)";
-                      } else {
-                        msg = "Error: " + result.getErrorMessage();
-                      }
-                      safeCallAsync([this, msg]() {
-                        webComponent.evaluateJavascript(
-                            "setSaveResult('" + escapeForJS(msg) + "')");
-                      });
-
-                      if (compacted) {
-                        pushLogMessage(
-                            "<b>[Setup]</b> ⚠️ Channel assignments were "
-                            "compacted. Existing Dorico projects may need "
-                            "their playback template re-applied.");
-                      }
-
-                      // Sync mixer strips to match updated instruments
-                      mixer_.syncStripsToInstruments(masterList_);
-
-                      // Update channel map for Timeline
-                      juce::String mapJson2 = masterList_.getChannelMapAsJson();
-                      juce::String mapCall2 =
-                          "setInstrumentMap('" + escapeForJS(mapJson2) + "')";
-                      safeCallAsync([this, mapCall2]() {
-                        webComponent.evaluateJavascript(mapCall2);
-                      });
-
-                      // Push updated mixer state to UI
-                      pushMixerState();
-                    } else {
-                      safeCallAsync([this]() {
-                        webComponent.evaluateJavascript(
-                            "setSaveResult('Error: Invalid JSON')");
-                      });
-                    }
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "scanPlugins",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (pluginScanner_.isScanning()) {
-                      completion(true);
-                      return;
-                    }
-                    pushLogMessage("<b>[Plugins]</b> Scanning for VST3 plugins "
-                                   "(incremental)...");
-                    pluginScanner_.scanIncrementalAsync(db_, [this]() {
-                      int count = pluginScanner_.getPluginCount();
-                      pushLogMessage("<b>[Plugins]</b> Scan complete: " +
-                                     juce::String(count) + " plugins found");
-                      juce::String json = pluginScanner_.getPluginListAsJson();
-                      juce::String call =
-                          "setPluginList('" + escapeForJS(json) + "')";
-                      webComponent.evaluateJavascript(call);
-                      pushToDebugWindow(call);
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "rescanPlugins",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (pluginScanner_.isScanning()) {
-                      completion(true);
-                      return;
-                    }
-                    pushLogMessage(
-                        "<b>[Plugins]</b> Full rescan of VST3 plugins...");
-                    pluginScanner_.rescanAsync(db_, [this]() {
-                      int count = pluginScanner_.getPluginCount();
-                      pushLogMessage("<b>[Plugins]</b> Rescan complete: " +
-                                     juce::String(count) + " plugins found");
-                      juce::String json = pluginScanner_.getPluginListAsJson();
-                      juce::String call =
-                          "setPluginList('" + escapeForJS(json) + "')";
-                      webComponent.evaluateJavascript(call);
-                      pushToDebugWindow(call);
-                    });
-                    completion(true);
-                  })
-              // ── Mixer native functions ──
-              .withNativeFunction(
-                  "addMixerStrip",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      auto action = std::make_unique<AddStripAction>(mixer_);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "duplicateStripInput",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    safeCallAsync([this, stripId]() {
-                      auto action = std::make_unique<DuplicateStripAction>(
-                          mixer_, stripId);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "removeMixerStrip",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    safeCallAsync([this, stripId]() {
-                      auto action =
-                          std::make_unique<RemoveStripAction>(mixer_, stripId);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripLibrary",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    juce::String lib = args[1].toString();
-                    safeCallAsync([this, stripId, lib]() {
-                      juce::String oldLib;
-                      if (auto *s = mixer_.getStrip(stripId))
-                        oldLib = s->library;
-                      auto action = std::make_unique<SetLibraryAction>(
-                          mixer_, stripId, oldLib, lib);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripInput",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 3) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    int port = (int)args[1];
-                    int channel = (int)args[2];
-                    safeCallAsync([this, stripId, port, channel]() {
-                      int oldPort = -1, oldCh = -1;
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        oldPort = s->inputPort;
-                        oldCh = s->inputChannel;
-                      }
-                      auto action = std::make_unique<SetInputAction>(
-                          mixer_, stripId, oldPort, oldCh, port, channel);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripGain",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    float gainDb = static_cast<float>((double)args[1]);
-                    gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
-                    safeCallAsync([this, stripId, gainDb]() {
-                      float oldGain = 0.0f;
-                      if (auto *s = mixer_.getStrip(stripId))
-                        oldGain = s->gainDb.load(std::memory_order_relaxed);
-                      auto action = std::make_unique<SetGainAction>(
-                          mixer_, stripId, oldGain, gainDb);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripMute",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    bool mute = (bool)args[1];
-                    safeCallAsync([this, stripId, mute]() {
-                      mixer_.setStripMute(stripId, mute);
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripSolo",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    bool solo = (bool)args[1];
-                    safeCallAsync([this, stripId, solo]() {
-                      mixer_.setStripSolo(stripId, solo);
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setStripPlugin",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    int pluginUid = (int)args[1];
-
-                    // Verify plugin exists in scanner
-                    if (pluginUid != 0) {
-                      bool found = false;
-                      for (const auto &d :
-                           pluginScanner_.getKnownPluginList().getTypes()) {
-                        if (d.uniqueId == pluginUid) {
-                          found = true;
-                          break;
-                        }
-                      }
-                      if (!found) {
-                        completion(false);
-                        return;
-                      }
-                    }
-
-                    safeCallAsync([this, stripId, pluginUid]() {
-                      int oldUid = 0;
-                      if (auto *s = mixer_.getStrip(stripId))
-                        oldUid = s->pluginUid;
-                      auto action = std::make_unique<SetPluginAction>(
-                          mixer_, pluginScanner_, stripId, oldUid, pluginUid,
-                          [this]() { pushMixerState(); });
-                      undoManager_.perform(std::move(action));
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "showStripEditor",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    safeCallAsync([this, stripId]() {
-                      if (auto *s = mixer_.getStrip(stripId))
-                        s->showEditor();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "loadExpressionMap",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    std::string entityID = args[1].toString().toStdString();
-
-                    auto data = xmapLibrary_.load(entityID);
-                    if (!data) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, stripId, entityID, data]() {
-                      std::string oldEntityID;
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        if (s->expressionMap)
-                          oldEntityID = s->expressionMap->entityID;
-                      }
-                      auto action = std::make_unique<SetExpressionMapAction>(
-                          mixer_, xmapLibrary_, stripId, oldEntityID, entityID,
-                          data);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "clearExpressionMap",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-                    safeCallAsync([this, stripId]() {
-                      std::string oldEntityID;
-                      if (auto *s = mixer_.getStrip(stripId)) {
-                        if (s->expressionMap)
-                          oldEntityID = s->expressionMap->entityID;
-                      }
-                      if (oldEntityID.empty())
-                        return; // already clear
-                      auto action = std::make_unique<SetExpressionMapAction>(
-                          mixer_, xmapLibrary_, stripId, oldEntityID, "",
-                          nullptr);
-                      undoManager_.perform(std::move(action));
-                      pushMixerState();
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "loadExpressionMapFromFile",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    juce::String stripId = args[0].toString();
-
-                    auto chooser = std::make_shared<juce::FileChooser>(
-                        "Load Expression Map", juce::File{}, "*.doricolib");
-
-                    chooser->launchAsync(
-                        juce::FileBrowserComponent::openMode |
-                            juce::FileBrowserComponent::canSelectFiles,
-                        [this, stripId, chooser](const juce::FileChooser &fc) {
-                          auto results = fc.getResults();
-                          if (results.isEmpty())
-                            return;
-
-                          auto file = results[0];
-                          auto data = std::make_shared<ExpressionMapData>();
-                          if (!parseExpressionMap(file, *data))
-                            return;
-
-                          if (auto *s = mixer_.getStrip(stripId)) {
-                            s->expressionMap = data;
-                            s->expressionMapPath = file.getFullPathName();
-                          }
-
-                          safeCallAsync([this]() { pushMixerState(); });
-                        });
-
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "requestExpressionMaps",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      juce::String json = xmapLibrary_.toJson();
-                      webComponent.evaluateJavascript("setExpressionMaps('" +
-                                                      escapeForJS(json) + "')");
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "undo",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      if (undoManager_.undo()) {
-                        pushMixerState();
-                        if (undoManager_.isAtSavePoint()) {
-                          stateManager_.clearDirty();
-                          webComponent.evaluateJavascript(
-                              "if(window.setDirtyState)setDirtyState(false)");
-                          pushConfigStatus();
-                        }
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "redo",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      if (undoManager_.redo()) {
-                        pushMixerState();
-                        if (undoManager_.isAtSavePoint()) {
-                          stateManager_.clearDirty();
-                          webComponent.evaluateJavascript(
-                              "if(window.setDirtyState)setDirtyState(false)");
-                          pushConfigStatus();
-                        }
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "requestPluginsState",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      if (pluginScanner_.getPluginCount() > 0) {
-                        juce::String json =
-                            pluginScanner_.getPluginListAsJson();
-                        webComponent.evaluateJavascript(
-                            "setPluginList('" + escapeForJS(json) + "')");
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "requestMixerState",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() { pushMixerState(false); });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "getAvailableInputs",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      juce::String json = masterList_.getChannelMapAsJson();
-                      juce::String call =
-                          "setAvailableInputs('" + escapeForJS(json) + "')";
-                      webComponent.evaluateJavascript(call);
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setPlaybackDelay",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() >= 1) {
-                      int ms = static_cast<int>(args[0]);
-                      safeCallAsync([this, ms]() {
-                        mixer_.setPlaybackDelayMs(ms);
-                        if (configName_.isNotEmpty())
-                          pushConfigStatus();
-                        pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
-                                       juce::String(ms) + " ms");
-                      });
-                    }
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "getPlaybackDelay",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() {
-                      int ms = mixer_.getPlaybackDelayMs();
-                      webComponent.evaluateJavascript("setPlaybackDelay(" +
-                                                      juce::String(ms) + ")");
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setGroupGainDelta",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    // args[0] = JSON array of strip IDs, args[1] = delta dB
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    float delta = static_cast<float>((double)args[1]);
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar, delta]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (auto *s = mixer_.getStrip(sid)) {
-                          float old = s->gainDb.load(std::memory_order_relaxed);
-                          float nw = juce::jlimit(-120.0f, 6.0f, old + delta);
-                          subs.push_back(std::make_unique<SetGainAction>(
-                              mixer_, sid, old, nw));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group gain delta", std::move(subs), "group-gain"));
-                        pushMixerState();
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setGroupGainAbsolute",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    float gainDb = juce::jlimit(
-                        -120.0f, 6.0f, static_cast<float>((double)args[1]));
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar, gainDb]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (auto *s = mixer_.getStrip(sid)) {
-                          float old = s->gainDb.load(std::memory_order_relaxed);
-                          subs.push_back(std::make_unique<SetGainAction>(
-                              mixer_, sid, old, gainDb));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group gain absolute", std::move(subs)));
-                        pushMixerState();
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setGroupPlugin",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    int pluginUid = (int)args[1];
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar, pluginUid]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (auto *s = mixer_.getStrip(sid)) {
-                          int oldUid = s->pluginUid;
-                          subs.push_back(std::make_unique<SetPluginAction>(
-                              mixer_, pluginScanner_, sid, oldUid, pluginUid,
-                              [this]() { pushMixerState(); }));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group set plugin", std::move(subs)));
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setGroupLibrary",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    juce::String lib = args[1].toString();
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar, lib]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (auto *s = mixer_.getStrip(sid)) {
-                          subs.push_back(std::make_unique<SetLibraryAction>(
-                              mixer_, sid, s->library, lib));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group set library", std::move(subs)));
-                        pushMixerState();
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "setGroupExpressionMap",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 2) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    std::string entityID = args[1].toString().toStdString();
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    auto data = entityID.empty() ? nullptr
-                                                 : xmapLibrary_.load(entityID);
-                    if (!entityID.empty() && !data) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar, entityID, data]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (auto *s = mixer_.getStrip(sid)) {
-                          std::string oldID;
-                          if (s->expressionMap)
-                            oldID = s->expressionMap->entityID;
-                          subs.push_back(
-                              std::make_unique<SetExpressionMapAction>(
-                                  mixer_, xmapLibrary_, sid, oldID, entityID,
-                                  data));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group set expression map", std::move(subs)));
-                        pushMixerState();
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "removeGroupStrips",
-                  [this](const juce::Array<juce::var> &args,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    if (args.size() < 1) {
-                      completion(false);
-                      return;
-                    }
-                    auto idsVar = juce::JSON::parse(args[0].toString());
-                    if (!idsVar.isArray()) {
-                      completion(false);
-                      return;
-                    }
-
-                    safeCallAsync([this, idsVar]() {
-                      auto *arr = idsVar.getArray();
-                      std::vector<std::unique_ptr<UndoableAction>> subs;
-                      for (auto &idVar : *arr) {
-                        juce::String sid = idVar.toString();
-                        if (mixer_.getStrip(sid)) {
-                          subs.push_back(
-                              std::make_unique<RemoveStripAction>(mixer_, sid));
-                        }
-                      }
-                      if (!subs.empty()) {
-                        undoManager_.perform(std::make_unique<CompoundAction>(
-                            "Group remove strips", std::move(subs)));
-                        pushMixerState();
-                      }
-                    });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "saveConfig",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    safeCallAsync([this]() { saveConfig(); });
-                    completion(true);
-                  })
-              .withNativeFunction(
-                  "cancelSetup",
-                  [this](const juce::Array<juce::var> &,
-                         juce::WebBrowserComponent::NativeFunctionCompletion
-                             completion) {
-                    // Cancel just switches back to mixer — no C++ action needed
-                    completion(true);
-                  })
-              .withNativeFunction("saveSetup", [this](
-                                                   const juce::Array<juce::var>
-                                                       &,
-                                                   juce::WebBrowserComponent::
-                                                       NativeFunctionCompletion
-                                                           completion) {
-                // Trigger the same save flow as the old
-                // saveSelectedInstruments
-                safeCallAsync([this]() {
-                  // Request the UI to send back the instrument selections
-                  webComponent.evaluateJavascript(
-                      "if(window.triggerSaveSetup)window.triggerSaveSetup()");
-                });
-                completion(true);
-              })) {
+    : webComponent(createWebOptions()) {
   setupWebView();
 
   // Add webComponent with zero-size bounds so the native WKWebView peer
@@ -991,9 +92,7 @@ MainComponent::MainComponent(const juce::String &configName)
         pushLogMessage("<b>[Plugins]</b> Scan complete: " +
                        juce::String(count) + " plugins found");
         juce::String json = pluginScanner_.getPluginListAsJson();
-        juce::String call = "setPluginList('" + escapeForJS(json) + "')";
-        webComponent.evaluateJavascript(call);
-        pushToDebugWindow(call);
+        broadcastMessage("setPluginList", juce::JSON::fromString(json));
       });
     };
     cbs.onRescanPlugins = [this]() {
@@ -1005,9 +104,7 @@ MainComponent::MainComponent(const juce::String &configName)
         pushLogMessage("<b>[Plugins]</b> Rescan complete: " +
                        juce::String(count) + " plugins found");
         juce::String json = pluginScanner_.getPluginListAsJson();
-        juce::String call = "setPluginList('" + escapeForJS(json) + "')";
-        webComponent.evaluateJavascript(call);
-        pushToDebugWindow(call);
+        broadcastMessage("setPluginList", juce::JSON::fromString(json));
       });
     };
     cbs.onRequestPluginsState = [this]() {
@@ -1039,6 +136,9 @@ MainComponent::MainComponent(const juce::String &configName)
   // between steps.
   addInitMessage("Starting up...");
   safeCallAsync([this]() { runInitStep(0); });
+
+  // Initialize the bridge for UI testing on the main window using port 9223
+  jsTestBridge_ = std::make_unique<JsTestBridge>(webComponent, 9223);
 }
 
 void MainComponent::addInitMessage(const juce::String &msg) {
@@ -1278,25 +378,28 @@ void MainComponent::runInitStep(int step) {
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
                                     mixer_.getPlaybackDelayMs();
-             // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
-             // payload
+             // JUCE MidiMessage takes channels 1-16. n.channel() from Dorico
+             // is also 1-based (1-16), so pass directly (no +1).
              juce::MidiMessage msg = juce::MidiMessage::noteOn(
-                 (int)n.channel() + 1, (int)n.note_number(),
+                 (int)n.channel(), (int)n.note_number(),
                  (juce::uint8)n.start_velocity());
              // Route the message to the MixerModel.
-             // n.channel() from Dorico protobuf is 1-16, but Mixer model tracks
-             // uses 0-15.
-             std::cerr << "[MainComponent] Routing Note ON (port " << n.port()
-                       << ", ch " << n.channel() << ")" << std::endl;
-             mixer_.routeNoteEvent((int)n.port(), (int)n.channel() - 1, msg,
+             // n.port() from Dorico is 0-based (matches strip inputPort directly).
+             // n.channel() from Dorico is 1-based (1-16); strip inputChannel
+             // is 0-based (0-15), so subtract 1.
+             int notePort = (int)n.port();
+             std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
+                       << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
+             mixer_.routeNoteEvent(notePort, (int)n.channel() - 1, msg,
                                    triggerTimeMs);
 
-             juce::String json = noteToJson(n);
-             juce::String call = juce::String::formatted(
-                 "updateNoteState(%s, 'started')", json.toRawUTF8());
-             std::cerr << "[MainComponent] Call: " << call << std::endl;
-             safeCallAsync(
-                 [this, call]() { webComponent.evaluateJavascript(call); });
+             juce::var noteVar = juce::JSON::fromString(noteToJson(n));
+             juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+             obj->setProperty("noteData", noteVar);
+             obj->setProperty("status", juce::String("started"));
+             safeCallAsync([this, obj]() {
+               broadcastMessage("updateNoteState", juce::var(obj.get()));
+             });
            },
            [this, noteToJson](const fiddle::Note &n) {
              pushLogMessage("<b>[Tracker]</b> Note OFF: " +
@@ -1307,39 +410,39 @@ void MainComponent::runInitStep(int step) {
                                     mixer_.getPlaybackDelayMs();
              // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
              // payload
+             // JUCE MidiMessage: channel 1-16, n.channel() is already 1-based.
              juce::MidiMessage msg = juce::MidiMessage::noteOff(
-                 (int)n.channel() + 1, (int)n.note_number(), (juce::uint8)0);
+                 (int)n.channel(), (int)n.note_number(), (juce::uint8)0);
 
-             std::cerr << "[MainComponent] Routing Note OFF (port " << n.port()
-                       << ", ch " << n.channel() << ")" << std::endl;
-             mixer_.routeNoteEvent((int)n.port(), (int)n.channel() - 1, msg,
+             int noteOffPort = (int)n.port();
+             std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
+                       << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
+             mixer_.routeNoteEvent(noteOffPort, (int)n.channel() - 1, msg,
                                    triggerTimeMs);
 
-             juce::String json = noteToJson(n);
-             juce::String call = juce::String::formatted(
-                 "updateNoteState(%s, 'ended')", json.toRawUTF8());
-             std::cerr << "[MainComponent] Call: " << call << std::endl;
-             safeCallAsync(
-                 [this, call]() { webComponent.evaluateJavascript(call); });
+             juce::var noteVar = juce::JSON::fromString(noteToJson(n));
+             juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+             obj->setProperty("noteData", noteVar);
+             obj->setProperty("status", juce::String("ended"));
+             safeCallAsync([this, obj]() {
+               broadcastMessage("updateNoteState", juce::var(obj.get()));
+             });
            },
            [this, noteToJson](const fiddle::Note &n) {
-             juce::String json = noteToJson(n);
-             juce::String call = juce::String::formatted(
-                 "updateNoteState(%s, 'updated')", json.toRawUTF8());
-             safeCallAsync([this, call]() {
-               webComponent.evaluateJavascript(call);
-               pushToDebugWindow(call);
+             juce::var noteVar = juce::JSON::fromString(noteToJson(n));
+             juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+             obj->setProperty("noteData", noteVar);
+             obj->setProperty("status", juce::String("updated"));
+             safeCallAsync([this, obj]() {
+               broadcastMessage("updateNoteState", juce::var(obj.get()));
              });
            },
            [this, midiEventToJson](const fiddle::MidiEvent &event,
                                    uint64_t absoluteSamples, int oldCCVal) {
-             juce::String json =
-                 midiEventToJson(event, absoluteSamples, oldCCVal);
-             juce::String call =
-                 juce::String::formatted("pushMidiEvent(%s)", json.toRawUTF8());
-             safeCallAsync([this, call]() {
-               webComponent.evaluateJavascript(call);
-               pushToDebugWindow(call);
+             juce::var eventVar = juce::JSON::fromString(
+                 midiEventToJson(event, absoluteSamples, oldCCVal));
+             safeCallAsync([this, eventVar]() {
+               broadcastMessage("pushMidiEvent", eventVar);
              });
            }});
 
@@ -1350,21 +453,23 @@ void MainComponent::runInitStep(int step) {
 
              pushSubnoteToWebView(s);
              safeCallAsync([this, id = s.id()]() {
-               auto call = juce::String::formatted(
-                   "updateNoteState({id: %llu}, 'subnote')", id);
-               webComponent.evaluateJavascript(call);
-               pushToDebugWindow(call);
+               juce::DynamicObject::Ptr nd = new juce::DynamicObject();
+               nd->setProperty("id", (juce::int64)id);
+               juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+               obj->setProperty("noteData", juce::var(nd.get()));
+               obj->setProperty("status", juce::String("subnote"));
+               broadcastMessage("updateNoteState", juce::var(obj.get()));
              });
            },
            [this, noteToJson](const fiddle::Note &n) {
              pushLogMessage("<b>[Watchdog]</b> Note Timed Out: " +
                             juce::String((juce::int64)n.id()));
-             juce::String json = noteToJson(n);
-             juce::String call = juce::String::formatted(
-                 "updateNoteState(%s, 'ended')", json.toRawUTF8());
-             safeCallAsync([this, call]() {
-               webComponent.evaluateJavascript(call);
-               pushToDebugWindow(call);
+             juce::var noteVar = juce::JSON::fromString(noteToJson(n));
+             juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+             obj->setProperty("noteData", noteVar);
+             obj->setProperty("status", juce::String("ended"));
+             safeCallAsync([this, obj]() {
+               broadcastMessage("updateNoteState", juce::var(obj.get()));
              });
            }});
 
@@ -1381,7 +486,9 @@ void MainComponent::runInitStep(int step) {
         // Forward CC events to VST plugins
         if (event.has_cc()) {
           int ch = event.channel();
-          int port = event.port();
+          // event.port() from Dorico is 0-based (matches strip inputPort directly).
+          // event.channel() from Dorico is 1-based; subtract 1 for strip inputChannel.
+          int port = (int)event.port();
           int ccNum = event.cc().controller_number();
           int ccVal = event.cc().controller_value();
 
@@ -1393,12 +500,14 @@ void MainComponent::runInitStep(int step) {
           } else {
             // Route CC to matching strips (ch is 1-based from protobuf, mixer
             // uses 0-based)
+            // ch from Dorico is 1-based; JUCE controllerEvent also uses 1-16.
             juce::MidiMessage ccMsg =
                 juce::MidiMessage::controllerEvent(ch, ccNum, ccVal);
             mixer_.routeCCEvent(port, ch - 1, ccMsg);
           }
 
-          juce::String logMsg = "<b>[CC]</b> Ch " + juce::String(ch + 1) +
+          // ch is 1-based from protobuf — log it directly (no +1 needed)
+          juce::String logMsg = "<b>[CC]</b> Ch " + juce::String(ch) +
                                 " CC" + juce::String(ccNum) + " = " +
                                 juce::String(ccVal);
           auto *dim = expressionMap.getDimensionForCC(ccNum);
@@ -1421,11 +530,12 @@ void MainComponent::runInitStep(int step) {
           std::string name =
               instrumentMapper_.handleProgramChange(channel, program);
           if (!name.empty()) {
-            juce::String jsCall = "setChannelInstrument(" +
-                                  juce::String(channel) + ", '" +
-                                  escapeForJS(juce::String(name)) + "')";
-            safeCallAsync(
-                [this, jsCall]() { webComponent.evaluateJavascript(jsCall); });
+            juce::DynamicObject::Ptr ci = new juce::DynamicObject();
+            ci->setProperty("channel", channel);
+            ci->setProperty("name", juce::String(name));
+            safeCallAsync([this, ci]() {
+              broadcastMessage("setChannelInstrument", juce::var(ci.get()));
+            });
           }
         }
 
@@ -1549,29 +659,21 @@ void MainComponent::runInitStep(int step) {
 
       server->onConnectionChanged([this](bool connected, juce::String host) {
         safeCallAsync([this, connected, host]() {
-          // Send explicit status to UI
-          webComponent.evaluateJavascript(
-              "setConnectionState(" +
-              juce::String(connected ? "true" : "false") + ")");
-
+          broadcastMessage("setConnectionState", connected);
           if (connected) {
             pushConfigStatus();
-            webComponent.evaluateJavascript(
-                "addLogMessage('<span style=\"color: #03dac6\">[Connected: " +
-                host + "]</span>')");
+            pushLogMessage("<span style=\"color: #03dac6\">[Connected: " +
+                           host + "]</span>");
           } else {
-            webComponent.evaluateJavascript(
-                "addLogMessage('<span style=\"color: "
-                "#cf6679\">[Disconnected]</span>')");
+            pushLogMessage(
+                "<span style=\"color: #cf6679\">[Disconnected]</span>");
           }
         });
       });
 
       server->onRawActivity([this](juce::String msg) {
-        safeCallAsync([this, msg]() {
-          webComponent.evaluateJavascript("addLogMessage('<small>" + msg +
-                                          "</small>')");
-        });
+        safeCallAsync(
+            [this, msg]() { pushLogMessage("<small>" + msg + "</small>"); });
       });
 
       server->startThread();
@@ -1604,6 +706,98 @@ void MainComponent::runInitStep(int step) {
     // Open SQLite database
     auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
     db_.open(dbFile);
+
+    // Create the VersionStore backed by the database's SqliteVersionStorage.
+    // This must happen immediately after db_.open() so that all downstream
+    // code (pushDagHistory, pushBranches, stateManager) can use it.
+    if (auto *storage = db_.getVersionStorage()) {
+      versionStore_ = std::make_unique<versioning::VersionStore>(*storage);
+
+      // On first run, the branches table is empty — seed with an empty root.
+      if (versionStore_->getStorage().listBranches().empty()) {
+        versionStore_->initializeEmpty();
+        std::cerr << "[MainComponent] VersionStore seeded with empty root"
+                  << std::endl;
+      } else {
+        std::cerr << "[MainComponent] VersionStore loaded ("
+                  << versionStore_->getStorage().listBranches().size()
+                  << " branches)" << std::endl;
+      }
+
+      // ── Dedup guard: remove stale duplicate-named branches ───────────────
+      // This can accumulate during development if the DB is partially reset
+      // without wiping the branches table. For each duplicate name, keep the
+      // branch whose head version is most recent (highest created_at); delete
+      // the others.
+      {
+        auto allBranches = versionStore_->getStorage().listBranches();
+        // Map name → (branchId, headId, createdAt)
+        std::map<std::string, std::tuple<versioning::BranchId,
+                                         versioning::VersionId, std::string>>
+            bestByName;
+
+        for (const auto &[bid, name, headId] : allBranches) {
+          std::string headCreatedAt;
+          if (auto ver = versionStore_->getStorage().getVersion(headId))
+            headCreatedAt = ver->createdAt;
+
+          auto it = bestByName.find(name);
+          if (it == bestByName.end()) {
+            bestByName[name] = {bid, headId, headCreatedAt};
+          } else {
+            // Keep whichever head is newer
+            const std::string &existingTs = std::get<2>(it->second);
+            if (headCreatedAt > existingTs) {
+              // Current entry is older — delete it
+              std::cerr << "[MainComponent] Dedup: removing stale branch '"
+                        << name << "' id=" << std::get<0>(it->second)
+                        << std::endl;
+              versionStore_->deleteBranch(std::get<0>(it->second));
+              it->second = {bid, headId, headCreatedAt};
+            } else {
+              // New entry is older — delete it
+              std::cerr << "[MainComponent] Dedup: removing stale branch '"
+                        << name << "' id=" << bid << std::endl;
+              versionStore_->deleteBranch(bid);
+            }
+          }
+        }
+      }
+
+      // ── Orphan guard: remove branches whose head version is claimed by a
+      // different branch. This catches the case where a stale branch record
+      // points to a version whose branchId is already owned by another branch.
+      {
+        auto allBranches = versionStore_->getStorage().listBranches();
+        for (const auto &[bid, name, headId] : allBranches) {
+          auto ver = versionStore_->getStorage().getVersion(headId);
+          if (ver && !ver->branchId.empty() && ver->branchId != bid) {
+            std::cerr << "[MainComponent] Orphan branch '" << name
+                      << "' (id=" << bid << "): head version belongs to branch "
+                      << ver->branchId << " — removing record only."
+                      << std::endl;
+            // Only delete the branch record; its versions belong to another
+            // branch and must not be removed.
+            versionStore_->getStorage().deleteBranch(bid);
+          }
+        }
+      }
+
+      // Wire the version store into the state manager so it embeds ancestor
+      // hashes in the Dorico blob.
+      stateManager_.setVersionStore(versionStore_.get());
+
+      // Track the current branch (default to first branch, i.e. "Main").
+      auto allBranches = versionStore_->getStorage().listBranches();
+      if (!allBranches.empty()) {
+        currentBranchId_ = std::get<0>(allBranches[0]);
+        stateManager_.setCurrentBranchId(currentBranchId_);
+      }
+    } else {
+      std::cerr << "[MainComponent] WARNING: VersionStore not available — "
+                   "DAG history will be disabled"
+                << std::endl;
+    }
 
     // Now that the DB is open, restore debug window geometry + visibility.
     if (debugWindow_) {
@@ -1643,9 +837,7 @@ void MainComponent::runInitStep(int step) {
       std::cerr << "[Startup] Plugin scan complete: " << count
                 << " plugins found" << std::endl;
       juce::String json = pluginScanner_.getPluginListAsJson();
-      juce::String call = "setPluginList('" + escapeForJS(json) + "')";
-      webComponent.evaluateJavascript(call);
-      pushToDebugWindow(call);
+      broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
 
     // Restore latest version timestamp for the default config.
@@ -1736,8 +928,7 @@ void MainComponent::saveConfig() {
     stateManager_.setConfigVersion(configVersion_);
     stateManager_.clearDirty();
     undoManager_.markSavePoint();
-    webComponent.evaluateJavascript(
-        "if(window.setDirtyState)setDirtyState(false)");
+    broadcastMessage("setDirtyState", false);
     pushLogMessage("<b>[Config]</b> Saved '" + configName_ +
                    "' v=" + newVersion);
     pushConfigStatus();
@@ -1746,6 +937,22 @@ void MainComponent::saveConfig() {
     // Reset plugin state hashes so unchanged state doesn't re-trigger dirty
     pluginStateHashes_.clear();
   }
+
+  // Commit a new DAG version on the currently-checked-out branch so the
+  // History window reflects the save.
+  if (versionStore_ && !currentBranchId_.empty()) {
+    stateManager_.commitCurrentState(mixer_, currentBranchId_);
+    // Track the new head as the current version.
+    auto headOpt = versionStore_->getBranchHead(currentBranchId_);
+    if (headOpt)
+      currentVersionId_ = *headOpt;
+    // pushBranches() must come before pushDagHistory() so the frontend's
+    // headHashes set is up-to-date when it processes the new version list.
+    pushBranches();
+    pushDagHistory();
+    pushCurrentVersion();
+  }
+
   // Rebuild state blob without re-marking dirty
   stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
     return stateManager_.buildStateBlob(mixer_);
@@ -1852,6 +1059,12 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
 }
 
 void MainComponent::scheduleStateRebuild() {
+  // While viewing a historical version, do not update the Dorico shared-
+  // memory blob — the current mixer state is read-only and must not be
+  // committed as an ancestor of the live branch.
+  if (isDetached_)
+    return;
+
   auto now = juce::Time::getMillisecondCounter();
   if (now - lastStateRebuildMs_ < 1000) {
     // Too soon — mark pending; the timer will pick it up
@@ -1875,8 +1088,7 @@ void MainComponent::setupStripListener(MixerStrip &strip) {
         listenerDirtyPending_.store(false, std::memory_order_release);
         stateManager_.markDirty();
         pushConfigStatus();
-        webComponent.evaluateJavascript(
-            "if(window.setDirtyState)setDirtyState(true)");
+        broadcastMessage("setDirtyState", true);
         // Refresh cache for the changed strip
         strip.refreshPluginStateCache();
         scheduleStateRebuild();
@@ -1921,8 +1133,7 @@ void MainComponent::pollPluginStateChanges() {
       strip->refreshPluginStateCache();
       stateManager_.markDirty();
       pushConfigStatus();
-      webComponent.evaluateJavascript(
-          "if(window.setDirtyState)setDirtyState(true)");
+      broadcastMessage("setDirtyState", true);
       scheduleStateRebuild();
       return; // One dirty notification per poll cycle is enough
     }
@@ -2074,15 +1285,13 @@ void MainComponent::pushMixerState(bool markDirty) {
   if (markDirty) {
     bool wasDirty = stateManager_.isDirty();
     stateManager_.markDirty();
-    webComponent.evaluateJavascript(
-        "if(window.setDirtyState)setDirtyState(true)");
+    broadcastMessage("setDirtyState", true);
     // Notify plugin on first dirty transition (not on every fader drag)
     if (!wasDirty)
       pushConfigStatus();
   }
   juce::String json = mixer_.toJson();
-  juce::String call = "setMixerState('" + escapeForJS(json) + "')";
-  webComponent.evaluateJavascript(call);
+  broadcastMessage("setMixerState", juce::JSON::fromString(json));
 }
 
 void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
@@ -2094,14 +1303,11 @@ void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
     return;
   }
 
-  juce::String escaped = escapeForJS(msg);
-  std::cerr << "[WebView] pushLogMessage: " << msg.substring(0, 50) << "..."
-            << std::endl;
-
-  safeCallAsync([this, escaped, isError]() {
-    webComponent.evaluateJavascript(
-        juce::String::formatted("addLogMessage('%s', %s)", escaped.toRawUTF8(),
-                                isError ? "true" : "false"));
+  safeCallAsync([this, msg, isError]() {
+    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+    obj->setProperty("msg", msg);
+    obj->setProperty("isError", isError);
+    broadcastMessage("addLogMessage", juce::var(obj.get()));
   });
 }
 
@@ -2283,9 +1489,7 @@ void MainComponent::timerCallback() {
   static int hbCounter = 0;
   if (++hbCounter % 50 == 0) { // Every 1 second (20ms * 50)
     safeCallAsync([this, val = hbCounter / 50]() {
-      auto js = "setHeartbeat(" + juce::String(val) + ")";
-      webComponent.evaluateJavascript(js);
-      pushToDebugWindow(js);
+      broadcastMessage("setHeartbeat", val);
     });
   }
 
@@ -2400,4 +1604,1456 @@ void MainComponent::audioDeviceIOCallbackWithContext(
   //    This forces us to listen ONLY through the Dorico Mixer return route!
   audioBuffer.clear();
 }
+
+void MainComponent::pushBranches() {
+  if (!versionStore_)
+    return;
+  auto branches = versionStore_->getStorage().listBranches();
+
+  juce::Array<juce::var> arr;
+  for (const auto &b : branches) {
+    auto *obj = new juce::DynamicObject();
+    obj->setProperty("id", juce::String(std::get<0>(b)));
+    obj->setProperty("name", juce::String(std::get<1>(b)));
+    obj->setProperty("headHash", juce::String(std::get<2>(b)));
+    arr.add(juce::var(obj));
+  }
+
+  broadcastMessage("setBranches", juce::var(arr));
+}
+
+void MainComponent::pushDagHistory() {
+  if (!versionStore_)
+    return;
+  auto versions = versionStore_->listAllVersions();
+
+  juce::Array<juce::var> arr;
+  for (const auto &vPair : versions) {
+    auto *obj = new juce::DynamicObject();
+    obj->setProperty("hash", juce::String(vPair.first));
+
+    const auto &ver = vPair.second;
+    obj->setProperty("stateHash", juce::String(ver.stateHash));
+    obj->setProperty("branchId", juce::String(ver.branchId));
+    if (!ver.parentId.empty()) {
+      obj->setProperty("parentHash", juce::String(ver.parentId));
+    }
+    if (!ver.mergeParentId.empty()) {
+      obj->setProperty("mergeParentHash", juce::String(ver.mergeParentId));
+    }
+    if (!ver.createdAt.empty()) {
+      obj->setProperty("createdAt", juce::String(ver.createdAt));
+    }
+
+    arr.add(juce::var(obj));
+  }
+
+  broadcastMessage("setDagHistory", juce::var(arr));
+}
+
+void MainComponent::pushCurrentVersion() {
+  broadcastMessage("setCurrentVersion", juce::String(currentVersionId_));
+}
+
+void MainComponent::broadcastJavascript(const juce::String &js) {
+  if (webViewLoaded) {
+    webComponent.evaluateJavascript(js);
+  }
+  if (historyWindow_ && historyWindowLoaded_) {
+    historyWindow_->getWebView().evaluateJavascript(js);
+  }
+  // Include debug window so broadcastMessage reaches the Plugins/Timeline panels
+  if (debugWindow_) {
+    debugWindow_->evaluateJavascript(js);
+  }
+}
+
+void MainComponent::broadcastMessage(const juce::String &type,
+                                     const juce::var &data) {
+  auto *envelope = new juce::DynamicObject();
+  envelope->setProperty("type", type);
+  envelope->setProperty("data", data);
+  juce::String json = juce::JSON::toString(juce::var(envelope), true);
+  juce::String js =
+      "window.__dispatchFromCpp && window.__dispatchFromCpp(" + json + ")";
+  broadcastJavascript(js);
+}
+
+void MainComponent::handleJsMessage(const juce::String &type,
+                                    const juce::var &payload) {
+  if (type == "signalReady") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    juce::String viewMode = "mixer";
+    if (args.size() > 0) {
+      viewMode = args[0].toString();
+    }
+
+    juce::WebBrowserComponent *targetWebComponent = &webComponent;
+    bool isHistoryWindow = false;
+
+    if (viewMode == "history" && historyWindow_) {
+      targetWebComponent = &(historyWindow_->getWebView());
+      historyWindowLoaded_ = true;
+      isHistoryWindow = true;
+      std::cerr << "[WebView] Handshake: History window ready" << std::endl;
+    } else {
+      webViewLoaded = true;
+      std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
+
+      std::vector<std::pair<juce::String, bool>> pending;
+      {
+        std::lock_guard<std::mutex> lock(logMutex);
+        pending.swap(logQueue);
+      }
+      for (const auto &item : pending) {
+        pushLogMessage(item.first, item.second);
+      }
+
+      pushLogMessage("<i>Server started and listening for connections...</i>");
+    }
+
+    // Send Version
+    if (auto *app = juce::JUCEApplication::getInstance()) {
+      broadcastMessage("setServerVersion",
+                       juce::var(app->getApplicationVersion()));
+    }
+
+    // Push channel map (port/channel → instrument) to Timeline
+    {
+      juce::String mapJson = masterList_.getChannelMapAsJson();
+      broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson));
+    }
+
+    // Push cached plugin list (if any prior scan exists)
+    if (pluginScanner_.getPluginCount() > 0) {
+      juce::String json = pluginScanner_.getPluginListAsJson();
+      broadcastMessage("setPluginList", juce::JSON::fromString(json));
+    }
+
+    // Push current mixer state
+    if (!isHistoryWindow) {
+      pushMixerState(false);
+    }
+
+    // Restore saved main window mode.
+    if (!isHistoryWindow) {
+      auto mws = db_.loadWindowSettings("main");
+      juce::String mode = mws.mode;
+      if (masterList_.isEmpty() && mode != "setup")
+        mode = "setup";
+      broadcastMessage("setMainMode", juce::var(mode));
+    }
+
+    if (isHistoryWindow) {
+      safeCallAsync([this]() {
+        pushDagHistory();
+        pushBranches();
+        pushCurrentVersion();
+      });
+    }
+
+    // Push branches to main window
+    if (!isHistoryWindow) {
+      pushBranches();
+    }
+
+    // Reveal the WebView now that it's fully loaded
+    if (!isHistoryWindow) {
+      initComplete_ = true;
+      webComponent.setBounds(getLocalBounds());
+      repaint();
+    }
+    return;
+  }
+  if (type == "setMode") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() > 0) {
+      juce::String mode = args[0].toString();
+      if (mode == "mixer" || mode == "setup") {
+        // Save mode to window_settings for the main window
+        auto ws = db_.loadWindowSettings("main");
+        ws.mode = mode;
+        db_.saveWindowSettings(ws);
+      }
+    }
+    return;
+  }
+  if (type == "nativeLog") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() > 0)
+      std::cerr << "[JS NativeLog] " << args[0].toString() << std::endl;
+    return;
+  }
+  if (type == "requestSetupData") {
+    std::cerr << "[Setup] requestSetupData called" << std::endl;
+
+    // Send Dorico instruments list
+    {
+      auto t0 = std::chrono::steady_clock::now();
+      juce::String instrJson = instrumentBrowser_.getInstrumentsAsJson();
+      auto t1 = std::chrono::steady_clock::now();
+      std::cerr << "[Setup] Built instrument JSON: "
+                << std::chrono::duration_cast<std::chrono::milliseconds>(t1 -
+                                                                         t0)
+                       .count()
+                << "ms, " << instrJson.length() << " chars" << std::endl;
+      safeCallAsync([this, instrJson]() {
+        broadcastMessage("setDoricoInstruments",
+                         juce::JSON::fromString(instrJson));
+      });
+    }
+
+    // Push saved selections to the UI
+    {
+      juce::String selJson = masterList_.getSlotsAsJson();
+      safeCallAsync([this, selJson]() {
+        broadcastMessage("setSelectedInstruments",
+                         juce::JSON::fromString(selJson));
+      });
+    }
+
+    // Push channel map (port/channel → instrument) to the UI
+    {
+      juce::String mapJson = masterList_.getChannelMapAsJson();
+      safeCallAsync([this, mapJson]() {
+        broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson));
+      });
+    }
+    return;
+  }
+  if (type == "saveSelectedInstruments") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      safeCallAsync([this]() {
+        webComponent.evaluateJavascript("setSaveResult('Error: no data')");
+      });
+      return;
+    }
+    juce::String json = args[0].toString();
+    if (masterList_.setSlotsFromJson(json)) {
+      masterList_.saveToDB(db_);
+
+      // Reconcile stable channel assignments
+      bool compacted = masterList_.reconcileAssignments(db_);
+
+      // Generate Dorico config files
+      DoricoConfigGenerator generator;
+      auto slots = masterList_.getSlots();
+      auto assignments = DoricoConfigGenerator::expandSlots(slots);
+      int numChannels = masterList_.totalSlotCount();
+
+      auto result = generator.generateAndInstallFiles(
+          assignments, numChannels, instrumentBrowser_.getInstruments());
+      juce::String msg;
+      if (result.wasOk()) {
+        msg = "OK: Installed " + juce::String((int)assignments.size()) +
+              " presets (" + juce::String(numChannels) + " channels)";
+
+        // Rebuild channel_assignments from the sequential flat indices used by
+        // the generated Dorico playback template. reconcileAssignments above
+        // tries to preserve stable indices across score changes, but can
+        // diverge from the template's sequential order (e.g. after reordering
+        // ensemble slots). By rebuilding here we guarantee the DB always
+        // matches the MIDI port/channel layout that Dorico will use.
+        std::vector<ChannelAssignmentRow> newRows;
+        newRows.reserve(assignments.size());
+        // Track instanceNum per (entityID, isSolo) pair
+        std::map<std::pair<juce::String, bool>, int> instanceCounts;
+        for (int idx = 0; idx < (int)assignments.size(); ++idx) {
+          const auto& a = assignments[idx];
+          auto key = std::make_pair(a.entityID, a.isSolo);
+          int instanceNum = ++instanceCounts[key];
+          ChannelAssignmentRow row;
+          row.flatIndex = idx;
+          row.entityID = a.entityID;
+          row.isSolo = a.isSolo;
+          row.instanceNum = instanceNum;
+          newRows.push_back(row);
+        }
+        db_.saveChannelAssignments(newRows);
+        // Reload into masterList so getChannelMapAsJson reflects new order
+        masterList_.reconcileAssignments(db_);
+      } else {
+        msg = "Error: " + result.getErrorMessage();
+      }
+      safeCallAsync([this, msg]() {
+        webComponent.evaluateJavascript("setSaveResult('" + escapeForJS(msg) +
+                                        "')");
+      });
+
+      if (compacted) {
+        pushLogMessage("<b>[Setup]</b> ⚠️ Channel assignments were "
+                       "compacted. Existing Dorico projects may need "
+                       "their playback template re-applied.");
+      }
+
+      // Sync mixer strips to match updated instruments
+      mixer_.syncStripsToInstruments(masterList_);
+
+      // Update channel map for Timeline
+      juce::String mapJson2 = masterList_.getChannelMapAsJson();
+      juce::String mapCall2 =
+          "setInstrumentMap('" + escapeForJS(mapJson2) + "')";
+      safeCallAsync(
+          [this, mapCall2]() { webComponent.evaluateJavascript(mapCall2); });
+
+      // Push updated mixer state to UI
+      pushMixerState();
+    } else {
+      safeCallAsync([this]() {
+        webComponent.evaluateJavascript("setSaveResult('Error: Invalid JSON')");
+      });
+    }
+    return;
+  }
+  if (type == "scanPlugins") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (pluginScanner_.isScanning()) {
+      return;
+    }
+    pushLogMessage("<b>[Plugins]</b> Scanning for VST3 plugins "
+                   "(incremental)...");
+    pluginScanner_.scanIncrementalAsync(db_, [this]() {
+      int count = pluginScanner_.getPluginCount();
+      pushLogMessage("<b>[Plugins]</b> Scan complete: " + juce::String(count) +
+                     " plugins found");
+      juce::String json = pluginScanner_.getPluginListAsJson();
+      juce::String call = "setPluginList('" + escapeForJS(json) + "')";
+      webComponent.evaluateJavascript(call);
+      pushToDebugWindow(call);
+    });
+    return;
+  }
+  if (type == "rescanPlugins") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (pluginScanner_.isScanning()) {
+      return;
+    }
+    pushLogMessage("<b>[Plugins]</b> Full rescan of VST3 plugins...");
+    pluginScanner_.rescanAsync(db_, [this]() {
+      int count = pluginScanner_.getPluginCount();
+      pushLogMessage("<b>[Plugins]</b> Rescan complete: " +
+                     juce::String(count) + " plugins found");
+      juce::String json = pluginScanner_.getPluginListAsJson();
+      juce::String call = "setPluginList('" + escapeForJS(json) + "')";
+      webComponent.evaluateJavascript(call);
+      pushToDebugWindow(call);
+    });
+    return;
+  }
+  if (type == "addMixerStrip") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      auto action = std::make_unique<AddStripAction>(mixer_);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "duplicateStripInput") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      auto action = std::make_unique<DuplicateStripAction>(mixer_, stripId);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "removeMixerStrip") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      auto action = std::make_unique<RemoveStripAction>(mixer_, stripId);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripLibrary") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    juce::String lib = args[1].toString();
+    safeCallAsync([this, stripId, lib]() {
+      juce::String oldLib;
+      if (auto *s = mixer_.getStrip(stripId))
+        oldLib = s->library;
+      auto action =
+          std::make_unique<SetLibraryAction>(mixer_, stripId, oldLib, lib);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripInput") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 3) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    int port = (int)args[1];
+    int channel = (int)args[2];
+    safeCallAsync([this, stripId, port, channel]() {
+      int oldPort = -1, oldCh = -1;
+      if (auto *s = mixer_.getStrip(stripId)) {
+        oldPort = s->inputPort;
+        oldCh = s->inputChannel;
+      }
+      auto action = std::make_unique<SetInputAction>(mixer_, stripId, oldPort,
+                                                     oldCh, port, channel);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripGain") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    float gainDb = static_cast<float>((double)args[1]);
+    gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
+    safeCallAsync([this, stripId, gainDb]() {
+      float oldGain = 0.0f;
+      if (auto *s = mixer_.getStrip(stripId))
+        oldGain = s->gainDb.load(std::memory_order_relaxed);
+      auto action =
+          std::make_unique<SetGainAction>(mixer_, stripId, oldGain, gainDb);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripMute") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    bool mute = (bool)args[1];
+    safeCallAsync([this, stripId, mute]() {
+      mixer_.setStripMute(stripId, mute);
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripSolo") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    bool solo = (bool)args[1];
+    safeCallAsync([this, stripId, solo]() {
+      mixer_.setStripSolo(stripId, solo);
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "setStripPlugin") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    int pluginUid = (int)args[1];
+
+    // Verify plugin exists in scanner
+    if (pluginUid != 0) {
+      bool found = false;
+      for (const auto &d : pluginScanner_.getKnownPluginList().getTypes()) {
+        if (d.uniqueId == pluginUid) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return;
+      }
+    }
+
+    safeCallAsync([this, stripId, pluginUid]() {
+      int oldUid = 0;
+      if (auto *s = mixer_.getStrip(stripId))
+        oldUid = s->pluginUid;
+      auto action = std::make_unique<SetPluginAction>(
+          mixer_, pluginScanner_, stripId, oldUid, pluginUid,
+          [this]() { pushMixerState(); });
+      undoManager_.perform(std::move(action));
+    });
+    return;
+  }
+  if (type == "showStripEditor") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      if (auto *s = mixer_.getStrip(stripId))
+        s->showEditor();
+    });
+    return;
+  }
+  if (type == "loadExpressionMap") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    std::string entityID = args[1].toString().toStdString();
+
+    auto data = xmapLibrary_.load(entityID);
+    if (!data) {
+      return;
+    }
+
+    safeCallAsync([this, stripId, entityID, data]() {
+      std::string oldEntityID;
+      if (auto *s = mixer_.getStrip(stripId)) {
+        if (s->expressionMap)
+          oldEntityID = s->expressionMap->entityID;
+      }
+      auto action = std::make_unique<SetExpressionMapAction>(
+          mixer_, xmapLibrary_, stripId, oldEntityID, entityID, data);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "clearExpressionMap") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      std::string oldEntityID;
+      if (auto *s = mixer_.getStrip(stripId)) {
+        if (s->expressionMap)
+          oldEntityID = s->expressionMap->entityID;
+      }
+      if (oldEntityID.empty())
+        return; // already clear
+      auto action = std::make_unique<SetExpressionMapAction>(
+          mixer_, xmapLibrary_, stripId, oldEntityID, "", nullptr);
+      undoManager_.perform(std::move(action));
+      pushMixerState();
+    });
+    return;
+  }
+  if (type == "loadExpressionMapFromFile") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Load Expression Map", juce::File{}, "*.doricolib");
+
+    chooser->launchAsync(juce::FileBrowserComponent::openMode |
+                             juce::FileBrowserComponent::canSelectFiles,
+                         [this, stripId, chooser](const juce::FileChooser &fc) {
+                           auto results = fc.getResults();
+                           if (results.isEmpty())
+                             return;
+
+                           auto file = results[0];
+                           auto data = std::make_shared<ExpressionMapData>();
+                           if (!parseExpressionMap(file, *data))
+                             return;
+
+                           if (auto *s = mixer_.getStrip(stripId)) {
+                             s->expressionMap = data;
+                             s->expressionMapPath = file.getFullPathName();
+                           }
+
+                           safeCallAsync([this]() { pushMixerState(); });
+                         });
+    return;
+  }
+  if (type == "requestExpressionMaps") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      juce::String json = xmapLibrary_.toJson();
+      webComponent.evaluateJavascript("setExpressionMaps('" +
+                                      escapeForJS(json) + "')");
+    });
+    return;
+  }
+  if (type == "undo") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      if (undoManager_.undo()) {
+        pushMixerState();
+        if (undoManager_.isAtSavePoint()) {
+          stateManager_.clearDirty();
+          webComponent.evaluateJavascript(
+              "if(window.setDirtyState)setDirtyState(false)");
+          pushConfigStatus();
+        }
+      }
+    });
+    return;
+  }
+  if (type == "redo") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      if (undoManager_.redo()) {
+        pushMixerState();
+        if (undoManager_.isAtSavePoint()) {
+          stateManager_.clearDirty();
+          webComponent.evaluateJavascript(
+              "if(window.setDirtyState)setDirtyState(false)");
+          pushConfigStatus();
+        }
+      }
+    });
+    return;
+  }
+  if (type == "requestPluginsState") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      // Always reply with the current scanning state so the UI can show the
+      // spinner (or hide it) regardless of whether plugins are loaded yet.
+      broadcastMessage("isScanningPlugins", pluginScanner_.isScanning());
+      if (pluginScanner_.getPluginCount() > 0) {
+        juce::String json = pluginScanner_.getPluginListAsJson();
+        // Use broadcastMessage so all windows (main, debug, history) get it
+        broadcastMessage("setPluginList", juce::JSON::fromString(json));
+      }
+    });
+    return;
+  }
+  if (type == "requestMixerState") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() { pushMixerState(false); });
+    return;
+  }
+  if (type == "getAvailableInputs") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      juce::String json = masterList_.getChannelMapAsJson();
+      juce::String call = "setAvailableInputs('" + escapeForJS(json) + "')";
+      webComponent.evaluateJavascript(call);
+    });
+    return;
+  }
+  if (type == "setPlaybackDelay") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() >= 1) {
+      int ms = static_cast<int>(args[0]);
+      safeCallAsync([this, ms]() {
+        mixer_.setPlaybackDelayMs(ms);
+        if (configName_.isNotEmpty())
+          pushConfigStatus();
+        pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
+                       juce::String(ms) + " ms");
+      });
+    }
+    return;
+  }
+  if (type == "getPlaybackDelay") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() {
+      int ms = mixer_.getPlaybackDelayMs();
+      webComponent.evaluateJavascript("setPlaybackDelay(" + juce::String(ms) +
+                                      ")");
+    });
+    return;
+  }
+  if (type == "setGroupGainDelta") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    // args[0] = JSON array of strip IDs, args[1] = delta dB
+    if (args.size() < 2) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    float delta = static_cast<float>((double)args[1]);
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar, delta]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (auto *s = mixer_.getStrip(sid)) {
+          float old = s->gainDb.load(std::memory_order_relaxed);
+          float nw = juce::jlimit(-120.0f, 6.0f, old + delta);
+          subs.push_back(std::make_unique<SetGainAction>(mixer_, sid, old, nw));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group gain delta", std::move(subs), "group-gain"));
+        pushMixerState();
+      }
+    });
+    return;
+  }
+  if (type == "setGroupGainAbsolute") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    float gainDb =
+        juce::jlimit(-120.0f, 6.0f, static_cast<float>((double)args[1]));
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar, gainDb]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (auto *s = mixer_.getStrip(sid)) {
+          float old = s->gainDb.load(std::memory_order_relaxed);
+          subs.push_back(
+              std::make_unique<SetGainAction>(mixer_, sid, old, gainDb));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group gain absolute", std::move(subs)));
+        pushMixerState();
+      }
+    });
+    return;
+  }
+  if (type == "setGroupPlugin") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    int pluginUid = (int)args[1];
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar, pluginUid]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (auto *s = mixer_.getStrip(sid)) {
+          int oldUid = s->pluginUid;
+          subs.push_back(std::make_unique<SetPluginAction>(
+              mixer_, pluginScanner_, sid, oldUid, pluginUid,
+              [this]() { pushMixerState(); }));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group set plugin", std::move(subs)));
+      }
+    });
+    return;
+  }
+  if (type == "setGroupLibrary") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    juce::String lib = args[1].toString();
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar, lib]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (auto *s = mixer_.getStrip(sid)) {
+          subs.push_back(
+              std::make_unique<SetLibraryAction>(mixer_, sid, s->library, lib));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group set library", std::move(subs)));
+        pushMixerState();
+      }
+    });
+    return;
+  }
+  if (type == "setGroupExpressionMap") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 2) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    std::string entityID = args[1].toString().toStdString();
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    auto data = entityID.empty() ? nullptr : xmapLibrary_.load(entityID);
+    if (!entityID.empty() && !data) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar, entityID, data]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (auto *s = mixer_.getStrip(sid)) {
+          std::string oldID;
+          if (s->expressionMap)
+            oldID = s->expressionMap->entityID;
+          subs.push_back(std::make_unique<SetExpressionMapAction>(
+              mixer_, xmapLibrary_, sid, oldID, entityID, data));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group set expression map", std::move(subs)));
+        pushMixerState();
+      }
+    });
+    return;
+  }
+  if (type == "removeGroupStrips") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1) {
+      return;
+    }
+    auto idsVar = juce::JSON::parse(args[0].toString());
+    if (!idsVar.isArray()) {
+      return;
+    }
+
+    safeCallAsync([this, idsVar]() {
+      auto *arr = idsVar.getArray();
+      std::vector<std::unique_ptr<UndoableAction>> subs;
+      for (auto &idVar : *arr) {
+        juce::String sid = idVar.toString();
+        if (mixer_.getStrip(sid)) {
+          subs.push_back(std::make_unique<RemoveStripAction>(mixer_, sid));
+        }
+      }
+      if (!subs.empty()) {
+        undoManager_.perform(std::make_unique<CompoundAction>(
+            "Group remove strips", std::move(subs)));
+        pushMixerState();
+      }
+    });
+    return;
+  }
+  if (type == "requestBranches") {
+    safeCallAsync([this]() { pushBranches(); });
+    return;
+  }
+  if (type == "requestCurrentBranch") {
+    safeCallAsync([this]() {
+      if (versionStore_) {
+        auto b = versionStore_->getStorage().getBranch(currentBranchId_);
+        if (b) {
+          broadcastMessage("setCurrentBranch",
+                           juce::var(juce::String(currentBranchId_)));
+          return;
+        }
+      }
+      broadcastMessage("setCurrentBranch", juce::var(juce::String("default")));
+    });
+    return;
+  }
+  if (type == "openHistoryWindow") {
+    safeCallAsync([this]() {
+      if (!historyWindow_ && versionStore_) {
+        historyWindow_ = std::make_unique<HistoryWindow>(createWebOptions());
+        historyWindowLoaded_ = false;
+        juce::String root =
+            juce::WebBrowserComponent::getResourceProviderRoot();
+        historyWindow_->getWebView().goToURL(root + "index.html?view=history");
+      }
+      if (historyWindow_) {
+        historyWindow_->setVisible(true);
+        historyWindow_->toFront(true);
+        // pushDagHistory() will be called once the window signals ready
+      }
+    });
+    return;
+  }
+  if (type == "requestDagHistory") {
+    safeCallAsync([this]() { pushDagHistory(); });
+    return;
+  }
+  if (type == "createBranch") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() > 0 && versionStore_) {
+      std::string branchName = args[0].toString().toStdString();
+      // Optional second arg: a specific version UUID to branch from.
+      // If omitted, branches from the current head (existing behaviour).
+      std::string fromVersionId =
+          (args.size() > 1) ? args[1].toString().toStdString() : "";
+      safeCallAsync([this, branchName, fromVersionId]() {
+        std::string baseVersionId;
+        if (fromVersionId.empty()) {
+          // Commit current state and get the resulting branch head VersionId.
+          stateManager_.commitCurrentState(mixer_, currentBranchId_);
+          auto headOpt = versionStore_->getBranchHead(currentBranchId_);
+          if (headOpt)
+            baseVersionId = *headOpt;
+        } else {
+          baseVersionId = fromVersionId;
+        }
+        if (baseVersionId.empty()) {
+          std::cerr << "[createBranch] No base version to branch from"
+                    << std::endl;
+          return;
+        }
+        auto newBranchId =
+            versionStore_->createBranch(branchName, baseVersionId);
+        if (newBranchId.empty()) {
+          std::cerr << "[createBranch] Failed to create branch from version: "
+                    << baseVersionId << std::endl;
+          return;
+        }
+        // When branching from an explicit version ID, also load that
+        // version's state into the mixer so the user lands on the new branch.
+        if (!fromVersionId.empty()) {
+          auto verOpt = versionStore_->getVersion(baseVersionId);
+          if (verOpt) {
+            auto stateOpt = versionStore_->getState(verOpt->stateHash);
+            if (stateOpt) {
+              mixer_.clear();
+              undoManager_.clear();
+              for (const auto &sh : stateOpt->stripHashes) {
+                auto blobOpt = versionStore_->getStripBlob(sh);
+                if (blobOpt) {
+                  juce::String newId = mixer_.addStrip();
+                  if (auto *strip = mixer_.getStrip(newId)) {
+                    strip->library = blobOpt->library;
+                    strip->family = blobOpt->family;
+                    strip->isSolo = blobOpt->isSolo;
+                    strip->inputPort = blobOpt->inputPort;
+                    strip->inputChannel = blobOpt->inputChannel;
+                    strip->pluginUid = blobOpt->pluginUid;
+                    strip->gainDb.store(blobOpt->gainDb,
+                                        std::memory_order_relaxed);
+                    setupStripListener(*strip);
+                    if (!blobOpt->expressionMapEntityId.empty()) {
+                      auto xd =
+                          xmapLibrary_.load(blobOpt->expressionMapEntityId);
+                      if (xd)
+                        strip->expressionMap = xd;
+                    }
+                    if (strip->pluginUid != 0) {
+                      for (const auto &d :
+                           pluginScanner_.getKnownPluginList().getTypes()) {
+                        if (d.uniqueId == strip->pluginUid) {
+                          juce::MemoryBlock sb(blobOpt->pluginState.data(),
+                                               blobOpt->pluginState.size());
+                          strip->loadPlugin(
+                              d, mixer_.getFormatManager(),
+                              [strip, sb](bool ok) {
+                                if (ok && sb.getSize() > 0 &&
+                                    strip->pluginInstance)
+                                  strip->pluginInstance->setStateInformation(
+                                      sb.getData(), (int)sb.getSize());
+                              });
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              saveAllStripsToDB();
+              mixer_.syncStripsToInstruments(masterList_);
+              pushMixerState(false);
+              scheduleStateRebuild();
+            }
+          }
+        }
+        currentBranchId_ = newBranchId;
+        stateManager_.setCurrentBranchId(newBranchId);
+        // Creating a branch from a detached version attaches us to the new
+        // branch.
+        isDetached_ = false;
+        pushBranches();
+        pushDagHistory();
+        broadcastMessage("setCurrentBranch", juce::String(newBranchId));
+        broadcastMessage("setDetachedHead", false);
+      });
+    }
+    return;
+  }
+  if (type == "checkoutBranch") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() > 0 && versionStore_) {
+      std::string branchId = args[0].toString().toStdString();
+      safeCallAsync([this, branchId]() {
+        auto b = versionStore_->getStorage().getBranch(branchId);
+        if (b) {
+          currentBranchId_ = branchId;
+          stateManager_.setCurrentBranchId(branchId);
+          auto verOpt = versionStore_->getVersion(b->second);
+          if (verOpt) {
+            auto stateOpt = versionStore_->getState(verOpt->stateHash);
+            if (stateOpt) {
+              mixer_.clear();
+              undoManager_.clear();
+              for (const auto &sh : stateOpt->stripHashes) {
+                auto blobOpt = versionStore_->getStripBlob(sh);
+                if (blobOpt) {
+                  juce::String newId = mixer_.addStrip();
+                  if (auto *strip = mixer_.getStrip(newId)) {
+                    strip->library = blobOpt->library;
+                    strip->family = blobOpt->family;
+                    strip->isSolo = blobOpt->isSolo;
+                    strip->inputPort = blobOpt->inputPort;
+                    strip->inputChannel = blobOpt->inputChannel;
+                    strip->pluginUid = blobOpt->pluginUid;
+                    strip->gainDb.store(blobOpt->gainDb,
+                                        std::memory_order_relaxed);
+
+                    std::cerr << "[checkoutBranch] Loaded strip " << strip->id
+                              << " gainDb=" << blobOpt->gainDb << " db"
+                              << std::endl;
+
+                    setupStripListener(*strip);
+
+                    if (!blobOpt->expressionMapEntityId.empty()) {
+                      auto xmapData =
+                          xmapLibrary_.load(blobOpt->expressionMapEntityId);
+                      if (xmapData)
+                        strip->expressionMap = xmapData;
+                    }
+
+                    if (strip->pluginUid != 0) {
+                      for (const auto &d :
+                           pluginScanner_.getKnownPluginList().getTypes()) {
+                        if (d.uniqueId == strip->pluginUid) {
+                          juce::MemoryBlock stateBlock(
+                              blobOpt->pluginState.data(),
+                              blobOpt->pluginState.size());
+                          strip->loadPlugin(
+                              d, mixer_.getFormatManager(),
+                              [strip, stateBlock](bool success) {
+                                if (success && stateBlock.getSize() > 0 &&
+                                    strip->pluginInstance) {
+                                  strip->pluginInstance->setStateInformation(
+                                      stateBlock.getData(),
+                                      (int)stateBlock.getSize());
+                                  strip->refreshPluginStateCache();
+                                }
+                              });
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              saveAllStripsToDB();
+              mixer_.syncStripsToInstruments(masterList_);
+              pushMixerState(false);
+              scheduleStateRebuild();
+              currentVersionId_ = b->second; // head of the checked-out branch
+              std::cerr << "[checkoutBranch] Checked out branch id: "
+                        << branchId << std::endl;
+            } else {
+              std::cerr
+                  << "[checkoutBranch] Failed to find state for branch id: "
+                  << branchId << std::endl;
+            }
+          } else {
+            std::cerr
+                << "[checkoutBranch] Failed to find version for branch id: "
+                << branchId << std::endl;
+          }
+        } else {
+          std::cerr << "[checkoutBranch] Failed to find branch id: " << branchId
+                    << std::endl;
+        }
+        pushBranches();
+        pushDagHistory();
+        broadcastMessage("setCurrentBranch", juce::String(branchId));
+        pushCurrentVersion();
+        // Switching to a branch always clears detached state.
+        isDetached_ = false;
+        broadcastMessage("setDetachedHead", false);
+      });
+    }
+    return;
+  }
+  // ── checkoutVersion ────────────────────────────────────────────────────────
+  // args[0] = version UUID.  Loads that version's state into the mixer.
+  // If the version is NOT the head of its branch, enters "detached HEAD" mode:
+  //   - currentBranchId_ is left unchanged so Dorico state stays anchored.
+  //   - scheduleStateRebuild() is a no-op while detached.
+  //   - The UI shows a badge and disables Save.
+  if (type == "checkoutVersion") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() > 0 && versionStore_) {
+      std::string versionHash = args[0].toString().toStdString();
+      safeCallAsync([this, versionHash]() {
+        auto verOpt = versionStore_->getVersion(versionHash);
+        if (!verOpt) {
+          std::cerr << "[checkoutVersion] Version not found: " << versionHash
+                    << std::endl;
+          return;
+        }
+        auto stateOpt = versionStore_->getState(verOpt->stateHash);
+        if (!stateOpt) {
+          std::cerr << "[checkoutVersion] State not found for: " << versionHash
+                    << std::endl;
+          return;
+        }
+
+        // Determine whether this version is the current HEAD of its branch.
+        std::string branchId = verOpt->branchId;
+        auto branchHead = versionStore_->getBranchHead(branchId);
+        bool versionIsHead =
+            branchHead.has_value() && *branchHead == versionHash;
+        isDetached_ = !versionIsHead;
+
+        currentVersionId_ = versionHash;
+
+        if (!isDetached_) {
+          // Normal (attached) checkout — update branch tracking.
+          currentBranchId_ = branchId;
+          stateManager_.setCurrentBranchId(branchId);
+        }
+        // Detached: leave currentBranchId_ untouched so Dorico blob stays
+        // anchored to the live branch.
+
+        mixer_.clear();
+        undoManager_.clear();
+        for (const auto &sh : stateOpt->stripHashes) {
+          auto blobOpt = versionStore_->getStripBlob(sh);
+          if (blobOpt) {
+            juce::String newId = mixer_.addStrip();
+            if (auto *strip = mixer_.getStrip(newId)) {
+              strip->library = blobOpt->library;
+              strip->family = blobOpt->family;
+              strip->isSolo = blobOpt->isSolo;
+              strip->inputPort = blobOpt->inputPort;
+              strip->inputChannel = blobOpt->inputChannel;
+              strip->pluginUid = blobOpt->pluginUid;
+              strip->gainDb.store(blobOpt->gainDb, std::memory_order_relaxed);
+              setupStripListener(*strip);
+              if (!blobOpt->expressionMapEntityId.empty()) {
+                auto xd = xmapLibrary_.load(blobOpt->expressionMapEntityId);
+                if (xd)
+                  strip->expressionMap = xd;
+              }
+              if (strip->pluginUid != 0) {
+                for (const auto &d :
+                     pluginScanner_.getKnownPluginList().getTypes()) {
+                  if (d.uniqueId == strip->pluginUid) {
+                    juce::MemoryBlock sb(blobOpt->pluginState.data(),
+                                         blobOpt->pluginState.size());
+                    strip->loadPlugin(
+                        d, mixer_.getFormatManager(), [strip, sb](bool ok) {
+                          if (ok && sb.getSize() > 0 && strip->pluginInstance)
+                            strip->pluginInstance->setStateInformation(
+                                sb.getData(), (int)sb.getSize());
+                        });
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+        saveAllStripsToDB();
+        mixer_.syncStripsToInstruments(masterList_);
+        pushMixerState(false);
+        scheduleStateRebuild(); // no-op when detached
+        pushBranches();
+        pushDagHistory();
+        if (!isDetached_)
+          broadcastMessage("setCurrentBranch", juce::String(branchId));
+        pushCurrentVersion();
+        broadcastMessage("setDetachedHead", isDetached_);
+      });
+    }
+    return;
+  }
+  // ── mergeBranch ────────────────────────────────────────────────────────────
+  // args[0] = sourceBranchId, args[1] = targetBranchId.
+  // Merges source onto target.  If target is the current branch, reloads mixer.
+  if (type == "mergeBranch") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() >= 2 && versionStore_) {
+      std::string sourceBranchId = args[0].toString().toStdString();
+      std::string targetBranchId = args[1].toString().toStdString();
+      safeCallAsync([this, sourceBranchId, targetBranchId]() {
+        using MR = fiddle::versioning::MergeResult;
+        auto result = versionStore_->merge(sourceBranchId, targetBranchId);
+
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("ok", result.kind != MR::Error);
+        obj->setProperty("kind", result.kind == MR::FastForward ? "fast-forward"
+                                 : result.kind == MR::ThreeWay  ? "three-way"
+                                                                : "error");
+        obj->setProperty("error", juce::String(result.error));
+
+        if (result.kind != MR::Error) {
+          // If the current branch was the merge target, reload the mixer with
+          // the merged state.
+          if (targetBranchId == currentBranchId_) {
+            auto verOpt = versionStore_->getVersion(result.newHeadId);
+            if (verOpt) {
+              auto stateOpt = versionStore_->getState(verOpt->stateHash);
+              if (stateOpt) {
+                mixer_.clear();
+                undoManager_.clear();
+                for (const auto &sh : stateOpt->stripHashes) {
+                  auto blobOpt = versionStore_->getStripBlob(sh);
+                  if (blobOpt) {
+                    juce::String newId = mixer_.addStrip();
+                    if (auto *strip = mixer_.getStrip(newId)) {
+                      strip->library = blobOpt->library;
+                      strip->family = blobOpt->family;
+                      strip->isSolo = blobOpt->isSolo;
+                      strip->inputPort = blobOpt->inputPort;
+                      strip->inputChannel = blobOpt->inputChannel;
+                      strip->pluginUid = blobOpt->pluginUid;
+                      strip->gainDb.store(blobOpt->gainDb,
+                                          std::memory_order_relaxed);
+                      setupStripListener(*strip);
+                      if (!blobOpt->expressionMapEntityId.empty()) {
+                        auto xd =
+                            xmapLibrary_.load(blobOpt->expressionMapEntityId);
+                        if (xd)
+                          strip->expressionMap = xd;
+                      }
+                      if (strip->pluginUid != 0) {
+                        for (const auto &d :
+                             pluginScanner_.getKnownPluginList().getTypes()) {
+                          if (d.uniqueId == strip->pluginUid) {
+                            juce::MemoryBlock sb(blobOpt->pluginState.data(),
+                                                 blobOpt->pluginState.size());
+                            strip->loadPlugin(
+                                d, mixer_.getFormatManager(),
+                                [strip, sb](bool ok) {
+                                  if (ok && sb.getSize() > 0 &&
+                                      strip->pluginInstance)
+                                    strip->pluginInstance->setStateInformation(
+                                        sb.getData(), (int)sb.getSize());
+                                });
+                            break;
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+                saveAllStripsToDB();
+                mixer_.syncStripsToInstruments(masterList_);
+                pushMixerState(false);
+                scheduleStateRebuild();
+              }
+            }
+          }
+          pushBranches();
+          pushDagHistory();
+        }
+        broadcastMessage("mergeResult", juce::var(obj));
+      });
+    }
+    return;
+  }
+  // ── squashVersion ──────────────────────────────────────────────────────────
+  // args[0] = version hash to squash.
+  if (type == "deleteVersion") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    std::cerr << "[IPC] deleteVersion: args.size=" << args.size()
+              << " versionStore=" << (versionStore_ ? "ok" : "null")
+              << std::endl;
+    if (args.size() > 0 && versionStore_) {
+      std::string versionHash = args[0].toString().toStdString();
+      std::cerr << "[IPC] deleteVersion hash=" << versionHash << std::endl;
+      safeCallAsync([this, versionHash]() {
+        auto result = versionStore_->deleteVersion(versionHash);
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("ok", result.success);
+        obj->setProperty("error", juce::String(result.error));
+        if (result.success) {
+          // If the deletion caused the owning branch to be auto-deleted and
+          // that branch was the one we're currently on, switch to a survivor.
+          if (!result.deletedBranchId.empty() &&
+              result.deletedBranchId == currentBranchId_) {
+            auto allBranches = versionStore_->getStorage().listBranches();
+            if (!allBranches.empty()) {
+              currentBranchId_ = std::get<0>(allBranches[0]);
+              stateManager_.setCurrentBranchId(currentBranchId_);
+              std::cerr << "[IPC] deleteVersion: branch auto-deleted; "
+                           "switched to "
+                        << currentBranchId_ << std::endl;
+              broadcastMessage("setCurrentBranch",
+                               juce::String(currentBranchId_));
+            }
+          }
+          pushBranches();
+          pushDagHistory();
+        }
+        broadcastMessage("deleteResult", juce::var(obj));
+      });
+    }
+    return;
+  }
+  if (type == "saveConfig") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    safeCallAsync([this]() { saveConfig(); });
+    return;
+  }
+  if (type == "cancelSetup") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    // Cancel just switches back to mixer — no C++ action needed
+    return;
+  }
+  if (type == "saveSetup") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    // Trigger the same save flow as the old
+    // saveSelectedInstruments
+    safeCallAsync([this]() {
+      // Request the UI to send back the instrument selections
+      webComponent.evaluateJavascript(
+          "if(window.triggerSaveSetup)window.triggerSaveSetup()");
+    });
+    return;
+  }
+  std::cerr << "[IPC] Unknown message type: " << type << std::endl;
+}
+
 } // namespace fiddle

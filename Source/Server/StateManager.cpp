@@ -45,8 +45,76 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   uint8_t dirtyFlag = isDirty() ? 1 : 0;
   blob.append(&dirtyFlag, 1);
 
-  // Get all strips
+  // Generate State properties
+  std::vector<versioning::StripBlob> stripBlobs;
+  versioning::FiddleState state;
+  state.globalState.masterGainDb = 0.0f; // TODO: implement master gain
+
   auto strips = mixer.getAllStrips();
+
+  // Hash items and prep for writing into store.
+  // Strip identity = (inputPort, inputChannel, libraryId).
+  // libraryId defaults to kDefaultLibraryId until MixerStrip carries it.
+  for (auto *strip : strips) {
+    versioning::StripBlob sb;
+    sb.libraryId = versioning::kDefaultLibraryId;
+    sb.library = strip->library.toStdString();
+    sb.family = strip->family.toStdString();
+    sb.isSolo = strip->isSolo;
+    sb.inputPort = strip->inputPort;
+    sb.inputChannel = strip->inputChannel;
+    sb.pluginUid = strip->pluginUid;
+    sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
+    sb.expressionMapEntityId =
+        strip->expressionMap ? strip->expressionMap->entityID : "";
+
+    const auto &cached = strip->cachedPluginState_;
+    if (cached.getSize() > 0) {
+      const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
+      sb.pluginState.assign(data, data + cached.getSize());
+    }
+
+    stripBlobs.push_back(sb);
+    state.stripHashes.push_back(sb.computeHash());
+  }
+
+  std::string stateHash = state.computeHash();
+  std::vector<std::string> ancestorVersionIds;
+
+  if (versionStore_) {
+    // Find branch head using the current branch UUID (not the config name).
+    std::string branchId = getCurrentBranchId();
+    if (!branchId.empty()) {
+      auto head = versionStore_->getBranchHead(branchId);
+      if (head) {
+        ancestorVersionIds = versionStore_->getAncestorChain(*head);
+      }
+    }
+    // Insert new uncommitted state into DB so it persists for immediate
+    // restoration
+    versionStore_->getStorage().putFiddleState(stateHash, state);
+    for (const auto &sb : stripBlobs) {
+      versionStore_->getStorage().putStripBlob(sb.computeHash(), sb);
+    }
+  }
+
+  // --- V3 Extensions ---
+  // State Hash (32 chars)
+  uint32_t shLen = (uint32_t)stateHash.size();
+  blob.append(&shLen, 4);
+  blob.append(stateHash.data(), shLen);
+
+  // Ancestor Version IDs (stored in blob as the ancestor chain)
+  uint32_t ancestorCount = (uint32_t)ancestorVersionIds.size();
+  blob.append(&ancestorCount, 4);
+  for (const auto &h : ancestorVersionIds) {
+    uint32_t hLen = (uint32_t)h.size();
+    blob.append(&hLen, 4);
+    blob.append(h.data(), hLen);
+  }
+  // ---------------------
+
+  // Get all strips
   uint32_t stripCount = (uint32_t)strips.size();
   blob.append(&stripCount, 4);
 
@@ -89,6 +157,48 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
             << stripCount << " strips" << std::endl;
 
   return blob;
+}
+
+versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
+                                                  const std::string &branchId) {
+  if (!versionStore_)
+    return "";
+
+  versioning::FiddleState state;
+  state.globalState.masterGainDb = 0.0f;
+
+  auto strips = mixer.getAllStrips();
+
+  for (auto *strip : strips) {
+    versioning::StripBlob sb;
+    sb.libraryId = versioning::kDefaultLibraryId;
+    sb.library = strip->library.toStdString();
+    sb.family = strip->family.toStdString();
+    sb.isSolo = strip->isSolo;
+    sb.inputPort = strip->inputPort;
+    sb.inputChannel = strip->inputChannel;
+    sb.pluginUid = strip->pluginUid;
+    sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
+    sb.expressionMapEntityId =
+        strip->expressionMap ? strip->expressionMap->entityID : "";
+
+    const auto &cached = strip->cachedPluginState_;
+    if (cached.getSize() > 0) {
+      const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
+      sb.pluginState.assign(data, data + cached.getSize());
+    }
+
+    state.stripHashes.push_back(sb.computeHash());
+    versionStore_->getStorage().putStripBlob(sb.computeHash(), sb);
+  }
+
+  if (branchId.empty()) {
+    std::cerr << "[StateManager] Error: Cannot commit, branch ID is empty."
+              << std::endl;
+    return "";
+  }
+
+  return versionStore_->commitVersion(branchId, state);
 }
 
 void StateManager::publishBlob(const juce::MemoryBlock &blob) {
@@ -165,10 +275,22 @@ StateManager::deserializeBlob(const void *data, size_t size) {
   // Dirty flag
   uint8_t dirtyFlag = readU8();
 
+  RestoredState state;
+
+  if (version >= 3) {
+    uint32_t shLen = readU32();
+    state.stateHash = readString(shLen);
+
+    uint32_t ancestorCount = readU32();
+    for (uint32_t i = 0; i < ancestorCount; ++i) {
+      uint32_t hLen = readU32();
+      state.ancestorHashes.push_back(readString(hLen));
+    }
+  }
+
   // Strip count
   uint32_t stripCount = readU32();
 
-  RestoredState state;
   state.configName = juce::String(cfgName);
   state.configVersion = juce::String(cfgVersion);
   state.dirty = dirtyFlag != 0;

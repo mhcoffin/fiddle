@@ -5,7 +5,9 @@
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
 #include "FiddleDatabase.h"
+#include "HistoryWindow.h"
 #include "InstrumentMapper.h"
+#include "JsTestBridge.h"
 #include "MasterInstrumentList.h"
 #include "MidiTcpServer.h"
 #include "MixerModel.h"
@@ -98,8 +100,10 @@ private:
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
   FiddleDatabase db_;
+  std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
   std::unique_ptr<ScriptEngine> scriptEngine;
+  std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 
   uint64_t lastSampleTime = 0;
@@ -108,8 +112,24 @@ private:
   juce::String configName_;
   juce::String configVersion_;
 
+  /// The branch ID (UUID) of the currently checked-out branch.
+  /// Set when VersionStore is initialized; updated on checkoutBranch.
+  std::string currentBranchId_;
+
+  /// The version ID (UUID) of the currently loaded version.
+  /// Tracks which exact version the mixer reflects at any moment.
+  std::string currentVersionId_;
+
+  /// True when the mixer is displaying a historical (non-HEAD) version.
+  /// While detached: Dorico blob updates are suppressed; Save is disabled.
+  bool isDetached_ = false;
+
   /// Debug window (created eagerly, visibility toggled from View menu)
   std::unique_ptr<DebugWindow> debugWindow_;
+
+  /// History window (lazy instantiated)
+  std::unique_ptr<HistoryWindow> historyWindow_;
+  bool historyWindowLoaded_ = false;
 
   /// Throttle state for scheduleStateRebuild() — max once per second.
   uint32_t lastStateRebuildMs_ = 0;
@@ -117,12 +137,19 @@ private:
 
   /// Initialization splash screen state
   bool initComplete_ = false;
+  bool migratedToDag_ = false;
   juce::StringArray initMessages_;
   void addInitMessage(const juce::String &msg);
   void runInitStep(int step);
-
   void timerCallback() override;
   void setupWebView();
+  juce::WebBrowserComponent::Options createWebOptions();
+  void broadcastJavascript(const juce::String &js);
+  /// Send a typed message to all ready WebViews via window.__dispatchFromCpp.
+  /// This is the preferred API — avoid raw broadcastJavascript where possible.
+  void broadcastMessage(const juce::String &type,
+                        const juce::var &data = juce::var());
+  void handleJsMessage(const juce::String &type, const juce::var &payload);
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
   void pushToDebugWindow(const juce::String &js);
@@ -130,6 +157,10 @@ private:
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
   void pushSubnoteToWebView(const fiddle::Subnote &subnote);
+  void pushBranches();
+  void pushDagHistory();
+  /// Broadcast the current version ID to all ready WebViews.
+  void pushCurrentVersion();
   void loadConfigByName(const juce::String &name);
 
   /// Save all strips to SQLite (called after every mutation).
@@ -170,7 +201,6 @@ private:
   std::mutex logMutex;
   std::vector<std::pair<juce::String, bool>> logQueue;
   bool webViewLoaded = false;
-  juce::String cachedInstrCall_; // Cached escaped JS call for instruments
 
   /// Post a callback to the message thread, guarded against destruction.
   /// If this MainComponent is destroyed before the callback fires, it is
