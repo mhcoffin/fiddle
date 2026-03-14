@@ -74,18 +74,18 @@ If MP is a descendant of T, then the merge operation is a "fast-forward" merge. 
 Merging is a three-way operation. Let MP be the merge-parent, let T be the head of the branch we are merging into, and let A be the nearest common ancestor of MP and T in the DAG. Conceptually, we want to create a new version N that is based on T, but has the changes from MP relative to A applied to it. 
 
 More precisely, the new version N is created as follows:
-- N begins as a copy of T, with T as the parent and MP as the merge-parent. 
+- N begins as a copy of T (and on the same branch as T), with T as the parent and MP as the merge-parent. 
 - If a strip is in MP but not in A, it is added to N.
-- If a strip is in A but not in MP, it is removed from N (unless it isn't there to begin with). Not: this might be surprising to the user, but it's very simple and avoids the need for any human intervention. It might be worth highlighting this in the UI if it happens. 
+- If a strip is in A but not in MP, it is removed from N (unless it isn't there to begin with). Note: this might be surprising to the user, but it's very simple and avoids the need for any human intervention. It might be worth highlighting this in the UI if it happens. 
 - If the data associated with a strip has been modified in MP relative to A, the modified version from MP is used in N.
 
 Notice that the fiddle state of the new node is constucted from existing strip blob hashes. No new strip blobs are created during a merge. If there is a merge conflict (i.e., if the user has modified the same strip in both T and MP relative to A), the merge parent wins. No human intervention is required or allowed. 
 
-### Squashing
+### Deleting
 
-Squashing is a way to simplify the version history by removing intermediate versions that the user no longer cares about. Currently, squashing is only allowed if the version to be squashed has exactly one parent, no merge-parent, and one child.  The effect is simply to remove the squashed version from the DAG, and make its parent the parent of the squashed version's child. Note: there may be other cases where squashing *could* be allowed. However, this rule is very easy to explain, and the outcome is easy to understand. 
+Deleting removes a version from the DAG and the database. Deleting is not allowed if the version has multiple childen, or if the version is the root of the DAG. 
 
-Squashing is not reversible. Once squashed, the intermediate version is gone forever.
+For now, at least, deleting is not reversible. 
 
 
 ### Dorico Integration
@@ -116,23 +116,17 @@ In case *no* such ancestor exists, the new version should have the root of the v
 After the database has been updated, the Mixer should be updated to reflect the new state.
 
 
-### Versions Mode
+### History Window
 
-The main window will have a new button to switch to "Versions" mode (in addition to "Edit" and "Mixer" modes). 
+The main window will have a new button to switch to open the "History" window.
 
-In Versions mode, the user can view the version tree. The version tree should be laid out with the root at the far left. Each version should be a node in the tree. 
+In the History window, the user can view the version tree. Each version should be a node in the tree.  *Note; this is already completed.*
 
-Hovering on a node should show the creation time. The format should be identical to how it is shown in the plugin.
-
-The user should be able to access a context menu on any node to create a new branch from that node, or to switch to that node, or to squash that node. Note: switching to a node that is not the head of its branch should is problematic because if modifications are made there isn't any branch on which to put the new version. We could do any of the following:
-- disallow switching to a node that is not the head of its branch
-- allow switching but disable modifications
-- allow switching to any version and automatically create a new branch (and move to that branch) if modifications are mode.
-
-The last option is probably the most user-friendly, but adds a little complexity to the implementation. Saving would involve checking to see if the current version is the head of its branch. If not, a new branch would be created with the current version as the head, and the new branch would be set as the current branch. We might want to alert the user to the fact that a new branch was created.
-
-We will need ways to reduce visual clutter. For example, if a branch has a long list of versions, we can elide the list by showing only the first and last versions with an ellipsis between them. We can also support hiding branches entirely, or hiding fully merged branches. In the limit, we can hide all branches except the current one and elide most of the versions on it. We will need to explore this after we have a working prototype.
-
+The user should be able to access a context menu on any node to 
+- make that node the current node. Disabled unless the node is not the head of its branch.
+- create a new branch from that node. Prompt for a branch name.
+- merge that node into any branch head. Prompt for a branch name. 
+- squash that node. 
 
 ### Menu Bar
 

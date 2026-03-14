@@ -1,6 +1,7 @@
 <script>
     /** @type {import('svelte')} */
     import { onMount } from "svelte";
+    import { dispatchCpp, onFromCpp } from "./ipc.js";
     import InstrumentList from "./InstrumentList.svelte";
     import ensembleData from "./standard_ensembles.json";
 
@@ -26,25 +27,6 @@
      * registered via withNativeFunction() on the C++ side.
      * Uses JUCE's __juce__invoke event system.
      */
-    const getNative = (name) => {
-        const w = /** @type {any} */ (window);
-        if (
-            w.__JUCE__ &&
-            w.__JUCE__.backend &&
-            typeof w.__JUCE__.backend.emitEvent === "function"
-        ) {
-            let nextId = 0;
-            return function () {
-                w.__JUCE__.backend.emitEvent("__juce__invoke", {
-                    name: name,
-                    params: Array.prototype.slice.call(arguments),
-                    resultId: nextId++,
-                });
-            };
-        }
-        return null;
-    };
-
     // ── Roman numeral helper ──────────────────────────────────────
     const toRoman = (n) => {
         const vals = [10, 9, 5, 4, 1];
@@ -107,20 +89,16 @@
         });
     });
 
-    // ── Global window callbacks for C++ backend ───────────────────
+    // ── C++ → JS message handlers ─────────────────────────────────
 
-    /** @type {any} */
-    const w = window;
-
-    w.setDoricoInstruments = (jsonStr) => {
+    // data = array of instrument objects
+    onFromCpp("setDoricoInstruments", (arr) => {
         console.time("[Setup] setDoricoInstruments total");
         console.log(
-            `[Setup] setDoricoInstruments received ${jsonStr.length} chars`,
+            `[Setup] setDoricoInstruments received ${arr.length} items`,
         );
         try {
-            console.time("[Setup] JSON.parse instruments");
-            allInstruments = JSON.parse(jsonStr);
-            console.timeEnd("[Setup] JSON.parse instruments");
+            allInstruments = arr;
             const familySet = new Set(
                 allInstruments.map((i) => i.family).filter(Boolean),
             );
@@ -129,18 +107,17 @@
                 `[Setup] Received ${allInstruments.length} instruments, ${families.length} families`,
             );
         } catch (e) {
-            console.error("[Setup] Failed to parse instruments JSON:", e);
+            console.error("[Setup] Failed to process instruments:", e);
             statusMessage = "Failed to load instruments from Dorico";
             statusIsError = true;
         }
         isLoading = false;
         console.timeEnd("[Setup] setDoricoInstruments total");
-    };
+    });
 
-    w.setSelectedInstruments = (jsonStr) => {
+    // data = array of EnsembleSlot objects
+    onFromCpp("setSelectedInstruments", (parsed) => {
         try {
-            const parsed = JSON.parse(jsonStr);
-            // Expand EnsembleSlots (soloCount/sectionCount) into individual chairs
             /** @type {Chair[]} */
             const expanded = [];
             for (const s of parsed) {
@@ -170,11 +147,12 @@
             chairs = expanded;
             console.log(`[Setup] Expanded to ${chairs.length} chairs`);
         } catch (e) {
-            console.error("[Setup] Failed to parse selected JSON:", e);
+            console.error("[Setup] Failed to process selected instruments:", e);
         }
-    };
+    });
 
-    w.setSaveResult = (resultStr) => {
+    // data = result string
+    onFromCpp("setSaveResult", (resultStr) => {
         if (resultStr && typeof resultStr === "string") {
             if (resultStr.startsWith("OK:")) {
                 statusMessage = resultStr.substring(4);
@@ -190,31 +168,12 @@
             statusMessage = "No response from backend";
             statusIsError = true;
         }
-    };
+    });
 
     onMount(() => {
         console.time("[Setup] onMount to data received");
-        console.log("[Setup] onMount: looking for requestSetupData");
-        const fn = getNative("requestSetupData");
-        if (fn) {
-            console.log("[Setup] calling requestSetupData immediately");
-            fn();
-        } else {
-            console.log(
-                "[Setup] requestSetupData not found, retrying in 500ms",
-            );
-            setTimeout(() => {
-                const retry = getNative("requestSetupData");
-                if (retry) {
-                    console.log("[Setup] retry: calling requestSetupData");
-                    retry();
-                } else {
-                    isLoading = false;
-                    statusMessage = "Could not connect to backend";
-                    statusIsError = true;
-                }
-            }, 500);
-        }
+        console.log("[Setup] onMount: requesting setup data via dispatchCpp");
+        dispatchCpp("requestSetupData");
     });
 
     // ── Filtered instrument browser ───────────────────────────────
@@ -378,13 +337,7 @@
 
         const slots = chairsToSlots();
         const json = JSON.stringify(slots);
-        const fn = getNative("saveSelectedInstruments");
-        if (fn) {
-            fn(json);
-        } else {
-            statusMessage = "Backend not available";
-            statusIsError = true;
-        }
+        dispatchCpp("saveSelectedInstruments", json);
     };
 
     // Expose so App.svelte's Save button can trigger us
@@ -549,6 +502,7 @@
                             name: c.label,
                             family: c.family || "strings",
                             isSection: !c.isSolo,
+                            port: Math.floor(i / 16),
                             channel: (i % 16) + 1,
                         }))}
                         onremove={(id) => removeChair(id)}

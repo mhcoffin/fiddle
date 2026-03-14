@@ -1,21 +1,27 @@
 <script>
-    import { onMount } from "svelte";
+    import { onMount, onDestroy, untrack } from "svelte";
+    import { dispatchCpp, onFromCpp } from "./ipc.js";
+    import BranchSelector from "./BranchSelector.svelte";
     import {
         FAMILY_ORDER,
         canonicalFamily,
         instrumentOrder,
     } from "./orchestralOrder.js";
 
-    /** @type {{ onEditSetup?: () => void }} */
-    let { onEditSetup = () => {} } = $props();
+    /** @type {{ onEditSetup?: () => void, onViewVersions?: () => void }} */
+    let { onEditSetup = () => {}, onViewVersions = () => {} } = $props();
 
     let strips = $state([]);
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
     let availableXmaps = $state([]);
+    let branches = $state([]);
+    let currentBranch = $state("default");
+
     let playbackDelay = $state(1000);
     let editingDelay = $state(false);
     let dirty = $state(false);
+    let isDetachedHead = $state(false);
 
     /** @type {any} */
     const w = window;
@@ -25,25 +31,6 @@
      * registered via withNativeFunction() on the C++ side.
      * Uses JUCE's __juce__invoke event system.
      */
-    const getNative = (name) => {
-        const win = /** @type {any} */ (window);
-        if (
-            win.__JUCE__ &&
-            win.__JUCE__.backend &&
-            typeof win.__JUCE__.backend.emitEvent === "function"
-        ) {
-            let nextId = 0;
-            return function () {
-                win.__JUCE__.backend.emitEvent("__juce__invoke", {
-                    name: name,
-                    params: Array.prototype.slice.call(arguments),
-                    resultId: nextId++,
-                });
-            };
-        }
-        return null;
-    };
-
     const FAMILY_COLORS = {
         woodwinds: { accent: "#38bdf8", header: "#0e4d6e", text: "#bae6fd" },
         brass: { accent: "#f59e0b", header: "#713f12", text: "#fde68a" },
@@ -54,61 +41,80 @@
     };
     const defaultColors = FAMILY_COLORS.choir;
 
-    w.setMixerState = (jsonStr) => {
-        try {
-            strips = JSON.parse(jsonStr);
-        } catch (e) {
-            console.error("[Mixer] parse error:", e);
-        }
-    };
-    w.setAvailableInputs = (jsonStr) => {
-        try {
-            availableInputs = JSON.parse(jsonStr);
-        } catch (e) {
-            console.error("[Mixer] parse error:", e);
-        }
-    };
-    w.setPlaybackDelay = (ms) => {
-        playbackDelay = ms;
-    };
-    w.setDirtyState = (d) => {
-        dirty = d;
-    };
+    // ── C++ → JS message handlers ─────────────────────────────────
+    // data arrives as parsed objects (no JSON.parse needed)
 
-    onMount(() => {
-        const fn = getNative("getPlaybackDelay");
-        if (fn) fn();
+    onFromCpp("setMixerState", (data) => {
+        try {
+            strips = data;
+        } catch (e) {
+            console.error("[Mixer] setMixerState error:", e);
+        }
+    });
+    onFromCpp("setBranches", (data) => {
+        try {
+            branches = data;
+        } catch (e) {
+            console.error("[Mixer] setBranches error:", e);
+        }
+    });
+    onFromCpp("setCurrentBranch", (name) => {
+        currentBranch = name;
+    });
+    // setInstrumentMap is broadcast by C++ on startup and after Save Ensemble.
+    // Populate availableInputs so strips can look up their instrument name.
+    onFromCpp("setInstrumentMap", (data) => {
+        try {
+            availableInputs = Array.isArray(data) ? data : [];
+        } catch (e) {
+            console.error("[Mixer] setInstrumentMap error:", e);
+        }
+    });
+    // Legacy request/response path (getAvailableInputs → setAvailableInputs JS eval).
+    onFromCpp("setAvailableInputs", (data) => {
+        try {
+            availableInputs = data;
+        } catch (e) {
+            console.error("[Mixer] setAvailableInputs error:", e);
+        }
+    });
+    onFromCpp("setPlaybackDelay", (ms) => {
+        playbackDelay = ms;
+    });
+    onFromCpp("setDirtyState", (d) => {
+        dirty = d;
+    });
+    onFromCpp("setPluginList", (data) => {
+        try {
+            scannedPlugins = data;
+        } catch (e) {
+            /* ignore */
+        }
+    });
+    onFromCpp("setExpressionMaps", (data) => {
+        try {
+            availableXmaps = data;
+        } catch (e) {
+            console.error("[Mixer] xmap error:", e);
+        }
+    });
+    onFromCpp("setDetachedHead", (detached) => {
+        isDetachedHead = detached;
     });
 
     const updateDelay = (ms) => {
         const val = Math.max(0, Math.min(5000, parseInt(ms) || 0));
         playbackDelay = val;
-        const fn = getNative("setPlaybackDelay");
-        if (fn) fn(val);
+        dispatchCpp("setPlaybackDelay", val);
     };
 
     const doSaveConfig = () => {
-        const fn = getNative("saveConfig");
-        if (fn) fn();
+        dispatchCpp("saveConfig");
     };
 
-    const origSetPluginList = w.setPluginList;
-    w.setPluginList = (jsonStr) => {
-        if (origSetPluginList) origSetPluginList(jsonStr);
-        try {
-            scannedPlugins = JSON.parse(jsonStr);
-        } catch (e) {
-            /* ignore */
-        }
-    };
-
-    w.setExpressionMaps = (jsonStr) => {
-        try {
-            availableXmaps = JSON.parse(jsonStr);
-        } catch (e) {
-            console.error("[Mixer] xmap parse error:", e);
-        }
-    };
+    // getNative is no longer needed (now using onFromCpp / dispatchCpp instead),
+    // but kept as a no-op stub in case any legacy call sites remain.
+    const getNative = (_name) => null;
 
     // ── Selection state ───────────────────────────────────
     let selectedIds = $state(new Set());
@@ -152,14 +158,13 @@
     const selectedIdsJson = () => JSON.stringify([...selectedIds]);
 
     onMount(() => {
-        const fn = getNative("getAvailableInputs");
-        if (fn) fn();
-        const fnMixer = getNative("requestMixerState");
-        if (fnMixer) fnMixer();
-        const fnPlugins = getNative("requestPluginsState");
-        if (fnPlugins) fnPlugins();
-        const fnXmaps = getNative("requestExpressionMaps");
-        if (fnXmaps) fnXmaps();
+        dispatchCpp("getPlaybackDelay");
+        dispatchCpp("requestBranches");
+        dispatchCpp("requestMixerState");
+        dispatchCpp("getAvailableInputs");
+        dispatchCpp("requestPluginsState");
+        dispatchCpp("requestExpressionMaps");
+        dispatchCpp("requestCurrentBranch");
 
         // Escape key clears selection
         const handleKeyDown = (e) => {
@@ -170,69 +175,75 @@
     });
 
     const addStrip = () => {
-        const fn = getNative("addMixerStrip");
-        if (fn) fn();
+        dispatchCpp("addMixerStrip");
     };
     const removeStrip = (id) => {
         if (isMultiSelected && selectedIds.has(id)) {
-            const fn = getNative("removeGroupStrips");
-            if (fn) fn(selectedIdsJson());
+            dispatchCpp("removeGroupStrips", selectedIdsJson());
             clearSelection();
             return;
         }
-        const fn = getNative("removeMixerStrip");
-        if (fn) fn(id);
+        dispatchCpp("removeMixerStrip", id);
     };
 
     const duplicateStrip = (id) => {
-        const fn = getNative("duplicateStripInput");
-        if (fn) fn(id);
+        dispatchCpp("duplicateStripInput", id);
     };
 
     const setInput = (stripId, port, channel) => {
-        const fn = getNative("setStripInput");
-        if (fn) fn(stripId, port, channel);
+        dispatchCpp("setStripInput", stripId, port, channel);
     };
 
     const setPlugin = (stripId, pluginUid) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
-            const fn = getNative("setGroupPlugin");
-            if (fn) fn(selectedIdsJson(), pluginUid);
+            dispatchCpp("setGroupPlugin", selectedIdsJson(), pluginUid);
             return;
         }
-        const fn = getNative("setStripPlugin");
-        if (fn) fn(stripId, pluginUid);
+        dispatchCpp("setStripPlugin", stripId, pluginUid);
     };
     const showEditor = (stripId) => {
-        const fn = getNative("showStripEditor");
-        if (fn) fn(stripId);
+        dispatchCpp("showStripEditor", stripId);
     };
     const loadExpressionMap = (stripId, entityID) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
-            const fn = getNative("setGroupExpressionMap");
-            if (fn) fn(selectedIdsJson(), entityID);
+            dispatchCpp("setGroupExpressionMap", selectedIdsJson(), entityID);
             return;
         }
-        const fn = getNative("loadExpressionMap");
-        if (fn) fn(stripId, entityID);
+        dispatchCpp("loadExpressionMap", stripId, entityID);
     };
     const loadExpressionMapFromFile = (stripId) => {
-        const fn = getNative("loadExpressionMapFromFile");
-        if (fn) fn(stripId);
+        dispatchCpp("loadExpressionMapFromFile", stripId);
     };
     const clearExpressionMap = (stripId) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
-            const fn = getNative("setGroupExpressionMap");
-            if (fn) fn(selectedIdsJson(), "");
+            dispatchCpp("setGroupExpressionMap", selectedIdsJson(), "");
             return;
         }
-        const fn = getNative("clearExpressionMap");
-        if (fn) fn(stripId);
+        dispatchCpp("clearExpressionMap", stripId);
     };
 
+    // Shadow map: last gain value we sent for each strip (plain object, not reactive).
+    // Used so that rapid master-fader events read our own last write, not the async
+    // IPC-reflected strip.gainDb (which may still show the old value).
+    const gainShadow = {};
+
+    // Unconstrained internal shadow used for all group-master delta math.
+    // Allows lock-on redistribution to accumulate values outside [-120,+6] so
+    // the theoretical sum stays exact even when displayed faders are clamped.
+    const gainShadowRaw = {};
+
     const setGain = (stripId, db) => {
-        const fn = getNative("setStripGain");
-        if (fn) fn(stripId, db);
+        gainShadow[stripId] = db;
+        gainShadowRaw[stripId] = db; // user-dragged values are already in display range
+        dispatchCpp("setStripGain", stripId, db);
+    };
+
+    /** Send an unconstrained raw value to a strip: store raw for math, send clamped to audio. */
+    const setGainRaw = (stripId, rawDb) => {
+        gainShadowRaw[stripId] = rawDb;
+        const clamped = Math.max(FADER_MIN, Math.min(FADER_MAX, rawDb));
+        gainShadow[stripId] = clamped;
+        dispatchCpp("setStripGain", stripId, clamped);
     };
 
     // ── Mute / Solo ──────────────────────────────────────────────
@@ -246,12 +257,10 @@
         const newVal = !strip.muted;
         if (isMultiSelected && selectedIds.has(stripId)) {
             for (const id of selectedIds) {
-                const fn = getNative("setStripMute");
-                if (fn) fn(id, newVal);
+                dispatchCpp("setStripMute", id, newVal);
             }
         } else {
-            const fn = getNative("setStripMute");
-            if (fn) fn(stripId, newVal);
+            dispatchCpp("setStripMute", stripId, newVal);
         }
     };
 
@@ -261,12 +270,10 @@
         const newVal = !strip.soloed;
         if (isMultiSelected && selectedIds.has(stripId)) {
             for (const id of selectedIds) {
-                const fn = getNative("setStripSolo");
-                if (fn) fn(id, newVal);
+                dispatchCpp("setStripSolo", id, newVal);
             }
         } else {
-            const fn = getNative("setStripSolo");
-            if (fn) fn(stripId, newVal);
+            dispatchCpp("setStripSolo", stripId, newVal);
         }
     };
 
@@ -282,8 +289,7 @@
         if (isMultiSelected && selectedIds.has(strip.id)) {
             const oldDb = strip.gainDb ?? 0;
             const delta = newDb - oldDb;
-            const fn = getNative("setGroupGainDelta");
-            if (fn) fn(selectedIdsJson(), delta);
+            dispatchCpp("setGroupGainDelta", selectedIdsJson(), delta);
         } else {
             setGain(strip.id, newDb);
         }
@@ -295,11 +301,79 @@
         if (isNaN(v)) v = 0;
         v = Math.max(-120, Math.min(6, v));
         if (isMultiSelected && selectedIds.has(strip.id)) {
-            const fn = getNative("setGroupGainAbsolute");
-            if (fn) fn(selectedIdsJson(), v);
+            dispatchCpp("setGroupGainAbsolute", selectedIdsJson(), v);
         } else {
             setGain(strip.id, v);
         }
+    };
+
+    // ── Group Master Fader state ──────────────────────────────
+    // Only lockSum is stored in state. masterDb is always DERIVED as the sum of
+    // member strip gainDb values — it is never stored independently.
+    let groupMasters = $state(
+        /** @type {Record<string, {lockSum: boolean}>} */ ({}),
+    );
+
+    const getGroupMaster = (key) => {
+        if (!groupMasters[key]) {
+            untrack(() => {
+                groupMasters[key] = { lockSum: false };
+            });
+        }
+        return groupMasters[key];
+    };
+
+    /** Compute the current theoretical sum of gainDb for all strips in a group.
+     *  Uses gainShadowRaw so the value is accurate even if some faders are clamped. */
+    const getGroupSumDb = (instrGroup) =>
+        instrGroup.strips.reduce(
+            (acc, s) => acc + (gainShadowRaw[s.id] ?? s.gainDb ?? 0),
+            0,
+        );
+
+    /**
+     * Master fader drag → distribute delta equally: each strip gets delta/n.
+     * delta = newSumDb - currentSum, each strip += delta/n.
+     * Uses unconstrained raw values so repeated moves accumulate correctly.
+     */
+    const handleMasterFaderInput = (instrGroup, pos) => {
+        const newSumDb = Math.round(posToDB(pos) * 10) / 10;
+        const currentSum = getGroupSumDb(instrGroup);
+        const delta = newSumDb - currentSum;
+        const n = instrGroup.strips.length;
+        for (const strip of instrGroup.strips) {
+            const base = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
+            setGainRaw(strip.id, base + delta / n);
+        }
+    };
+
+    /** Double-click master fader → set master to 0 dB (average 0 → sum 0) */
+    const handleMasterFaderReset = (instrGroup) => {
+        // Target: sum = 0, so each strip moves by -currentSum/n
+        handleMasterFaderInput(instrGroup, dbToPos(0));
+    };
+
+    /**
+     * Individual strip fader drag within a group.
+     * Lock OFF: only the dragged strip changes; master auto-follows (derived sum updates).
+     * Lock ON:  master is "locked" — distribute the inverse delta equally across siblings
+     *           so the sum stays constant. Uses gainShadowRaw so accumulated values beyond
+     *           the display range don't corrupt the sum invariant.
+     */
+    const handleGroupFaderInput = (instrGroup, strip, pos) => {
+        const gm = getGroupMaster(instrGroup.key);
+        const newDb = Math.round(posToDB(pos) * 10) / 10;
+        if (gm.lockSum && instrGroup.strips.length > 1) {
+            const oldDb = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
+            const delta = newDb - oldDb;
+            const others = instrGroup.strips.filter((s) => s.id !== strip.id);
+            const compensate = -delta / others.length;
+            for (const other of others) {
+                const base = gainShadowRaw[other.id] ?? other.gainDb ?? 0;
+                setGainRaw(other.id, base + compensate);
+            }
+        }
+        setGain(strip.id, newDb);
     };
 
     // ── Fader skew (JUCE-style NormalisableRange) ────────────
@@ -353,11 +427,9 @@
         if (editValue.trim()) {
             const lib = editValue.trim();
             if (isMultiSelected && selectedIds.has(stripId)) {
-                const fn = getNative("setGroupLibrary");
-                if (fn) fn(selectedIdsJson(), lib);
+                dispatchCpp("setGroupLibrary", selectedIdsJson(), lib);
             } else {
-                const fn = getNative("setStripLibrary");
-                if (fn) fn(stripId, lib);
+                dispatchCpp("setStripLibrary", stripId, lib);
             }
         }
         editingId = null;
@@ -422,22 +494,62 @@
                     )?.name || "";
                 return instrumentOrder(nameA) - instrumentOrder(nameB);
             });
+
+            // Second-level grouping: by inputPort:inputChannel (instrument groups)
+            const instrMap = new Map();
+            const instrOrder = []; // preserve the sort order above
+            for (const strip of g.strips) {
+                const key = `${strip.inputPort}:${strip.inputChannel}`;
+                if (!instrMap.has(key)) {
+                    const input = availableInputs.find(
+                        (i) => i.port === strip.inputPort && i.channel === strip.inputChannel,
+                    );
+                    const portLabel =
+                        strip.inputPort >= 0
+                            ? `P${strip.inputPort + 1}.${strip.inputChannel + 1}`
+                            : "";
+                    instrMap.set(key, {
+                        key,
+                        label: input ? (input.label || input.name) : (portLabel || "—"),
+                        portLabel,
+                        strips: [],
+                    });
+                    instrOrder.push(key);
+                }
+                instrMap.get(key).strips.push(strip);
+            }
+            g.instrGroups = instrOrder.map((k) => instrMap.get(k));
         }
         return groups;
     });
+
 </script>
 
 <div class="mixer-container">
     <div class="mixer-toolbar">
-        <h2>Mixer</h2>
-        {#if selectedIds.size > 1}
-            <span class="selection-badge">{selectedIds.size} selected</span>
-        {/if}
-        {#if anySoloed}
-            <button class="toolbar-ms-btn solo-clear" onclick={clearSolos}>
-                Clear Solos
-            </button>
-        {/if}
+        <div class="toolbar-left">
+            <h2>Mixer</h2>
+
+            <BranchSelector
+                {branches}
+                {currentBranch}
+                onCheckout={(id) => {
+                    dispatchCpp("checkoutBranch", id);
+                }}
+                onCreateBranch={(name) => {
+                    dispatchCpp("createBranch", name);
+                }}
+            />
+
+            {#if selectedIds.size > 1}
+                <span class="selection-badge">{selectedIds.size} selected</span>
+            {/if}
+            {#if anySoloed}
+                <button class="toolbar-ms-btn solo-clear" onclick={clearSolos}>
+                    Clear Solos
+                </button>
+            {/if}
+        </div>
         <div class="toolbar-right">
             <div class="delay-control">
                 <label class="delay-label">Delay</label>
@@ -495,10 +607,19 @@
                 </svg>
             </button>
             <button
+                class="toolbar-btn history-btn"
+                title="View Version History DAG"
+                onclick={onViewVersions}
+            >
+                ⌘ History
+            </button>
+            <button
                 class="toolbar-btn save-btn"
                 onclick={doSaveConfig}
-                disabled={!dirty}
-                title="Save config (creates a new version)"
+                disabled={!dirty || isDetachedHead}
+                title={isDetachedHead
+                    ? "Cannot save while viewing a historical version"
+                    : "Save config (creates a new version)"}
             >
                 💾 Save
             </button>
@@ -552,328 +673,307 @@
 
                     {#if !collapsed}
                         <div class="folder-strips">
-                            {#each group.strips as strip (strip.id)}
+                            {#each group.instrGroups as instrGroup (instrGroup.key)}
+                                {@const instInput = availableInputs.find(
+                                    (i) => i.port === instrGroup.strips[0]?.inputPort
+                                        && i.channel === instrGroup.strips[0]?.inputChannel
+                                )}
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 <div
-                                    class="channel-strip"
-                                    class:selected={selectedIds.has(strip.id)}
-                                    class:suppressed={!isAudible(strip)}
+                                    class="inst-group"
+                                    style="--accent: {group.colors.accent};"
                                     onclick={(e) => e.stopPropagation()}
                                 >
-                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                    <!-- Bridge header: same height for every group (1 or N strips) -->
                                     <div
-                                        class="select-bar select-bar-top"
-                                        style="background: {group.colors
-                                            .accent};"
-                                        onclick={(e) => {
-                                            e.stopPropagation();
-                                            handleStripClick(strip.id, e);
-                                        }}
-                                    ></div>
-                                    <!-- Input selector at top -->
-                                    <div class="ch-input">
-                                        <select
-                                            class="ch-select"
-                                            disabled={isMultiSelected &&
-                                                selectedIds.has(strip.id)}
-                                            value={`${strip.inputPort}:${strip.inputChannel}`}
-                                            onchange={(e) => {
-                                                const [p, c] =
-                                                    /** @type {HTMLSelectElement} */ (
-                                                        e.target
-                                                    ).value
-                                                        .split(":")
-                                                        .map(Number);
-                                                setInput(strip.id, p, c);
-                                            }}
-                                        >
-                                            <option value="-1:-1"
-                                                >— None —</option
-                                            >
-                                            {#each availableInputs as input}
-                                                {@const icon = input.isSolo
-                                                    ? "👤"
-                                                    : "👥"}
-                                                <option
-                                                    value={`${input.port}:${input.channel}`}
-                                                    >{icon}
-                                                    {input.label ||
-                                                        input.name}</option
-                                                >
-                                            {/each}
-                                        </select>
+                                        class="bridge-header"
+                                        class:bridge-multi={instrGroup.strips.length > 1}
+                                    >
+                                        <span class="bridge-icon">{instInput?.isSolo ? "👤" : "👥"}</span>
+                                        <span class="bridge-label">{instrGroup.label}</span>
+                                        {#if instrGroup.portLabel}
+                                            <span class="bridge-port">{instrGroup.portLabel}</span>
+                                        {/if}
                                     </div>
-                                    {#if strip.inputPort >= 0}
-                                        <div class="ch-input-label">
-                                            P{strip.inputPort +
-                                                1}.{strip.inputChannel + 1}
+                                    <!-- inst-body: master-strip + strips-row side by side -->
+                                    <div class="inst-body">
+                                    <!-- Master strip: only for multi-strip groups -->
+                                    {#if instrGroup.strips.length > 1}
+                                        {@const gm = getGroupMaster(instrGroup.key)}
+                                         {@const masterDb = getGroupSumDb(instrGroup)}
+                                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                        <div class="master-strip" onclick={(e) => e.stopPropagation()}>
+                                            <!-- Top spacer: matches .select-bar height so fader starts at same Y -->
+                                            <div class="master-strip-top-spacer"></div>
+                                            <!-- Fader section: flex:1 so it takes same span as .ch-fader -->
+                                            <div class="ch-fader" style="flex:1;min-height:0">
+                                                <span class="fader-tick fader-top">+6</span>
+                                                <div class="fader-meter-row">
+                                                    <div class="fader-track master-track">
+                                                        <input
+                                                            class="fader-slider master-slider"
+                                                            type="range"
+                                                            min="0"
+                                                            max="1000"
+                                                            step="1"
+                                                            value={Math.round(dbToPos(masterDb) * 1000)}
+                                                            oninput={(e) => handleMasterFaderInput(
+                                                                instrGroup,
+                                                                parseFloat(/** @type {HTMLInputElement} */ (e.target).value) / 1000,
+                                                            )}
+                                                            ondblclick={() => handleMasterFaderReset(instrGroup)}
+                                                        />
+                                                    </div>
+                                                </div>
+                                                <span class="fader-tick fader-bot">-∞</span>
+                                                <div class="master-db">{formatDb(getGroupSumDb(instrGroup))}</div>
+                                            </div>
+                                            <!-- Bottom spacer: matches mute-solo + xmap + plugin rows -->
+                                            <div class="master-strip-bot-spacer">
+                                                <button
+                                                    class="sum-lock-btn"
+                                                    class:sum-lock-active={gm.lockSum}
+                                                    title={gm.lockSum
+                                                        ? "Sum Lock ON — individual faders keep sum constant"
+                                                        : "Sum Lock OFF — master tracks sum of all faders"}
+                                                    onclick={() => (gm.lockSum = !gm.lockSum)}
+                                                >{gm.lockSum ? '🔒' : '🔓'}</button>
+                                            </div>
                                         </div>
                                     {/if}
+                                    <div class="strips-row">
+                                        {#each instrGroup.strips as strip (strip.id)}
+                                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                            <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                            <div
+                                                class="channel-strip"
+                                                class:selected={selectedIds.has(strip.id)}
+                                                class:suppressed={!isAudible(strip)}
+                                                onclick={(e) => e.stopPropagation()}
+                                            >
+                                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                                <div
+                                                    class="select-bar select-bar-top"
+                                                    style="background: {group.colors.accent};"
+                                                    onclick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStripClick(strip.id, e);
+                                                    }}
+                                                ></div>
 
-                                    <!-- Vertical fader -->
-                                    <div class="ch-fader">
-                                        <span class="fader-tick fader-top"
-                                            >+6</span
-                                        >
-                                        <div class="fader-meter-row">
-                                            <div class="fader-track">
-                                                <input
-                                                    class="fader-slider"
-                                                    type="range"
-                                                    min="0"
-                                                    max="1000"
-                                                    step="1"
-                                                    value={Math.round(
-                                                        dbToPos(
-                                                            strip.gainDb ?? 0,
-                                                        ) * 1000,
-                                                    )}
-                                                    oninput={(e) => {
-                                                        const pos =
-                                                            parseFloat(
+                                                <!-- Vertical fader -->
+                                                <div class="ch-fader">
+                                                    <span class="fader-tick fader-top">+6</span>
+                                                    <div class="fader-meter-row">
+                                                        <div class="fader-track">
+                                                            <input
+                                                                class="fader-slider"
+                                                                type="range"
+                                                                min="0"
+                                                                max="1000"
+                                                                step="1"
+                                                                value={Math.round(
+                                                                    dbToPos(strip.gainDb ?? 0) * 1000,
+                                                                )}
+                                                                oninput={(e) => {
+                                                                    const pos =
+                                                                        parseFloat(
+                                                                            /** @type {HTMLInputElement} */ (
+                                                                                e.target
+                                                                            ).value,
+                                                                        ) / 1000;
+                                                                    handleGroupFaderInput(instrGroup, strip, pos);
+                                                                }}
+                                                                ondblclick={() =>
+                                                                    handleGainValueInput(strip, "0")}
+                                                            />
+                                                        </div>
+                                                        <div class="meter-track">
+                                                            <div
+                                                                class="meter-fill"
+                                                                class:meter-hot={strip.peakDb > 0}
+                                                                style="height: {dbToPos(strip.peakDb ?? -120) * 100}%"
+                                                            ></div>
+                                                            <div
+                                                                class="meter-hold"
+                                                                class:meter-hot={strip.peakHoldDb > 0}
+                                                                style="bottom: {dbToPos(strip.peakHoldDb ?? -120) * 100}%"
+                                                            ></div>
+                                                        </div>
+                                                    </div>
+                                                    <span class="fader-tick fader-bot">-∞</span>
+                                                    <input
+                                                        class="fader-value"
+                                                        type="number"
+                                                        min="-120"
+                                                        max="6"
+                                                        step="0.1"
+                                                        value={strip.gainDb != null
+                                                            ? Math.round(strip.gainDb * 10) / 10
+                                                            : 0}
+                                                        onchange={(e) => {
+                                                            handleGainValueInput(
+                                                                strip,
                                                                 /** @type {HTMLInputElement} */ (
                                                                     e.target
                                                                 ).value,
-                                                            ) / 1000;
-                                                        handleFaderInput(
-                                                            strip,
-                                                            pos,
-                                                        );
-                                                    }}
-                                                    ondblclick={() =>
-                                                        handleGainValueInput(
-                                                            strip,
-                                                            "0",
-                                                        )}
-                                                />
-                                            </div>
-                                            <div class="meter-track">
-                                                <div
-                                                    class="meter-fill"
-                                                    class:meter-hot={strip.peakDb >
-                                                        0}
-                                                    style="height: {dbToPos(
-                                                        strip.peakDb ?? -120,
-                                                    ) * 100}%"
-                                                ></div>
-                                                <div
-                                                    class="meter-hold"
-                                                    class:meter-hot={strip.peakHoldDb >
-                                                        0}
-                                                    style="bottom: {dbToPos(
-                                                        strip.peakHoldDb ??
-                                                            -120,
-                                                    ) * 100}%"
-                                                ></div>
-                                            </div>
-                                        </div>
-                                        <span class="fader-tick fader-bot"
-                                            >-∞</span
-                                        >
-                                        <input
-                                            class="fader-value"
-                                            type="number"
-                                            min="-120"
-                                            max="6"
-                                            step="0.1"
-                                            value={strip.gainDb != null
-                                                ? Math.round(
-                                                      strip.gainDb * 10,
-                                                  ) / 10
-                                                : 0}
-                                            onchange={(e) => {
-                                                handleGainValueInput(
-                                                    strip,
-                                                    /** @type {HTMLInputElement} */ (
-                                                        e.target
-                                                    ).value,
-                                                );
-                                            }}
-                                        />
-                                    </div>
+                                                            );
+                                                        }}
+                                                    />
+                                                </div>
 
-                                    <!-- Mute / Solo -->
-                                    <div class="ch-mute-solo">
-                                        <button
-                                            class="ms-btn mute-btn"
-                                            class:active={strip.muted}
-                                            title={strip.muted
-                                                ? "Unmute"
-                                                : "Mute"}
-                                            onclick={() => toggleMute(strip.id)}
-                                            >M</button
-                                        >
-                                        <button
-                                            class="ms-btn solo-btn"
-                                            class:active={strip.soloed}
-                                            title={strip.soloed
-                                                ? "Unsolo"
-                                                : "Solo"}
-                                            onclick={() => toggleSolo(strip.id)}
-                                            >S</button
-                                        >
-                                    </div>
-
-                                    <!-- Expression Map -->
-                                    <div class="ch-xmap">
-                                        <select
-                                            class="ch-select ch-xmap-select"
-                                            value={strip.expressionMapName
-                                                ? "__loaded__"
-                                                : ""}
-                                            onchange={(e) => {
-                                                const val =
-                                                    /** @type {HTMLSelectElement} */ (
-                                                        e.target
-                                                    ).value;
-                                                if (val === "__file__") {
-                                                    loadExpressionMapFromFile(
-                                                        strip.id,
-                                                    );
-                                                    // reset select after
-                                                    /** @type {HTMLSelectElement} */ (
-                                                        e.target
-                                                    ).value =
-                                                        strip.expressionMapName
-                                                            ? "__loaded__"
-                                                            : "";
-                                                } else if (val === "") {
-                                                    clearExpressionMap(
-                                                        strip.id,
-                                                    );
-                                                } else if (
-                                                    val !== "__loaded__"
-                                                ) {
-                                                    loadExpressionMap(
-                                                        strip.id,
-                                                        val,
-                                                    );
-                                                }
-                                            }}
-                                        >
-                                            <option value="">— xmap —</option>
-                                            {#if strip.expressionMapName}
-                                                <option
-                                                    value="__loaded__"
-                                                    selected
-                                                    >{strip.expressionMapName}</option
-                                                >
-                                            {/if}
-                                            {#each availableXmaps as xmap}
-                                                <option value={xmap.entityID}
-                                                    >{xmap.name}</option
-                                                >
-                                            {/each}
-                                            <option value="__file__"
-                                                >Load from file…</option
-                                            >
-                                        </select>
-                                    </div>
-
-                                    <!-- Plugin -->
-                                    <div class="ch-plugin">
-                                        <div class="ch-plugin-row">
-                                            <select
-                                                class="ch-select"
-                                                value={strip.pluginUid || 0}
-                                                onchange={(e) => {
-                                                    const uid = Number(
-                                                        /** @type {HTMLSelectElement} */ (
-                                                            e.target
-                                                        ).value,
-                                                    );
-                                                    if (uid)
-                                                        setPlugin(
-                                                            strip.id,
-                                                            uid,
-                                                        );
-                                                }}
-                                            >
-                                                <option value="0">—</option>
-                                                {#each scannedPlugins.filter((p) => p.valid !== false) as plugin}
-                                                    <option value={plugin.uid}
-                                                        >{plugin.name}</option
+                                                <!-- Mute / Solo -->
+                                                <div class="ch-mute-solo">
+                                                    <button
+                                                        class="ms-btn mute-btn"
+                                                        class:active={strip.muted}
+                                                        title={strip.muted ? "Unmute" : "Mute"}
+                                                        onclick={() => toggleMute(strip.id)}
+                                                        >M</button
                                                     >
-                                                {/each}
-                                            </select>
-                                            {#if strip.hasPlugin}
-                                                <button
-                                                    class="ch-edit-btn"
-                                                    onclick={() =>
-                                                        showEditor(strip.id)}
-                                                    title="Open editor"
-                                                    >e</button
-                                                >
-                                            {/if}
-                                        </div>
-                                    </div>
+                                                    <button
+                                                        class="ms-btn solo-btn"
+                                                        class:active={strip.soloed}
+                                                        title={strip.soloed ? "Unsolo" : "Solo"}
+                                                        onclick={() => toggleSolo(strip.id)}
+                                                        >S</button
+                                                    >
+                                                </div>
 
-                                    <!-- Strip name area -->
-                                    <div class="ch-name-area">
-                                        <div
-                                            class="ch-input-name"
-                                            title={getInputName(strip)}
-                                        >
-                                            {getInputName(strip) || "—"}
-                                        </div>
-                                        {#if editingId === strip.id}
-                                            <input
-                                                class="ch-name-input"
-                                                type="text"
-                                                placeholder="Library"
-                                                bind:value={editValue}
-                                                onblur={() =>
-                                                    commitEdit(strip.id)}
-                                                onkeydown={(e) =>
-                                                    handleNameKeydown(
-                                                        e,
-                                                        strip.id,
-                                                    )}
-                                            />
-                                        {:else}
-                                            <div
-                                                class="ch-lib-name"
-                                                ondblclick={() =>
-                                                    startEditing(strip)}
-                                                title="Double-click to set library name"
-                                            >
-                                                {strip.library || "—"}
+                                                <!-- Expression Map -->
+                                                <div class="ch-xmap">
+                                                    <select
+                                                        class="ch-select ch-xmap-select"
+                                                        value={strip.expressionMapName
+                                                            ? "__loaded__"
+                                                            : ""}
+                                                        onchange={(e) => {
+                                                            const val =
+                                                                /** @type {HTMLSelectElement} */ (
+                                                                    e.target
+                                                                ).value;
+                                                            if (val === "__file__") {
+                                                                loadExpressionMapFromFile(strip.id);
+                                                                /** @type {HTMLSelectElement} */ (
+                                                                    e.target
+                                                                ).value = strip.expressionMapName
+                                                                    ? "__loaded__"
+                                                                    : "";
+                                                            } else if (val === "") {
+                                                                clearExpressionMap(strip.id);
+                                                            } else if (val !== "__loaded__") {
+                                                                loadExpressionMap(strip.id, val);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <option value="">— xmap —</option>
+                                                        {#if strip.expressionMapName}
+                                                            <option value="__loaded__" selected
+                                                                >{strip.expressionMapName}</option
+                                                            >
+                                                        {/if}
+                                                        {#each availableXmaps as xmap}
+                                                            <option value={xmap.entityID}
+                                                                >{xmap.name}</option
+                                                            >
+                                                        {/each}
+                                                        <option value="__file__"
+                                                            >Load from file…</option
+                                                        >
+                                                    </select>
+                                                </div>
+
+
+                                                <!-- Plugin -->
+                                                <div class="ch-plugin">
+                                                    <div class="ch-plugin-row">
+                                                        <select
+                                                            class="ch-select"
+                                                            value={strip.pluginUid || 0}
+                                                            onchange={(e) => {
+                                                                const uid = Number(
+                                                                    /** @type {HTMLSelectElement} */ (
+                                                                        e.target
+                                                                    ).value,
+                                                                );
+                                                                if (uid) setPlugin(strip.id, uid);
+                                                            }}
+                                                        >
+                                                            <option value="0">—</option>
+                                                            {#each scannedPlugins.filter((p) => p.valid !== false) as plugin}
+                                                                <option value={plugin.uid}
+                                                                    >{plugin.name}</option
+                                                                >
+                                                            {/each}
+                                                        </select>
+                                                        {#if strip.hasPlugin}
+                                                            <button
+                                                                class="ch-edit-btn"
+                                                                onclick={() => showEditor(strip.id)}
+                                                                title="Open editor">e</button
+                                                            >
+                                                        {/if}
+                                                    </div>
+                                                </div>
+
+                                                <!-- Strip name area: only library name now (instrument moved to bridge header) -->
+                                                <div class="ch-name-area">
+                                                    {#if editingId === strip.id}
+                                                        <input
+                                                            class="ch-name-input"
+                                                            type="text"
+                                                            placeholder="Library"
+                                                            bind:value={editValue}
+                                                            onblur={() => commitEdit(strip.id)}
+                                                            onkeydown={(e) =>
+                                                                handleNameKeydown(e, strip.id)}
+                                                        />
+                                                    {:else}
+                                                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                                        <div
+                                                            class="ch-lib-name"
+                                                            ondblclick={() => startEditing(strip)}
+                                                            title="Double-click to set library name"
+                                                        >
+                                                            {strip.library || "—"}
+                                                        </div>
+                                                    {/if}
+                                                </div>
+
+                                                <!-- Strip action buttons -->
+                                                <div class="ch-buttons">
+                                                    <button
+                                                        class="ch-btn ch-btn-dup"
+                                                        disabled={isMultiSelected &&
+                                                            selectedIds.has(strip.id)}
+                                                        onclick={() => duplicateStrip(strip.id)}
+                                                        title="Add parallel strip with same input"
+                                                        >+</button
+                                                    >
+                                                    <button
+                                                        class="ch-btn ch-btn-del"
+                                                        onclick={() => removeStrip(strip.id)}
+                                                        title="Delete strip">✕</button
+                                                    >
+                                                </div>
+                                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                                <div
+                                                    class="select-bar select-bar-bottom"
+                                                    style="background: {group.colors.accent};"
+                                                    onclick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStripClick(strip.id, e);
+                                                    }}
+                                                ></div>
                                             </div>
-                                        {/if}
-                                    </div>
-
-                                    <!-- Strip action buttons -->
-                                    <div class="ch-buttons">
-                                        <button
-                                            class="ch-btn ch-btn-dup"
-                                            disabled={isMultiSelected &&
-                                                selectedIds.has(strip.id)}
-                                            onclick={() =>
-                                                duplicateStrip(strip.id)}
-                                            title="Add parallel strip with same input"
-                                            >+</button
-                                        >
-                                        <button
-                                            class="ch-btn ch-btn-del"
-                                            onclick={() =>
-                                                removeStrip(strip.id)}
-                                            title="Delete strip">✕</button
-                                        >
-                                    </div>
-                                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                    <div
-                                        class="select-bar select-bar-bottom"
-                                        style="background: {group.colors
-                                            .accent};"
-                                        onclick={(e) => {
-                                            e.stopPropagation();
-                                            handleStripClick(strip.id, e);
-                                        }}
-                                    ></div>
-                                </div>
+                                        {/each}
+                                    </div> <!-- /strips-row -->
+                                    </div> <!-- /inst-body -->
+                                </div> <!-- /inst-group -->
                             {/each}
                         </div>
                     {/if}
@@ -882,6 +982,8 @@
         </div>
     {/if}
 </div>
+
+
 
 <style>
     .mixer-container {
@@ -1121,17 +1223,46 @@
         flex-direction: row;
         flex: 1;
         min-height: 0;
+        align-items: stretch;
+        gap: 3px;
+        background: #070d18;
+    }
+
+    /* Instrument group (bridge-header + inst-body) */
+    .inst-group {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        border-left: 2px solid var(--accent, #334155);
+    }
+    /* Row below the bridge-header: master-strip (if multi) + strips-row side by side */
+    .inst-body {
+        display: flex;
+        flex-direction: row;
+        flex: 1;
+        min-height: 0;
+        padding-bottom: 12px; /* lift channel-strips above overlay scrollbar so select-bar-bottom is visible */
+    }
+    /* Row of parallel strips within one instrument group */
+    .strips-row {
+        display: flex;
+        flex-direction: row;
+        flex: 1;
+        min-height: 0;
     }
 
     /* ── Channel strip: full-height vertical column ── */
     .channel-strip {
+        position: relative;
         display: flex;
         flex-direction: column;
         width: 80px;
         min-width: 80px;
+        align-self: stretch;
         background: #111827;
         border-right: 1px solid #0f172a;
-        padding: 6px 4px;
+        padding: 6px 4px 12px;
         gap: 4px;
         overflow: hidden;
     }
@@ -1147,11 +1278,86 @@
         background: #243044;
     }
 
+    /* ── Master strip ────────────────────────────────── */
+    .master-strip {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        width: 38px;
+        min-width: 38px;
+        height: 100%;
+        flex-shrink: 0;
+        background: #090f1c;
+        border-right: 1px solid rgba(51, 65, 85, 0.9); /* softer than other separators */
+        /* Same vertical padding as .channel-strip so spacers compute correctly */
+        padding: 6px 2px;
+        overflow: hidden;
+    }
+    /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
+    .master-strip-top-spacer {
+        flex-shrink: 0;
+        height: 6px; /* same as .select-bar */
+    }
+    /* Mirrors bottom controls (ch-mute-solo + ch-xmap + ch-plugin + measured correction) */
+    .master-strip-bot-spacer {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        height: 128px;
+        gap: 4px;
+    }
+
+    .master-track {
+        width: 10px !important;
+    }
+    input.fader-slider.master-slider {
+        accent-color: #d4a017;
+    }
+    .master-db {
+        font-size: 0.62rem;
+        font-weight: 600;
+        color: #cbd5e1;
+        text-align: center;
+        flex-shrink: 0;
+        letter-spacing: 0.02em;
+    }
+    .sum-lock-btn {
+        background: none;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.65rem;
+        padding: 2px 3px;
+        color: #64748b;
+        transition: border-color 0.15s, color 0.15s, background 0.15s;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+    .sum-lock-btn:hover {
+        border-color: var(--accent, #94a3b8);
+        color: var(--accent, #94a3b8);
+    }
+    .sum-lock-btn.sum-lock-active {
+        border-color: var(--accent, #94a3b8);
+        color: #fff;
+        background: color-mix(in srgb, var(--accent, #94a3b8) 50%, transparent);
+    }
+
     .select-bar {
         flex-shrink: 0;
         height: 6px;
         cursor: pointer;
         transition: filter 0.15s;
+    }
+    .select-bar-bottom {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 6px;
     }
     .select-bar:hover {
         filter: brightness(1.4);
@@ -1163,15 +1369,42 @@
     .ch-name-area {
         min-height: 18px;
     }
-    .ch-input-name {
+    /* Instrument group bridge header */
+    .inst-group {
+        display: flex;
+        flex-direction: column;
+    }
+    .bridge-header {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+        padding: 2px 4px;
+        border-bottom: 2px solid var(--accent, #3b82f6);
+        background: rgba(0,0,0,0.25);
+        min-height: 18px;
+        overflow: hidden;
+    }
+    .bridge-header.bridge-multi {
+        background: rgba(59,130,246,0.08);
+    }
+    .bridge-icon {
+        font-size: 0.55rem;
+        flex-shrink: 0;
+        opacity: 0.7;
+    }
+    .bridge-label {
         font-size: 0.6rem;
         font-weight: 600;
         color: #e2e8f0;
-        text-align: center;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        line-height: 1.3;
+        flex: 1;
+    }
+    .bridge-port {
+        font-size: 0.5rem;
+        color: #64748b;
+        flex-shrink: 0;
     }
     .ch-lib-name {
         font-size: 0.55rem;
@@ -1206,7 +1439,7 @@
         flex-direction: column;
         align-items: center;
         flex: 1;
-        min-height: 60px;
+        min-height: 0;
         gap: 2px;
         padding: 2px 0;
     }
@@ -1406,12 +1639,7 @@
         border-color: #3b82f6;
     }
 
-    .ch-input-label {
-        font-size: 0.6rem;
-        color: #94a3b8;
-        text-align: center;
-        padding: 1px 0;
-    }
+
 
     .ch-buttons {
         display: flex;

@@ -232,7 +232,7 @@
                                     >{row.name}</span
                                 >
                                 <span class="label-port-ch"
-                                    >P{row.port + 1} Ch{row.channel}</span
+                                    >P{row.port + 1} Ch{row.channel + 1}</span
                                 >
                             </div>
                         {/each}

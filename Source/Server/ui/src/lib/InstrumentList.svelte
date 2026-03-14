@@ -16,7 +16,8 @@
      *   name: string,
      *   family: string,
      *   isSection: boolean,
-     *   channel: number
+     *   channel: number,
+     *   port?: number
      * }} Instrument
      */
 
@@ -286,8 +287,8 @@
                                     </svg>
                                 </span>
                                 <span class="inst-name">{inst.name}</span>
-                                <span class="inst-channel" title="MIDI Channel"
-                                    >Ch {inst.channel}</span
+                                <span class="inst-channel" title="MIDI Port / Channel"
+                                    >P{(inst.port ?? 0) + 1} Ch{inst.channel + 1}</span
                                 >
                                 {#if onremove}
                                     <button
@@ -328,8 +329,8 @@
                                     </svg>
                                 </span>
                                 <span class="inst-name">{inst.name}</span>
-                                <span class="inst-channel" title="MIDI Channel"
-                                    >Ch {inst.channel}</span
+                                <span class="inst-channel" title="MIDI Port / Channel"
+                                    >P{(inst.port ?? 0) + 1} Ch{inst.channel + 1}</span
                                 >
                                 {#if onremove}
                                     <button

@@ -5,11 +5,14 @@
   import EventLog from "./lib/EventLog.svelte";
   import SetupPanel from "./lib/SetupPanel.svelte";
   import PluginsPanel from "./lib/PluginsPanel.svelte";
+  import VersionHistory from "./lib/VersionHistory.svelte";
   import MixerPanel from "./lib/MixerPanel.svelte";
+  import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
 
   // Determine window mode from URL parameter
   const urlParams = new URLSearchParams(window.location.search);
   const windowMode = urlParams.get("mode") || "main";
+  const viewMode = urlParams.get("view") || "default";
 
   // Main window mode: "mixer" or "setup"
   let mainMode = $state("mixer");
@@ -60,28 +63,35 @@
 
   let logId = 0;
 
-  window.setHeartbeat = (val) => {
+  const nativeLog = (msg) => {
+    dispatchCpp("nativeLog", msg);
+  };
+
+  // ── C++ → JS message handlers ───────────────────────────────────────────────
+
+  onFromCpp("setHeartbeat", (val) => {
     heartbeat = val;
-  };
+  });
 
-  window.setServerVersion = (ver) => {
+  onFromCpp("setServerVersion", (ver) => {
     serverVersion = ver;
-  };
+  });
 
-  window.setConnectionState = (connected) => {
+  onFromCpp("setConnectionState", (connected) => {
     isConnected = connected;
-  };
+  });
 
-  window.setChannelInstrument = (channel, name) => {
+  // data = { channel, name }
+  onFromCpp("setChannelInstrument", ({ channel, name }) => {
     channelInstruments = {
       ...channelInstruments,
       [channel]: name,
     };
-  };
+  });
 
-  window.setInstrumentMap = (jsonStr) => {
+  // data = array of { port, channel, label, name, family, isSolo }
+  onFromCpp("setInstrumentMap", (arr) => {
     try {
-      const arr = JSON.parse(jsonStr);
       const map = {};
       for (const item of arr) {
         const key = `${item.port}:${item.channel}`;
@@ -94,43 +104,22 @@
       instrumentMap = map;
       console.log(`[Setup] Instrument map: ${Object.keys(map).length} entries`);
     } catch (e) {
-      console.error("[Setup] Failed to parse instrument map:", e);
+      console.error("[Setup] Failed to process instrument map:", e);
     }
-  };
+  });
 
-  /**
-   * Returns a callable function that invokes the named native function
-   * registered via withNativeFunction() on the C++ side.
-   *
-   * JUCE native functions work through the __juce__invoke event system,
-   * NOT as properties on __JUCE__.backend.
-   */
-  const getNative = (name) => {
-    const w = /** @type {any} */ (window);
-    if (
-      w.__JUCE__ &&
-      w.__JUCE__.backend &&
-      typeof w.__JUCE__.backend.emitEvent === "function"
-    ) {
-      // Use a monotonically increasing ID — we don't need the promise result
-      // for fire-and-forget calls like signalReady, nativeLog, scanPlugins, etc.
-      let nextId = 0;
-      return function () {
-        w.__JUCE__.backend.emitEvent("__juce__invoke", {
-          name: name,
-          params: Array.prototype.slice.call(arguments),
-          resultId: nextId++,
-        });
-      };
-    }
-    return null;
-  };
+  // data = { msg: string, isError: bool }
+  onFromCpp("addLogMessage", ({ msg, isError = false }) => {
+    const newLog = {
+      id: logId++,
+      msg,
+      isError,
+      time: new Date().toLocaleTimeString(),
+    };
+    logs = [newLog, ...logs].slice(0, 200);
+  });
 
-  const nativeLog = (msg) => {
-    const f = getNative("nativeLog");
-    if (f) f(msg);
-  };
-
+  // Expose addLogMessage on window so onerror can access it
   window.addLogMessage = (msg, isError = false) => {
     const newLog = {
       id: logId++,
@@ -148,25 +137,17 @@
     return false;
   };
 
-  // Register stubs for window functions called by C++ before their
-  // owning components mount. The real handlers overwrite these.
-  window.setMixerState = window.setMixerState || (() => {});
-  window.setPluginList = window.setPluginList || (() => {});
-  window.setExpressionMaps = window.setExpressionMaps || (() => {});
-  window.setAvailableInputs = window.setAvailableInputs || (() => {});
-  window.setPlaybackDelay = window.setPlaybackDelay || (() => {});
-
-  // Allow C++ to set the main window mode
-  window.setMainMode = (mode) => {
+  onFromCpp("setMainMode", (mode) => {
     if (mode === "mixer" || mode === "setup") {
       mainMode = mode;
     }
-  };
+  });
 
   nativeLog("JS Booting: Bundle loaded");
   window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
 
-  window.updateNoteState = (noteData, status) => {
+  // data = { noteData: object, status: string }
+  onFromCpp("updateNoteState", ({ noteData, status }) => {
     try {
       if (!noteData || noteData.id === undefined || noteData.id === null) {
         window.addLogMessage(
@@ -210,7 +191,7 @@
           return n;
         });
       } else if (status === "updated") {
-        const dataToMerge = { ...noteData, id: idStr }; // Ensure ID remains string
+        const dataToMerge = { ...noteData, id: idStr };
         activeNotes = activeNotes.map((n) => {
           if (n.id === idStr) return { ...n, ...dataToMerge };
           return n;
@@ -239,9 +220,10 @@
         true,
       );
     }
-  };
+  });
 
-  window.pushMidiEvent = (event) => {
+  // data = the event object directly
+  onFromCpp("pushMidiEvent", (event) => {
     if (event.transportType === 0) {
       // Keep existing event log, but reset other state
       resetSession(true);
@@ -271,7 +253,7 @@
       { ...event, localTime: Date.now(), id: Date.now() + Math.random() },
       ...midiEvents,
     ].slice(0, 1000);
-  };
+  });
 
   const clearLogs = () => {
     logs = [];
@@ -280,16 +262,11 @@
   onMount(() => {
     // Signal readiness to JUCE using the modern Native Function API
     const signalReady = () => {
-      const nativeFunc = getNative("signalReady");
-
-      if (nativeFunc) {
-        nativeFunc();
-        window.addLogMessage("<i>UI signaled readiness to C++</i>");
-        console.log("UI Ready signaled via native function");
-      } else {
-        // Fallback or retry if bridge is not ready
-        setTimeout(signalReady, 100);
-      }
+      // Small timeout to simulate fallback retry if juce bridge isn't immediately ready
+      // though typically `dispatchCpp` handles warnings if missing.
+      dispatchCpp("signalReady", viewMode === "history" ? "history" : "mixer");
+      window.addLogMessage("<i>UI signaled readiness to C++</i>");
+      console.log("UI Ready signaled via native function");
     };
 
     signalReady();
@@ -299,11 +276,9 @@
       if ((e.metaKey || e.ctrlKey) && e.key === "z") {
         e.preventDefault();
         if (e.shiftKey) {
-          const redo = getNative("redo");
-          if (redo) redo();
+          dispatchCpp("redo");
         } else {
-          const undo = getNative("undo");
-          if (undo) undo();
+          dispatchCpp("undo");
         }
       }
     };
@@ -443,6 +418,13 @@
         {/if}
       </div>
     {/if}
+  {:else if viewMode === "history"}
+    <!-- HISTORY WINDOW -->
+    <main class="main-content">
+      <div class="panel-versions" style="width: 100%; height: 100%;">
+        <VersionHistory />
+      </div>
+    </main>
   {:else}
     <!-- MAIN WINDOW: mixer or setup mode -->
     <main class="main-content">
@@ -455,10 +437,8 @@
                 class="setup-cancel-btn"
                 onclick={() => {
                   mainMode = "mixer";
-                  const sm = getNative("setMode");
-                  if (sm) sm("mixer");
-                  const f = getNative("cancelSetup");
-                  if (f) f();
+                  dispatchCpp("setMode", "mixer");
+                  dispatchCpp("cancelSetup");
                 }}>Cancel</button
               >
               <button
@@ -466,8 +446,7 @@
                 onclick={() => {
                   if (window.triggerSaveSetup) window.triggerSaveSetup();
                   mainMode = "mixer";
-                  const sm = getNative("setMode");
-                  if (sm) sm("mixer");
+                  dispatchCpp("setMode", "mixer");
                 }}>Save</button
               >
             </div>
@@ -479,10 +458,11 @@
           <MixerPanel
             onEditSetup={() => {
               mainMode = "setup";
-              const sm = getNative("setMode");
-              if (sm) sm("setup");
-              const f = getNative("requestSetupData");
-              if (f) f();
+              dispatchCpp("setMode", "setup");
+              dispatchCpp("requestSetupData");
+            }}
+            onViewVersions={() => {
+              dispatchCpp("openHistoryWindow");
             }}
           />
         </div>

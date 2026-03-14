@@ -1,5 +1,6 @@
 <script>
     import { onMount } from "svelte";
+    import { dispatchCpp, onFromCpp } from "./ipc.js";
 
     let plugins = $state([]);
     let isScanning = $state(false);
@@ -15,65 +16,43 @@
      * registered via withNativeFunction() on the C++ side.
      * Uses JUCE's __juce__invoke event system.
      */
-    const getNative = (name) => {
-        const win = /** @type {any} */ (window);
-        if (
-            win.__JUCE__ &&
-            win.__JUCE__.backend &&
-            typeof win.__JUCE__.backend.emitEvent === "function"
-        ) {
-            let nextId = 0;
-            return function () {
-                win.__JUCE__.backend.emitEvent("__juce__invoke", {
-                    name: name,
-                    params: Array.prototype.slice.call(arguments),
-                    resultId: nextId++,
-                });
-            };
-        }
-        return null;
-    };
-
-    w.setPluginList = (jsonStr) => {
+    // data = array of plugin descriptor objects
+    onFromCpp("setPluginList", (data) => {
         try {
-            plugins = JSON.parse(jsonStr);
+            plugins = data;
             isScanning = false;
             console.log(`[Plugins] Received ${plugins.length} plugins`);
         } catch (e) {
-            console.error("[Plugins] Failed to parse plugin list:", e);
+            console.error("[Plugins] Failed to process plugin list:", e);
             isScanning = false;
         }
-    };
+    });
+
+    // C++ sends this in response to requestPluginsState so the UI can show
+    // the spinner if a startup scan is already in flight.
+    onFromCpp("isScanningPlugins", (scanning) => {
+        isScanning = scanning;
+    });
 
     onMount(() => {
-        const fn = getNative("requestPluginsState");
-        console.log(
-            "[Plugins] onMount: requestPluginsState",
-            fn ? "FOUND" : "NOT FOUND",
-        );
-        if (fn) fn();
+        dispatchCpp("requestPluginsState");
     });
 
     const startScan = () => {
         isScanning = true;
-        const fn = getNative("scanPlugins");
-        if (fn) {
-            fn();
-        } else {
-            console.error("[Plugins] scanPlugins native function not found");
-            isScanning = false;
-        }
+        dispatchCpp("scanPlugins");
+        // Fallback handled by IPC module now, but UI state should wait for scan finish
+        setTimeout(() => {
+            if (isScanning && !window.__JUCE__) isScanning = false;
+        }, 1000);
     };
 
     const startRescan = () => {
         isScanning = true;
-        const fn = getNative("rescanPlugins");
-        if (fn) {
-            fn();
-        } else {
-            console.error("[Plugins] rescanPlugins native function not found");
-            isScanning = false;
-        }
+        dispatchCpp("rescanPlugins");
+        setTimeout(() => {
+            if (isScanning && !window.__JUCE__) isScanning = false;
+        }, 1000);
     };
 
     const setSort = (col) => {
