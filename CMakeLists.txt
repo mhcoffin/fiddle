@@ -36,17 +36,6 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(angelscript)
 
-# Fetch yaml-cpp
-FetchContent_Declare(
-    yaml-cpp
-    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-    GIT_TAG 0.8.0
-    PATCH_COMMAND sed -i "" "s/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/" CMakeLists.txt
-)
-set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "Disable yaml-cpp tests" FORCE)
-set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "Disable yaml-cpp tools" FORCE)
-FetchContent_MakeAvailable(yaml-cpp)
-
 # Find system SQLite3 (ships with macOS)
 find_package(SQLite3 REQUIRED)
 
@@ -182,7 +171,6 @@ target_link_libraries(FiddleServer PRIVATE
     juce::juce_audio_utils
     libprotobuf
     angelscript
-    yaml-cpp
     SQLite::SQLite3
 )
 

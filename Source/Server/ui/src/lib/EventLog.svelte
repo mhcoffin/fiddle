@@ -213,7 +213,7 @@
     }
 
     .status-text {
-        color: #94a3b8;
+        color: #cbd5e1;
         font-size: 0.75rem;
     }
 
@@ -222,7 +222,7 @@
         background: #1e293b;
         border: 1px solid #334155;
         border-radius: 4px;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-size: 0.7rem;
         cursor: pointer;
         transition: all 0.15s;
@@ -274,7 +274,7 @@
         color: #4ade80;
     }
     .event-note-off td {
-        color: #94a3b8;
+        color: #cbd5e1;
     }
     .event-cc td {
         color: #fbbf24;
@@ -309,7 +309,7 @@
         width: 100px;
     }
     .cell-sec {
-        color: #64748b !important;
+        color: #94a3b8 !important;
         font-size: 0.75rem;
         width: 80px;
     }

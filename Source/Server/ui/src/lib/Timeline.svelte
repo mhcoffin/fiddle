@@ -351,7 +351,7 @@
         justify-content: center;
         font-size: 0.7rem;
         font-weight: bold;
-        color: #94a3b8;
+        color: #cbd5e1;
         border-right: 1px solid #334155;
         background: #0f172a;
         position: sticky;
@@ -374,7 +374,7 @@
         position: absolute;
         top: 5px;
         font-size: 0.7rem;
-        color: #64748b;
+        color: #94a3b8;
         transform: translateX(5px);
         pointer-events: none;
     }
@@ -424,7 +424,7 @@
         justify-content: center;
         padding-left: 10px;
         font-size: 0.75rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         border-bottom: 1px solid #1e293b;
         white-space: nowrap;
         overflow: hidden;
@@ -444,7 +444,7 @@
     }
 
     .label-port-ch {
-        color: #64748b;
+        color: #94a3b8;
         font-size: 0.6rem;
         line-height: 1.2;
     }

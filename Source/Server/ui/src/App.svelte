@@ -264,7 +264,7 @@
     const signalReady = () => {
       // Small timeout to simulate fallback retry if juce bridge isn't immediately ready
       // though typically `dispatchCpp` handles warnings if missing.
-      dispatchCpp("signalReady", viewMode === "history" ? "history" : "mixer");
+      dispatchCpp("signalReady", viewMode === "history" ? "history" : viewMode === "setup" ? "setup" : "mixer");
       window.addLogMessage("<i>UI signaled readiness to C++</i>");
       console.log("UI Ready signaled via native function");
     };
@@ -425,48 +425,19 @@
         <VersionHistory />
       </div>
     </main>
-  {:else}
-    <!-- MAIN WINDOW: mixer or setup mode -->
+  {:else if viewMode === "setup"}
+    <!-- SETUP WINDOW -->
     <main class="main-content">
-      {#if mainMode === "setup"}
-        <div class="panel-setup">
-          <div class="setup-toolbar">
-            <h2>Edit Playback Template</h2>
-            <div class="setup-toolbar-right">
-              <button
-                class="setup-cancel-btn"
-                onclick={() => {
-                  mainMode = "mixer";
-                  dispatchCpp("setMode", "mixer");
-                  dispatchCpp("cancelSetup");
-                }}>Cancel</button
-              >
-              <button
-                class="setup-save-btn"
-                onclick={() => {
-                  if (window.triggerSaveSetup) window.triggerSaveSetup();
-                  mainMode = "mixer";
-                  dispatchCpp("setMode", "mixer");
-                }}>Save</button
-              >
-            </div>
-          </div>
-          <SetupPanel />
-        </div>
-      {:else}
-        <div class="panel-mixer">
-          <MixerPanel
-            onEditSetup={() => {
-              mainMode = "setup";
-              dispatchCpp("setMode", "setup");
-              dispatchCpp("requestSetupData");
-            }}
-            onViewVersions={() => {
-              dispatchCpp("openHistoryWindow");
-            }}
-          />
-        </div>
-      {/if}
+      <div class="panel-setup" style="width: 100%; height: 100%;">
+        <SetupPanel standalone={true} />
+      </div>
+    </main>
+  {:else}
+    <!-- MAIN WINDOW: mixer only -->
+    <main class="main-content">
+      <div class="panel-mixer">
+        <MixerPanel />
+      </div>
     </main>
   {/if}
 </div>
@@ -518,7 +489,7 @@
   .tab-nav button {
     background: transparent;
     border: none;
-    color: #94a3b8;
+    color: #cbd5e1;
     padding: 0 20px;
     cursor: pointer;
     font-size: 0.9rem;
@@ -558,71 +529,34 @@
     flex-direction: column;
   }
 
-  /* Setup toolbar with Cancel/Save */
-  .setup-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 12px;
-    background: #0f172a;
-    border-bottom: 1px solid #1e293b;
-  }
-  .setup-toolbar h2 {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #e2e8f0;
-  }
-  .setup-toolbar-right {
-    display: flex;
-    gap: 8px;
-  }
-  .setup-cancel-btn {
-    background: transparent;
-    border: 1px solid #475569;
-    color: #94a3b8;
-    padding: 5px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    transition: all 0.2s;
-  }
-  .setup-cancel-btn:hover {
-    background: rgba(100, 116, 139, 0.2);
-    color: #f1f5f9;
-  }
-  .setup-save-btn {
-    background: #0ea5e9;
-    border: none;
-    color: white;
-    padding: 5px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.85rem;
-    font-weight: 500;
-    transition: all 0.2s;
-  }
-  .setup-save-btn:hover {
-    background: #38bdf8;
-  }
 
-  /* Global scrollbar styling */
+  /* Scrollbar: match macOS overlay-style (thin, transparent track, auto-hide) */
   :global(::-webkit-scrollbar) {
-    width: 8px;
+    width: 6px;
+    height: 10px; /* taller hit area for horizontal; visually thin via thumb borders below */
   }
-
   :global(::-webkit-scrollbar-track) {
-    background: #0f172a;
+    background: transparent;
+    cursor: default; /* suppress WebKit's ns-resize cursor on the track */
   }
-
   :global(::-webkit-scrollbar-thumb) {
-    background: #334155;
-    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.35); /* slate-400 @ 35% */
+    border-radius: 5px;
+    /* 2px top+bottom transparent border shrinks visual height to ~6px while keeping 10px hit area */
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    cursor: default;
+    transition: background 0.2s;
   }
-
   :global(::-webkit-scrollbar-thumb:hover) {
-    background: #475569;
+    background: rgba(148, 163, 184, 0.6);
+    background-clip: padding-box;
+  }
+  :global(::-webkit-scrollbar-button) {
+    display: none; /* remove arrow buttons */
+  }
+  :global(::-webkit-scrollbar-corner) {
+    background: transparent;
   }
 
   .global-floating-tooltip {

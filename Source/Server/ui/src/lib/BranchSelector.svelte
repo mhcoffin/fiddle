@@ -204,7 +204,7 @@
         font-size: 10px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: #64748b;
+        color: #94a3b8;
         padding: 6px 12px;
         font-weight: 600;
     }
@@ -246,7 +246,7 @@
         font-size: 12px;
         cursor: pointer;
         text-align: left;
-        color: #94a3b8;
+        color: #cbd5e1;
     }
 
     .new-branch-btn:hover {
@@ -279,6 +279,6 @@
 
     .new-branch-hint {
         font-size: 10px;
-        color: #64748b;
+        color: #94a3b8;
     }
 </style>

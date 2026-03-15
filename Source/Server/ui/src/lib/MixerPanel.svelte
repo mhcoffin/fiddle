@@ -8,8 +8,7 @@
         instrumentOrder,
     } from "./orchestralOrder.js";
 
-    /** @type {{ onEditSetup?: () => void, onViewVersions?: () => void }} */
-    let { onEditSetup = () => {}, onViewVersions = () => {} } = $props();
+
 
     let strips = $state([]);
     let availableInputs = $state([]);
@@ -528,7 +527,6 @@
 <div class="mixer-container">
     <div class="mixer-toolbar">
         <div class="toolbar-left">
-            <h2>Mixer</h2>
 
             <BranchSelector
                 {branches}
@@ -590,29 +588,7 @@
                     >
                 {/if}
             </div>
-            <button
-                class="toolbar-btn edit-setup-btn"
-                title="Edit Setup"
-                onclick={onEditSetup}
-            >
-                <svg
-                    viewBox="0 0 20 20"
-                    width="14"
-                    height="14"
-                    fill="currentColor"
-                >
-                    <path
-                        d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
-                    />
-                </svg>
-            </button>
-            <button
-                class="toolbar-btn history-btn"
-                title="View Version History DAG"
-                onclick={onViewVersions}
-            >
-                ⌘ History
-            </button>
+
             <button
                 class="toolbar-btn save-btn"
                 onclick={doSaveConfig}
@@ -629,7 +605,7 @@
     {#if strips.length === 0}
         <div class="empty-state">
             <p>
-                No channel strips. Click the <strong>✏️ Edit</strong> button to set
+                No channel strips. Use <strong>View → Show Setup Window</strong> to set
                 up your ensemble.
             </p>
         </div>
@@ -1006,12 +982,6 @@
         flex-shrink: 0;
         border-bottom: 1px solid #1e293b;
     }
-    .mixer-toolbar h2 {
-        margin: 0;
-        font-size: 1rem;
-        font-weight: 600;
-        color: #f1f5f9;
-    }
     .selection-badge {
         font-size: 0.7rem;
         font-weight: 600;
@@ -1030,13 +1000,13 @@
         border: 1px solid #555;
         border-radius: 4px;
         background: #2a2a2a;
-        color: #aaa;
+        color: #ddd;
         cursor: pointer;
         transition: all 0.12s ease;
     }
 
     .toolbar-ms-btn:hover {
-        border-color: #888;
+        border-color: #aaa;
         color: #e0e0e0;
         background: #383838;
     }
@@ -1083,16 +1053,7 @@
         cursor: default;
         transform: none;
     }
-    .edit-setup-btn {
-        color: #94a3b8;
-        background: rgba(30, 41, 59, 0.85);
-        border: 1px solid #334155;
-    }
-    .edit-setup-btn:hover {
-        background: rgba(56, 189, 248, 0.15);
-        border-color: #38bdf8;
-        color: #38bdf8;
-    }
+
     .delay-control {
         display: flex;
         align-items: center;
@@ -1100,7 +1061,7 @@
     }
     .delay-label {
         font-size: 0.7rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-weight: 500;
     }
     .delay-slider {
@@ -1111,7 +1072,7 @@
     }
     .delay-value {
         font-size: 0.7rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         min-width: 40px;
         text-align: right;
         cursor: default;
@@ -1141,7 +1102,7 @@
         align-items: center;
         justify-content: center;
         flex: 1;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-size: 0.85rem;
     }
 
@@ -1235,6 +1196,7 @@
         flex: 1;
         min-height: 0;
         border-left: 2px solid var(--accent, #334155);
+        margin-left: -1px; /* center the 2px divider in the 1px+2px gap between groups */
     }
     /* Row below the bridge-header: master-strip (if multi) + strips-row side by side */
     .inst-body {
@@ -1248,6 +1210,7 @@
     .strips-row {
         display: flex;
         flex-direction: row;
+        justify-content: center; /* center strips when header is wider than strip(s) */
         flex: 1;
         min-height: 0;
     }
@@ -1331,7 +1294,7 @@
         cursor: pointer;
         font-size: 0.65rem;
         padding: 2px 3px;
-        color: #64748b;
+        color: #94a3b8;
         transition: border-color 0.15s, color 0.15s, background 0.15s;
         flex-shrink: 0;
         line-height: 1;
@@ -1355,8 +1318,8 @@
     .select-bar-bottom {
         position: absolute;
         bottom: 0;
-        left: 0;
-        right: 0;
+        left: 4px;  /* match channel-strip horizontal padding so it aligns with select-bar-top */
+        right: 4px;
         height: 6px;
     }
     .select-bar:hover {
@@ -1403,12 +1366,12 @@
     }
     .bridge-port {
         font-size: 0.5rem;
-        color: #64748b;
+        color: #94a3b8;
         flex-shrink: 0;
     }
     .ch-lib-name {
         font-size: 0.55rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         text-align: center;
         cursor: default;
         user-select: none;
@@ -1446,7 +1409,7 @@
 
     .fader-tick {
         font-size: 0.5rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         line-height: 1;
         flex-shrink: 0;
     }
@@ -1518,7 +1481,7 @@
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-size: 0.55rem;
         text-align: center;
         flex-shrink: 0;
@@ -1548,7 +1511,7 @@
         border: 1px solid #555;
         border-radius: 3px;
         background: #2a2a2a;
-        color: #888;
+        color: #aaa;
         font-size: 0.6rem;
         font-weight: 700;
         cursor: pointer;
@@ -1558,8 +1521,8 @@
     }
 
     .ms-btn:hover {
-        border-color: #888;
-        color: #ccc;
+        border-color: #aaa;
+        color: #ddd;
     }
 
     .mute-btn.active {
@@ -1611,7 +1574,7 @@
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-size: 0.55rem;
         cursor: pointer;
         appearance: auto;

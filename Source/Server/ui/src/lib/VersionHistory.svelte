@@ -726,7 +726,7 @@
     }
     .timestamp {
         font-size: 0.85em;
-        color: #94a3b8;
+        color: #cbd5e1;
         min-width: 100px;
     }
     .branch {
@@ -833,7 +833,7 @@
     }
     .sub-prompt-label {
         font-size: 0.78rem;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-weight: 500;
     }
     .sub-prompt-label em {
@@ -873,7 +873,7 @@
     }
     .sub-btn-cancel {
         background: rgba(255, 255, 255, 0.06);
-        color: #94a3b8;
+        color: #cbd5e1;
         border-color: rgba(255, 255, 255, 0.08);
     }
     .sub-btn-cancel:hover {

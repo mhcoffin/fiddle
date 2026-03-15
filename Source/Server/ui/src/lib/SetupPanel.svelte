@@ -7,6 +7,9 @@
 
     const standardEnsembles = ensembleData.ensembles;
 
+    /** @type {{ standalone?: boolean }} */
+    let { standalone = false } = $props();
+
     /**
      * Each "chair" in the ensemble — one individual player or section slot.
      * @typedef {{ entityID: string, name: string, family: string, musicXMLSoundID: string, isSolo: boolean, id: string }} Chair
@@ -523,6 +526,27 @@
             </div>
         </div>
     {/if}
+
+    {#if standalone}
+        <div class="setup-toolbar">
+            <h2>Edit Playback Template</h2>
+            <div class="setup-toolbar-right">
+                <button
+                    class="setup-cancel-btn"
+                    onclick={() => {
+                        dispatchCpp("cancelSetup");
+                    }}>Cancel</button
+                >
+                <button
+                    class="setup-save-btn"
+                    onclick={() => {
+                        saveAndGenerate();
+                        dispatchCpp("cancelSetup");
+                    }}>Save</button
+                >
+            </div>
+        </div>
+    {/if}
 </div>
 
 <style>
@@ -535,12 +559,61 @@
         color: #e0e0e0;
     }
 
+    /* Setup toolbar with Cancel/Save — shown when standalone */
+    .setup-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #0f172a;
+        border-top: 1px solid #1e293b;
+    }
+    .setup-toolbar h2 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #e2e8f0;
+    }
+    .setup-toolbar-right {
+        display: flex;
+        gap: 8px;
+    }
+    .setup-cancel-btn {
+        background: transparent;
+        border: 1px solid #475569;
+        color: #cbd5e1;
+        padding: 5px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: all 0.2s;
+    }
+    .setup-cancel-btn:hover {
+        background: rgba(100, 116, 139, 0.2);
+        color: #f1f5f9;
+    }
+    .setup-save-btn {
+        background: #0ea5e9;
+        border: none;
+        color: white;
+        padding: 5px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    .setup-save-btn:hover {
+        background: #38bdf8;
+    }
+
     .setup-loading {
         display: flex;
         align-items: center;
         justify-content: center;
         height: 100%;
-        color: #888;
+        color: #aaa;
         font-size: 1.1em;
     }
 
@@ -605,7 +678,7 @@
         border: 1px solid #444;
         border-radius: 14px;
         background: #2a2a2a;
-        color: #ccc;
+        color: #ddd;
         font-size: 0.72em;
         cursor: pointer;
         transition: all 0.15s ease;
@@ -698,7 +771,7 @@
 
     .instr-family {
         font-size: 0.75em;
-        color: #888;
+        color: #aaa;
     }
 
     /* Add buttons */
@@ -718,7 +791,7 @@
         border: 1px solid #444;
         border-radius: 4px;
         cursor: pointer;
-        color: #aaa;
+        color: #ddd;
         transition: all 0.15s ease;
     }
 
@@ -748,7 +821,7 @@
     .chair-icon {
         display: flex;
         align-items: center;
-        color: #888;
+        color: #aaa;
         flex-shrink: 0;
     }
 

@@ -792,6 +792,12 @@ void MainComponent::runInitStep(int step) {
       if (!allBranches.empty()) {
         currentBranchId_ = std::get<0>(allBranches[0]);
         stateManager_.setCurrentBranchId(currentBranchId_);
+
+        // Initialise currentVersionId_ so the History window can highlight
+        // the loaded version immediately on first open.
+        auto headOpt = versionStore_->getBranchHead(currentBranchId_);
+        if (headOpt)
+          currentVersionId_ = *headOpt;
       }
     } else {
       std::cerr << "[MainComponent] WARNING: VersionStore not available — "
@@ -809,6 +815,61 @@ void MainComponent::runInitStep(int step) {
                                       dws.visible);
       }
       // If no saved geometry, window stays hidden (constructor default).
+    }
+
+    // Restore history window if it was previously visible.
+    // Deferred to the message loop so the main WebView is fully initialised.
+    {
+      auto hws = db_.loadWindowSettings("history");
+      if (hws.visible) {
+        safeCallAsync([this, hws]() {
+          if (!historyWindow_ && versionStore_) {
+            historyWindow_ =
+                std::make_unique<HistoryWindow>(createWebOptions());
+            historyWindowLoaded_ = false;
+            juce::String root =
+                juce::WebBrowserComponent::getResourceProviderRoot();
+            historyWindow_->getWebView().goToURL(root +
+                                                 "index.html?view=history");
+            if (hws.width > 0 && hws.height > 0) {
+              historyWindow_->restoreGeometry(hws.x, hws.y, hws.width,
+                                              hws.height, true);
+            } else {
+              historyWindow_->setVisible(true);
+            }
+            std::cerr << "[HistoryWindow] Restored from saved settings"
+                      << std::endl;
+          }
+        });
+      }
+    }
+
+    // Restore setup window if it was previously visible.
+    {
+      auto sws = db_.loadWindowSettings("setup");
+      if (sws.visible) {
+        safeCallAsync([this, sws]() {
+          if (!setupWindow_) {
+            setupWindow_ =
+                std::make_unique<SetupWindow>(createWebOptions());
+            setupWindowLoaded_ = false;
+            juce::String root =
+                juce::WebBrowserComponent::getResourceProviderRoot();
+            setupWindow_->getWebView().goToURL(root +
+                                               "index.html?view=setup");
+            setupWindow_->setGeometrySaver(
+                [this]() { saveSetupWindowGeometry(); });
+            if (sws.width > 0 && sws.height > 0) {
+              setupWindow_->restoreGeometry(sws.x, sws.y, sws.width,
+                                            sws.height, true);
+            } else {
+              setupWindow_->setVisible(true);
+            }
+            std::cerr << "[SetupWindow] Restored from saved settings"
+                      << std::endl;
+          }
+        });
+      }
     }
 
     // Auto-scan for plugins on startup (incremental — uses plugin_cache).
@@ -1234,6 +1295,32 @@ MainComponent::~MainComponent() {
               << std::endl;
   }
 
+  // Persist history window geometry + visibility on quit.
+  if (historyWindow_) {
+    fiddle::WindowSettings ws;
+    ws.windowId = "history";
+    auto bounds = historyWindow_->getBounds();
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = historyWindow_->isVisible();
+    db_.saveWindowSettings(ws);
+  }
+
+  // Persist setup window geometry on quit.
+  if (setupWindow_) {
+    fiddle::WindowSettings ws;
+    ws.windowId = "setup";
+    auto bounds = setupWindow_->getBounds();
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = setupWindow_->isVisible();
+    db_.saveWindowSettings(ws);
+  }
+
   stopTimer();
   deviceManager.removeAudioCallback(this);
   server.reset();
@@ -1432,6 +1519,91 @@ bool MainComponent::isDebugWindowVisible() const {
   return debugWindow_ && debugWindow_->isVisible();
 }
 
+void MainComponent::toggleHistoryWindow() {
+  // Lazily create the History window on first toggle (same logic as the JS
+  // "openHistoryWindow" handler).
+  if (!historyWindow_ && versionStore_) {
+    historyWindow_ = std::make_unique<HistoryWindow>(createWebOptions());
+    historyWindowLoaded_ = false;
+    juce::String root =
+        juce::WebBrowserComponent::getResourceProviderRoot();
+    historyWindow_->getWebView().goToURL(root + "index.html?view=history");
+
+    // Restore saved geometry (if any).
+    auto hws = db_.loadWindowSettings("history");
+    if (hws.width > 0 && hws.height > 0) {
+      historyWindow_->restoreGeometry(hws.x, hws.y, hws.width, hws.height,
+                                      false /* we toggle below */);
+    }
+  }
+
+  if (historyWindow_) {
+    bool wasVisible = historyWindow_->isVisible();
+    bool nowVisible = !wasVisible;
+    historyWindow_->setVisible(nowVisible);
+    if (nowVisible)
+      historyWindow_->toFront(true);
+
+    // Persist geometry + visibility.
+    fiddle::WindowSettings ws;
+    ws.windowId = "history";
+    auto bounds = historyWindow_->getBounds();
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = nowVisible;
+    db_.saveWindowSettings(ws);
+  }
+}
+
+bool MainComponent::isHistoryWindowVisible() const {
+  return historyWindow_ && historyWindow_->isVisible();
+}
+
+void MainComponent::toggleSetupWindow() {
+  // Lazily create the Setup window on first toggle.
+  if (!setupWindow_) {
+    setupWindow_ = std::make_unique<SetupWindow>(createWebOptions());
+    setupWindowLoaded_ = false;
+    juce::String root =
+        juce::WebBrowserComponent::getResourceProviderRoot();
+    setupWindow_->getWebView().goToURL(root + "index.html?view=setup");
+    setupWindow_->setGeometrySaver(
+        [this]() { saveSetupWindowGeometry(); });
+
+    // Restore saved geometry (if any).
+    auto sws = db_.loadWindowSettings("setup");
+    if (sws.width > 0 && sws.height > 0) {
+      setupWindow_->restoreGeometry(sws.x, sws.y, sws.width, sws.height,
+                                    false /* we toggle below */);
+    }
+  }
+
+  if (setupWindow_) {
+    bool wasVisible = setupWindow_->isVisible();
+    bool nowVisible = !wasVisible;
+    setupWindow_->setVisible(nowVisible);
+    if (nowVisible) {
+      setupWindow_->toFront(true);
+    }
+
+    auto bounds = setupWindow_->getBounds();
+    fiddle::WindowSettings ws;
+    ws.windowId = "setup";
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = nowVisible;
+    db_.saveWindowSettings(ws);
+  }
+}
+
+bool MainComponent::isSetupWindowVisible() const {
+  return setupWindow_ && setupWindow_->isVisible();
+}
+
 void MainComponent::saveMainWindowGeometry(int x, int y, int w, int h) {
   fiddle::WindowSettings ws;
   ws.windowId = "main";
@@ -1454,6 +1626,20 @@ void MainComponent::saveDebugWindowGeometry() {
   ws.width = bounds.getWidth();
   ws.height = bounds.getHeight();
   ws.visible = debugWindow_->isVisible();
+  db_.saveWindowSettings(ws);
+}
+
+void MainComponent::saveSetupWindowGeometry() {
+  if (!setupWindow_)
+    return;
+  fiddle::WindowSettings ws;
+  ws.windowId = "setup";
+  auto bounds = setupWindow_->getBounds();
+  ws.x = bounds.getX();
+  ws.y = bounds.getY();
+  ws.width = bounds.getWidth();
+  ws.height = bounds.getHeight();
+  ws.visible = setupWindow_->isVisible();
   db_.saveWindowSettings(ws);
 }
 
@@ -1662,6 +1848,9 @@ void MainComponent::broadcastJavascript(const juce::String &js) {
   if (historyWindow_ && historyWindowLoaded_) {
     historyWindow_->getWebView().evaluateJavascript(js);
   }
+  if (setupWindow_ && setupWindowLoaded_) {
+    setupWindow_->getWebView().evaluateJavascript(js);
+  }
   // Include debug window so broadcastMessage reaches the Plugins/Timeline panels
   if (debugWindow_) {
     debugWindow_->evaluateJavascript(js);
@@ -1698,6 +1887,11 @@ void MainComponent::handleJsMessage(const juce::String &type,
       historyWindowLoaded_ = true;
       isHistoryWindow = true;
       std::cerr << "[WebView] Handshake: History window ready" << std::endl;
+    } else if (viewMode == "setup" && setupWindow_) {
+      targetWebComponent = &(setupWindow_->getWebView());
+      setupWindowLoaded_ = true;
+      isHistoryWindow = true; // Reuse flag to skip main-window-only init
+      std::cerr << "[WebView] Handshake: Setup window ready" << std::endl;
     } else {
       webViewLoaded = true;
       std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
@@ -1713,6 +1907,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
       pushLogMessage("<i>Server started and listening for connections...</i>");
     }
+
+    bool isSetupWindow = (viewMode == "setup");
 
     // Send Version
     if (auto *app = juce::JUCEApplication::getInstance()) {
@@ -1746,11 +1942,25 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setMainMode", juce::var(mode));
     }
 
-    if (isHistoryWindow) {
+    if (isHistoryWindow && !isSetupWindow) {
       safeCallAsync([this]() {
         pushDagHistory();
         pushBranches();
         pushCurrentVersion();
+      });
+    }
+
+    // Push setup data to the setup window
+    if (isSetupWindow) {
+      safeCallAsync([this]() {
+        juce::String instrJson = instrumentBrowser_.getInstrumentsAsJson();
+        broadcastMessage("setDoricoInstruments",
+                         juce::JSON::fromString(instrJson));
+        juce::String selJson = masterList_.getSlotsAsJson();
+        broadcastMessage("setSelectedInstruments",
+                         juce::JSON::fromString(selJson));
+        juce::String mapJson = masterList_.getChannelMapAsJson();
+        broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson));
       });
     }
 
@@ -2246,8 +2456,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
     safeCallAsync([this]() {
       juce::String json = xmapLibrary_.toJson();
-      webComponent.evaluateJavascript("setExpressionMaps('" +
-                                      escapeForJS(json) + "')");
+      broadcastMessage("setExpressionMaps", juce::JSON::parse(json));
     });
     return;
   }
@@ -2319,8 +2528,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
     safeCallAsync([this]() {
       juce::String json = masterList_.getChannelMapAsJson();
-      juce::String call = "setAvailableInputs('" + escapeForJS(json) + "')";
-      webComponent.evaluateJavascript(call);
+      broadcastMessage("setAvailableInputs", juce::JSON::parse(json));
     });
     return;
   }
@@ -2348,8 +2556,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
     safeCallAsync([this]() {
       int ms = mixer_.getPlaybackDelayMs();
-      webComponent.evaluateJavascript("setPlaybackDelay(" + juce::String(ms) +
-                                      ")");
+      broadcastMessage("setPlaybackDelay", juce::var(ms));
     });
     return;
   }
@@ -3032,11 +3239,24 @@ void MainComponent::handleJsMessage(const juce::String &type,
     return;
   }
   if (type == "cancelSetup") {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    // Cancel just switches back to mixer — no C++ action needed
+    // Hide the setup window and persist the closed state
+    safeCallAsync([this]() {
+      if (setupWindow_) {
+        setupWindow_->setVisible(false);
+        saveSetupWindowGeometry();
+      }
+    });
+    return;
+  }
+  if (type == "openSetupWindow") {
+    safeCallAsync([this]() {
+      // If already open, just bring to front
+      if (setupWindow_ && setupWindow_->isVisible()) {
+        setupWindow_->toFront(true);
+        return;
+      }
+      toggleSetupWindow();
+    });
     return;
   }
   if (type == "saveSetup") {
@@ -3044,12 +3264,16 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (payload.isArray())
       args = *payload.getArray();
 
-    // Trigger the same save flow as the old
-    // saveSelectedInstruments
+    // Trigger the save flow — target the setup window's WebView
     safeCallAsync([this]() {
-      // Request the UI to send back the instrument selections
-      webComponent.evaluateJavascript(
-          "if(window.triggerSaveSetup)window.triggerSaveSetup()");
+      if (setupWindow_ && setupWindowLoaded_) {
+        setupWindow_->getWebView().evaluateJavascript(
+            "if(window.triggerSaveSetup)window.triggerSaveSetup()");
+      } else {
+        // Fallback: try main window
+        webComponent.evaluateJavascript(
+            "if(window.triggerSaveSetup)window.triggerSaveSetup()");
+      }
     });
     return;
   }

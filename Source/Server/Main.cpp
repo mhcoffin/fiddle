@@ -83,6 +83,9 @@ public:
   }
 
   void shutdown() override {
+#if JUCE_MAC
+    juce::MenuBarModel::setMacMainMenu(nullptr);
+#endif
     configChooser.reset();
     mainWindow.reset();
     appDb_.close();
@@ -108,13 +111,19 @@ public:
     } else if (menuIndex == 1) {
       // View menu
       bool debugVisible = false;
+      bool historyVisible = false;
+      bool setupVisible = false;
       if (mainWindow) {
         if (auto *mc = dynamic_cast<MainComponent *>(
                 mainWindow->getContentComponent())) {
           debugVisible = mc->isDebugWindowVisible();
+          historyVisible = mc->isHistoryWindowVisible();
+          setupVisible = mc->isSetupWindowVisible();
         }
       }
       menu.addItem(10, "Show Debug Window", true, debugVisible);
+      menu.addItem(11, "Show History Window", true, historyVisible);
+      menu.addItem(12, "Show Setup Window", true, setupVisible);
     }
     return menu;
   }
@@ -134,6 +143,22 @@ public:
         if (auto *mc = dynamic_cast<MainComponent *>(
                 mainWindow->getContentComponent())) {
           mc->toggleDebugWindow();
+        }
+      }
+    } else if (menuItemID == 11) {
+      // Toggle history window
+      if (mainWindow) {
+        if (auto *mc = dynamic_cast<MainComponent *>(
+                mainWindow->getContentComponent())) {
+          mc->toggleHistoryWindow();
+        }
+      }
+    } else if (menuItemID == 12) {
+      // Toggle setup window
+      if (mainWindow) {
+        if (auto *mc = dynamic_cast<MainComponent *>(
+                mainWindow->getContentComponent())) {
+          mc->toggleSetupWindow();
         }
       }
     }

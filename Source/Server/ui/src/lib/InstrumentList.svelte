@@ -460,7 +460,7 @@
         justify-content: center;
         width: 22px;
         flex-shrink: 0;
-        color: #64748b;
+        color: #94a3b8;
     }
 
     .inst-name {
@@ -482,7 +482,7 @@
         opacity: 0;
         border: none;
         background: none;
-        color: #64748b;
+        color: #94a3b8;
         cursor: pointer;
         padding: 2px 6px;
         border-radius: 4px;

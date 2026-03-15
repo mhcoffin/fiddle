@@ -6,6 +6,7 @@
 #include "ExpressionMapLibrary.h"
 #include "FiddleDatabase.h"
 #include "HistoryWindow.h"
+#include "SetupWindow.h"
 #include "InstrumentMapper.h"
 #include "JsTestBridge.h"
 #include "MasterInstrumentList.h"
@@ -54,11 +55,26 @@ public:
   /// Check if debug window is visible.
   bool isDebugWindowVisible() const;
 
+  /// Toggle history window visibility (called from View menu).
+  void toggleHistoryWindow();
+
+  /// Check if history window is visible.
+  bool isHistoryWindowVisible() const;
+
+  /// Toggle setup window visibility (called from View menu or mixer).
+  void toggleSetupWindow();
+
+  /// Check if setup window is visible.
+  bool isSetupWindowVisible() const;
+
   /// Save main window position/size to database.
   void saveMainWindowGeometry(int x, int y, int w, int h);
 
   /// Save debug window geometry + visibility to database.
   void saveDebugWindowGeometry();
+
+  /// Save setup window geometry + visibility to database.
+  void saveSetupWindowGeometry();
 
   /// Restore main window geometry from database.
   /// Returns the stored bounds (or defaults if not found).
@@ -130,6 +146,10 @@ private:
   /// History window (lazy instantiated)
   std::unique_ptr<HistoryWindow> historyWindow_;
   bool historyWindowLoaded_ = false;
+
+  /// Setup window (lazy instantiated)
+  std::unique_ptr<SetupWindow> setupWindow_;
+  bool setupWindowLoaded_ = false;
 
   /// Throttle state for scheduleStateRebuild() — max once per second.
   uint32_t lastStateRebuildMs_ = 0;

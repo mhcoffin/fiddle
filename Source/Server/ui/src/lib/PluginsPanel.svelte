@@ -246,7 +246,7 @@
     }
 
     .plugin-count {
-        color: #64748b;
+        color: #94a3b8;
         font-size: 0.75rem;
     }
 
@@ -282,7 +282,7 @@
         justify-content: center;
         flex: 1;
         gap: 12px;
-        color: #94a3b8;
+        color: #cbd5e1;
     }
 
     .spinner {
@@ -305,7 +305,7 @@
         align-items: center;
         justify-content: center;
         flex: 1;
-        color: #64748b;
+        color: #94a3b8;
         font-size: 0.85rem;
     }
 
@@ -330,7 +330,7 @@
 
     .plugin-table th {
         background: #1e293b;
-        color: #94a3b8;
+        color: #cbd5e1;
         font-weight: 600;
         text-align: left;
         padding: 8px 12px;
@@ -363,9 +363,9 @@
     }
 
     .rescan {
-        border-color: #64748b;
+        border-color: #94a3b8;
         background: #1e293b;
-        color: #94a3b8;
+        color: #cbd5e1;
     }
     .rescan:hover:not(:disabled) {
         background: #334155;
