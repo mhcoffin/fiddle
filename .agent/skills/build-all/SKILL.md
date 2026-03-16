@@ -90,6 +90,7 @@ This does: `pnpm build` → CMake `FiddleNative` → `FiddleServer` → copies `
 ### Unit Tests
 - **VersionStoreTest**: `cmake --build build --target VersionStoreTest && ./build/VersionStoreTest`
 - **ExpressionMapTest**: `cmake --build build --target ExpressionMapTest && ./build/ExpressionMapTest`
+- **GainMathTest**: `cmake --build build --target GainMathTest && ./build/GainMathTest`
 
 ## Common Pitfalls
 
@@ -102,6 +103,21 @@ This does: `pnpm build` → CMake `FiddleNative` → `FiddleServer` → copies `
 | `createdAt` / new field missing from UI JSON | Binary is stale | Check binary timestamp: `ls -la build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/FiddleServer` |
 | `InMemoryVersionStorage` is abstract | Added virtual method to `IVersionStorage` but not to the test mock | Implement the new method in `Source/Server/tests/InMemoryVersionStorage.h` |
 | Dorico not seeing plugin changes | Plugin installed but Dorico not restarted | Quit and relaunch Dorico |
+
+> [!CAUTION]
+> **Guaranteed-fresh deployment checklist.** After ANY UI change, run this exact sequence before relaunching. Skipping any step risks loading stale code:
+> ```bash
+> # 1. Build UI
+> cd Source/Server/ui && pnpm build && cd ../../..
+> # 2. Sync into .app bundle
+> cmake --build build --config Debug --target FiddleServerUI
+> # 3. Verify the bundle has ONLY the new JS hash (no stale files)
+> ls build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/ui/assets/index-*.js
+> # 4. Clear WKWebView caches (both locations!)
+> rm -rf ~/Library/Caches/com.antigravity.fiddleserver ~/Library/WebKit/com.antigravity.fiddleserver
+> # 5. Kill any running instance, then relaunch
+> ```
+> After launch, check the console log for `getResource: /assets/index-XXXX.js` — the hash **must** match step 3.
 
 ## Verifying the Built Bundle
 

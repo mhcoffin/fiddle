@@ -354,6 +354,19 @@ target_include_directories(VersionStoreTest PRIVATE
 target_compile_features(VersionStoreTest PRIVATE cxx_std_17)
 
 # ==============================================================================
+# GainMathTest — test executable for power-model gain arithmetic
+# ==============================================================================
+add_executable(GainMathTest
+    Source/Server/tests/GainMathTest.cpp
+)
+
+target_include_directories(GainMathTest PRIVATE
+    Source/Server
+)
+
+target_compile_features(GainMathTest PRIVATE cxx_std_17)
+
+# ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico
 # ==============================================================================
 add_executable(FiddleMock

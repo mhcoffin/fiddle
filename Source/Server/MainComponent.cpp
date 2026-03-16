@@ -62,7 +62,7 @@ juce::WebBrowserComponent::Options MainComponent::createWebOptions() {
       ;
 }
 
-MainComponent::MainComponent(const juce::String &configName)
+MainComponent::MainComponent()
     : webComponent(createWebOptions()) {
   setupWebView();
 
@@ -129,8 +129,7 @@ MainComponent::MainComponent(const juce::String &configName)
 
   setSize(800, 600);
 
-  // Config name is always "default" — the concept is internal only.
-  configName_ = "default";
+
 
   // Kick off phased async initialization so the splash screen can paint
   // between steps.
@@ -541,34 +540,8 @@ void MainComponent::runInitStep(int step) {
 
         // Dynamic Server Load Command (from VST Host)
         if (event.has_load_config()) {
-          juce::String pluginConfigName =
-              juce::String(event.load_config().config_path());
-          juce::String pluginConfigVersion =
-              juce::String(event.load_config().config_version());
-
-          safeCallAsync([this, pluginConfigName, pluginConfigVersion]() {
-            // Config name is always "default" — just push our status
+          safeCallAsync([this]() {
             pushLogMessage("<b>[Host]</b> Plugin connected");
-
-            // If plugin has a matching version, adopt it; otherwise push ours
-            if (pluginConfigVersion.isNotEmpty() &&
-                pluginConfigVersion != configVersion_) {
-              // Plugin has a different version — check if we should restore it
-              if (db_.hasConfigVersion(configName_, pluginConfigVersion)) {
-                db_.loadConfigVersion(configName_, pluginConfigVersion);
-                configVersion_ = pluginConfigVersion;
-                stateManager_.setConfigVersion(configVersion_);
-                loadStripsFromDB();
-                mixer_.syncStripsToInstruments(masterList_);
-                pushMixerState(false);
-                scheduleStateRebuild();
-                pushLogMessage("<b>[Host]</b> Restored version: " +
-                               pluginConfigVersion);
-              }
-            }
-
-            if (onConfigChanged)
-              onConfigChanged(configName_, configVersion_);
             pushConfigStatus();
           });
         }
@@ -591,9 +564,8 @@ void MainComponent::runInitStep(int step) {
                            configName + "' (" +
                            juce::String(restored->strips.size()) + " strips)");
 
-            // Save as a named config version
-            db_.saveConfig(configName.isNotEmpty() ? configName
-                                                   : "Dorico Import");
+            // Commit imported state to current branch
+            // (strip-level data is committed below via saveAllStripsToDB)
 
             // Clear and rebuild mixer from blob
             mixer_.clear();
@@ -901,39 +873,26 @@ void MainComponent::runInitStep(int step) {
       broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
 
-    // Restore latest version timestamp for the default config.
-    {
-      auto configs = db_.listConfigs();
-      for (const auto &c : configs) {
-        if (c.name == configName_) {
-          configVersion_ = c.version;
-          std::cerr << "[MainComponent] Restored version: " << configVersion_
-                    << std::endl;
-          break;
-        }
-      }
-      // Fall back to most recent config regardless of name (migration)
-      if (configVersion_.isEmpty() && !configs.empty()) {
-        configVersion_ = configs[0].version;
-        std::cerr << "[MainComponent] Fallback version from '"
-                  << configs[0].name << "': " << configVersion_ << std::endl;
-      }
-      if (onConfigChanged)
-        onConfigChanged(configName_, configVersion_);
-    }
-
     // Initialize shadow state manager (creates shared memory file)
     stateManager_.initialize();
-    stateManager_.setConfigName(configName_);
-    stateManager_.setConfigVersion(configVersion_);
+    // Set config name to the current branch name for Dorico blob compat.
+    if (versionStore_ && !currentBranchId_.empty()) {
+      auto branchOpt = versionStore_->getStorage().getBranch(currentBranchId_);
+      if (branchOpt)
+        stateManager_.setConfigName(juce::String(branchOpt->first));
+      else
+        stateManager_.setConfigName("default");
+    } else {
+      stateManager_.setConfigName("default");
+    }
 
     // Pre-cache config_status for immediate push to clients.
-    if (server && configName_.isNotEmpty()) {
+    if (server) {
       fiddle::MidiEvent msg;
       msg.set_timestamp_samples(0);
       auto *cs = msg.mutable_config_status();
-      cs->set_config_name(configName_.toStdString());
-      cs->set_config_version(configVersion_.toStdString());
+      cs->set_config_name(stateManager_.getConfigName().toStdString());
+      cs->set_config_version("");
       cs->set_dirty(false);
       cs->set_delay_ms(1000); // default, updated later
       server->setCachedConfigStatus(msg);
@@ -977,117 +936,63 @@ void MainComponent::runInitStep(int step) {
 }
 
 void MainComponent::saveConfig() {
-  if (configName_.isEmpty()) {
-    pushLogMessage("<b>[Config]</b> Cannot save: no config name set");
-    return;
-  }
   saveAllStripsToDB();
-  // Explicit save: create a new version in DB
-  auto newVersion = db_.saveConfig(configName_);
-  if (newVersion.isNotEmpty()) {
-    configVersion_ = newVersion;
-    stateManager_.setConfigVersion(configVersion_);
-    stateManager_.clearDirty();
-    undoManager_.markSavePoint();
-    broadcastMessage("setDirtyState", false);
-    pushLogMessage("<b>[Config]</b> Saved '" + configName_ +
-                   "' v=" + newVersion);
-    pushConfigStatus();
-    if (onConfigChanged)
-      onConfigChanged(configName_, configVersion_);
-    // Reset plugin state hashes so unchanged state doesn't re-trigger dirty
-    pluginStateHashes_.clear();
-  }
 
-  // Commit a new DAG version on the currently-checked-out branch so the
-  // History window reflects the save.
+  // Commit a new version on the currently-checked-out branch.
   if (versionStore_ && !currentBranchId_.empty()) {
     stateManager_.commitCurrentState(mixer_, currentBranchId_);
     // Track the new head as the current version.
     auto headOpt = versionStore_->getBranchHead(currentBranchId_);
     if (headOpt)
       currentVersionId_ = *headOpt;
+
+    stateManager_.clearDirty();
+    undoManager_.markSavePoint();
+    broadcastMessage("setDirtyState", false);
+    pushLogMessage("<b>[Save]</b> Committed to branch");
+    pushConfigStatus();
+
+    // Reset plugin state hashes so unchanged state doesn't re-trigger dirty
+    pluginStateHashes_.clear();
+
     // pushBranches() must come before pushDagHistory() so the frontend's
     // headHashes set is up-to-date when it processes the new version list.
     pushBranches();
     pushDagHistory();
     pushCurrentVersion();
+  } else {
+    pushLogMessage("<b>[Save]</b> No branch checked out");
   }
 
-  // Rebuild state blob without re-marking dirty
+  // Rebuild state blob
   stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
     return stateManager_.buildStateBlob(mixer_);
   });
-}
-
-void MainComponent::saveConfigAs(const juce::String &newName) {
-  // Save as a named config in the database
-  configName_ = newName;
-  stateManager_.setConfigName(configName_);
-  saveAllStripsToDB();
-  auto newVersion = db_.saveConfig(configName_);
-  if (newVersion.isNotEmpty()) {
-    configVersion_ = newVersion;
-    stateManager_.setConfigVersion(configVersion_);
-    stateManager_.clearDirty();
-    pushConfigStatus();
-  }
 }
 
 void MainComponent::pushConfigStatus() {
   if (!server)
     return;
 
+  // Use the current branch name as the config_name for Dorico compatibility.
+  std::string branchName = "default";
+  if (versionStore_ && !currentBranchId_.empty()) {
+    auto branchOpt = versionStore_->getStorage().getBranch(currentBranchId_);
+    if (branchOpt)
+      branchName = branchOpt->first;
+  }
+
   fiddle::MidiEvent msg;
   msg.set_timestamp_samples(0);
   auto *cs = msg.mutable_config_status();
-  cs->set_config_name(configName_.toStdString());
-  cs->set_config_version(configVersion_.toStdString());
+  cs->set_config_name(branchName);
+  cs->set_config_version("");
   cs->set_dirty(stateManager_.isDirty());
   cs->set_delay_ms(mixer_.getPlaybackDelayMs());
 
   // Cache for immediate push on future client connections
   server->setCachedConfigStatus(msg);
   server->sendToClient(msg);
-}
-
-void MainComponent::clearForNewConfig() {
-  // Clear mixer strips and undo history
-  mixer_.clear();
-  undoManager_.clear();
-
-  // Clear the DB strips table so we start fresh
-  db_.clearStrips();
-
-  // Sync with instruments to create default empty strips
-  mixer_.syncStripsToInstruments(masterList_);
-
-  // Update UI
-  pushMixerState(false);
-  scheduleStateRebuild();
-
-  std::cerr << "[MainComponent] Cleared for new config" << std::endl;
-}
-
-void MainComponent::loadConfigByName(const juce::String &name) {
-  // Load a named config from the database
-  mixer_.clear();
-  undoManager_.clear();
-
-  if (db_.loadConfig(name)) {
-    loadStripsFromDB();
-  }
-
-  configName_ = name;
-  configVersion_ = {};
-  stateManager_.setConfigName(configName_);
-  stateManager_.setConfigVersion(configVersion_);
-  if (onConfigChanged)
-    onConfigChanged(configName_, configVersion_);
-
-  pushMixerState(false);
-  mixer_.syncStripsToInstruments(masterList_);
-  pushMixerState(false);
 }
 
 void MainComponent::saveAllStripsToDB() {
@@ -1288,10 +1193,10 @@ MainComponent::~MainComponent() {
             << std::endl;
   try {
     saveAllStripsToDB();
-    std::cerr << "[MainComponent] State saved successfully to SQLite ("
-              << configName_ << ")" << std::endl;
+    std::cerr << "[MainComponent] State saved successfully to SQLite"
+              << std::endl;
   } catch (const std::exception &e) {
-    std::cerr << "[MainComponent] Exception during config save: " << e.what()
+    std::cerr << "[MainComponent] Exception during save: " << e.what()
               << std::endl;
   }
 
@@ -2541,8 +2446,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
       int ms = static_cast<int>(args[0]);
       safeCallAsync([this, ms]() {
         mixer_.setPlaybackDelayMs(ms);
-        if (configName_.isNotEmpty())
-          pushConfigStatus();
+        pushConfigStatus();
         pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
                        juce::String(ms) + " ms");
       });

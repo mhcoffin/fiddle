@@ -1,6 +1,3 @@
-#include "../TimeFormat.h"
-#include "ConfigChooserWindow.h"
-#include "FiddleConfig.h"
 #include "MainComponent.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -21,14 +18,14 @@ public:
 
   class MainWindow : public juce::DocumentWindow {
   public:
-    MainWindow(juce::String name, const juce::String &configName)
+    MainWindow(juce::String name)
         : DocumentWindow(
               name,
               juce::Desktop::getInstance().getDefaultLookAndFeel().findColour(
                   juce::ResizableWindow::backgroundColourId),
               DocumentWindow::allButtons) {
       setUsingNativeTitleBar(true);
-      setContentOwned(new MainComponent(configName), true);
+      setContentOwned(new MainComponent(), true);
 
 #if JUCE_IOS || JUCE_ANDROID
       setFullScreen(true);
@@ -74,21 +71,18 @@ public:
   };
 
   void initialise(const juce::String &commandLine) override {
-    // Open a DB connection for the app-level config chooser
-    auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
-    appDb_.open(dbFile);
+    mainWindow = std::make_unique<MainWindow>(getApplicationName());
 
-    // Start in waiting mode — plugin connection will dictate which config
-    openConfig({});
+#if JUCE_MAC
+    juce::MenuBarModel::setMacMainMenu(this);
+#endif
   }
 
   void shutdown() override {
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(nullptr);
 #endif
-    configChooser.reset();
     mainWindow.reset();
-    appDb_.close();
   }
 
   void systemRequestedQuit() override { quit(); }
@@ -103,11 +97,7 @@ public:
                                   const juce::String &menuName) override {
     juce::PopupMenu menu;
     if (menuIndex == 0) {
-      menu.addItem(1, "Open Config...");
-      menu.addItem(2, "New Config...");
-      menu.addSeparator();
-      menu.addItem(3, "Save Config  (Cmd+S)");
-      menu.addItem(4, "Save As...");
+      menu.addItem(3, "Save  (Cmd+S)");
     } else if (menuIndex == 1) {
       // View menu
       bool debugVisible = false;
@@ -129,14 +119,8 @@ public:
   }
 
   void menuItemSelected(int menuItemID, int topLevelMenuIndex) override {
-    if (menuItemID == 1) {
-      showConfigChooser(false);
-    } else if (menuItemID == 2) {
-      showNewConfigDialog();
-    } else if (menuItemID == 3) {
-      saveCurrentConfig();
-    } else if (menuItemID == 4) {
-      showSaveAsDialog();
+    if (menuItemID == 3) {
+      saveCurrentState();
     } else if (menuItemID == 10) {
       // Toggle debug window
       if (mainWindow) {
@@ -164,53 +148,7 @@ public:
     }
   }
 
-  // ── Config Management ─────────────────────────────────────
-
-  void showConfigChooser(bool isLaunch) {
-    configChooser = std::make_unique<ConfigChooserWindow>(appDb_);
-    configChooser->onConfigSelected = [this](juce::String name) {
-      openConfig(name);
-      configChooser.reset();
-    };
-    configChooser->onCancelled = [this, isLaunch]() {
-      configChooser.reset();
-      if (isLaunch)
-        quit();
-    };
-  }
-
-  void openConfig(const juce::String &configName) {
-    // Save current config before switching (only if one was loaded)
-    if (mainWindow) {
-      saveCurrentConfig();
-    }
-    // Always destroy old MainWindow (and its MidiTcpServer) before creating
-    // the new one, so the TCP listener socket on port 5252 is released.
-    mainWindow.reset();
-
-    mainWindow = std::make_unique<MainWindow>(getApplicationName(), configName);
-
-    // Set menu bar on macOS
-#if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(this);
-#endif
-
-    // Listen for config changes from MainComponent
-    if (auto *mc =
-            dynamic_cast<MainComponent *>(mainWindow->getContentComponent())) {
-      mc->onConfigChanged = [this](const juce::String & /*name*/,
-                                   const juce::String &version) {
-        if (mainWindow) {
-          juce::String title = getApplicationName();
-          if (version.isNotEmpty())
-            title += " @ " + fiddle::formatTimestamp(version);
-          mainWindow->setName(title);
-        }
-      };
-    }
-  }
-
-  void saveCurrentConfig() {
+  void saveCurrentState() {
     if (mainWindow) {
       if (auto *mc = dynamic_cast<MainComponent *>(
               mainWindow->getContentComponent())) {
@@ -219,61 +157,8 @@ public:
     }
   }
 
-  void showNewConfigDialog() {
-    auto *aw = new juce::AlertWindow("New Configuration",
-                                     "Enter a name for the new configuration:",
-                                     juce::MessageBoxIconType::NoIcon);
-    aw->addTextEditor("name", "", "Config name:");
-    aw->addButton("Create", 1);
-    aw->addButton("Cancel", 0);
-    aw->enterModalState(
-        true, juce::ModalCallbackFunction::create([this, aw](int result) {
-          if (result == 1) {
-            auto name = aw->getTextEditorContents("name").trim();
-            if (name.isNotEmpty()) {
-              openConfig(name);
-              // Clear all strips for a fresh start
-              if (auto *mc = dynamic_cast<MainComponent *>(
-                      mainWindow->getContentComponent())) {
-                mc->clearForNewConfig();
-              }
-            }
-          }
-          delete aw;
-        }),
-        true);
-  }
-
-  void showSaveAsDialog() {
-    auto *aw = new juce::AlertWindow("Save Configuration As",
-                                     "Enter a name for the configuration:",
-                                     juce::MessageBoxIconType::NoIcon);
-    aw->addTextEditor("name", "", "Config name:");
-    aw->addButton("Save", 1);
-    aw->addButton("Cancel", 0);
-    aw->enterModalState(
-        true, juce::ModalCallbackFunction::create([this, aw](int result) {
-          if (result == 1) {
-            auto name = aw->getTextEditorContents("name").trim();
-            if (name.isNotEmpty()) {
-              if (mainWindow) {
-                if (auto *mc = dynamic_cast<MainComponent *>(
-                        mainWindow->getContentComponent())) {
-                  mc->saveConfigAs(name);
-                }
-                mainWindow->setName(getApplicationName() + " - " + name);
-              }
-            }
-          }
-          delete aw;
-        }),
-        true);
-  }
-
 private:
   std::unique_ptr<MainWindow> mainWindow;
-  std::unique_ptr<ConfigChooserWindow> configChooser;
-  FiddleDatabase appDb_;
 };
 
 } // namespace fiddle

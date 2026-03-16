@@ -28,26 +28,11 @@ class MainComponent : public juce::Component,
                       private juce::Timer,
                       public juce::AudioIODeviceCallback {
 public:
-  MainComponent(const juce::String &configName);
+  MainComponent();
   ~MainComponent() override;
 
-  /// Save current state to the active config file
+  /// Save current state (commit to current branch)
   void saveConfig();
-
-  /// Save current state under a new name, switch to it
-  void saveConfigAs(const juce::String &newName);
-
-  /// Clear all strips and plugins for a fresh new config
-  void clearForNewConfig();
-
-  /// Whether a config has been loaded (false in "waiting" state)
-  bool isConfigLoaded() const { return configName_.isNotEmpty(); }
-
-  /// Get the current config name
-  juce::String getConfigName() const { return configName_; }
-
-  /// Get the current config version
-  juce::String getConfigVersion() const { return configVersion_; }
 
   /// Toggle debug window visibility.
   void toggleDebugWindow();
@@ -83,12 +68,8 @@ public:
   /// Get the MIDI TCP server for disconnect control
   MidiTcpServer *getMidiServer() { return server.get(); }
 
-  /// Push current config status (name, version, dirty) to connected plugin.
+  /// Push current status (branch name, dirty state) to connected plugin.
   void pushConfigStatus();
-
-  /// Callback fired when the active config changes
-  std::function<void(const juce::String &name, const juce::String &version)>
-      onConfigChanged;
 
   void paint(juce::Graphics &) override;
   void resized() override;
@@ -125,8 +106,7 @@ private:
   uint64_t lastSampleTime = 0;
   uint32_t lastSystemTime = 0;
 
-  juce::String configName_;
-  juce::String configVersion_;
+
 
   /// The branch ID (UUID) of the currently checked-out branch.
   /// Set when VersionStore is initialized; updated on checkoutBranch.
@@ -181,7 +161,7 @@ private:
   void pushDagHistory();
   /// Broadcast the current version ID to all ready WebViews.
   void pushCurrentVersion();
-  void loadConfigByName(const juce::String &name);
+
 
   /// Save all strips to SQLite (called after every mutation).
   void saveAllStripsToDB();

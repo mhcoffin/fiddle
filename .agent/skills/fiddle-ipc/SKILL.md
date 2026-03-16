@@ -106,6 +106,7 @@ The JS router in `ipc.js` dispatches to whichever `onFromCpp` handler is registe
 
 | Mistake | Fix |
 |---|---|
+| Using `getNative("functionName")` to call C++ | Use `dispatchCpp("functionName", ...args)`. `getNative` is a legacy low-level escape hatch that bypasses the message bus and often silently fails. Avoid it except where absolutely necessary. |
 | `broadcastJavascript("if(window.setX) setX(...)")` | Use `broadcastMessage("setX", data)` |
 | Registering `onFromCpp` inside `onMount` | Move it to the module-level `<script>` block |
 | Forgetting to rebuild UI after adding a new `onFromCpp` | Run `cd Source/Server/ui && pnpm build` then `cmake --build build` |

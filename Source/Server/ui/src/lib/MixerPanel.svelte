@@ -231,6 +231,113 @@
     // the theoretical sum stays exact even when displayed faders are clamped.
     const gainShadowRaw = {};
 
+    // ── Fader display smoothing ─────────────────────────────
+    // Display positions ease toward target values via requestAnimationFrame.
+    // Key = stripId or "master:<groupKey>". Value = current display pos (0-1000).
+    // When a fader is being user-dragged, smoothing is bypassed.
+    const EASE_MS = 120;
+    let faderDisplayPos = $state(/** @type {Record<string, number>} */ ({}));
+    /** Target positions that the display is easing toward */
+    const faderTargetPos = {};
+    /** Start time/value for active ease animations */
+    const faderEaseState = {};
+    /** Set of fader keys currently being user-dragged (instant, no easing) */
+    const faderDragging = new Set();
+
+    // ── Shift-drag fine control ──────────────────────────────
+    // When Shift is held during a fader drag, movement is reduced by FINE_RATIO.
+    // faderAnchor stores the position at drag-start so we can compute deltas.
+    const FINE_RATIO = 6;
+    /** @type {Record<string, number>} pos (0-1000) at drag-start */
+    const faderAnchor = {};
+
+    /** Compute effective fader position, applying fine-mode when shift is held */
+    const fineFaderPos = (key, rawPos, shiftKey) => {
+        const anchor = faderAnchor[key];
+        if (!shiftKey || anchor === undefined) {
+            faderAnchor[key] = rawPos; // update anchor when not in fine mode
+            return rawPos;
+        }
+        const delta = (rawPos - anchor) / FINE_RATIO;
+        return Math.max(0, Math.min(1000, Math.round(anchor + delta)));
+    };
+    let animFrameId = 0;
+
+    /** Get the display position for a fader. Returns the smoothed value ONLY
+     *  while an ease animation is actively running; otherwise returns computedPos. */
+    const getFaderPos = (key, computedPos) => {
+        if (faderDragging.has(key)) return computedPos;
+        // Only use cached display position during active animation
+        if (faderEaseState[key]) {
+            const dp = faderDisplayPos[key];
+            return dp !== undefined ? dp : computedPos;
+        }
+        return computedPos;
+    };
+
+    /** Request easing a fader to a new target position */
+    const easeFaderTo = (key, targetPos) => {
+        const current = faderDisplayPos[key] ?? targetPos;
+        if (Math.abs(current - targetPos) < 1) {
+            // Already at target — snap
+            faderDisplayPos[key] = targetPos;
+            return;
+        }
+        faderTargetPos[key] = targetPos;
+        faderEaseState[key] = { from: current, start: performance.now() };
+        startEaseLoop();
+    };
+
+    /** Set display position instantly (for user-dragged faders) */
+    const snapFaderTo = (key, pos) => {
+        faderDisplayPos[key] = pos;
+        delete faderTargetPos[key];
+        delete faderEaseState[key];
+    };
+
+    function startEaseLoop() {
+        if (animFrameId) return;
+        animFrameId = requestAnimationFrame(tickEase);
+    }
+
+    function tickEase(now) {
+        animFrameId = 0;
+        let still = true;
+        for (const key of Object.keys(faderEaseState)) {
+            const es = faderEaseState[key];
+            const target = faderTargetPos[key];
+            if (target === undefined || !es) { delete faderEaseState[key]; continue; }
+            const elapsed = now - es.start;
+            const t = Math.min(1, elapsed / EASE_MS);
+            // ease-out cubic
+            const eased = 1 - Math.pow(1 - t, 3);
+            const pos = es.from + (target - es.from) * eased;
+            faderDisplayPos[key] = Math.round(pos);
+            if (t >= 1) {
+                faderDisplayPos[key] = Math.round(target);
+                delete faderEaseState[key];
+                delete faderTargetPos[key];
+            } else {
+                still = false;
+            }
+        }
+        if (!still) {
+            animFrameId = requestAnimationFrame(tickEase);
+        }
+    }
+
+    /** Ease all faders in a group (strips + master) to new computed positions.
+     *  Call AFTER setting gains/mute so computed positions are correct. */
+    const easeGroupFaders = (instrGroup) => {
+        for (const s of instrGroup.strips) {
+            const db = gainShadow[s.id] ?? gainShadowRaw[s.id] ?? s.gainDb ?? 0;
+            easeFaderTo(s.id, Math.round(dbToPos(db) * 1000));
+        }
+        const masterKey = `master:${instrGroup.key}`;
+        const masterDb = getGroupDb(instrGroup);
+        easeFaderTo(masterKey, Math.round(dbToPos(masterDb) * 1000));
+    };
+
     const setGain = (stripId, db) => {
         gainShadow[stripId] = db;
         gainShadowRaw[stripId] = db; // user-dragged values are already in display range
@@ -263,6 +370,80 @@
         }
     };
 
+    /**
+     * Group-aware mute toggle. In locked mode, redistributes power to siblings
+     * so the group power stays constant (gain.md Examples 4, lines 66-68).
+     * Muting  = treat as moving fader to -∞ (power → 0), redistribute to others.
+     * Unmuting = treat as restoring remembered power, others scale down.
+     */
+    const toggleMuteInGroup = (instrGroup, stripId) => {
+        const strip = strips.find((s) => s.id === stripId);
+        if (!strip) return;
+        const willMute = !strip.muted;
+
+        // Multi-select: delegate to simple toggleMute (no per-group compensation)
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            toggleMute(stripId);
+            return;
+        }
+
+        const gm = getGroupMaster(instrGroup.key);
+
+        if (gm.lockSum && instrGroup.strips.length > 1) {
+            // Compute old group power (before mute change)
+            const oldGroupPower = getGroupPower(instrGroup);
+
+            if (willMute) {
+                // Strip is being muted: its power will become 0.
+                // Target: other strips absorb the difference.
+                const stripPower = powerFromDb(gainShadowRaw[strip.id] ?? strip.gainDb ?? 0);
+                const otherPowerBefore = oldGroupPower - stripPower;
+
+                if (otherPowerBefore > 0 && oldGroupPower > 0) {
+                    // Scale others so their total = oldGroupPower
+                    const scale = oldGroupPower / otherPowerBefore;
+                    for (const s of instrGroup.strips) {
+                        if (s.id !== stripId && !s.muted) {
+                            const db = gainShadowRaw[s.id] ?? s.gainDb ?? 0;
+                            const p = powerFromDb(db) * scale;
+                            setGainRaw(s.id, dbFromGain(Math.sqrt(p)));
+                        }
+                    }
+                }
+            } else {
+                // Strip is being unmuted: its remembered power is restored.
+                // Other strips must scale down to keep group power = oldGroupPower.
+                const restoredPower = powerFromDb(gainShadowRaw[strip.id] ?? strip.gainDb ?? 0);
+                const otherPowerBefore = oldGroupPower; // all current power is from others
+                const newTotal = otherPowerBefore + restoredPower;
+
+                if (newTotal > 0 && otherPowerBefore > 0) {
+                    const requiredOtherPower = Math.max(0, oldGroupPower - restoredPower);
+                    const scale = requiredOtherPower / otherPowerBefore;
+                    for (const s of instrGroup.strips) {
+                        if (s.id !== stripId && !s.muted) {
+                            const db = gainShadowRaw[s.id] ?? s.gainDb ?? 0;
+                            const p = powerFromDb(db) * scale;
+                            setGainRaw(s.id, dbFromGain(Math.sqrt(p)));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Optimistic mute: set locally BEFORE dispatching so the next render
+        // (triggered by sibling gain echoes) already sees the right muted state.
+        // This prevents the intermediate "bounce" where gains are updated but
+        // mute hasn't arrived yet.
+        strip.muted = willMute;
+
+        // Ease all faders in this group to their final positions
+        easeGroupFaders(instrGroup);
+
+        // Actually mute/unmute the strip
+        dispatchCpp("setStripMute", stripId, willMute);
+    };
+
     const toggleSolo = (stripId) => {
         const strip = strips.find((s) => s.id === stripId);
         if (!strip) return;
@@ -277,9 +458,9 @@
     };
 
     const clearSolos = () => {
-        const fn = getNative("setStripSolo");
-        if (!fn) return;
-        for (const s of strips) fn(s.id, false);
+        for (const s of strips) {
+            if (s.soloed) dispatchCpp("setStripSolo", s.id, false);
+        }
     };
 
     /** Group-aware gain change: fader drag sends delta */
@@ -306,9 +487,30 @@
         }
     };
 
+    // ── Power-model gain helpers ──────────────────────────────
+    const MINUS_INF_DB = -120;
+
+    /** dB → linear gain. At or below MINUS_INF_DB → 0. */
+    const gainFromDb = (db) => {
+        if (db <= MINUS_INF_DB) return 0;
+        return Math.pow(10, db / 20);
+    };
+
+    /** Linear gain → dB. gain ≤ 0 → MINUS_INF_DB. */
+    const dbFromGain = (gain) => {
+        if (gain <= 0) return MINUS_INF_DB;
+        return 20 * Math.log10(gain);
+    };
+
+    /** dB → power (gain²). */
+    const powerFromDb = (db) => {
+        const g = gainFromDb(db);
+        return g * g;
+    };
+
     // ── Group Master Fader state ──────────────────────────────
-    // Only lockSum is stored in state. masterDb is always DERIVED as the sum of
-    // member strip gainDb values — it is never stored independently.
+    // Only lockSum is stored in state. masterDb is always DERIVED from the
+    // power model: groupDb = 20·log10(√(Σ power_i)).
     let groupMasters = $state(
         /** @type {Record<string, {lockSum: boolean}>} */ ({}),
     );
@@ -322,55 +524,95 @@
         return groupMasters[key];
     };
 
-    /** Compute the current theoretical sum of gainDb for all strips in a group.
+    /** Compute group power: sum of power of all audible strips.
+     *  A strip is audible if it is not muted AND (no solo active OR strip is soloed).
      *  Uses gainShadowRaw so the value is accurate even if some faders are clamped. */
-    const getGroupSumDb = (instrGroup) =>
-        instrGroup.strips.reduce(
-            (acc, s) => acc + (gainShadowRaw[s.id] ?? s.gainDb ?? 0),
-            0,
-        );
+    const getGroupPower = (instrGroup) =>
+        instrGroup.strips.reduce((acc, s) => {
+            if (!isAudible(s)) return acc;
+            const db = gainShadowRaw[s.id] ?? s.gainDb ?? 0;
+            return acc + powerFromDb(db);
+        }, 0);
+
+    /** Compute the group fader dB using the power model:
+     *  groupDb = dbFromGain(√(Σ power_i)) */
+    const getGroupDb = (instrGroup) => {
+        const gp = getGroupPower(instrGroup);
+        return dbFromGain(Math.sqrt(gp));
+    };
 
     /**
-     * Master fader drag → distribute delta equally: each strip gets delta/n.
-     * delta = newSumDb - currentSum, each strip += delta/n.
-     * Uses unconstrained raw values so repeated moves accumulate correctly.
+     * Master fader drag → scale all unmuted strip powers proportionally.
+     * newGroupPower / oldGroupPower gives the scale factor for each strip's power.
      */
     const handleMasterFaderInput = (instrGroup, pos) => {
-        const newSumDb = Math.round(posToDB(pos) * 10) / 10;
-        const currentSum = getGroupSumDb(instrGroup);
-        const delta = newSumDb - currentSum;
-        const n = instrGroup.strips.length;
+        const newGroupDb = Math.round(posToDB(pos) * 10) / 10;
+        const newGroupGain = gainFromDb(newGroupDb);
+        const newGroupPower = newGroupGain * newGroupGain;
+        const oldGroupPower = getGroupPower(instrGroup);
+
+        if (oldGroupPower <= 0) {
+            // All unmuted strips are silent — can't scale. Set all to equal share.
+            const unmuted = instrGroup.strips.filter((s) => !s.muted);
+            if (unmuted.length === 0) return;
+            const perStripPower = newGroupPower / unmuted.length;
+            const perStripDb = dbFromGain(Math.sqrt(perStripPower));
+            for (const s of unmuted) {
+                setGainRaw(s.id, perStripDb);
+            }
+            return;
+        }
+
+        const scale = newGroupPower / oldGroupPower;
         for (const strip of instrGroup.strips) {
-            const base = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
-            setGainRaw(strip.id, base + delta / n);
+            if (strip.muted) continue;
+            const db = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
+            const p = powerFromDb(db) * scale;
+            const g = Math.sqrt(p);
+            setGainRaw(strip.id, dbFromGain(g));
         }
     };
 
-    /** Double-click master fader → set master to 0 dB (average 0 → sum 0) */
+    /** Double-click master fader → same effect as sliding to 0 dB */
     const handleMasterFaderReset = (instrGroup) => {
-        // Target: sum = 0, so each strip moves by -currentSum/n
         handleMasterFaderInput(instrGroup, dbToPos(0));
     };
 
     /**
      * Individual strip fader drag within a group.
-     * Lock OFF: only the dragged strip changes; master auto-follows (derived sum updates).
-     * Lock ON:  master is "locked" — distribute the inverse delta equally across siblings
-     *           so the sum stays constant. Uses gainShadowRaw so accumulated values beyond
-     *           the display range don't corrupt the sum invariant.
+     * Lock OFF: only the dragged strip changes; master auto-follows (power model).
+     * Lock ON:  master is "locked" — redistribute power proportionally across
+     *           other unmuted siblings to keep group power constant.
      */
     const handleGroupFaderInput = (instrGroup, strip, pos) => {
         const gm = getGroupMaster(instrGroup.key);
         const newDb = Math.round(posToDB(pos) * 10) / 10;
         if (gm.lockSum && instrGroup.strips.length > 1) {
-            const oldDb = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
-            const delta = newDb - oldDb;
-            const others = instrGroup.strips.filter((s) => s.id !== strip.id);
-            const compensate = -delta / others.length;
-            for (const other of others) {
-                const base = gainShadowRaw[other.id] ?? other.gainDb ?? 0;
-                setGainRaw(other.id, base + compensate);
+            const oldGroupPower = getGroupPower(instrGroup);
+            const newStripPower = strip.muted ? 0 : powerFromDb(newDb);
+            const requiredOtherPower = Math.max(0, oldGroupPower - newStripPower);
+
+            // Current total power of other unmuted strips
+            let currentOtherPower = 0;
+            for (const s of instrGroup.strips) {
+                if (s.id !== strip.id && !s.muted) {
+                    currentOtherPower += powerFromDb(gainShadowRaw[s.id] ?? s.gainDb ?? 0);
+                }
             }
+
+            // If other unmuted strips can absorb, scale them proportionally
+            if (currentOtherPower > 0) {
+                const scale = requiredOtherPower / currentOtherPower;
+                for (const other of instrGroup.strips) {
+                    if (other.id !== strip.id && !other.muted) {
+                        const base = gainShadowRaw[other.id] ?? other.gainDb ?? 0;
+                        const p = powerFromDb(base) * scale;
+                        const g = Math.sqrt(p);
+                        setGainRaw(other.id, dbFromGain(g));
+                    }
+                }
+            }
+            // If no other strips can absorb, the group fader will move (derived)
         }
         setGain(strip.id, newDb);
     };
@@ -539,14 +781,18 @@
                 }}
             />
 
+        </div>
+        <div class="toolbar-center">
             {#if selectedIds.size > 1}
                 <span class="selection-badge">{selectedIds.size} selected</span>
             {/if}
-            {#if anySoloed}
-                <button class="toolbar-ms-btn solo-clear" onclick={clearSolos}>
-                    Clear Solos
-                </button>
-            {/if}
+            <button
+                class="toolbar-ms-btn solo-clear"
+                style:visibility={anySoloed ? 'visible' : 'hidden'}
+                onclick={clearSolos}
+            >
+                Clear Solos
+            </button>
         </div>
         <div class="toolbar-right">
             <div class="delay-control">
@@ -677,7 +923,7 @@
                                     <!-- Master strip: only for multi-strip groups -->
                                     {#if instrGroup.strips.length > 1}
                                         {@const gm = getGroupMaster(instrGroup.key)}
-                                         {@const masterDb = getGroupSumDb(instrGroup)}
+                                         {@const masterDb = getGroupDb(instrGroup)}
                                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                                         <div class="master-strip" onclick={(e) => e.stopPropagation()}>
@@ -694,17 +940,28 @@
                                                             min="0"
                                                             max="1000"
                                                             step="1"
-                                                            value={Math.round(dbToPos(masterDb) * 1000)}
-                                                            oninput={(e) => handleMasterFaderInput(
-                                                                instrGroup,
-                                                                parseFloat(/** @type {HTMLInputElement} */ (e.target).value) / 1000,
-                                                            )}
+                                                            value={getFaderPos(`master:${instrGroup.key}`, Math.round(dbToPos(masterDb) * 1000))}
+                                                            onpointerdown={() => {
+                                                                const mk = `master:${instrGroup.key}`;
+                                                                const cur = getFaderPos(mk, Math.round(dbToPos(masterDb) * 1000));
+                                                                faderAnchor[mk] = cur;
+                                                            }}
+                                                            oninput={(e) => {
+                                                                const mk = `master:${instrGroup.key}`;
+                                                                faderDragging.add(mk);
+                                                                const rawPos = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+                                                                const effectivePos = fineFaderPos(mk, rawPos, e.shiftKey);
+                                                                snapFaderTo(mk, effectivePos);
+                                                                handleMasterFaderInput(instrGroup, effectivePos / 1000);
+                                                            }}
+                                                            onpointerup={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
+                                                            onpointerleave={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
                                                             ondblclick={() => handleMasterFaderReset(instrGroup)}
                                                         />
                                                     </div>
                                                 </div>
                                                 <span class="fader-tick fader-bot">-∞</span>
-                                                <div class="master-db">{formatDb(getGroupSumDb(instrGroup))}</div>
+                                                <div class="master-db">{formatDb(getGroupDb(instrGroup))}</div>
                                             </div>
                                             <!-- Bottom spacer: matches mute-solo + xmap + plugin rows -->
                                             <div class="master-strip-bot-spacer">
@@ -751,18 +1008,22 @@
                                                                 min="0"
                                                                 max="1000"
                                                                 step="1"
-                                                                value={Math.round(
+                                                                value={getFaderPos(strip.id, Math.round(
                                                                     dbToPos(strip.gainDb ?? 0) * 1000,
-                                                                )}
-                                                                oninput={(e) => {
-                                                                    const pos =
-                                                                        parseFloat(
-                                                                            /** @type {HTMLInputElement} */ (
-                                                                                e.target
-                                                                            ).value,
-                                                                        ) / 1000;
-                                                                    handleGroupFaderInput(instrGroup, strip, pos);
+                                                                ))}
+                                                                onpointerdown={() => {
+                                                                    const cur = getFaderPos(strip.id, Math.round(dbToPos(strip.gainDb ?? 0) * 1000));
+                                                                    faderAnchor[strip.id] = cur;
                                                                 }}
+                                                                oninput={(e) => {
+                                                                    faderDragging.add(strip.id);
+                                                                    const rawPos = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+                                                                    const effectivePos = fineFaderPos(strip.id, rawPos, e.shiftKey);
+                                                                    snapFaderTo(strip.id, effectivePos);
+                                                                    handleGroupFaderInput(instrGroup, strip, effectivePos / 1000);
+                                                                }}
+                                                                onpointerup={() => { faderDragging.delete(strip.id); delete faderAnchor[strip.id]; }}
+                                                                onpointerleave={() => { faderDragging.delete(strip.id); delete faderAnchor[strip.id]; }}
                                                                 ondblclick={() =>
                                                                     handleGainValueInput(strip, "0")}
                                                             />
@@ -807,7 +1068,7 @@
                                                         class="ms-btn mute-btn"
                                                         class:active={strip.muted}
                                                         title={strip.muted ? "Unmute" : "Mute"}
-                                                        onclick={() => toggleMute(strip.id)}
+                                                        onclick={() => toggleMuteInGroup(instrGroup, strip.id)}
                                                         >M</button
                                                     >
                                                     <button
@@ -978,9 +1239,14 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 10px 16px;
+        padding: 6px 16px;
         flex-shrink: 0;
         border-bottom: 1px solid #1e293b;
+    }
+    .toolbar-center {
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
     .selection-badge {
         font-size: 0.7rem;
