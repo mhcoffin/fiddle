@@ -600,19 +600,27 @@
                 }
             }
 
-            // If other unmuted strips can absorb, scale them proportionally
-            if (currentOtherPower > 0) {
-                const scale = requiredOtherPower / currentOtherPower;
-                for (const other of instrGroup.strips) {
-                    if (other.id !== strip.id && !other.muted) {
+            // Redistribute required power across other unmuted strips
+            const others = instrGroup.strips.filter((s) => s.id !== strip.id && !s.muted);
+            if (others.length > 0) {
+                if (currentOtherPower > 0) {
+                    // Scale proportionally when others have non-zero power
+                    const scale = requiredOtherPower / currentOtherPower;
+                    for (const other of others) {
                         const base = gainShadowRaw[other.id] ?? other.gainDb ?? 0;
                         const p = powerFromDb(base) * scale;
                         const g = Math.sqrt(p);
                         setGainRaw(other.id, dbFromGain(g));
                     }
+                } else {
+                    // Others are all at -∞ — distribute equally
+                    const perStripPower = requiredOtherPower / others.length;
+                    const perStripDb = dbFromGain(Math.sqrt(perStripPower));
+                    for (const other of others) {
+                        setGainRaw(other.id, perStripDb);
+                    }
                 }
             }
-            // If no other strips can absorb, the group fader will move (derived)
         }
         setGain(strip.id, newDb);
     };
