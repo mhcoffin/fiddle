@@ -103,6 +103,7 @@ This does: `pnpm build` → CMake `FiddleNative` → `FiddleServer` → copies `
 | `createdAt` / new field missing from UI JSON | Binary is stale | Check binary timestamp: `ls -la build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/FiddleServer` |
 | `InMemoryVersionStorage` is abstract | Added virtual method to `IVersionStorage` but not to the test mock | Implement the new method in `Source/Server/tests/InMemoryVersionStorage.h` |
 | Dorico not seeing plugin changes | Plugin installed but Dorico not restarted | Quit and relaunch Dorico |
+| **Dorico plays but nothing in Timeline/Event Log; clicks/pops in speakers** | **Installed VST3 plugin is stale** — `cmake --build` builds the plugin but does NOT copy it to `~/Library/Audio/Plug-Ins/VST3/` | **Reinstall:** `cp -R build/FiddleNative_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/` then **restart Dorico**. Check with `stat -f "%Sm"` on both paths to compare timestamps. |
 
 > [!CAUTION]
 > **Guaranteed-fresh deployment checklist.** After ANY UI change, run this exact sequence before relaunching. Skipping any step risks loading stale code:

@@ -343,8 +343,8 @@
         dispatchCpp("saveSelectedInstruments", json);
     };
 
-    // Expose so App.svelte's Save button can trigger us
-    /** @type {any} */ (window).triggerSaveSetup = saveAndGenerate;
+    // C++ broadcasts "triggerSaveSetup" when the user clicks Save in App.svelte
+    onFromCpp("triggerSaveSetup", () => saveAndGenerate());
 </script>
 
 <div class="setup-container">

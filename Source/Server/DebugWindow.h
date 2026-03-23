@@ -12,6 +12,8 @@ struct DebugWindowCallbacks {
   std::function<void()> onScanPlugins;
   std::function<void()> onRescanPlugins;
   std::function<void()> onRequestPluginsState;
+  /// Forward any unrecognised JS→C++ message to the main handler.
+  std::function<void(const juce::String &, const juce::var &)> onForwardMessage;
 };
 
 /// Second window for debug/diagnostic views (Timeline, Event Log, Plugins).
@@ -75,6 +77,10 @@ public:
                       } else if (type == "requestPluginsState") {
                         if (callbacks_.onRequestPluginsState)
                           callbacks_.onRequestPluginsState();
+                      } else {
+                        // Forward unknown messages to MainComponent
+                        if (callbacks_.onForwardMessage)
+                          callbacks_.onForwardMessage(type, payload);
                       }
                       completion(true);
                     })) {

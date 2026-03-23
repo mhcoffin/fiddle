@@ -322,16 +322,20 @@ juce_add_console_app(ExpressionMapTest
 
 target_sources(ExpressionMapTest PRIVATE
     Source/Server/tests/ExpressionMapParserTest.cpp
+    Source/Server/tests/ExpressionMapAnnotatorTest.cpp
     Source/Server/ExpressionMapParser.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
 )
 
 target_include_directories(ExpressionMapTest PRIVATE
     Source/Server
+    "${CMAKE_CURRENT_BINARY_DIR}"
 )
 
 target_link_libraries(ExpressionMapTest PRIVATE
     juce::juce_core
     juce::juce_events
+    libprotobuf
 )
 
 target_compile_features(ExpressionMapTest PRIVATE cxx_std_17)

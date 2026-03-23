@@ -215,7 +215,7 @@ public:
     }
   }
 
-  /// Route incoming MIDI note event to matching strips
+  /// Route incoming MIDI note event to matching strips (raw, no annotation).
   void routeNoteEvent(int port, int channel, const juce::MidiMessage &msg,
                       double triggerTime) {
     std::lock_guard<std::mutex> lock(stripsMutex);
@@ -234,6 +234,276 @@ public:
       if (strip->inputPort == port && strip->inputChannel == channel) {
         strip->addDelayedMessage(now, msg);
       }
+    }
+  }
+
+  // ── Annotator-aware routing ────────────────────────────────────────
+
+  /// Convert a MidiInstruction proto to a juce::MidiMessage.
+  /// @param noteChannel  1-based fallback channel when instruction channel==0.
+  static juce::MidiMessage
+  instructionToMidi(const fiddle::MidiInstruction &instr, int noteChannel) {
+    int ch = instr.channel() > 0 ? instr.channel() : noteChannel;
+    switch (instr.type()) {
+    case fiddle::MidiInstruction::CC:
+      return juce::MidiMessage::controllerEvent(ch, instr.param1(),
+                                                instr.param2());
+    case fiddle::MidiInstruction::KEY_SWITCH:
+      return juce::MidiMessage::noteOn(ch, instr.param1(),
+                                       (juce::uint8)instr.param2());
+    case fiddle::MidiInstruction::PROGRAM_CHANGE:
+      return juce::MidiMessage::programChange(ch, instr.param1());
+    case fiddle::MidiInstruction::PITCH_BEND:
+      return juce::MidiMessage::pitchWheel(ch,
+                                           (instr.param1() << 7) |
+                                               instr.param2());
+    case fiddle::MidiInstruction::CHANNEL_PRESSURE:
+      return juce::MidiMessage::channelPressureChange(ch, instr.param1());
+    default:
+      return juce::MidiMessage(); // empty
+    }
+  }
+
+  /// Record a MidiInstruction into a capture log.
+  static void captureInstruction(MidiCaptureLog &log, double timeMs,
+                                 const fiddle::MidiInstruction &instr,
+                                 int noteChannel,
+                                 const juce::String &label = {}) {
+    int ch = instr.channel() > 0 ? instr.channel() : noteChannel;
+    switch (instr.type()) {
+    case fiddle::MidiInstruction::CC:
+      log.record(timeMs, ch, CapturedMidiEvent::CC, instr.param1(),
+                 instr.param2(), label);
+      break;
+    case fiddle::MidiInstruction::KEY_SWITCH:
+      log.record(timeMs, ch, CapturedMidiEvent::NoteOn, instr.param1(),
+                 instr.param2(), label);
+      break;
+    case fiddle::MidiInstruction::PROGRAM_CHANGE:
+      log.record(timeMs, ch, CapturedMidiEvent::ProgramChange, instr.param1(),
+                 0, label);
+      break;
+    default:
+      break;
+    }
+  }
+
+  /// Route a noteOn through each matching strip's annotator, scheduling
+  /// pre_note instructions before the noteOn.
+  void routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
+                            double triggerTimeMs) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      if (strip->inputPort != port || strip->inputChannel != channel)
+        continue;
+
+      // Run the annotator — it populates note.pre_note() and during_note()
+      AnnotatorContext ctx;
+      ctx.stripChannel = channel + 1; // convert 0-based to 1-based
+      ctx.currentTimeMs = triggerTimeMs;
+      ctx.sampleRate = currentSampleRate_;
+      strip->annotator->onNoteStart(note, ctx);
+
+      // Record the annotation decision for Note Inspector UI
+      if (auto *rec = strip->annotator->lastAnnotationRecord()) {
+        strip->pushAnnotation(*rec);
+      }
+
+      // ── Latching keyswitches: release old, latch new ──────────────
+      // Collect the new keyswitch notes from pre_note instructions
+      std::set<MixerStrip::HeldKS> newKS;
+      for (const auto &instr : note.pre_note()) {
+        if (instr.type() == fiddle::MidiInstruction::KEY_SWITCH) {
+          int ch = instr.channel() > 0 ? instr.channel()
+                                       : (int)note.channel();
+          newKS.insert({ch, instr.param1()});
+        }
+      }
+
+      // Schedule pre_note instructions first (new keyswitches before releasing old)
+      for (const auto &instr : note.pre_note()) {
+        double t = triggerTimeMs + instr.delay_ms();
+        juce::MidiMessage msg =
+            instructionToMidi(instr, (int)note.channel());
+        strip->addDelayedMessage(t, msg);
+        captureInstruction(strip->emittedCapture, t, instr,
+                           (int)note.channel());
+      }
+
+      // Release keyswitches that are no longer needed (after new ones are sent)
+      if (!newKS.empty()) {
+        for (const auto &old : strip->heldKeyswitchNotes) {
+          if (newKS.find(old) == newKS.end()) {
+            double releaseTime = triggerTimeMs - 1.0;
+            strip->addDelayedMessage(
+                releaseTime,
+                juce::MidiMessage::noteOff(old.channel, old.noteNumber,
+                                           (juce::uint8)64));
+            strip->emittedCapture.record(
+                releaseTime, old.channel,
+                CapturedMidiEvent::NoteOff, old.noteNumber, 64);
+          }
+        }
+        strip->heldKeyswitchNotes = newKS;
+      }
+
+      // Schedule during_note instructions before noteOn (matches Dorico ordering)
+      for (const auto &instr : note.during_note()) {
+        double t = triggerTimeMs + instr.delay_ms();
+        juce::MidiMessage msg =
+            instructionToMidi(instr, (int)note.channel());
+        strip->addDelayedMessage(t, msg);
+        captureInstruction(strip->emittedCapture, t, instr,
+                           (int)note.channel());
+        // Track any keyswitches in during_note too
+        if (instr.type() == fiddle::MidiInstruction::KEY_SWITCH) {
+          int ch = instr.channel() > 0 ? instr.channel()
+                                       : (int)note.channel();
+          strip->heldKeyswitchNotes.insert({ch, instr.param1()});
+        }
+      }
+
+      // Schedule the noteOn itself
+      juce::MidiMessage noteOnMsg = juce::MidiMessage::noteOn(
+          (int)note.channel(), (int)note.note_number(),
+          (juce::uint8)note.start_velocity());
+      strip->addDelayedMessage(triggerTimeMs, noteOnMsg);
+      strip->emittedCapture.record(
+          triggerTimeMs, (int)note.channel(),
+          CapturedMidiEvent::NoteOn, (int)note.note_number(),
+          (int)note.start_velocity());
+    }
+  }
+
+  /// Route a noteOff through each matching strip's annotator, scheduling
+  /// the noteOff followed by post_note instructions.
+  void routeAnnotatedNoteOff(int port, int channel, fiddle::Note &note,
+                             double triggerTimeMs) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      if (strip->inputPort != port || strip->inputChannel != channel)
+        continue;
+
+      // Run the annotator — it populates note.post_note() and durationAdjustMs()
+      AnnotatorContext ctx;
+      ctx.stripChannel = channel + 1;
+      ctx.currentTimeMs = triggerTimeMs;
+      ctx.sampleRate = currentSampleRate_;
+      strip->annotator->onNoteEnd(note, ctx);
+
+      // Update the last annotation record with duration info
+      if (!strip->recentAnnotations_.empty()) {
+        strip->recentAnnotations_.back().durationAdjustMs =
+            strip->annotator->durationAdjustMs();
+      }
+
+      // Apply duration adjustment (negative = early noteOff, positive = late)
+      double adjustedTime =
+          triggerTimeMs + strip->annotator->durationAdjustMs();
+
+      // Determine the switch label from the most recent annotation
+      juce::String switchLabel;
+      if (!strip->recentAnnotations_.empty()) {
+        const auto &baseName = strip->recentAnnotations_.back().baseSwitchName;
+        if (!baseName.empty())
+          switchLabel = juce::String(baseName);
+      }
+
+      // Schedule the noteOff at adjusted time (with switch label, matching Dorico)
+      juce::MidiMessage noteOffMsg = juce::MidiMessage::noteOff(
+          (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
+      strip->addDelayedMessage(adjustedTime, noteOffMsg);
+      strip->emittedCapture.record(
+          adjustedTime, (int)note.channel(),
+          CapturedMidiEvent::NoteOff, (int)note.note_number(), 64,
+          switchLabel);
+
+      // Schedule post_note instructions (relative to adjusted noteOff time)
+      for (const auto &instr : note.post_note()) {
+        double t = adjustedTime + instr.delay_ms();
+        juce::MidiMessage msg =
+            instructionToMidi(instr, (int)note.channel());
+        strip->addDelayedMessage(t, msg);
+        captureInstruction(strip->emittedCapture, t, instr,
+                           (int)note.channel());
+        // Track any keyswitches in post_note as latched
+        if (instr.type() == fiddle::MidiInstruction::KEY_SWITCH) {
+          int ch = instr.channel() > 0 ? instr.channel()
+                                       : (int)note.channel();
+          strip->heldKeyswitchNotes.insert({ch, instr.param1()});
+        }
+      }
+    }
+  }
+
+  /// Release all latched keyswitches on every strip (called on transport stop).
+  void releaseAllKeyswitches(double triggerTimeMs) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      for (const auto &ks : strip->heldKeyswitchNotes) {
+        juce::MidiMessage noteOffMsg =
+            juce::MidiMessage::noteOff(ks.channel, ks.noteNumber,
+                                       (juce::uint8)64);
+        strip->addDelayedMessage(triggerTimeMs, noteOffMsg);
+        strip->emittedCapture.record(
+            triggerTimeMs, ks.channel,
+            CapturedMidiEvent::NoteOff, ks.noteNumber, 64);
+      }
+      strip->heldKeyswitchNotes.clear();
+    }
+  }
+
+  /// Route a CC event through matching strip annotators.
+  /// If the annotator's onCC returns false, the CC is not forwarded.
+  void routeAnnotatedCC(int port, int channel, const fiddle::MidiEvent &event,
+                        const juce::MidiMessage &msg, double triggerTimeMs) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      if (strip->inputPort != port || strip->inputChannel != channel)
+        continue;
+
+      AnnotatorContext ctx;
+      ctx.stripChannel = channel + 1;
+      ctx.currentTimeMs = triggerTimeMs;
+
+      if (strip->annotator->onCC(event, ctx)) {
+        strip->addDelayedMessage(triggerTimeMs, msg);
+        if (event.has_cc()) {
+          strip->emittedCapture.record(
+              triggerTimeMs, channel + 1, CapturedMidiEvent::CC,
+              (int)event.cc().controller_number(),
+              (int)event.cc().controller_value());
+        }
+      }
+    }
+  }
+
+  /// Record raw incoming MIDI from Dorico to matching strips.
+  void recordIncomingMidi(int port, int channel,
+                          CapturedMidiEvent::Type type, int p1, int p2,
+                          double timeMs) {
+    std::lock_guard<std::mutex> lock(stripsMutex);
+    for (auto &strip : strips_) {
+      if (strip->inputPort != port || strip->inputChannel != channel)
+        continue;
+
+      // Feed event to the incoming switch tracker (if present)
+      if (strip->incomingTracker)
+        strip->incomingTracker->onMidi(type, p1, p2, timeMs);
+
+      // For NoteOff of real notes, resolve matching switch names
+      juce::String label;
+      if (type == CapturedMidiEvent::NoteOff && strip->incomingTracker &&
+          !strip->incomingTracker->isKeyswitch(p1)) {
+        auto names = strip->incomingTracker->resolveNoteOff(p1, timeMs);
+        for (size_t i = 0; i < names.size(); ++i) {
+          if (i > 0)
+            label += "|";
+          label += juce::String(names[i]);
+        }
+      }
+
+      strip->incomingCapture.record(timeMs, channel + 1, type, p1, p2, label);
     }
   }
 

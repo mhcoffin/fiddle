@@ -116,6 +116,25 @@ message Subnote {
 }
 
 /**
+ * A concrete MIDI instruction produced by an Annotator.
+ * Attached to a Note's pre_note or post_note list.
+ */
+message MidiInstruction {
+    enum Type {
+        CC = 0;              // param1=CC#, param2=value
+        KEY_SWITCH = 1;      // param1=note#, param2=velocity (auto note-off)
+        PROGRAM_CHANGE = 2;  // param1=program#
+        PITCH_BEND = 3;      // param1=MSB, param2=LSB (14-bit)
+        CHANNEL_PRESSURE = 4;// param1=pressure value
+    }
+    Type type = 1;
+    int32 channel = 2;    // 1-based output channel (0 = same as note channel)
+    int32 param1 = 3;
+    int32 param2 = 4;
+    int32 delay_ms = 5;   // offset from anchor; negative = before noteOn
+}
+
+/**
  * A higher-level Note object aggregated from MIDI events.
  */
 message Note {
@@ -151,4 +170,12 @@ message Note {
 
     // MIDI port (1-based, mirrors MidiEvent.port). 0 = port 1.
     uint32 port = 13;
+
+    // Concrete MIDI instructions from the Annotator.
+    // pre_note: fired BEFORE the noteOn (keyswitches, setup CCs)
+    // post_note: fired AFTER the noteOff (cleanup, reset CCs)
+    // during_note: fired at offset delay_ms from noteOn (dynamics CCs)
+    repeated MidiInstruction pre_note = 20;
+    repeated MidiInstruction post_note = 21;
+    repeated MidiInstruction during_note = 22;
 }

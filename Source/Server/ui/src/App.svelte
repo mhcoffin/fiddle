@@ -5,6 +5,7 @@
   import EventLog from "./lib/EventLog.svelte";
   import SetupPanel from "./lib/SetupPanel.svelte";
   import PluginsPanel from "./lib/PluginsPanel.svelte";
+  import MidiCapture from "./lib/MidiCapture.svelte";
   import VersionHistory from "./lib/VersionHistory.svelte";
   import MixerPanel from "./lib/MixerPanel.svelte";
   import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
@@ -360,6 +361,10 @@
         class:active={activeTab === "plugins"}
         onclick={() => (activeTab = "plugins")}>Plugins</button
       >
+      <button
+        class:active={activeTab === "capture"}
+        onclick={() => (activeTab = "capture")}>MIDI Capture</button
+      >
     </nav>
 
     <main class="main-content">
@@ -392,6 +397,10 @@
       {:else if activeTab === "plugins"}
         <div class="panel-plugins">
           <PluginsPanel />
+        </div>
+      {:else if activeTab === "capture"}
+        <div class="panel-capture">
+          <MidiCapture />
         </div>
       {/if}
     </main>
@@ -511,7 +520,8 @@
   .panel-timeline,
   .panel-eventlog,
   .panel-setup,
-  .panel-plugins {
+  .panel-plugins,
+  .panel-capture {
     flex: 1;
     min-width: 0;
     min-height: 0;

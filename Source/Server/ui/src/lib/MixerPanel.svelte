@@ -2,6 +2,7 @@
     import { onMount, onDestroy, untrack } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
+    import NoteInspector from "./NoteInspector.svelte";
     import {
         FAMILY_ORDER,
         canonicalFamily,
@@ -118,6 +119,37 @@
     // ── Selection state ───────────────────────────────────
     let selectedIds = $state(new Set());
     let lastClickedId = $state(null);
+    let inspectorStripId = $state(null);
+    let inspectorWidth = $state(320);
+    let isResizing = $state(false);
+
+    const toggleInspector = (stripId) => {
+        inspectorStripId = inspectorStripId === stripId ? null : stripId;
+    };
+
+    // ── Resize drag logic ─────────────────────────────────
+    let resizeStartX = 0;
+    let resizeStartW = 0;
+
+    const onResizeMouseDown = (e) => {
+        e.preventDefault();
+        isResizing = true;
+        resizeStartX = e.clientX;
+        resizeStartW = inspectorWidth;
+        window.addEventListener('mousemove', onResizeMouseMove);
+        window.addEventListener('mouseup', onResizeMouseUp);
+    };
+
+    const onResizeMouseMove = (e) => {
+        const delta = resizeStartX - e.clientX; // dragging left = wider
+        inspectorWidth = Math.max(200, Math.min(800, resizeStartW + delta));
+    };
+
+    const onResizeMouseUp = () => {
+        isResizing = false;
+        window.removeEventListener('mousemove', onResizeMouseMove);
+        window.removeEventListener('mouseup', onResizeMouseUp);
+    };
     let isMultiSelected = $derived(selectedIds.size > 1);
     let flatStripOrder = $derived(strips.map((s) => s.id));
 
@@ -856,6 +888,7 @@
         </div>
     </div>
 
+    <div class="mixer-body" class:resizing={isResizing}>
     {#if strips.length === 0}
         <div class="empty-state">
             <p>
@@ -864,6 +897,7 @@
             </p>
         </div>
     {:else}
+        <div class="mixer-strips-area">
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="console" onclick={clearSelection}>
@@ -1090,45 +1124,55 @@
 
                                                 <!-- Expression Map -->
                                                 <div class="ch-xmap">
-                                                    <select
-                                                        class="ch-select ch-xmap-select"
-                                                        value={strip.expressionMapName
-                                                            ? "__loaded__"
-                                                            : ""}
-                                                        onchange={(e) => {
-                                                            const val =
-                                                                /** @type {HTMLSelectElement} */ (
-                                                                    e.target
-                                                                ).value;
-                                                            if (val === "__file__") {
-                                                                loadExpressionMapFromFile(strip.id);
-                                                                /** @type {HTMLSelectElement} */ (
-                                                                    e.target
-                                                                ).value = strip.expressionMapName
-                                                                    ? "__loaded__"
-                                                                    : "";
-                                                            } else if (val === "") {
-                                                                clearExpressionMap(strip.id);
-                                                            } else if (val !== "__loaded__") {
-                                                                loadExpressionMap(strip.id, val);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <option value="">— xmap —</option>
-                                                        {#if strip.expressionMapName}
-                                                            <option value="__loaded__" selected
-                                                                >{strip.expressionMapName}</option
-                                                            >
-                                                        {/if}
-                                                        {#each availableXmaps as xmap}
-                                                            <option value={xmap.entityID}
-                                                                >{xmap.name}</option
-                                                            >
-                                                        {/each}
-                                                        <option value="__file__"
-                                                            >Load from file…</option
+                                                    <div class="ch-xmap-row">
+                                                        <select
+                                                            class="ch-select ch-xmap-select"
+                                                            value={strip.expressionMapName
+                                                                ? "__loaded__"
+                                                                : ""}
+                                                            onchange={(e) => {
+                                                                const val =
+                                                                    /** @type {HTMLSelectElement} */ (
+                                                                        e.target
+                                                                    ).value;
+                                                                if (val === "__file__") {
+                                                                    loadExpressionMapFromFile(strip.id);
+                                                                    /** @type {HTMLSelectElement} */ (
+                                                                        e.target
+                                                                    ).value = strip.expressionMapName
+                                                                        ? "__loaded__"
+                                                                        : "";
+                                                                } else if (val === "") {
+                                                                    clearExpressionMap(strip.id);
+                                                                } else if (val !== "__loaded__") {
+                                                                    loadExpressionMap(strip.id, val);
+                                                                }
+                                                            }}
                                                         >
-                                                    </select>
+                                                            <option value="">— xmap —</option>
+                                                            {#if strip.expressionMapName}
+                                                                <option value="__loaded__" selected
+                                                                    >{strip.expressionMapName}</option
+                                                                >
+                                                            {/if}
+                                                            {#each availableXmaps as xmap}
+                                                                <option value={xmap.entityID}
+                                                                    >{xmap.name}</option
+                                                                >
+                                                            {/each}
+                                                            <option value="__file__"
+                                                                >Load from file…</option
+                                                            >
+                                                        </select>
+                                                        {#if strip.expressionMapName}
+                                                            <button
+                                                                class="ch-inspect-btn"
+                                                                class:active={inspectorStripId === strip.id}
+                                                                title="Note Inspector"
+                                                                onclick={() => toggleInspector(strip.id)}
+                                                            >🔍</button>
+                                                        {/if}
+                                                    </div>
                                                 </div>
 
 
@@ -1225,7 +1269,24 @@
                 </div>
             {/each}
         </div>
+        </div> <!-- /mixer-strips-area -->
     {/if}
+
+    {#if inspectorStripId}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+            class="inspector-resize-handle"
+            onmousedown={onResizeMouseDown}
+        ></div>
+        <div class="inspector-panel" style="width: {inspectorWidth}px;">
+            <div class="inspector-panel-header">
+                <span class="inspector-panel-title">Note Inspector</span>
+                <button class="inspector-close-btn" onclick={() => { inspectorStripId = null; }}>✕</button>
+            </div>
+            <NoteInspector stripId={inspectorStripId} />
+        </div>
+    {/if}
+    </div> <!-- /mixer-body -->
 </div>
 
 
@@ -1241,6 +1302,80 @@
             -apple-system,
             sans-serif;
         overflow: hidden;
+    }
+
+    .mixer-body {
+        display: flex;
+        flex-direction: row;
+        flex: 1;
+        overflow: hidden;
+        min-height: 0;
+    }
+
+    .mixer-body.resizing {
+        user-select: none;
+        cursor: col-resize;
+    }
+
+    .mixer-strips-area {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 0;
+    }
+
+    .inspector-resize-handle {
+        width: 5px;
+        cursor: col-resize;
+        background: #1e293b;
+        flex-shrink: 0;
+        transition: background 0.15s;
+    }
+
+    .inspector-resize-handle:hover {
+        background: #38bdf8;
+    }
+
+    .inspector-panel {
+        display: flex;
+        flex-direction: column;
+        background: #0f172a;
+        border-left: 1px solid #1e293b;
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+
+    .inspector-panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background: #1e293b;
+        border-bottom: 1px solid #334155;
+        flex-shrink: 0;
+    }
+
+    .inspector-panel-title {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: #e2e8f0;
+    }
+
+    .inspector-close-btn {
+        background: transparent;
+        border: none;
+        color: #64748b;
+        cursor: pointer;
+        font-size: 0.9rem;
+        padding: 2px 6px;
+        border-radius: 3px;
+        transition: all 0.15s;
+    }
+
+    .inspector-close-btn:hover {
+        color: #ef4444;
+        background: rgba(239, 68, 68, 0.1);
     }
 
     .mixer-toolbar {
@@ -1826,9 +1961,38 @@
         flex-direction: column;
         margin-bottom: 2px;
     }
+    .ch-xmap-row {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+    }
     .ch-xmap-select {
         font-size: 0.6rem;
         max-width: 100%;
+        flex: 1;
+        min-width: 0;
+    }
+    .ch-inspect-btn {
+        background: transparent;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 0.55rem;
+        padding: 1px 3px;
+        line-height: 1;
+        color: #64748b;
+        transition: all 0.15s;
+        flex-shrink: 0;
+    }
+    .ch-inspect-btn:hover {
+        background: #1e293b;
+        color: #94a3b8;
+        border-color: #475569;
+    }
+    .ch-inspect-btn.active {
+        background: #1e3a5f;
+        color: #38bdf8;
+        border-color: #38bdf8;
     }
 
     .ch-plugin {

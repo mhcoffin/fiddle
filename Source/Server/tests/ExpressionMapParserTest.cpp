@@ -9,7 +9,7 @@
 // Minimal test harness
 // ---------------------------------------------------------------------------
 
-static int gPass = 0, gFail = 0;
+int gPass = 0, gFail = 0;
 
 #define CHECK(expr)                                                            \
   do {                                                                         \
@@ -437,6 +437,32 @@ static void testActionTypeCoverage(const juce::File &dir) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: playbackOptionsOverrides → timingOptions
+// ---------------------------------------------------------------------------
+
+static void testVSLDualityTimingOptions(const juce::File &examplesDir) {
+  std::cout << "--- testVSLDualityTimingOptions ---" << std::endl;
+  auto file = examplesDir.getChildFile(
+      "VSL SY Duality Strings - Violins, Violas.doricolib");
+  if (!file.existsAsFile()) {
+    std::cout << "  SKIP: VSL Duality file not found" << std::endl;
+    return;
+  }
+  ExpressionMapData data;
+  CHECK(parseExpressionMap(file, data));
+
+  CHECK_EQ(data.timingOptions.noteDurationPercent, 85);
+  CHECK_EQ(data.timingOptions.staccatoDurationPercent, 80);
+  CHECK_EQ(data.timingOptions.staccatissimoDurationPercent, 80);
+  CHECK_EQ(data.timingOptions.legatoDurationPercent, 101);
+}
+
+// ---------------------------------------------------------------------------
+// Forward declaration for annotator tests
+// ---------------------------------------------------------------------------
+extern void runAnnotatorTests();
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -461,7 +487,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Examples dir: " << examplesDir.getFullPathName() << std::endl;
   std::cout << std::endl;
 
-  // Run tests
+  // Run parser tests
   testTechniqueIDParsing();
   testFindBestMatch();
   testParseSucceeds(examplesDir);
@@ -472,6 +498,10 @@ int main(int argc, char *argv[]) {
   testBerlinWoodwinds(examplesDir);
   testVSLDimensionStrings(examplesDir);
   testBWWAClarinet(examplesDir);
+  testVSLDualityTimingOptions(examplesDir);
+
+  // Run annotator tests
+  runAnnotatorTests();
 
   // Summary
   std::cout << std::endl;
@@ -481,3 +511,4 @@ int main(int argc, char *argv[]) {
 
   return gFail > 0 ? 1 : 0;
 }
+

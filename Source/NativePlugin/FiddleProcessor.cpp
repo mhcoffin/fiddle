@@ -305,6 +305,19 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
 
     tcpRelay_->pushMessage(transportEvent);
   }
+
+  // Detect transport stop
+  if (!isPlaying && wasPlaying_ && tcpRelay_) {
+    MidiEvent transportEvent;
+    transportEvent.set_timestamp_samples(0);
+    transportEvent.set_host_sample_position(static_cast<uint64_t>(hostSamples));
+
+    auto *transport = transportEvent.mutable_transport();
+    transport->set_type(MidiEvent_TransportEvent_Type_STOP);
+    transport->set_host_sample_position(static_cast<uint64_t>(hostSamples));
+
+    tcpRelay_->pushMessage(transportEvent);
+  }
   wasPlaying_ = isPlaying;
 
   // Process MIDI events from input event list

@@ -1,8 +1,14 @@
 #pragma once
 
+#include "AnnotationRecord.h"
+#include "Annotator.h"
+#include "ExpressionMapAnnotator.h"
 #include "ExpressionMapData.h"
+#include "IncomingSwitchTracker.h"
+#include "MidiCaptureLog.h"
 #include "PluginEditorWindow.h"
 #include <atomic>
+#include <deque>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
@@ -96,6 +102,150 @@ struct MixerStrip {
   std::shared_ptr<ExpressionMapData> expressionMap;
   juce::String expressionMapPath; // file path for persistence
 
+  /// Set (or clear) the expression map for this strip.
+  /// Automatically creates/destroys the ExpressionMapAnnotator.
+  void setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
+    expressionMap = std::move(em);
+    if (expressionMap) {
+      annotator = std::make_unique<ExpressionMapAnnotator>(expressionMap);
+      incomingTracker = std::make_unique<IncomingSwitchTracker>(expressionMap);
+    } else {
+      annotator = std::make_unique<PassthroughAnnotator>();
+      incomingTracker.reset();
+    }
+  }
+
+  // Annotator: translates semantic note info into concrete MIDI for this VST.
+  // Defaults to PassthroughAnnotator (no transformation).
+  std::unique_ptr<Annotator> annotator =
+      std::make_unique<PassthroughAnnotator>();
+
+  // Incoming switch tracker: reverse-matches Dorico MIDI to switch names.
+  std::unique_ptr<IncomingSwitchTracker> incomingTracker;
+
+  // Ring buffer of recent annotation decision records for Note Inspector UI.
+  std::deque<AnnotationRecord> recentAnnotations_;
+  static constexpr size_t kMaxAnnotations = 64;
+
+  void pushAnnotation(const AnnotationRecord &rec) {
+    recentAnnotations_.push_back(rec);
+    while (recentAnnotations_.size() > kMaxAnnotations)
+      recentAnnotations_.pop_front();
+  }
+
+  void clearAnnotations() {
+    recentAnnotations_.clear();
+    if (annotator)
+      annotator->resetState();
+  }
+
+  // MIDI capture logs for expression map comparison.
+  // incomingCapture: raw MIDI from Dorico (ground truth when EM is in Dorico).
+  // emittedCapture:  MIDI emitted to the hosted VST by FiddleServer.
+  MidiCaptureLog incomingCapture;
+  MidiCaptureLog emittedCapture;
+
+  /// Currently held (latching) keyswitch notes per channel.
+  /// Key: {channel, noteNumber}. Keyswitches are held until articulation
+  /// changes, matching Dorico's latching behavior for VSTs.
+  struct HeldKS {
+    int channel, noteNumber;
+    bool operator<(const HeldKS &o) const {
+      return std::tie(channel, noteNumber) < std::tie(o.channel, o.noteNumber);
+    }
+    bool operator==(const HeldKS &o) const {
+      return channel == o.channel && noteNumber == o.noteNumber;
+    }
+  };
+  std::set<HeldKS> heldKeyswitchNotes;
+
+  /// Serialize one AnnotationRecord to a juce::var (DynamicObject).
+  static juce::var annotationRecordToVar(const AnnotationRecord &r) {
+    auto *obj = new juce::DynamicObject();
+
+    obj->setProperty("noteNumber", r.noteNumber);
+
+    // Input techniques
+    {
+      juce::Array<juce::var> arr;
+      for (const auto &t : r.inputTechniques)
+        arr.add(juce::String(t));
+      obj->setProperty("inputTechniques", juce::var(arr));
+    }
+
+    // Match resolution
+    obj->setProperty("lengthCategory", static_cast<int>(r.lengthCategory));
+    obj->setProperty("baseSwitchName", juce::String(r.baseSwitchName));
+    {
+      juce::Array<juce::var> arr;
+      for (const auto &t : r.baseTechniqueIDs)
+        arr.add(juce::String(t));
+      obj->setProperty("baseTechniqueIDs", juce::var(arr));
+    }
+    {
+      juce::Array<juce::var> arr;
+      for (const auto &n : r.addOnNames)
+        arr.add(juce::String(n));
+      obj->setProperty("addOnNames", juce::var(arr));
+    }
+    {
+      juce::Array<juce::var> arr;
+      for (const auto &t : r.unmatchedTechniques)
+        arr.add(juce::String(t));
+      obj->setProperty("unmatchedTechniques", juce::var(arr));
+    }
+
+    // Candidates (Tier 3)
+    if (!r.candidates.empty()) {
+      juce::Array<juce::var> arr;
+      for (const auto &c : r.candidates) {
+        auto *cObj = new juce::DynamicObject();
+        cObj->setProperty("name", juce::String(c.name));
+        cObj->setProperty("score", c.score);
+        juce::Array<juce::var> tArr;
+        for (const auto &t : c.techniqueIDs)
+          tArr.add(juce::String(t));
+        cObj->setProperty("techniqueIDs", juce::var(tArr));
+        arr.add(juce::var(cObj));
+      }
+      obj->setProperty("candidates", juce::var(arr));
+    }
+
+    // MIDI actions
+    {
+      juce::Array<juce::var> arr;
+      for (const auto &a : r.midiActionsEmitted) {
+        auto *aObj = new juce::DynamicObject();
+        aObj->setProperty("type", static_cast<int>(a.type));
+        aObj->setProperty("param1", a.param1);
+        aObj->setProperty("param2", a.param2);
+        arr.add(juce::var(aObj));
+      }
+      obj->setProperty("midiActionsEmitted", juce::var(arr));
+    }
+    obj->setProperty("redundancySkipped", r.redundancySkipped);
+
+    // Modifiers
+    obj->setProperty("velocityBefore", r.velocityBefore);
+    obj->setProperty("velocityAfter", r.velocityAfter);
+    obj->setProperty("transposeApplied", r.transposeApplied);
+
+    // Dynamics + duration
+    obj->setProperty("dynamicsRouting", juce::String(r.dynamicsRouting));
+    obj->setProperty("durationAdjustMs", r.durationAdjustMs);
+
+    return juce::var(obj);
+  }
+
+  /// Serialize the entire ring buffer to a JSON string.
+  juce::String getAnnotationRecordsAsJson() const {
+    juce::Array<juce::var> arr;
+    for (const auto &rec : recentAnnotations_)
+      arr.add(annotationRecordToVar(rec));
+    return juce::JSON::toString(juce::var(arr), true);
+  }
+
+
   std::mutex processMutex;
   std::mutex midiMutex;
   std::vector<std::pair<double, juce::MidiMessage>> delayedMessages;
@@ -139,6 +289,7 @@ struct MixerStrip {
       std::lock_guard<std::mutex> lock(midiMutex);
       delayedMessages.clear();
     }
+    heldKeyswitchNotes.clear();
     std::lock_guard<std::mutex> lock(processMutex);
     if (!pluginInstance)
       return;

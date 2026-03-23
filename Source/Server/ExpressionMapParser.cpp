@@ -166,6 +166,7 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     tc.millisecondsBefore = getChildInt(combo, "millisecondsBefore");
 
     tc.conditionString = getChildText(combo, "conditionString");
+    tc.condition = parseConditionString(tc.conditionString);
 
     tc.velocityFactor = getChildFloat(combo, "velocityFactor", 1.0f);
     tc.lengthFactor = getChildFloat(combo, "lengthFactor", 1.0f);
@@ -181,8 +182,122 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     tc.pitchMin = pitchRange.first;
     tc.pitchMax = pitchRange.second;
 
+    // Parse volumeType: how the VST receives dynamics for this technique
+    auto *volType = combo->getChildByName("volumeType");
+    if (volType) {
+      auto vtType = getChildText(volType, "type");
+      if (vtType == "kCC") {
+        tc.volumeType = VolumeType::kCC;
+        tc.volumeCC = getChildInt(volType, "param1", 1);
+      }
+      // kNoteVelocity is the default, no need to set
+    }
+
+    // Parse volumeType2: secondary dynamics (e.g., CC1 for sustain)
+    auto *volType2 = combo->getChildByName("volumeType2");
+    if (volType2) {
+      auto vt2Type = getChildText(volType2, "type");
+      if (vt2Type == "kCC") {
+        tc.volumeType2 = VolumeType::kCC;
+        tc.volumeCC2 = getChildInt(volType2, "param1", 1);
+      }
+    }
+
     result.combinations.push_back(std::move(tc));
   }
+
+  // Parse techniqueAddOns (add-on switches — stackable on top of base switches)
+  auto *addOnsEl = mapDef->getChildByName("techniqueAddOns");
+  if (addOnsEl) {
+    for (auto *addOn : addOnsEl->getChildIterator()) {
+      TechniqueCombination tc;
+      tc.isAddOn = true;
+      tc.name = getChildText(addOn, "name");
+      tc.techniqueIDs =
+          parseTechniqueIDs(getChildText(addOn, "techniqueIDs"));
+      tc.switchOnActions =
+          parseActions(addOn->getChildByName("switchOnActions"));
+      tc.switchOffActions =
+          parseActions(addOn->getChildByName("switchOffActions"));
+      tc.ticksBefore = getChildInt(addOn, "ticksBefore");
+      tc.millisecondsBefore = getChildInt(addOn, "millisecondsBefore");
+      tc.velocityFactor = getChildFloat(addOn, "velocityFactor", 1.0f);
+      tc.lengthFactor = getChildFloat(addOn, "lengthFactor", 1.0f);
+      tc.transpose = getChildInt(addOn, "transpose");
+
+      if (!tc.techniqueIDs.empty())
+        result.combinations.push_back(std::move(tc));
+    }
+  }
+
+  // Parse playbackOptionsOverrides (category-level timing percentages)
+  auto *overridesEl = mapDef->getChildByName("playbackOptionsOverrides");
+  if (overridesEl) {
+    for (auto *ovr : overridesEl->getChildIterator()) {
+      auto option = getChildText(ovr, "option");
+      auto valueStr = getChildText(ovr, "value");
+      // Values are formatted as "int: 85"
+      int val = 0;
+      auto colonPos = valueStr.find(':');
+      if (colonPos != std::string::npos) {
+        auto numStr = valueStr.substr(colonPos + 1);
+        auto start = numStr.find_first_not_of(" \t");
+        if (start != std::string::npos) {
+          try {
+            val = std::stoi(numStr.substr(start));
+          } catch (...) {
+            continue;
+          }
+        }
+      }
+      if (option == "timingOptions.noteDurationPercent")
+        result.timingOptions.noteDurationPercent = val;
+      else if (option == "timingOptions.staccatoDurationPercent")
+        result.timingOptions.staccatoDurationPercent = val;
+      else if (option == "timingOptions.staccatissimoDurationPercent")
+        result.timingOptions.staccatissimoDurationPercent = val;
+      else if (option == "timingOptions.legatoDurationPercent")
+        result.timingOptions.legatoDurationPercent = val;
+      else if (option == "timingOptions.tenutoDurationPercent")
+        result.timingOptions.tenutoDurationPercent = val;
+      else if (option == "timingOptions.marcatoDurationPercent")
+        result.timingOptions.marcatoDurationPercent = val;
+    }
+  }
+
+  // Parse mutualExclusionGroups (MEGs)
+  auto *megsEl = mapDef->getChildByName("mutualExclusionGroups");
+  if (megsEl) {
+    for (auto *meg : megsEl->getChildIterator()) {
+      MutualExclusionGroup group;
+      group.name = getChildText(meg, "name");
+
+      auto techText = getChildText(meg, "techniqueIDs");
+      if (!techText.empty()) {
+        // Comma-separated list of pt.xxx IDs
+        std::istringstream ss(techText);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+          auto start = token.find_first_not_of(" \t");
+          auto end = token.find_last_not_of(" \t");
+          if (start != std::string::npos)
+            group.techniqueIDs.push_back(token.substr(start, end - start + 1));
+        }
+      }
+
+      group.defaultID = getChildText(meg, "defaultID");
+      // If no explicit default, use first member
+      if (group.defaultID.empty() && !group.techniqueIDs.empty())
+        group.defaultID = group.techniqueIDs[0];
+
+      if (!group.name.empty() && !group.techniqueIDs.empty())
+        result.megs.push_back(std::move(group));
+    }
+  }
+
+  // Fall back to hardcoded default MEGs when autoMutualExclusion is on
+  if (result.megs.empty() && result.autoMutualExclusion)
+    result.megs = getDefaultMEGs();
 
   return !result.combinations.empty();
 }

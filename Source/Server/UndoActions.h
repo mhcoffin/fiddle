@@ -109,16 +109,16 @@ public:
 
   void execute() override {
     if (auto *s = mixer_.getStrip(stripId_)) {
-      s->expressionMap = newData_;
+      s->setExpressionMap(newData_);
       s->expressionMapPath = "";
     }
   }
   void undo() override {
     if (auto *s = mixer_.getStrip(stripId_)) {
       if (oldEntityID_.empty()) {
-        s->expressionMap = nullptr;
+        s->setExpressionMap(nullptr);
       } else {
-        s->expressionMap = library_.load(oldEntityID_);
+        s->setExpressionMap(library_.load(oldEntityID_));
       }
       s->expressionMapPath = "";
     }

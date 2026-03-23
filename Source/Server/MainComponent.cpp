@@ -117,6 +117,12 @@ MainComponent::MainComponent()
       });
     };
 
+    cbs.onForwardMessage = [this](const juce::String &type,
+                                   const juce::var &payload) {
+      safeCallAsync(
+          [this, type, payload]() { handleJsMessage(type, payload); });
+    };
+
     debugWindow_ = std::make_unique<DebugWindow>(
         [this](const juce::String &url) { return getResource(url); },
         std::move(cbs));
@@ -377,20 +383,17 @@ void MainComponent::runInitStep(int step) {
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
                                     mixer_.getPlaybackDelayMs();
-             // JUCE MidiMessage takes channels 1-16. n.channel() from Dorico
-             // is also 1-based (1-16), so pass directly (no +1).
-             juce::MidiMessage msg = juce::MidiMessage::noteOn(
-                 (int)n.channel(), (int)n.note_number(),
-                 (juce::uint8)n.start_velocity());
-             // Route the message to the MixerModel.
-             // n.port() from Dorico is 0-based (matches strip inputPort directly).
-             // n.channel() from Dorico is 1-based (1-16); strip inputChannel
-             // is 0-based (0-15), so subtract 1.
+             // Route through annotator-aware path.
+             // n.port() from Dorico is 0-based (matches strip inputPort).
+             // n.channel() from Dorico is 1-based; strip inputChannel is
+             // 0-based, so subtract 1.
              int notePort = (int)n.port();
              std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
                        << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
-             mixer_.routeNoteEvent(notePort, (int)n.channel() - 1, msg,
-                                   triggerTimeMs);
+             // Mutable copy so annotators can populate pre_note/post_note
+             fiddle::Note mutableNote(n);
+             mixer_.routeAnnotatedNoteOn(notePort, (int)n.channel() - 1,
+                                         mutableNote, triggerTimeMs);
 
              juce::var noteVar = juce::JSON::fromString(noteToJson(n));
              juce::DynamicObject::Ptr obj = new juce::DynamicObject();
@@ -407,17 +410,13 @@ void MainComponent::runInitStep(int step) {
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
                                     mixer_.getPlaybackDelayMs();
-             // JUCE MidiMessage takes channels 1-16 to build valid MIDI byte
-             // payload
-             // JUCE MidiMessage: channel 1-16, n.channel() is already 1-based.
-             juce::MidiMessage msg = juce::MidiMessage::noteOff(
-                 (int)n.channel(), (int)n.note_number(), (juce::uint8)0);
-
+             // Route through annotator-aware path.
              int noteOffPort = (int)n.port();
              std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
                        << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
-             mixer_.routeNoteEvent(noteOffPort, (int)n.channel() - 1, msg,
-                                   triggerTimeMs);
+             fiddle::Note mutableNote(n);
+             mixer_.routeAnnotatedNoteOff(noteOffPort, (int)n.channel() - 1,
+                                          mutableNote, triggerTimeMs);
 
              juce::var noteVar = juce::JSON::fromString(noteToJson(n));
              juce::DynamicObject::Ptr obj = new juce::DynamicObject();
@@ -438,6 +437,16 @@ void MainComponent::runInitStep(int step) {
            },
            [this, midiEventToJson](const fiddle::MidiEvent &event,
                                    uint64_t absoluteSamples, int oldCCVal) {
+             // On transport stop, release all latched keyswitches
+             if (event.has_transport() &&
+                 event.transport().type() ==
+                     fiddle::MidiEvent_TransportEvent_Type_STOP) {
+               double triggerTimeMs =
+                   juce::Time::getMillisecondCounterHiRes() +
+                   mixer_.getPlaybackDelayMs();
+               mixer_.releaseAllKeyswitches(triggerTimeMs);
+             }
+
              juce::var eventVar = juce::JSON::fromString(
                  midiEventToJson(event, absoluteSamples, oldCCVal));
              safeCallAsync([this, eventVar]() {
@@ -482,6 +491,33 @@ void MainComponent::runInitStep(int step) {
         noteTracker.processEvent(event);
         pushEventToWebView(event);
 
+        // Record raw incoming MIDI for capture/comparison
+        {
+          double nowMs = juce::Time::getMillisecondCounterHiRes();
+          int port = (int)event.port();
+          int ch0 = (int)event.channel() - 1; // 0-based for strip matching
+          if (event.has_note_on()) {
+            mixer_.recordIncomingMidi(
+                port, ch0, CapturedMidiEvent::NoteOn,
+                (int)event.note_on().note_number(),
+                (int)event.note_on().velocity(), nowMs);
+          } else if (event.has_note_off()) {
+            mixer_.recordIncomingMidi(
+                port, ch0, CapturedMidiEvent::NoteOff,
+                (int)event.note_off().note_number(),
+                (int)event.note_off().velocity(), nowMs);
+          } else if (event.has_cc()) {
+            mixer_.recordIncomingMidi(
+                port, ch0, CapturedMidiEvent::CC,
+                (int)event.cc().controller_number(),
+                (int)event.cc().controller_value(), nowMs);
+          } else if (event.has_program_change()) {
+            mixer_.recordIncomingMidi(
+                port, ch0, CapturedMidiEvent::ProgramChange,
+                (int)event.program_change().program_number(), 0, nowMs);
+          }
+        }
+
         // Forward CC events to VST plugins
         if (event.has_cc()) {
           int ch = event.channel();
@@ -497,12 +533,15 @@ void MainComponent::runInitStep(int step) {
             std::cerr << "[MainComponent] Panic: CC " << ccNum
                       << " → allNotesOff on all strips" << std::endl;
           } else {
-            // Route CC to matching strips (ch is 1-based from protobuf, mixer
-            // uses 0-based)
+            // Route CC through annotator-aware path.
             // ch from Dorico is 1-based; JUCE controllerEvent also uses 1-16.
             juce::MidiMessage ccMsg =
                 juce::MidiMessage::controllerEvent(ch, ccNum, ccVal);
-            mixer_.routeCCEvent(port, ch - 1, ccMsg);
+            double triggerTimeMs =
+                juce::Time::getMillisecondCounterHiRes() +
+                mixer_.getPlaybackDelayMs();
+            mixer_.routeAnnotatedCC(port, ch - 1, event, ccMsg,
+                                    triggerTimeMs);
           }
 
           // ch is 1-based from protobuf — log it directly (no +1 needed)
@@ -588,7 +627,7 @@ void MainComponent::runInitStep(int step) {
                 if (!rs.expressionMapEntityID.empty()) {
                   auto xmapData = xmapLibrary_.load(rs.expressionMapEntityID);
                   if (xmapData)
-                    strip->expressionMap = xmapData;
+                    strip->setExpressionMap(xmapData);
                 }
 
                 // Load plugin
@@ -1157,7 +1196,7 @@ void MainComponent::loadStripsFromDB() {
       if (!row.expressionMapEntityID.empty()) {
         auto data = xmapLibrary_.load(row.expressionMapEntityID);
         if (data) {
-          strip->expressionMap = data;
+          strip->setExpressionMap(data);
           std::cerr << "[loadDB] Restored xmap '" << data->name
                     << "' for strip " << strip->id << std::endl;
         }
@@ -1951,7 +1990,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
     if (args.size() < 1) {
       safeCallAsync([this]() {
-        webComponent.evaluateJavascript("setSaveResult('Error: no data')");
+        broadcastMessage("setSaveResult", juce::var("Error: no data"));
       });
       return;
     }
@@ -2003,8 +2042,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         msg = "Error: " + result.getErrorMessage();
       }
       safeCallAsync([this, msg]() {
-        webComponent.evaluateJavascript("setSaveResult('" + escapeForJS(msg) +
-                                        "')");
+        broadcastMessage("setSaveResult", juce::var(msg));
       });
 
       if (compacted) {
@@ -2018,16 +2056,15 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
       // Update channel map for Timeline
       juce::String mapJson2 = masterList_.getChannelMapAsJson();
-      juce::String mapCall2 =
-          "setInstrumentMap('" + escapeForJS(mapJson2) + "')";
-      safeCallAsync(
-          [this, mapCall2]() { webComponent.evaluateJavascript(mapCall2); });
+      safeCallAsync([this, mapJson2]() {
+        broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson2));
+      });
 
       // Push updated mixer state to UI
       pushMixerState();
     } else {
       safeCallAsync([this]() {
-        webComponent.evaluateJavascript("setSaveResult('Error: Invalid JSON')");
+        broadcastMessage("setSaveResult", juce::var("Error: Invalid JSON"));
       });
     }
     return;
@@ -2047,9 +2084,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushLogMessage("<b>[Plugins]</b> Scan complete: " + juce::String(count) +
                      " plugins found");
       juce::String json = pluginScanner_.getPluginListAsJson();
-      juce::String call = "setPluginList('" + escapeForJS(json) + "')";
-      webComponent.evaluateJavascript(call);
-      pushToDebugWindow(call);
+      broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
     return;
   }
@@ -2067,9 +2102,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushLogMessage("<b>[Plugins]</b> Rescan complete: " +
                      juce::String(count) + " plugins found");
       juce::String json = pluginScanner_.getPluginListAsJson();
-      juce::String call = "setPluginList('" + escapeForJS(json) + "')";
-      webComponent.evaluateJavascript(call);
-      pushToDebugWindow(call);
+      broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
     return;
   }
@@ -2216,6 +2249,183 @@ void MainComponent::handleJsMessage(const juce::String &type,
     });
     return;
   }
+  if (type == "getAnnotationRecords") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1)
+      return;
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      auto *strip = mixer_.getStrip(stripId);
+      if (!strip)
+        return;
+      juce::String json = strip->getAnnotationRecordsAsJson();
+      auto *envelope = new juce::DynamicObject();
+      envelope->setProperty("stripId", stripId);
+      envelope->setProperty("records", juce::JSON::parse(json));
+      broadcastMessage("setAnnotationRecords", juce::var(envelope));
+    });
+    return;
+  }
+  if (type == "clearAnnotationRecords") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1)
+      return;
+    juce::String stripId = args[0].toString();
+    safeCallAsync([this, stripId]() {
+      auto *strip = mixer_.getStrip(stripId);
+      if (!strip)
+        return;
+      strip->clearAnnotations();
+    });
+    return;
+  }
+
+  // ── MIDI Capture IPC ─────────────────────────────────────────────────
+
+  if (type == "startMidiCapture") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    juce::String mode = args[1].toString(); // "incoming", "emitted", or "both"
+
+    auto *strip = mixer_.getStrip(stripId);
+    if (!strip)
+      return;
+    if (mode == "incoming" || mode == "both")
+      strip->incomingCapture.startCapture();
+    if (mode == "emitted" || mode == "both")
+      strip->emittedCapture.startCapture();
+    return;
+  }
+
+  if (type == "stopMidiCapture") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    juce::String mode = args[1].toString();
+
+    auto *strip = mixer_.getStrip(stripId);
+    if (!strip)
+      return;
+    if (mode == "incoming" || mode == "both")
+      strip->incomingCapture.stopCapture();
+    if (mode == "emitted" || mode == "both")
+      strip->emittedCapture.stopCapture();
+    return;
+  }
+
+  if (type == "getMidiCapture") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    juce::String mode = args[1].toString(); // "incoming" or "emitted"
+
+    safeCallAsync([this, stripId, mode]() {
+      auto *strip = mixer_.getStrip(stripId);
+      if (!strip)
+        return;
+      auto *envelope = new juce::DynamicObject();
+      envelope->setProperty("stripId", stripId);
+      envelope->setProperty("mode", mode);
+      if (mode == "incoming")
+        envelope->setProperty("events", strip->incomingCapture.toVar());
+      else
+        envelope->setProperty("events", strip->emittedCapture.toVar());
+      envelope->setProperty(
+          "count",
+          (int)(mode == "incoming" ? strip->incomingCapture.eventCount()
+                                   : strip->emittedCapture.eventCount()));
+      broadcastMessage("setMidiCapture", juce::var(envelope));
+    });
+    return;
+  }
+
+  if (type == "clearMidiCapture") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    juce::String mode = args[1].toString();
+
+    auto *strip = mixer_.getStrip(stripId);
+    if (!strip)
+      return;
+    if (mode == "incoming" || mode == "both")
+      strip->incomingCapture.clear();
+    if (mode == "emitted" || mode == "both")
+      strip->emittedCapture.clear();
+    return;
+  }
+
+  if (type == "getCaptureStripList") {
+    safeCallAsync([this]() {
+      juce::Array<juce::var> arr;
+      for (auto *strip : mixer_.getAllStrips()) {
+        // Only show strips that have an expression map assigned
+        if (!strip->expressionMap)
+          continue;
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("id", strip->id);
+        obj->setProperty(
+            "name", strip->library.isNotEmpty()
+                        ? strip->library + " (" + strip->family + ")"
+                        : strip->id);
+        obj->setProperty("port", strip->inputPort + 1); // 1-based for Dorico
+        obj->setProperty("channel", strip->inputChannel);
+        arr.add(juce::var(obj));
+      }
+      broadcastMessage("setCaptureStripList", juce::var(arr));
+    });
+    return;
+  }
+
+  if (type == "exportCaptureFile") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String text = args[0].toString();
+    juce::String defaultName = args[1].toString();
+
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export MIDI Capture",
+        juce::File::getSpecialLocation(
+            juce::File::userDesktopDirectory)
+            .getChildFile(defaultName + ".midi-dump"),
+        "*.midi-dump");
+
+    chooser->launchAsync(
+        juce::FileBrowserComponent::saveMode |
+            juce::FileBrowserComponent::canSelectFiles |
+            juce::FileBrowserComponent::warnAboutOverwriting,
+        [text, chooser](const juce::FileChooser &fc) {
+          auto results = fc.getResults();
+          if (results.isEmpty())
+            return;
+          auto file = results[0];
+          file.replaceWithText(text);
+        });
+    return;
+  }
+
   if (type == "setStripPlugin") {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2346,7 +2556,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
                              return;
 
                            if (auto *s = mixer_.getStrip(stripId)) {
-                             s->expressionMap = data;
+                             s->setExpressionMap(data);
                              s->expressionMapPath = file.getFullPathName();
                            }
 
@@ -2375,8 +2585,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         pushMixerState();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
-          webComponent.evaluateJavascript(
-              "if(window.setDirtyState)setDirtyState(false)");
+          broadcastMessage("setDirtyState", false);
           pushConfigStatus();
         }
       }
@@ -2393,8 +2602,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         pushMixerState();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
-          webComponent.evaluateJavascript(
-              "if(window.setDirtyState)setDirtyState(false)");
+          broadcastMessage("setDirtyState", false);
           pushConfigStatus();
         }
       }
@@ -2766,7 +2974,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
                       auto xd =
                           xmapLibrary_.load(blobOpt->expressionMapEntityId);
                       if (xd)
-                        strip->expressionMap = xd;
+                        strip->setExpressionMap(xd);
                     }
                     if (strip->pluginUid != 0) {
                       for (const auto &d :
@@ -2850,7 +3058,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
                       auto xmapData =
                           xmapLibrary_.load(blobOpt->expressionMapEntityId);
                       if (xmapData)
-                        strip->expressionMap = xmapData;
+                        strip->setExpressionMap(xmapData);
                     }
 
                     if (strip->pluginUid != 0) {
@@ -2971,7 +3179,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
               if (!blobOpt->expressionMapEntityId.empty()) {
                 auto xd = xmapLibrary_.load(blobOpt->expressionMapEntityId);
                 if (xd)
-                  strip->expressionMap = xd;
+                  strip->setExpressionMap(xd);
               }
               if (strip->pluginUid != 0) {
                 for (const auto &d :
@@ -3055,7 +3263,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
                         auto xd =
                             xmapLibrary_.load(blobOpt->expressionMapEntityId);
                         if (xd)
-                          strip->expressionMap = xd;
+                          strip->setExpressionMap(xd);
                       }
                       if (strip->pluginUid != 0) {
                         for (const auto &d :
@@ -3170,14 +3378,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
     // Trigger the save flow — target the setup window's WebView
     safeCallAsync([this]() {
-      if (setupWindow_ && setupWindowLoaded_) {
-        setupWindow_->getWebView().evaluateJavascript(
-            "if(window.triggerSaveSetup)window.triggerSaveSetup()");
-      } else {
-        // Fallback: try main window
-        webComponent.evaluateJavascript(
-            "if(window.triggerSaveSetup)window.triggerSaveSetup()");
-      }
+      broadcastMessage("triggerSaveSetup", juce::var());
     });
     return;
   }

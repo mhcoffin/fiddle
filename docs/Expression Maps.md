@@ -5,7 +5,7 @@ This is done through a system of "Expression Maps" which are XML files Each entr
 
 # The Problem
 
-We want Fiddle to be able to read these expression maps and use them to generate the correct MIDI events to send the the VST for each note. Each Note data structure in Fiddle already has a set of techniques. We need to load the expression map for the instrument and then use the techniques to generate the correct MIDI events to send the the VST for each note.
+We want Fiddle to be able to read these expression maps and use them to generate the correct MIDI events to send the the VST for each note. Each Note data structure in Fiddle already has a set of playback techniques. We need to load the expression map for the instrument and then use the techniques to generate the correct MIDI events to send the the VST for each note.
 
 The expression map is not always complete: we may find notes that have a set of techniques that is different than any single entry in the expression map. In this case we need to find the entry that is the "closest" to the set of techniques and use that to generate the correct MIDI events to send the the VST for each note. The definition of "closest" is not yet defined. We will need to come up with a way to define "closest" and implement it. An approximation is to find the entry that has the most techniques in common with the set of techniques. We have a short explanation from Daniel Spreadbury, the head of the Dorico team at Steinberg, about how Dorico interprets expression maps in the file "Interpreting Expression Maps.md". We want to follow that as closely as possible.
 

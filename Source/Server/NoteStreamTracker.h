@@ -159,6 +159,10 @@ public:
         resetSessionStartTime();
         if (callbacks.onMidiEvent)
           callbacks.onMidiEvent(event, 0, -1);
+      } else if (event.transport().type() ==
+                 fiddle::MidiEvent_TransportEvent_Type_STOP) {
+        if (callbacks.onMidiEvent)
+          callbacks.onMidiEvent(event, absoluteSamples, -1);
       }
     } else {
       // Forward all other events (ProgramChange, ContextUpdate, PitchBend,
@@ -194,12 +198,23 @@ private:
     if (expMap == nullptr)
       return false;
 
+    // Compound CC102 encoding: value = technique_index * 5 + length_index
+    // Decode before dimension lookup so the technique map works with base values.
+    int effectiveVal = val;
+    if (ccNum == 102) {
+      int lengthIdx = val % 5; // 0=veryShort..4=veryLong
+      effectiveVal = val;      // keep compound value for dimension lookup
+      // Store length category on the note so the annotator can use it
+      (*note.mutable_notation_dimensions())["dorico_length_category"] =
+          (float)lengthIdx;
+    }
+
     const auto *dim = expMap->getDimensionForCC(ccNum);
     if (dim != nullptr) {
       (*note.mutable_notation_dimensions())[dim->name.toStdString()] =
-          (float)val;
+          (float)effectiveVal;
 
-      auto techIt = dim->techniques.find(val);
+      auto techIt = dim->techniques.find(effectiveVal);
       if (techIt != dim->techniques.end()) {
         (*note.mutable_notation_techniques())[dim->name.toStdString()] =
             techIt->second.toStdString();
@@ -209,7 +224,7 @@ private:
 
       bool isDefault =
           (std::find(dim->defaultValues.begin(), dim->defaultValues.end(),
-                     val) != dim->defaultValues.end());
+                     effectiveVal) != dim->defaultValues.end());
       (*note.mutable_notation_is_default())[dim->name.toStdString()] =
           isDefault;
       return true;
