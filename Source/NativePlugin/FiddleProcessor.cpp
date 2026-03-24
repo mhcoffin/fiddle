@@ -89,7 +89,7 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     // Create TCP relay on activation.
     // VST3 guarantees setActive is not called concurrently with process(),
     // so this is safe without additional synchronization.
-    tcpRelay_ = std::make_unique<TcpRelay>();
+    tcpRelay_ = std::make_unique<TcpRelay>("127.0.0.1", 5252, lastKnownDelayMs_);
 
     // Set up connection callback for state replay and UI notification.
     // The callback is invoked from the relay thread.
@@ -160,24 +160,21 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
               std::string(connected ? "connected" : "disconnected"));
   }
 
-  // Check for delay changes pushed via TCP (lock-free atomic read)
+  // Check for delay changes pushed via TCP (lock-free atomic read).
+  // We update latencySamples_ silently — do NOT call sendMessage() or
+  // restartComponent() here. That causes an infinite restart loop:
+  //   restartComponent → setActive(false/true) → new TcpRelay → reconnect
+  //   → server pushes delay → latencyChanged → sendMessage → restartComponent
+  // Dorico queries getLatencySamples() during setupProcessing/setActive,
+  // so the value is picked up when the audio engine naturally restarts.
   if (tcpRelay_ && tcpRelay_->consumeLatencyChanged()) {
     int newDelay = tcpRelay_->getDelayMs();
     pluginLog("[Latency] delay changed via TCP: " +
               std::to_string(lastKnownDelayMs_) + " -> " +
-              std::to_string(newDelay) + "ms");
+              std::to_string(newDelay) + "ms (silent update)");
     lastKnownDelayMs_ = newDelay;
     latencySamples_ =
         static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
-    // Notify controller so it can call restartComponent(kLatencyChanged)
-    if (auto *msg = allocateMessage()) {
-      msg->setMessageID("LatencyChanged");
-      sendMessage(msg);
-      msg->release();
-      pluginLog("[Latency] Sent LatencyChanged message to controller");
-    } else {
-      pluginLog("[Latency] ERROR: allocateMessage() returned null");
-    }
   }
 
   // Check for config status changes pushed via TCP (async from server)

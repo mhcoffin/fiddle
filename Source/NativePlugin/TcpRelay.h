@@ -28,7 +28,8 @@ namespace fiddle {
  */
 class TcpRelay {
 public:
-  TcpRelay(const std::string &host = "127.0.0.1", int port = 5252);
+  TcpRelay(const std::string &host = "127.0.0.1", int port = 5252,
+           int initialDelayMs = 1000);
   ~TcpRelay();
 
   /// Start the relay thread. Call after setConnectionCallback().
@@ -84,7 +85,7 @@ private:
 
   std::atomic<bool> connected_{false};
   std::atomic<bool> running_{true};
-  std::atomic<int> delayMs_{1000};
+  std::atomic<int> delayMs_;
   std::atomic<bool> latencyChanged_{false};
   std::atomic<bool> configChanged_{false};
 

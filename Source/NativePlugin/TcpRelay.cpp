@@ -11,8 +11,8 @@
 
 namespace fiddle {
 
-TcpRelay::TcpRelay(const std::string &host, int port)
-    : host_(host), port_(port) {}
+TcpRelay::TcpRelay(const std::string &host, int port, int initialDelayMs)
+    : host_(host), port_(port), delayMs_(initialDelayMs) {}
 
 void TcpRelay::start() { thread_ = std::thread(&TcpRelay::relayThread, this); }
 
