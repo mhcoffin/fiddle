@@ -1,0 +1,92 @@
+4.027s	CC	Ch13	7	100
+4.302s	CC	Ch13	7	100
+4.298s	NoteOn	Ch13	C1	120
+4.298s	NoteOn	Ch13	F2	120
+4.303s	CC	Ch13	1	70
+4.303s	NoteOn	Ch13	C4	70
+4.502s	NoteOff	Ch13	C4	64	Natural short
+4.558s	CC	Ch13	1	73
+4.558s	NoteOn	Ch13	E4	73
+4.756s	NoteOff	Ch13	E4	64	Natural short
+4.814s	CC	Ch13	1	82
+4.814s	NoteOn	Ch13	G4	82
+5.010s	NoteOff	Ch13	G4	64	Natural short
+5.057s	CC	Ch13	1	87
+5.057s	NoteOn	Ch13	C5	87
+5.254s	NoteOff	Ch13	C5	64	Natural short
+5.301s	CC	Ch13	1	87
+5.301s	NoteOn	Ch13	E5	87
+5.510s	NoteOff	Ch13	E5	64	Natural short
+5.556s	CC	Ch13	1	89
+5.556s	NoteOn	Ch13	G5	89
+5.754s	NoteOff	Ch13	G5	64	Natural short
+5.807s	NoteOn	Ch13	C#1	120
+5.807s	NoteOn	Ch13	C2	120
+5.807s	NoteOn	Ch13	G2	127
+5.807s	NoteOn	Ch13	F7	127
+5.807s	NoteOn	Ch13	A7	127
+5.811s	NoteOff	Ch13	C1	0
+5.811s	NoteOff	Ch13	F2	0
+5.812s	CC	Ch13	1	92
+5.812s	NoteOn	Ch13	C6	92
+6.205s	NoteOff	Ch13	C6	64	Natural
+6.306s	NoteOn	Ch13	C1	120
+6.306s	NoteOn	Ch13	C2	120
+6.306s	NoteOn	Ch13	A#0	120
+6.310s	NoteOff	Ch13	C#1	0
+6.310s	NoteOff	Ch13	G2	0
+6.310s	NoteOff	Ch13	F7	0
+6.310s	NoteOff	Ch13	A7	0
+6.311s	CC	Ch13	1	59
+6.311s	NoteOn	Ch13	C4	59
+6.323s	NoteOff	Ch13	C4	64	Staccatissimo
+6.439s	CC	Ch13	1	61
+6.439s	NoteOn	Ch13	E4	61
+6.453s	NoteOff	Ch13	E4	64	Staccatissimo
+6.555s	CC	Ch13	1	67
+6.555s	NoteOn	Ch13	G4	67
+6.579s	NoteOff	Ch13	G4	64	Staccatissimo
+6.683s	CC	Ch13	1	81
+6.683s	NoteOn	Ch13	C5	81
+6.697s	NoteOff	Ch13	C5	64	Staccatissimo
+6.806s	NoteOn	Ch13	C1	120
+6.806s	NoteOn	Ch13	C2	120
+6.806s	NoteOn	Ch13	A#0	120
+6.811s	CC	Ch13	1	86
+6.811s	NoteOn	Ch13	E5	86
+6.882s	NoteOff	Ch13	E5	64	Staccato very short
+6.937s	CC	Ch13	1	89
+6.937s	NoteOn	Ch13	G5	89
+7.009s	NoteOff	Ch13	G5	64	Staccato very short
+7.067s	CC	Ch13	1	90
+7.067s	NoteOn	Ch13	C6	90
+7.141s	NoteOff	Ch13	C6	64	Staccato very short
+7.183s	CC	Ch13	1	89
+7.183s	NoteOn	Ch13	G5	89
+7.265s	NoteOff	Ch13	G5	64	Staccato very short
+7.308s	NoteOn	Ch13	C1	120
+7.308s	NoteOn	Ch13	E2	120
+7.312s	NoteOff	Ch13	A#0	0
+7.312s	NoteOff	Ch13	C2	0
+7.313s	CC	Ch13	1	90
+7.313s	NoteOn	Ch13	E5	90
+7.408s	NoteOff	Ch13	E5	64	Natural very short
+7.437s	CC	Ch13	1	80
+7.437s	NoteOn	Ch13	C5	80
+7.536s	NoteOff	Ch13	C5	64	Natural very short
+7.565s	CC	Ch13	1	59
+7.565s	NoteOn	Ch13	G4	59
+7.652s	NoteOff	Ch13	G4	64	Natural very short
+7.681s	CC	Ch13	1	58
+7.681s	NoteOn	Ch13	E4	58
+7.778s	NoteOff	Ch13	E4	64	Natural very short
+7.803s	NoteOn	Ch13	C#1	120
+7.803s	NoteOn	Ch13	C2	120
+7.803s	NoteOn	Ch13	G2	127
+7.803s	NoteOn	Ch13	F7	127
+7.803s	NoteOn	Ch13	A7	127
+7.807s	NoteOff	Ch13	C1	0
+7.807s	NoteOff	Ch13	E2	0
+7.808s	CC	Ch13	1	62
+7.808s	NoteOn	Ch13	C4	62
+8.213s	NoteOff	Ch13	C4	64	Natural

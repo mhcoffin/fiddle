@@ -202,6 +202,7 @@ struct MixerStrip {
         auto *cObj = new juce::DynamicObject();
         cObj->setProperty("name", juce::String(c.name));
         cObj->setProperty("score", c.score);
+        cObj->setProperty("isSubset", c.isSubset);
         juce::Array<juce::var> tArr;
         for (const auto &t : c.techniqueIDs)
           tArr.add(juce::String(t));

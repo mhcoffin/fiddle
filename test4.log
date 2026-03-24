@@ -1,0 +1,4 @@
+[Port 9224] Evaluating JavaScript: try { window.setDagHistory('[{"hash":"abc","branchId":"main"}]'); 'Ok' } catch (e) { e.toString() }
+--- RESULT ---
+OK:"Ok"
+--------------

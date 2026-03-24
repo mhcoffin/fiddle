@@ -1,0 +1,19 @@
+>> Verifying Main Window (Port 9223):
+[Port 9223] Evaluating JavaScript: document.querySelector('body').innerHTML.length
+--- RESULT ---
+OK:575505.0
+--------------
+>> Triggering openHistoryWindow:
+[Port 9223] Evaluating JavaScript: window.__JUCE__.backend && window.__JUCE__.backend.emitEvent ? (window.__JUCE__.backend.emitEvent('__juce__invoke', { name: 'openHistoryWindow', params: [], resultId: Date.now() }), 'Triggered') : 'No JUCE backend'
+--- RESULT ---
+OK:"Triggered"
+--------------
+>> Verifying History Window (Port 9224):
+[Port 9224] Evaluating JavaScript: document.location.href
+--- RESULT ---
+OK:"juce://juce.backend/index.html?view=history"
+--------------
+[Port 9224] Evaluating JavaScript: document.body.innerHTML.substring(0, 300)
+--- RESULT ---
+OK:"\n  <div id=\"app\"><div class=\"app-container svelte-1n46o8q\"><!----><main class=\"main-content svelte-1n46o8q\"><div class=\"panel-versions\" style=\"width: 100%; height: 100%;\"><div class=\"version-history-container svelte-ndtur7\"><div class=\"toolbar svelte-ndtur7\"><h2 class=\"svelte-ndtur7\">Version History"
+--------------

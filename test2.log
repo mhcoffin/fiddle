@@ -1,0 +1,15 @@
+>> Triggering openHistoryWindow:
+[Port 9223] Evaluating JavaScript: window.__JUCE__.backend && window.__JUCE__.backend.emitEvent ? (window.__JUCE__.backend.emitEvent('__juce__invoke', { name: 'openHistoryWindow', params: [], resultId: Date.now() }), 'Triggered') : 'No JUCE backend'
+--- RESULT ---
+OK:"Triggered"
+--------------
+>> Checking setDagHistory:
+[Port 9224] Evaluating JavaScript: typeof window.setDagHistory
+--- RESULT ---
+OK:"function"
+--------------
+>> Checking setBranches:
+[Port 9224] Evaluating JavaScript: typeof window.setBranches
+--- RESULT ---
+OK:"function"
+--------------

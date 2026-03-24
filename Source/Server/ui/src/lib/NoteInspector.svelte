@@ -185,17 +185,35 @@
                         </div>
                     {/if}
 
-                    <!-- Candidates (Tier 3 debug) -->
+                    <!-- Candidates -->
                     {#if rec.candidates && rec.candidates.length > 1}
+                        {@const eligible = rec.candidates.filter(c => c.isSubset)}
+                        {@const ineligible = rec.candidates.filter(c => !c.isSubset)}
                         <details class="ni-candidates">
-                            <summary class="ni-cand-summary">{rec.candidates.length} candidates considered</summary>
+                            <summary class="ni-cand-summary">► {rec.candidates.length} candidates considered</summary>
                             <div class="ni-cand-list">
-                                {#each rec.candidates as c}
-                                    <div class="ni-cand-item">
-                                        <span class="ni-cand-name">{c.name}</span>
-                                        <span class="ni-cand-score">score {c.score}</span>
-                                    </div>
-                                {/each}
+                                {#if eligible.length > 0}
+                                    <div class="ni-cand-section-label">Eligible ({eligible.length})</div>
+                                    {#each eligible as c}
+                                        <div class="ni-cand-item">
+                                            <span class="ni-cand-name">{c.name}</span>
+                                            <span class="ni-cand-score">score {c.score}</span>
+                                        </div>
+                                    {/each}
+                                {/if}
+                                {#if ineligible.length > 0}
+                                    <div class="ni-cand-section-label ni-cand-ineligible-label">Ineligible ({ineligible.length})</div>
+                                    {#each ineligible as c}
+                                        <div class="ni-cand-item ni-cand-ineligible">
+                                            <span class="ni-cand-pts">
+                                                {#each Array.from(c.techniqueIDs || []) as pt}
+                                                    <span class="ni-cand-pt {rec.inputTechniques.includes(pt) ? 'pt-matched' : 'pt-unmatched'}">{pt.replace('pt.','')}</span>
+                                                {/each}
+                                            </span>
+                                            <span class="ni-cand-score">score {c.score}</span>
+                                        </div>
+                                    {/each}
+                                {/if}
                             </div>
                         </details>
                     {/if}
@@ -455,5 +473,47 @@
 
     .ni-cand-score {
         color: #94a3b8;
+    }
+
+    .ni-cand-section-label {
+        color: #4ade80;
+        font-size: 0.65rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-top: 4px;
+        margin-bottom: 2px;
+    }
+
+    .ni-cand-ineligible-label {
+        color: #64748b;
+        margin-top: 6px;
+    }
+
+    .ni-cand-ineligible {
+        opacity: 0.7;
+    }
+
+    .ni-cand-pts {
+        display: flex;
+        gap: 3px;
+        flex-wrap: wrap;
+    }
+
+    .ni-cand-pt {
+        font-size: 0.65rem;
+        padding: 0 3px;
+        border-radius: 2px;
+    }
+
+    .ni-cand-pt.pt-matched {
+        color: #cbd5e1;
+        background: #1e293b;
+    }
+
+    .ni-cand-pt.pt-unmatched {
+        color: #475569;
+        background: #0f172a;
+        text-decoration: line-through;
     }
 </style>

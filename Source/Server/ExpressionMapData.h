@@ -13,6 +13,7 @@ struct CandidateInfo {
   std::string name;
   int score = 0;
   std::set<std::string> techniqueIDs;
+  bool isSubset = false; // true when candidate's PTs ⊆ note's PTs
 };
 
 /// How dynamics (volume) should be expressed for a given technique combination.
@@ -347,7 +348,7 @@ struct ExpressionMapData {
 
       if (outCandidates)
         outCandidates->push_back(
-            {c.name, overlap, c.techniqueIDs});
+            {c.name, overlap, c.techniqueIDs, sub});
     }
 
     // ── Tier 1: Exact base switch match ───────────────────────────
