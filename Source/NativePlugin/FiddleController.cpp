@@ -11,6 +11,10 @@
 #include <fstream>
 #include <sstream>
 
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#endif
+
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 
@@ -330,14 +334,30 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
   }
 
   if (msgId && strcmp(msgId, "LatencyChanged") == 0) {
-    // Tell the host to re-query getLatencySamples() from the processor
+    // Defer restartComponent to the main thread.  notify() may be called
+    // from the message dispatch triggered by process() on the audio thread.
+    // Calling restartComponent synchronously from here deadlocks because
+    // Dorico tries to deactivate the plugin while the audio thread is still
+    // inside process().
     if (componentHandler) {
-      componentHandler->restartComponent(
+      // prevent the handler from being released before the block runs
+      auto *handler = componentHandler.get();
+      handler->addRef();
+#ifdef __APPLE__
+      dispatch_async(dispatch_get_main_queue(), ^{
+        handler->restartComponent(
+            Steinberg::Vst::RestartFlags::kLatencyChanged);
+        handler->release();
+        std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
+        if (f.is_open())
+          f << "[Controller] LatencyChanged -> restartComponent (deferred)\n";
+      });
+#else
+      // Fallback: direct call (may deadlock on non-Apple hosts)
+      handler->restartComponent(
           Steinberg::Vst::RestartFlags::kLatencyChanged);
-      // Log for diagnostics
-      std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
-      if (f.is_open())
-        f << "[Controller] LatencyChanged -> restartComponent called\n";
+      handler->release();
+#endif
     } else {
       std::ofstream f("/tmp/fiddle_plugin.log", std::ios::app);
       if (f.is_open())
