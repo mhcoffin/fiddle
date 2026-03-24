@@ -190,7 +190,7 @@
                         {@const eligible = rec.candidates.filter(c => c.isSubset)}
                         {@const ineligible = rec.candidates.filter(c => !c.isSubset)}
                         <details class="ni-candidates">
-                            <summary class="ni-cand-summary">► {rec.candidates.length} candidates considered</summary>
+                            <summary class="ni-cand-summary">{rec.candidates.length} candidates considered</summary>
                             <div class="ni-cand-list">
                                 {#if eligible.length > 0}
                                     <div class="ni-cand-section-label">Eligible ({eligible.length})</div>
@@ -491,7 +491,7 @@
     }
 
     .ni-cand-ineligible {
-        opacity: 0.7;
+        opacity: 0.9;
     }
 
     .ni-cand-pts {
@@ -512,7 +512,7 @@
     }
 
     .ni-cand-pt.pt-unmatched {
-        color: #475569;
+        color: #94a3b8;
         background: #0f172a;
         text-decoration: line-through;
     }

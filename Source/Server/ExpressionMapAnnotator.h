@@ -94,6 +94,19 @@ public:
 
     lastRecord_.candidates = std::move(candidates);
 
+    // Ensure the winning base always appears as "eligible" in the UI,
+    // even if it won via a fallback tier that bypasses the subset check
+    // (e.g. Tier 6 Natural fallback when the note has no PTs).
+    if (match.base) {
+      for (auto &c : lastRecord_.candidates) {
+        if (c.name == match.base->name &&
+            c.techniqueIDs == match.base->techniqueIDs) {
+          c.isSubset = true;
+          break;
+        }
+      }
+    }
+
     // Record base switch info
     if (match.base) {
       lastRecord_.baseSwitchName = match.base->name;
