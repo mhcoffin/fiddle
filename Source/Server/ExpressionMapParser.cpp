@@ -158,6 +158,25 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     tc.baseSwitchID = getChildInt(combo, "baseSwitchID");
     tc.techniqueIDs = parseTechniqueIDs(getChildText(combo, "techniqueIDs"));
 
+    // Generate fallback name from technique IDs if the .doricolib entry
+    // has no <name>.  e.g. {"pt.staccato","pt.legato"} → "Staccato + Legato"
+    if (tc.name.empty() && !tc.techniqueIDs.empty()) {
+      std::string fallback;
+      for (const auto &id : tc.techniqueIDs) {
+        if (!fallback.empty())
+          fallback += " + ";
+        // Strip "pt." prefix and capitalize first letter
+        std::string label = (id.size() > 3 && id.substr(0, 3) == "pt.")
+                                ? id.substr(3)
+                                : id;
+        if (!label.empty())
+          label[0] = static_cast<char>(
+              std::toupper(static_cast<unsigned char>(label[0])));
+        fallback += label;
+      }
+      tc.name = fallback;
+    }
+
     tc.switchOnActions = parseActions(combo->getChildByName("switchOnActions"));
     tc.switchOffActions =
         parseActions(combo->getChildByName("switchOffActions"));
