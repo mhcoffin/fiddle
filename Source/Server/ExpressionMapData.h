@@ -14,6 +14,7 @@ struct CandidateInfo {
   int score = 0;
   std::set<std::string> techniqueIDs;
   bool isSubset = false; // true when candidate's PTs ⊆ note's PTs
+  std::string conditionString; // length condition e.g. "NoteLength < 0.375"
 };
 
 /// How dynamics (volume) should be expressed for a given technique combination.
@@ -348,7 +349,7 @@ struct ExpressionMapData {
 
       if (outCandidates)
         outCandidates->push_back(
-            {c.name, overlap, c.techniqueIDs, sub});
+            {c.name, overlap, c.techniqueIDs, sub, c.conditionString});
     }
 
     // ── Tier 1: Exact base switch match ───────────────────────────

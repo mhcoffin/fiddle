@@ -196,7 +196,7 @@
                                     <div class="ni-cand-section-label">Eligible ({eligible.length})</div>
                                     {#each eligible as c}
                                         <div class="ni-cand-item">
-                                            <span class="ni-cand-name">{c.name}</span>
+                                            <span class="ni-cand-name">{c.name}{#if c.condition} <span class="ni-cand-cond">{c.condition}</span>{/if}</span>
                                             <span class="ni-cand-score">score {c.score}</span>
                                         </div>
                                     {/each}
@@ -210,6 +210,7 @@
                                                     <span class="ni-cand-pt {rec.inputTechniques.includes(pt) ? 'pt-matched' : 'pt-unmatched'}">{pt.replace('pt.','')}</span>
                                                 {/each}
                                             </span>
+                                            {#if c.condition}<span class="ni-cand-cond">{c.condition}</span>{/if}
                                             <span class="ni-cand-score">score {c.score}</span>
                                         </div>
                                     {/each}
@@ -515,5 +516,11 @@
         color: #94a3b8;
         background: #0f172a;
         text-decoration: line-through;
+    }
+
+    .ni-cand-cond {
+        color: #c084fc;
+        font-size: 0.6rem;
+        font-style: italic;
     }
 </style>

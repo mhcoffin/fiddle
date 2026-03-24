@@ -203,6 +203,8 @@ struct MixerStrip {
         cObj->setProperty("name", juce::String(c.name));
         cObj->setProperty("score", c.score);
         cObj->setProperty("isSubset", c.isSubset);
+        if (!c.conditionString.empty())
+          cObj->setProperty("condition", juce::String(c.conditionString));
         juce::Array<juce::var> tArr;
         for (const auto &t : c.techniqueIDs)
           tArr.add(juce::String(t));
