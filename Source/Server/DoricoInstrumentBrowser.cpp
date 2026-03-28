@@ -110,6 +110,11 @@ bool DoricoInstrumentBrowser::parseInstrumentsXml(const juce::File &file) {
         instr.family = instr.musicXMLSoundID;
     }
 
+    // Check for parentEntityID — if present, this is a variant, not the default
+    auto *parentElem = instrElem->getChildByName("parentEntityID");
+    if (parentElem && parentElem->getAllSubText().trim().isNotEmpty())
+      instr.isDefault = false;
+
     // Skip entries without essential fields
     if (instr.name.isEmpty() || instr.entityID.isEmpty())
       continue;
@@ -127,6 +132,17 @@ bool DoricoInstrumentBrowser::loadFromDorico() {
   if (!instrXml.existsAsFile())
     return false;
   bool ok = parseInstrumentsXml(instrXml);
+
+  // Also parse score orders from the same directory
+  juce::File scoreOrderXml =
+      instrXml.getParentDirectory().getChildFile("instrumentScoreOrders.xml");
+  if (scoreOrderXml.existsAsFile()) {
+    parseScoreOrders(scoreOrderXml);
+  } else {
+    std::cerr << "[InstrumentBrowser] instrumentScoreOrders.xml not found"
+              << std::endl;
+  }
+
   if (ok)
     buildJsonCache();
   return ok;
@@ -140,12 +156,24 @@ DoricoInstrumentBrowser::getInstruments() const {
 void DoricoInstrumentBrowser::buildJsonCache() {
   juce::Array<juce::var> arr;
 
+  int idx = 0;
   for (const auto &instr : instruments_) {
     auto *obj = new juce::DynamicObject();
     obj->setProperty("name", instr.name);
     obj->setProperty("entityID", instr.entityID);
     obj->setProperty("musicXMLSoundID", instr.musicXMLSoundID);
     obj->setProperty("family", instr.family);
+    obj->setProperty("xmlIndex", idx++);
+    obj->setProperty("isDefault", instr.isDefault);
+
+    // Include score order position if available
+    auto it = scoreOrder_.find(instr.entityID);
+    if (it != scoreOrder_.end()) {
+      obj->setProperty("scoreOrder", it->second);
+    } else {
+      obj->setProperty("scoreOrder", 99999);
+    }
+
     arr.add(juce::var(obj));
   }
 
@@ -159,6 +187,78 @@ std::vector<juce::String> DoricoInstrumentBrowser::getFamilies() const {
       familySet.insert(instr.family);
   }
   return {familySet.begin(), familySet.end()};
+}
+
+bool DoricoInstrumentBrowser::parseScoreOrders(const juce::File &file) {
+  scoreOrder_.clear();
+
+  auto xml = juce::XmlDocument::parse(file);
+  if (!xml) {
+    std::cerr << "[InstrumentBrowser] Failed to parse score orders XML: "
+              << file.getFullPathName() << std::endl;
+    return false;
+  }
+
+  // Navigate: <kScoreLibrary> -> <instrumentScoreOrders> -> <entities>
+  auto *ordersElem = xml->getChildByName("instrumentScoreOrders");
+  if (!ordersElem) {
+    std::cerr << "[InstrumentBrowser] No <instrumentScoreOrders> element"
+              << std::endl;
+    return false;
+  }
+
+  auto *entitiesElem = ordersElem->getChildByName("entities");
+  if (!entitiesElem) {
+    std::cerr << "[InstrumentBrowser] No <entities> element in score orders"
+              << std::endl;
+    return false;
+  }
+
+  // Find the "Orchestral" order
+  for (auto *defElem = entitiesElem->getFirstChildElement(); defElem;
+       defElem = defElem->getNextElement()) {
+
+    if (defElem->getTagName() != "InstrumentScoreOrderEntityDefinition")
+      continue;
+
+    auto *nameElem = defElem->getChildByName("name");
+    if (!nameElem || nameElem->getAllSubText().trim() != "Orchestral")
+      continue;
+
+    // Found the Orchestral order — extract instrument IDs
+    auto *dataElem = defElem->getChildByName("data");
+    if (!dataElem)
+      break;
+
+    auto *idsElem = dataElem->getChildByName("instrumentIDs");
+    if (!idsElem)
+      break;
+
+    juce::String idList = idsElem->getAllSubText().trim();
+    juce::StringArray ids;
+    ids.addTokens(idList, ",", "");
+
+    int position = 0;
+    for (auto &id : ids) {
+      juce::String trimmed = id.trim();
+      if (trimmed.isNotEmpty()) {
+        scoreOrder_[trimmed] = position++;
+      }
+    }
+
+    std::cerr << "[InstrumentBrowser] Parsed Orchestral score order: "
+              << position << " entries" << std::endl;
+    return true;
+  }
+
+  std::cerr << "[InstrumentBrowser] No 'Orchestral' score order found"
+            << std::endl;
+  return false;
+}
+
+const std::unordered_map<juce::String, int> &
+DoricoInstrumentBrowser::getScoreOrder() const {
+  return scoreOrder_;
 }
 
 } // namespace fiddle

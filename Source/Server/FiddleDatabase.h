@@ -57,6 +57,31 @@ struct ChannelAssignmentRow {
   int instanceNum = 1;
 };
 
+/// Row data for a sample library.
+struct LibraryRow {
+  juce::String id;
+  juce::String name;
+  juce::String vendor;
+  juce::String variant;
+};
+
+/// Row data for an instrument within a library.
+struct LibraryInstrumentRow {
+  juce::String libraryId;
+  int sortOrder = 0;
+  juce::String entityId;
+  juce::String name;
+  juce::String family;
+  juce::String category;
+  bool isSolo = true;
+  juce::String vstPlugin;
+  juce::String exprMap;
+  int pluginUid = 0;                // scanned plugin uniqueId
+  juce::MemoryBlock pluginState;    // binary VST state blob
+  int instanceNum = 1;              // stable instance number (lowest-unused)
+  juce::String note;                 // user-facing short text note
+};
+
 /// Thread-safe SQLite wrapper for persisting Fiddle server state.
 /// Uses WAL mode and prepared statements for performance.
 class FiddleDatabase {
@@ -194,6 +219,25 @@ public:
   /// Clear the entire graveyard.
   void clearGraveyard();
 
+  // ── Libraries ──────────────────────────────────────────────────────
+
+  /// Save (upsert) a library and its instruments in a single transaction.
+  void saveLibrary(const LibraryRow &lib,
+                   const std::vector<LibraryInstrumentRow> &instruments);
+
+  /// List all libraries (header info only).
+  std::vector<LibraryRow> listLibraries();
+
+  /// Load all instruments for a given library.
+  std::vector<LibraryInstrumentRow>
+  loadLibraryInstruments(const juce::String &libraryId);
+
+  /// Delete a library and its instruments.
+  void deleteLibrary(const juce::String &libraryId);
+
+  /// Load all instruments across all libraries (for Dorico template).
+  std::vector<LibraryInstrumentRow> loadAllLibraryInstruments();
+
 private:
   void createSchema();
   void prepareStatements();
@@ -241,6 +285,15 @@ private:
   sqlite3_stmt *stmtFindGraveyard_ = nullptr;
   sqlite3_stmt *stmtRemoveGraveyard_ = nullptr;
   sqlite3_stmt *stmtLoadGraveyard_ = nullptr;
+
+  // Library statements
+  sqlite3_stmt *stmtSaveLibrary_ = nullptr;
+  sqlite3_stmt *stmtDeleteLibrary_ = nullptr;
+  sqlite3_stmt *stmtDeleteLibraryInstruments_ = nullptr;
+  sqlite3_stmt *stmtInsertLibraryInstrument_ = nullptr;
+  sqlite3_stmt *stmtListLibraries_ = nullptr;
+  sqlite3_stmt *stmtLoadLibraryInstruments_ = nullptr;
+  sqlite3_stmt *stmtLoadAllLibraryInstruments_ = nullptr;
 };
 
 } // namespace fiddle

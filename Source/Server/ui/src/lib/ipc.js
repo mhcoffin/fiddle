@@ -21,27 +21,37 @@ export function dispatchCpp(type, ...args) {
 
 // ── C++ → JS ──────────────────────────────────────────────────────────────────
 
-/** Registry: message type → handler function */
+/** Registry: message type → array of handler functions */
 const _handlers = {};
 
 /**
  * Register a handler for messages sent from C++.
+ * Multiple handlers per type are supported.
  * @param {string} type  - The message type string (e.g. "setMixerState")
  * @param {Function} handler - Called with msg.data as its sole argument
+ * @returns {() => void} Unsubscribe function to remove this handler
  */
 export function onFromCpp(type, handler) {
-    _handlers[type] = handler;
+    if (!_handlers[type]) _handlers[type] = [];
+    _handlers[type].push(handler);
+    return () => {
+        const arr = _handlers[type];
+        if (arr) {
+            const idx = arr.indexOf(handler);
+            if (idx >= 0) arr.splice(idx, 1);
+        }
+    };
 }
 
 /**
  * Called by C++ via evaluateJavascript:
  *   window.__dispatchFromCpp({type: "xxx", data: <value>})
- * Routes to the registered handler for that type.
+ * Routes to all registered handlers for that type.
  */
 window.__dispatchFromCpp = function (msg) {
-    const h = _handlers[msg.type];
-    if (h) {
-        h(msg.data);
+    const arr = _handlers[msg.type];
+    if (arr && arr.length > 0) {
+        for (const h of [...arr]) h(msg.data);
     } else {
         console.warn("[IPC] No handler for:", msg.type);
     }

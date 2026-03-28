@@ -203,6 +203,7 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
       obj->setProperty("name", slot.name);
       obj->setProperty("label", label);
       obj->setProperty("family", slot.family);
+      obj->setProperty("entityID", slot.entityID);
       obj->setProperty("isSolo", true);
       arr.add(juce::var(obj));
       ++fallbackIndex;
@@ -223,6 +224,7 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
       obj->setProperty("name", slot.name);
       obj->setProperty("label", label);
       obj->setProperty("family", slot.family);
+      obj->setProperty("entityID", slot.entityID);
       obj->setProperty("isSolo", false);
       arr.add(juce::var(obj));
       ++fallbackIndex;

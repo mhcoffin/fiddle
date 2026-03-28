@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <unordered_map>
 #include <vector>
 
 namespace fiddle {
@@ -13,6 +14,7 @@ struct BrowsableInstrument {
   juce::String entityID;        // e.g., "instrument.strings.violin"
   juce::String musicXMLSoundID; // e.g., "strings.violin"
   juce::String family;          // Top-level family derived from musicXMLSoundID
+  bool isDefault = true;        // true if no parentEntityID (this is the root variant)
 };
 
 /**
@@ -45,6 +47,19 @@ public:
   bool loadFromDorico();
 
   /**
+   * Parse the score order XML file (instrumentScoreOrders.xml).
+   * Extracts the "Orchestral" score order mapping entityID → position.
+   * @return true if parsing succeeded.
+   */
+  bool parseScoreOrders(const juce::File& file);
+
+  /**
+   * Get the "Orchestral" score order map: entityID → position.
+   * Lower position = higher in the orchestral score.
+   */
+  const std::unordered_map<juce::String, int>& getScoreOrder() const;
+
+  /**
    * Get all parsed instruments.
    */
   const std::vector<BrowsableInstrument> &getInstruments() const;
@@ -64,6 +79,7 @@ public:
 private:
   void buildJsonCache();
   std::vector<BrowsableInstrument> instruments_;
+  std::unordered_map<juce::String, int> scoreOrder_; // entityID → orchestral position
   juce::String cachedJson_; // Built once after parsing
 };
 

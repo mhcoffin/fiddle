@@ -1,9 +1,9 @@
 /**
  * Shared orchestral ordering constants.
- * Used by InstrumentList (Setup tab) and Timeline.
+ * Used by InstrumentList (Setup tab), Timeline, and LibraryManager.
  */
 
-/** Family ordering (top → bottom of score) */
+/** Family ordering (top → bottom of score) — used for group headers */
 export const FAMILY_ORDER = [
     "woodwinds",
     "brass",
@@ -22,6 +22,9 @@ export const FAMILY_ALIASES = {
     drum: "percussion",
     drums: "percussion",
     percussion: "percussion",
+    "pitched-percussion": "percussion",
+    "unpitched-percussion": "percussion",
+    pitchedpercussion: "percussion",
     keys: "keys",
     keyboard: "keys",
     keyboards: "keys",
@@ -38,57 +41,38 @@ export const canonicalFamily = (fam) =>
     FAMILY_ALIASES[fam?.toLowerCase()] || fam?.toLowerCase() || "";
 
 /**
- * Within-family instrument ordering (standard orchestral score order).
- * Lower number = higher in score. Instruments not listed get 99.
+ * Score order map: entityID → position.
+ * Populated from Dorico's instrumentScoreOrders.xml "Orchestral" order,
+ * delivered via setDoricoInstruments with a scoreOrder field per instrument.
+ *
+ * This is a module-level mutable map updated by populateScoreOrder().
+ * @type {Map<string, number>}
  */
-export const INSTRUMENT_ORDER = {
-    // Woodwinds
-    piccolo: 1,
-    flute: 2,
-    "alto flute": 3,
-    oboe: 4,
-    "cor anglais": 5,
-    "english horn": 5,
-    clarinet: 6,
-    "bass clarinet": 7,
-    bassoon: 8,
-    contrabassoon: 9,
-    // Brass
-    horn: 1,
-    "french horn": 1,
-    trumpet: 2,
-    cornet: 3,
-    trombone: 4,
-    "bass trombone": 5,
-    tuba: 6,
-    // Percussion
-    timpani: 1,
-    "snare drum": 2,
-    "bass drum": 3,
-    cymbals: 4,
-    "tam-tam": 5,
-    triangle: 6,
-    tambourine: 7,
-    glockenspiel: 8,
-    xylophone: 9,
-    vibraphone: 10,
-    marimba: 11,
-    "tubular bells": 12,
-    celesta: 13,
-    // Keys
-    harp: 1,
-    piano: 2,
-    harpsichord: 3,
-    organ: 4,
-    // Strings
-    violin: 1,
-    viola: 2,
-    violoncello: 3,
-    cello: 3,
-    "double bass": 4,
-    contrabass: 4,
+const scoreOrderMap = new Map();
+
+/**
+ * Populate the score order map from the Dorico instruments array.
+ * Called when setDoricoInstruments arrives from C++.
+ * Each instrument object should have { entityID, scoreOrder }.
+ * @param {Array<{entityID: string, scoreOrder: number}>} instruments
+ */
+export const populateScoreOrder = (instruments) => {
+    scoreOrderMap.clear();
+    let count = 0;
+    for (const inst of instruments) {
+        if (inst.entityID && inst.scoreOrder != null) {
+            scoreOrderMap.set(inst.entityID, inst.scoreOrder);
+            count++;
+        }
+    }
+    console.log(`[orchestralOrder] Populated score order: ${count} entries`);
 };
 
-/** Get the score-order index for an instrument name (lower = higher in score) */
-export const instrumentOrder = (name) =>
-    INSTRUMENT_ORDER[name?.toLowerCase()] ?? 99;
+/**
+ * Get the orchestral score-order position for an entity ID.
+ * Lower value = higher in score. Returns 99999 for unknown instruments.
+ * @param {string} entityID
+ * @returns {number}
+ */
+export const instrumentScoreOrder = (entityID) =>
+    scoreOrderMap.get(entityID) ?? 99999;

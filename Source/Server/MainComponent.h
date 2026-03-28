@@ -7,6 +7,7 @@
 #include "FiddleDatabase.h"
 #include "HistoryWindow.h"
 #include "SetupWindow.h"
+#include "LibraryManagerWindow.h"
 #include "InstrumentMapper.h"
 #include "JsTestBridge.h"
 #include "MasterInstrumentList.h"
@@ -52,6 +53,12 @@ public:
   /// Check if setup window is visible.
   bool isSetupWindowVisible() const;
 
+  /// Toggle library manager window visibility (called from View menu).
+  void toggleLibraryManagerWindow();
+
+  /// Check if library manager window is visible.
+  bool isLibraryManagerWindowVisible() const;
+
   /// Save main window position/size to database.
   void saveMainWindowGeometry(int x, int y, int w, int h);
 
@@ -60,6 +67,9 @@ public:
 
   /// Save setup window geometry + visibility to database.
   void saveSetupWindowGeometry();
+
+  /// Save library manager window geometry + visibility to database.
+  void saveLibraryManagerWindowGeometry();
 
   /// Restore main window geometry from database.
   /// Returns the stored bounds (or defaults if not found).
@@ -130,6 +140,10 @@ private:
   /// Setup window (lazy instantiated)
   std::unique_ptr<SetupWindow> setupWindow_;
   bool setupWindowLoaded_ = false;
+
+  /// Library Manager window (lazy instantiated)
+  std::unique_ptr<LibraryManagerWindow> libraryManagerWindow_;
+  bool libraryManagerWindowLoaded_ = false;
 
   /// Throttle state for scheduleStateRebuild() — max once per second.
   uint32_t lastStateRebuildMs_ = 0;

@@ -6,7 +6,8 @@
     import {
         FAMILY_ORDER,
         canonicalFamily,
-        instrumentOrder,
+        instrumentScoreOrder,
+        populateScoreOrder,
     } from "./orchestralOrder.js";
 
 
@@ -97,6 +98,10 @@
         } catch (e) {
             console.error("[Mixer] xmap error:", e);
         }
+    });
+    // Populate orchestral score order when Dorico instruments arrive
+    onFromCpp("setDoricoInstruments", (arr) => {
+        populateScoreOrder(arr);
     });
     onFromCpp("setDetachedHead", (detached) => {
         isDetachedHead = detached;
@@ -760,20 +765,20 @@
         for (const g of groups) {
             g.strips.sort((a, b) => {
                 if (a.isSolo !== b.isSolo) return a.isSolo ? -1 : 1;
-                // Look up instrument name from availableInputs
-                const nameA =
+                // Look up instrument entityID from availableInputs
+                const inputA =
                     availableInputs.find(
                         (i) =>
                             i.port === a.inputPort &&
                             i.channel === a.inputChannel,
-                    )?.name || "";
-                const nameB =
+                    );
+                const inputB =
                     availableInputs.find(
                         (i) =>
                             i.port === b.inputPort &&
                             i.channel === b.inputChannel,
-                    )?.name || "";
-                return instrumentOrder(nameA) - instrumentOrder(nameB);
+                    );
+                return instrumentScoreOrder(inputA?.entityID) - instrumentScoreOrder(inputB?.entityID);
             });
 
             // Second-level grouping: by inputPort:inputChannel (instrument groups)
@@ -1207,6 +1212,28 @@
                                                         {/if}
                                                     </div>
                                                 </div>
+
+                                                <!-- Program preset (only if VST exposes meaningful program names) -->
+                                                {#if strip.hasPlugin && (strip.numPrograms ?? 0) > 1 && (strip.programNames ?? []).some((n) => n && !/^Program\s*\d*$/.test(n))}
+                                                    <div class="ch-program">
+                                                        <select
+                                                            class="ch-select ch-program-select"
+                                                            value={strip.programIndex ?? 0}
+                                                            onchange={(e) => {
+                                                                const idx = Number(
+                                                                    /** @type {HTMLSelectElement} */ (
+                                                                        e.target
+                                                                    ).value,
+                                                                );
+                                                                dispatchCpp("setStripProgram", strip.id, idx);
+                                                            }}
+                                                        >
+                                                            {#each (strip.programNames ?? []) as name, i}
+                                                                <option value={i}>{name || `Program ${i}`}</option>
+                                                            {/each}
+                                                        </select>
+                                                    </div>
+                                                {/if}
 
                                                 <!-- Strip name area: only library name now (instrument moved to bridge header) -->
                                                 <div class="ch-name-area">
@@ -1999,6 +2026,14 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
+    }
+    .ch-program {
+        display: flex;
+        gap: 2px;
+    }
+    .ch-program-select {
+        font-size: 0.5rem;
+        color: #94a3b8;
     }
     .ch-plugin-row {
         display: flex;

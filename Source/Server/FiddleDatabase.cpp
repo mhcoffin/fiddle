@@ -211,10 +211,52 @@ void FiddleDatabase::createSchema() {
 
   exec(R"(
     CREATE TABLE IF NOT EXISTS libraries (
-      id   TEXT PRIMARY KEY,
-      name TEXT NOT NULL
+      id      TEXT PRIMARY KEY,
+      name    TEXT NOT NULL,
+      vendor  TEXT NOT NULL DEFAULT '',
+      variant TEXT NOT NULL DEFAULT ''
     )
   )");
+
+  // Migrate: add vendor/variant columns if missing
+  // (sqlite3_exec will silently fail if column already exists)
+  sqlite3_exec(db_, "ALTER TABLE libraries ADD COLUMN vendor TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE libraries ADD COLUMN variant TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS library_instruments (
+      library_id  TEXT NOT NULL,
+      sort_order  INTEGER NOT NULL,
+      entity_id   TEXT NOT NULL DEFAULT '',
+      name        TEXT NOT NULL,
+      category    TEXT NOT NULL DEFAULT '',
+      is_solo     INTEGER NOT NULL DEFAULT 1,
+      vst_plugin  TEXT NOT NULL DEFAULT '',
+      expr_map    TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (library_id, sort_order),
+      FOREIGN KEY (library_id) REFERENCES libraries(id)
+    )
+  )");
+
+  // v3: add plugin_uid and plugin_state to library_instruments
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN plugin_uid INTEGER NOT NULL DEFAULT 0",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN plugin_state BLOB",
+               nullptr, nullptr, nullptr);
+
+  // v4: add family column to library_instruments
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN family TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+
+  // v5: add instance_num column to library_instruments
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN instance_num INTEGER NOT NULL DEFAULT 1",
+               nullptr, nullptr, nullptr);
+
+  // v6: add note column to library_instruments
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
 
   // Seed the default library on first boot
   exec("INSERT OR IGNORE INTO libraries (id, name) VALUES "
@@ -369,6 +411,40 @@ void FiddleDatabase::prepareStatements() {
   prep("SELECT flat_index, entity_id, is_solo, instance_num "
        "FROM channel_graveyard ORDER BY flat_index",
        &stmtLoadGraveyard_);
+
+  // Library statements
+  prep(R"(
+    INSERT OR REPLACE INTO libraries (id, name, vendor, variant)
+    VALUES (?, ?, ?, ?)
+  )",
+       &stmtSaveLibrary_);
+  prep("DELETE FROM libraries WHERE id = ?", &stmtDeleteLibrary_);
+  prep("DELETE FROM library_instruments WHERE library_id = ?",
+       &stmtDeleteLibraryInstruments_);
+  prep(R"(
+    INSERT INTO library_instruments
+      (library_id, sort_order, entity_id, name, category, is_solo, vst_plugin, expr_map,
+       plugin_uid, plugin_state, family, instance_num, note)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  )",
+       &stmtInsertLibraryInstrument_);
+  prep("SELECT id, name, vendor, variant FROM libraries ORDER BY name",
+       &stmtListLibraries_);
+  prep(R"(
+    SELECT library_id, sort_order, entity_id, name, category, is_solo, vst_plugin, expr_map,
+           plugin_uid, plugin_state, family, instance_num, note
+    FROM library_instruments WHERE library_id = ? ORDER BY sort_order
+  )",
+       &stmtLoadLibraryInstruments_);
+  prep(R"(
+    SELECT li.library_id, li.sort_order, li.entity_id, li.name, li.category,
+           li.is_solo, li.vst_plugin, li.expr_map, li.plugin_uid, li.plugin_state,
+           li.family, li.instance_num, li.note
+    FROM library_instruments li
+    INNER JOIN libraries l ON li.library_id = l.id
+    ORDER BY l.name, li.sort_order
+  )",
+       &stmtLoadAllLibraryInstruments_);
 }
 
 void FiddleDatabase::finalizeStatements() {
@@ -412,6 +488,13 @@ void FiddleDatabase::finalizeStatements() {
   fin(stmtFindGraveyard_);
   fin(stmtRemoveGraveyard_);
   fin(stmtLoadGraveyard_);
+  fin(stmtSaveLibrary_);
+  fin(stmtDeleteLibrary_);
+  fin(stmtDeleteLibraryInstruments_);
+  fin(stmtInsertLibraryInstrument_);
+  fin(stmtListLibraries_);
+  fin(stmtLoadLibraryInstruments_);
+  fin(stmtLoadAllLibraryInstruments_);
 }
 
 bool FiddleDatabase::exec(const char *sql) {
@@ -1216,4 +1299,181 @@ void FiddleDatabase::clearGraveyard() {
   sqlite3_step(stmtClearGraveyard_);
 }
 
+// ── Libraries ────────────────────────────────────────────────────────
+
+namespace {
+/// Safe helper: returns "" if the column is NULL.
+inline juce::String colText(sqlite3_stmt *stmt, int col) {
+  auto *p = (const char *)sqlite3_column_text(stmt, col);
+  return p ? juce::String(p) : juce::String();
+}
+} // namespace
+
+void FiddleDatabase::saveLibrary(
+    const LibraryRow &lib,
+    const std::vector<LibraryInstrumentRow> &instruments) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!stmtSaveLibrary_ || !stmtDeleteLibraryInstruments_ ||
+      !stmtInsertLibraryInstrument_)
+    return;
+
+  exec("BEGIN TRANSACTION");
+
+  // Upsert library header
+  sqlite3_reset(stmtSaveLibrary_);
+  sqlite3_bind_text(stmtSaveLibrary_, 1, lib.id.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 2, lib.name.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 3, lib.vendor.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 4, lib.variant.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_step(stmtSaveLibrary_);
+
+  // Replace instruments: delete old, insert new
+  sqlite3_reset(stmtDeleteLibraryInstruments_);
+  sqlite3_bind_text(stmtDeleteLibraryInstruments_, 1, lib.id.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_step(stmtDeleteLibraryInstruments_);
+
+  for (const auto &inst : instruments) {
+    sqlite3_reset(stmtInsertLibraryInstrument_);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 1, lib.id.toRawUTF8(), -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmtInsertLibraryInstrument_, 2, inst.sortOrder);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 3,
+                      inst.entityId.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 4, inst.name.toRawUTF8(),
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 5,
+                      inst.category.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmtInsertLibraryInstrument_, 6, inst.isSolo ? 1 : 0);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 7,
+                      inst.vstPlugin.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 8,
+                      inst.exprMap.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmtInsertLibraryInstrument_, 9, inst.pluginUid);
+    if (inst.pluginState.getSize() > 0)
+      sqlite3_bind_blob(stmtInsertLibraryInstrument_, 10,
+                        inst.pluginState.getData(),
+                        (int)inst.pluginState.getSize(), SQLITE_TRANSIENT);
+    else
+      sqlite3_bind_null(stmtInsertLibraryInstrument_, 10);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 11,
+                      inst.family.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmtInsertLibraryInstrument_, 12, inst.instanceNum);
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 13,
+                      inst.note.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmtInsertLibraryInstrument_);
+  }
+
+  exec("COMMIT");
+  std::cerr << "[FiddleDB] Saved library '" << lib.name << "' with "
+            << instruments.size() << " instruments" << std::endl;
+}
+
+std::vector<LibraryRow> FiddleDatabase::listLibraries() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<LibraryRow> result;
+  if (!stmtListLibraries_)
+    return result;
+
+  sqlite3_reset(stmtListLibraries_);
+  while (sqlite3_step(stmtListLibraries_) == SQLITE_ROW) {
+    LibraryRow row;
+    row.id = colText(stmtListLibraries_, 0);
+    row.name = colText(stmtListLibraries_, 1);
+    row.vendor = colText(stmtListLibraries_, 2);
+    row.variant = colText(stmtListLibraries_, 3);
+    result.push_back(std::move(row));
+  }
+  return result;
+}
+
+std::vector<LibraryInstrumentRow>
+FiddleDatabase::loadLibraryInstruments(const juce::String &libraryId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<LibraryInstrumentRow> result;
+  if (!stmtLoadLibraryInstruments_)
+    return result;
+
+  sqlite3_reset(stmtLoadLibraryInstruments_);
+  sqlite3_bind_text(stmtLoadLibraryInstruments_, 1, libraryId.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  while (sqlite3_step(stmtLoadLibraryInstruments_) == SQLITE_ROW) {
+    LibraryInstrumentRow row;
+    row.libraryId = colText(stmtLoadLibraryInstruments_, 0);
+    row.sortOrder = sqlite3_column_int(stmtLoadLibraryInstruments_, 1);
+    row.entityId = colText(stmtLoadLibraryInstruments_, 2);
+    row.name = colText(stmtLoadLibraryInstruments_, 3);
+    row.category = colText(stmtLoadLibraryInstruments_, 4);
+    row.isSolo = sqlite3_column_int(stmtLoadLibraryInstruments_, 5) != 0;
+    row.vstPlugin = colText(stmtLoadLibraryInstruments_, 6);
+    row.exprMap = colText(stmtLoadLibraryInstruments_, 7);
+    row.pluginUid = sqlite3_column_int(stmtLoadLibraryInstruments_, 8);
+    if (auto *blobData = sqlite3_column_blob(stmtLoadLibraryInstruments_, 9)) {
+      int blobSize = sqlite3_column_bytes(stmtLoadLibraryInstruments_, 9);
+      row.pluginState.append(blobData, (size_t)blobSize);
+    }
+    row.family = colText(stmtLoadLibraryInstruments_, 10);
+    row.instanceNum = sqlite3_column_int(stmtLoadLibraryInstruments_, 11);
+    row.note = colText(stmtLoadLibraryInstruments_, 12);
+    result.push_back(std::move(row));
+  }
+  return result;
+}
+
+void FiddleDatabase::deleteLibrary(const juce::String &libraryId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!stmtDeleteLibraryInstruments_ || !stmtDeleteLibrary_)
+    return;
+
+  exec("BEGIN TRANSACTION");
+
+  sqlite3_reset(stmtDeleteLibraryInstruments_);
+  sqlite3_bind_text(stmtDeleteLibraryInstruments_, 1, libraryId.toRawUTF8(),
+                    -1, SQLITE_TRANSIENT);
+  sqlite3_step(stmtDeleteLibraryInstruments_);
+
+  sqlite3_reset(stmtDeleteLibrary_);
+  sqlite3_bind_text(stmtDeleteLibrary_, 1, libraryId.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_step(stmtDeleteLibrary_);
+
+  exec("COMMIT");
+  std::cerr << "[FiddleDB] Deleted library " << libraryId << std::endl;
+}
+
+std::vector<LibraryInstrumentRow> FiddleDatabase::loadAllLibraryInstruments() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<LibraryInstrumentRow> result;
+  if (!stmtLoadAllLibraryInstruments_)
+    return result;
+
+  sqlite3_reset(stmtLoadAllLibraryInstruments_);
+  while (sqlite3_step(stmtLoadAllLibraryInstruments_) == SQLITE_ROW) {
+    LibraryInstrumentRow row;
+    row.libraryId = colText(stmtLoadAllLibraryInstruments_, 0);
+    row.sortOrder = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 1);
+    row.entityId = colText(stmtLoadAllLibraryInstruments_, 2);
+    row.name = colText(stmtLoadAllLibraryInstruments_, 3);
+    row.category = colText(stmtLoadAllLibraryInstruments_, 4);
+    row.isSolo = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 5) != 0;
+    row.vstPlugin = colText(stmtLoadAllLibraryInstruments_, 6);
+    row.exprMap = colText(stmtLoadAllLibraryInstruments_, 7);
+    row.pluginUid = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 8);
+    if (auto *blobData = sqlite3_column_blob(stmtLoadAllLibraryInstruments_, 9)) {
+      int blobSize = sqlite3_column_bytes(stmtLoadAllLibraryInstruments_, 9);
+      row.pluginState.append(blobData, (size_t)blobSize);
+    }
+    row.family = colText(stmtLoadAllLibraryInstruments_, 10);
+    row.instanceNum = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 11);
+    row.note = colText(stmtLoadAllLibraryInstruments_, 12);
+    result.push_back(std::move(row));
+  }
+  return result;
+}
+
 } // namespace fiddle
+

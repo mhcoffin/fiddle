@@ -1265,6 +1265,19 @@ MainComponent::~MainComponent() {
     db_.saveWindowSettings(ws);
   }
 
+  // Persist library manager window geometry on quit.
+  if (libraryManagerWindow_) {
+    fiddle::WindowSettings ws;
+    ws.windowId = "library";
+    auto bounds = libraryManagerWindow_->getBounds();
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = libraryManagerWindow_->isVisible();
+    db_.saveWindowSettings(ws);
+  }
+
   stopTimer();
   deviceManager.removeAudioCallback(this);
   server.reset();
@@ -1548,6 +1561,52 @@ bool MainComponent::isSetupWindowVisible() const {
   return setupWindow_ && setupWindow_->isVisible();
 }
 
+void MainComponent::toggleLibraryManagerWindow() {
+  // Lazily create the Library Manager window on first toggle.
+  if (!libraryManagerWindow_) {
+    libraryManagerWindow_ =
+        std::make_unique<LibraryManagerWindow>(createWebOptions());
+    libraryManagerWindowLoaded_ = false;
+    juce::String root =
+        juce::WebBrowserComponent::getResourceProviderRoot();
+    libraryManagerWindow_->getWebView().goToURL(root +
+                                                "index.html?view=library");
+    libraryManagerWindow_->setGeometrySaver(
+        [this]() { saveLibraryManagerWindowGeometry(); });
+
+    // Restore saved geometry (if any).
+    auto lws = db_.loadWindowSettings("library");
+    if (lws.width > 0 && lws.height > 0) {
+      libraryManagerWindow_->restoreGeometry(lws.x, lws.y, lws.width,
+                                             lws.height,
+                                             false /* we toggle below */);
+    }
+  }
+
+  if (libraryManagerWindow_) {
+    bool wasVisible = libraryManagerWindow_->isVisible();
+    bool nowVisible = !wasVisible;
+    libraryManagerWindow_->setVisible(nowVisible);
+    if (nowVisible) {
+      libraryManagerWindow_->toFront(true);
+    }
+
+    auto bounds = libraryManagerWindow_->getBounds();
+    fiddle::WindowSettings ws;
+    ws.windowId = "library";
+    ws.x = bounds.getX();
+    ws.y = bounds.getY();
+    ws.width = bounds.getWidth();
+    ws.height = bounds.getHeight();
+    ws.visible = nowVisible;
+    db_.saveWindowSettings(ws);
+  }
+}
+
+bool MainComponent::isLibraryManagerWindowVisible() const {
+  return libraryManagerWindow_ && libraryManagerWindow_->isVisible();
+}
+
 void MainComponent::saveMainWindowGeometry(int x, int y, int w, int h) {
   fiddle::WindowSettings ws;
   ws.windowId = "main";
@@ -1584,6 +1643,20 @@ void MainComponent::saveSetupWindowGeometry() {
   ws.width = bounds.getWidth();
   ws.height = bounds.getHeight();
   ws.visible = setupWindow_->isVisible();
+  db_.saveWindowSettings(ws);
+}
+
+void MainComponent::saveLibraryManagerWindowGeometry() {
+  if (!libraryManagerWindow_)
+    return;
+  fiddle::WindowSettings ws;
+  ws.windowId = "library";
+  auto bounds = libraryManagerWindow_->getBounds();
+  ws.x = bounds.getX();
+  ws.y = bounds.getY();
+  ws.width = bounds.getWidth();
+  ws.height = bounds.getHeight();
+  ws.visible = libraryManagerWindow_->isVisible();
   db_.saveWindowSettings(ws);
 }
 
@@ -1795,6 +1868,9 @@ void MainComponent::broadcastJavascript(const juce::String &js) {
   if (setupWindow_ && setupWindowLoaded_) {
     setupWindow_->getWebView().evaluateJavascript(js);
   }
+  if (libraryManagerWindow_ && libraryManagerWindowLoaded_) {
+    libraryManagerWindow_->getWebView().evaluateJavascript(js);
+  }
   // Include debug window so broadcastMessage reaches the Plugins/Timeline panels
   if (debugWindow_) {
     debugWindow_->evaluateJavascript(js);
@@ -1836,6 +1912,12 @@ void MainComponent::handleJsMessage(const juce::String &type,
       setupWindowLoaded_ = true;
       isHistoryWindow = true; // Reuse flag to skip main-window-only init
       std::cerr << "[WebView] Handshake: Setup window ready" << std::endl;
+    } else if (viewMode == "library" && libraryManagerWindow_) {
+      targetWebComponent = &(libraryManagerWindow_->getWebView());
+      libraryManagerWindowLoaded_ = true;
+      isHistoryWindow = true; // Reuse flag to skip main-window-only init
+      std::cerr << "[WebView] Handshake: Library Manager window ready"
+                << std::endl;
     } else {
       webViewLoaded = true;
       std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
@@ -1875,6 +1957,13 @@ void MainComponent::handleJsMessage(const juce::String &type,
     // Push current mixer state
     if (!isHistoryWindow) {
       pushMixerState(false);
+
+      // Send Dorico instruments (with score order) so mixer can sort
+      juce::String instrJson = instrumentBrowser_.getInstrumentsAsJson();
+      safeCallAsync([this, instrJson]() {
+        broadcastMessage("setDoricoInstruments",
+                         juce::JSON::fromString(instrJson));
+      });
     }
 
     // Restore saved main window mode.
@@ -2462,6 +2551,25 @@ void MainComponent::handleJsMessage(const juce::String &type,
     });
     return;
   }
+  if (type == "setStripProgram") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    int progIndex = (int)args[1];
+    safeCallAsync([this, stripId, progIndex]() {
+      if (auto *strip = mixer_.getStrip(stripId)) {
+        if (strip->pluginInstance != nullptr) {
+          strip->pluginInstance->setCurrentProgram(progIndex);
+          strip->refreshPluginStateCache();
+          pushMixerState();
+        }
+      }
+    });
+    return;
+  }
   if (type == "showStripEditor") {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2474,6 +2582,61 @@ void MainComponent::handleJsMessage(const juce::String &type,
     safeCallAsync([this, stripId]() {
       if (auto *s = mixer_.getStrip(stripId))
         s->showEditor();
+    });
+    return;
+  }
+  if (type == "restoreLibraryPluginState") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 4) {
+      return;
+    }
+    juce::String stripId = args[0].toString();
+    juce::String libraryId = args[1].toString();
+    juce::String entityId = args[2].toString();
+    int instanceNum = (int)args[3];
+
+    safeCallAsync([this, stripId, libraryId, entityId, instanceNum]() {
+      auto *strip = mixer_.getStrip(stripId);
+      if (!strip || !strip->pluginInstance) {
+        std::cerr << "[restoreLibraryPluginState] No strip/plugin for "
+                  << stripId << std::endl;
+        return;
+      }
+
+      // Load saved instruments from DB and find the matching one
+      auto instruments = db_.loadLibraryInstruments(libraryId);
+      std::cerr << "[restoreLibraryPluginState] libraryId=" << libraryId
+                << " entityId=" << entityId
+                << " instanceNum=" << instanceNum
+                << " instruments=" << instruments.size() << std::endl;
+      bool found = false;
+      for (const auto &inst : instruments) {
+        if (inst.entityId == entityId && inst.instanceNum == instanceNum) {
+          std::cerr << "[restoreLibraryPluginState] Found entity+instance, blobSize="
+                    << inst.pluginState.getSize() << std::endl;
+          if (inst.pluginState.getSize() > 0) {
+            strip->pluginInstance->setStateInformation(
+                inst.pluginState.getData(),
+                static_cast<int>(inst.pluginState.getSize()));
+            strip->refreshPluginStateCache();
+            std::cerr << "[restoreLibraryPluginState] Restored "
+                      << inst.pluginState.getSize() << " bytes for strip "
+                      << stripId << std::endl;
+          } else {
+            std::cerr << "[restoreLibraryPluginState] No blob stored for "
+                      << entityId << " #" << instanceNum << std::endl;
+          }
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        std::cerr << "[restoreLibraryPluginState] Entity+instance not found in library"
+                  << std::endl;
+      }
     });
     return;
   }
@@ -2562,6 +2725,169 @@ void MainComponent::handleJsMessage(const juce::String &type,
 
                            safeCallAsync([this]() { pushMixerState(); });
                          });
+    return;
+  }
+  if (type == "requestLibraries") {
+    safeCallAsync([this]() {
+      auto libs = db_.listLibraries();
+      juce::Array<juce::var> arr;
+      for (const auto &lib : libs) {
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("id", lib.id);
+        obj->setProperty("name", lib.name);
+        obj->setProperty("vendor", lib.vendor);
+        obj->setProperty("variant", lib.variant);
+        arr.add(juce::var(obj));
+      }
+      broadcastMessage("setLibraryList", juce::var(arr));
+    });
+    return;
+  }
+  if (type == "saveLibrary") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+
+    auto *data = args[0].getDynamicObject();
+    if (!data)
+      return;
+
+    fiddle::LibraryRow lib;
+    lib.id = data->getProperty("id").toString();
+    lib.name = data->getProperty("name").toString();
+    lib.vendor = data->getProperty("vendor").toString();
+    lib.variant = data->getProperty("variant").toString();
+
+    std::vector<fiddle::LibraryInstrumentRow> instruments;
+    if (auto *instArr = data->getProperty("instruments").getArray()) {
+      int sortOrder = 0;
+      for (const auto &item : *instArr) {
+        if (auto *instObj = item.getDynamicObject()) {
+          fiddle::LibraryInstrumentRow inst;
+          inst.libraryId = lib.id;
+          inst.sortOrder = sortOrder++;
+          inst.entityId = instObj->getProperty("entityID").toString();
+          inst.name = instObj->getProperty("name").toString();
+          inst.family = instObj->getProperty("family").toString();
+          inst.category = instObj->getProperty("category").toString();
+          auto sizeStr = instObj->getProperty("size").toString();
+          inst.isSolo = (sizeStr != "section");
+          inst.vstPlugin = instObj->getProperty("vstPlugin").toString();
+          inst.exprMap = instObj->getProperty("exprMap").toString();
+          inst.note = instObj->getProperty("note").toString();
+          auto instNumProp = instObj->getProperty("instanceNum");
+          inst.instanceNum = instNumProp.isVoid() ? 1 : (int)instNumProp;
+          // Capture live plugin state from the mixer strip (if linked)
+          juce::String stripId = instObj->getProperty("stripId").toString();
+          if (stripId.isNotEmpty()) {
+            if (auto *strip = mixer_.getStrip(stripId)) {
+              inst.pluginUid = strip->pluginUid;
+              strip->refreshPluginStateCache();
+              inst.pluginState = strip->cachedPluginState_;
+            }
+          }
+          instruments.push_back(std::move(inst));
+        }
+      }
+    }
+
+    safeCallAsync([this, lib = std::move(lib),
+                   instruments = std::move(instruments)]() {
+      db_.saveLibrary(lib, instruments);
+
+      // Broadcast updated library list
+      auto libs = db_.listLibraries();
+      juce::Array<juce::var> arr;
+      for (const auto &l : libs) {
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("id", l.id);
+        obj->setProperty("name", l.name);
+        obj->setProperty("vendor", l.vendor);
+        obj->setProperty("variant", l.variant);
+        arr.add(juce::var(obj));
+      }
+      broadcastMessage("setLibraryList", juce::var(arr));
+    });
+    return;
+  }
+  if (type == "loadLibrary") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+
+    juce::String libraryId = args[0].toString();
+    safeCallAsync([this, libraryId]() {
+      auto libs = db_.listLibraries();
+      fiddle::LibraryRow foundLib;
+      bool found = false;
+      for (const auto &lib : libs) {
+        if (lib.id == libraryId) {
+          foundLib = lib;
+          found = true;
+          break;
+        }
+      }
+      if (!found)
+        return;
+
+      auto instruments = db_.loadLibraryInstruments(libraryId);
+
+      auto *result = new juce::DynamicObject();
+      result->setProperty("id", foundLib.id);
+      result->setProperty("name", foundLib.name);
+      result->setProperty("vendor", foundLib.vendor);
+      result->setProperty("variant", foundLib.variant);
+
+      juce::Array<juce::var> instArr;
+      for (const auto &inst : instruments) {
+        auto *instObj = new juce::DynamicObject();
+        instObj->setProperty("entityID", inst.entityId);
+        instObj->setProperty("name", inst.name);
+        instObj->setProperty("family", inst.family);
+        instObj->setProperty("category", inst.category);
+        instObj->setProperty("vstPlugin", inst.vstPlugin);
+        instObj->setProperty("exprMap", inst.exprMap);
+        instObj->setProperty("pluginUid", inst.pluginUid);
+        instObj->setProperty("hasPluginState",
+                             inst.pluginState.getSize() > 0);
+        instObj->setProperty("instanceNum", inst.instanceNum);
+        instObj->setProperty("isSolo", inst.isSolo);
+        instObj->setProperty("note", inst.note);
+        instArr.add(juce::var(instObj));
+      }
+      result->setProperty("instruments", juce::var(instArr));
+
+      broadcastMessage("setLibraryData", juce::var(result));
+    });
+    return;
+  }
+  if (type == "deleteLibrary") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+
+    juce::String libraryId = args[0].toString();
+    safeCallAsync([this, libraryId]() {
+      db_.deleteLibrary(libraryId);
+
+      auto libs = db_.listLibraries();
+      juce::Array<juce::var> arr;
+      for (const auto &l : libs) {
+        auto *obj = new juce::DynamicObject();
+        obj->setProperty("id", l.id);
+        obj->setProperty("name", l.name);
+        obj->setProperty("vendor", l.vendor);
+        obj->setProperty("variant", l.variant);
+        arr.add(juce::var(obj));
+      }
+      broadcastMessage("setLibraryList", juce::var(arr));
+    });
     return;
   }
   if (type == "requestExpressionMaps") {

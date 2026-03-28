@@ -513,10 +513,17 @@ struct MixerStrip {
 
     if (pluginInstance) {
       int prog = pluginInstance->getCurrentProgram();
+      int numProgs = pluginInstance->getNumPrograms();
       juce::String progName = pluginInstance->getProgramName(prog);
       obj->setProperty("programIndex", prog);
       obj->setProperty("programName", progName);
-      obj->setProperty("numPrograms", pluginInstance->getNumPrograms());
+      obj->setProperty("numPrograms", numProgs);
+
+      // Emit all program names so the UI can show a dropdown.
+      juce::Array<juce::var> names;
+      for (int i = 0; i < numProgs; ++i)
+        names.add(pluginInstance->getProgramName(i));
+      obj->setProperty("programNames", names);
     }
 
     return juce::var(obj);

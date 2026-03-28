@@ -103,17 +103,20 @@ public:
       bool debugVisible = false;
       bool historyVisible = false;
       bool setupVisible = false;
+      bool libraryMgrVisible = false;
       if (mainWindow) {
         if (auto *mc = dynamic_cast<MainComponent *>(
                 mainWindow->getContentComponent())) {
           debugVisible = mc->isDebugWindowVisible();
           historyVisible = mc->isHistoryWindowVisible();
           setupVisible = mc->isSetupWindowVisible();
+          libraryMgrVisible = mc->isLibraryManagerWindowVisible();
         }
       }
       menu.addItem(10, "Show Debug Window", true, debugVisible);
       menu.addItem(11, "Show History Window", true, historyVisible);
       menu.addItem(12, "Show Setup Window", true, setupVisible);
+      menu.addItem(13, "Show Library Manager", true, libraryMgrVisible);
     }
     return menu;
   }
@@ -143,6 +146,14 @@ public:
         if (auto *mc = dynamic_cast<MainComponent *>(
                 mainWindow->getContentComponent())) {
           mc->toggleSetupWindow();
+        }
+      }
+    } else if (menuItemID == 13) {
+      // Toggle library manager window
+      if (mainWindow) {
+        if (auto *mc = dynamic_cast<MainComponent *>(
+                mainWindow->getContentComponent())) {
+          mc->toggleLibraryManagerWindow();
         }
       }
     }

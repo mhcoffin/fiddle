@@ -8,6 +8,7 @@
   import MidiCapture from "./lib/MidiCapture.svelte";
   import VersionHistory from "./lib/VersionHistory.svelte";
   import MixerPanel from "./lib/MixerPanel.svelte";
+  import LibraryManager from "./lib/LibraryManager.svelte";
   import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
 
   // Determine window mode from URL parameter
@@ -265,7 +266,7 @@
     const signalReady = () => {
       // Small timeout to simulate fallback retry if juce bridge isn't immediately ready
       // though typically `dispatchCpp` handles warnings if missing.
-      dispatchCpp("signalReady", viewMode === "history" ? "history" : viewMode === "setup" ? "setup" : "mixer");
+      dispatchCpp("signalReady", viewMode === "history" ? "history" : viewMode === "setup" ? "setup" : viewMode === "library" ? "library" : "mixer");
       window.addLogMessage("<i>UI signaled readiness to C++</i>");
       console.log("UI Ready signaled via native function");
     };
@@ -439,6 +440,13 @@
     <main class="main-content">
       <div class="panel-setup" style="width: 100%; height: 100%;">
         <SetupPanel standalone={true} />
+      </div>
+    </main>
+  {:else if viewMode === "library"}
+    <!-- LIBRARY MANAGER WINDOW -->
+    <main class="main-content">
+      <div class="panel-library" style="width: 100%; height: 100%;">
+        <LibraryManager />
       </div>
     </main>
   {:else}
