@@ -20,6 +20,7 @@ message MidiEvent {
         LoadConfigEvent load_config = 15;
         RestoreStateEvent restore_state = 16;
         ConfigStatusEvent config_status = 17;
+        TempoEvent tempo = 18;
     }
 
     optional uint64 host_sample_position = 13;
@@ -53,6 +54,14 @@ message MidiEvent {
         }
         Type type = 1;
         optional uint64 host_sample_position = 2;
+    }
+
+    // Live tempo information forwarded from the VST3 host ProcessContext.
+    // Sent by FiddleNative whenever BPM changes by more than 0.01.
+    message TempoEvent {
+        double bpm = 1;                  // beats per minute
+        int32 time_sig_numerator = 2;    // e.g. 4
+        int32 time_sig_denominator = 3;  // as written (4 = quarter note), NOT power-of-2
     }
 
     message NoteOn {
@@ -178,4 +187,10 @@ message Note {
     repeated MidiInstruction pre_note = 20;
     repeated MidiInstruction post_note = 21;
     repeated MidiInstruction during_note = 22;
+
+    // Rhythmic prominence relative to metronome beats.
+    // 0 = strong (downbeat), 1 = medium (beat), 2 = weak (subdivision),
+    // 3 = off-beat.  Lower values = higher prominence; new subdivision
+    // levels can be added above 3 without breaking existing logic.
+    uint32 beat_prominence = 23;
 }

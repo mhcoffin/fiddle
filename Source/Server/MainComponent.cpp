@@ -2,14 +2,13 @@
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapParser.h"
 #include "FiddleConfig.h"
-#include "ScriptBindings.h"
+
 #include "midi_event.pb.h"
 #include <chrono>
 #include <cstdint>
 #include <functional>
 #include <google/protobuf/text_format.h>
 #include <memory>
-#include <scriptstdstring.h>
 #include <string>
 
 namespace fiddle {
@@ -79,8 +78,20 @@ MainComponent::MainComponent()
     juce::String root = juce::WebBrowserComponent::getResourceProviderRoot();
 
     DebugWindowCallbacks cbs;
-    cbs.onSignalReady = []() {
-      // No extra work needed — DebugWindow sets debugReady_ internally
+    cbs.onSignalReady = [this]() {
+      // Push cached state to the debug window so Timeline starts with data.
+      double bpm = currentBpm_.load(std::memory_order_relaxed);
+      if (bpm > 0.0) {
+        juce::DynamicObject::Ptr tempoObj = new juce::DynamicObject();
+        tempoObj->setProperty("bpm", bpm);
+        tempoObj->setProperty("samplePosition", (juce::int64)0);
+        tempoObj->setProperty("timeSigNumerator", 4);
+        tempoObj->setProperty("timeSigDenominator", 4);
+        broadcastMessage("setTempo", juce::var(tempoObj.get()));
+      }
+      // Push instrument map
+      juce::String mapJson = masterList_.getChannelMapAsJson();
+      broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson));
     };
     cbs.onScanPlugins = [this]() {
       if (pluginScanner_.isScanning())
@@ -186,61 +197,22 @@ void MainComponent::runInitStep(int step) {
     return;
 
   case 3:
-
   {
-    addInitMessage("Initializing script engine...");
-    scriptEngine = std::make_unique<ScriptEngine>();
-    ScriptBindings::RegisterFiddleAPI(scriptEngine->getEngine());
-
-    // Set up print callback for scripts
-    SetPrintCallback([this](const std::string &msg) {
-      pushLogMessage("<b>[Script]</b> " + juce::String::fromUTF8(msg.c_str()),
-                     false);
-    });
-
-    scriptEngine->setMessageCallback(
-        [this](const std::string &msg, bool isError) {
-          pushLogMessage(juce::String::fromUTF8(msg.c_str()), isError);
-        });
-
-    // Load default script (robust path resolution)
-    juce::File exeFile =
-        juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-
-    juce::File scriptFile = exeFile.getSiblingFile("scripts/default_fiddle.as");
-
-    if (!scriptFile.exists()) {
-      scriptFile = exeFile.getParentDirectory().getSiblingFile(
-          "Resources/scripts/default_fiddle.as");
+    addInitMessage("Initializing Lua plugin system...");
+    // Scan bundled plugins (in app bundle next to executable)
+    auto exeFile = juce::File::getSpecialLocation(
+        juce::File::currentExecutableFile);
+    auto bundledDir = exeFile.getParentDirectory()
+                          .getChildFile("scripts")
+                          .getChildFile("plugins");
+    if (bundledDir.isDirectory()) {
+      luaCatalog_.scanDirectory(bundledDir.getFullPathName().toStdString());
     }
-
-    // Source Tree Fallback (Development)
-    juce::File projectRoot = exeFile;
-    for (int i = 0; i < 10; ++i) {
-      if (projectRoot.getChildFile("Source").isDirectory())
-        break;
-      projectRoot = projectRoot.getParentDirectory();
-    }
-
-    if (!scriptFile.exists()) {
-      scriptFile = projectRoot.getChildFile("scripts/default_fiddle.as");
-    }
-
-    if (scriptFile.exists()) {
-      std::cerr << "[Scripting] Loading script: "
-                << scriptFile.getFullPathName() << std::endl;
-      if (scriptEngine->loadScript(scriptFile)) {
-        pushLogMessage(
-            "<b>[Scripting]</b> Loaded default_fiddle.as successfully");
-      } else {
-        std::cerr << "[Scripting] Error: Failed to load script" << std::endl;
-      }
-    } else {
-      pushLogMessage(
-          "<b>[Scripting]</b> Could not find script. Tried executable "
-          "sibling and source root.",
-          true);
-    }
+    // Scan user plugins directory
+    luaCatalog_.scanDefaultDirectory();
+    std::cerr << "[Init] Lua plugin system ready — "
+              << luaCatalog_.plugins().size() << " plugins found"
+              << std::endl;
     safeCallAsync([this]() { runInitStep(4); });
     return;
   }
@@ -284,6 +256,9 @@ void MainComponent::runInitStep(int step) {
                      "Fiddle_Universal.doricolib",
                      true);
     }
+    // Wire metronome tracker unconditionally — prominence annotations
+    // work even without an expression map.
+    noteTracker.setMetronomeTracker(&metronomeTracker_);
     safeCallAsync([this]() { runInitStep(5); });
     return;
   }
@@ -293,6 +268,33 @@ void MainComponent::runInitStep(int step) {
     // Set up note/MIDI callbacks, server, and start listening
     addInitMessage("Starting MIDI server...");
     {
+      // Start the tonal center classifier and wire it to the mixer.
+      // The classifier is owned by MainComponent; MixerModel holds a raw ptr.
+      tonalClassifier_.setBpm(currentBpm_.load(std::memory_order_relaxed));
+      mixer_.setClassifier(&tonalClassifier_);
+      tonalClassifier_.start();
+      std::cerr << "[Init] TonalCenterClassifier started" << std::endl;
+
+      // Wire metronome tempo tracker callback.
+      // When the tracker detects a tempo change from the click track,
+      // update the global BPM and broadcast to the UI.
+      metronomeTracker_.onTempoChanged =
+          [this](double bpm, int tsNum, int tsDen, uint64_t samplePos) {
+        currentBpm_.store(bpm, std::memory_order_relaxed);
+        tonalClassifier_.setBpm(bpm);
+
+        juce::DynamicObject::Ptr tempoObj = new juce::DynamicObject();
+        tempoObj->setProperty("bpm", bpm);
+        tempoObj->setProperty("timeSigNumerator", tsNum);
+        tempoObj->setProperty("timeSigDenominator", tsDen);
+        tempoObj->setProperty("samplePosition", (juce::int64)samplePos);
+        tempoObj->setProperty("source", juce::String("metronome"));
+        juce::var tempoVar(tempoObj.get());
+        safeCallAsync([this, tempoVar]() {
+          broadcastMessage("setTempo", tempoVar);
+        });
+      };
+
       auto noteToJson = [](const fiddle::Note &n) {
         juce::DynamicObject::Ptr obj = new juce::DynamicObject();
         obj->setProperty("id", (juce::int64)n.id());
@@ -333,6 +335,8 @@ void MainComponent::runInitStep(int step) {
           defaults->setProperty(juce::String(it.first), it.second);
         }
         obj->setProperty("notation_is_default", defaults.get());
+
+        obj->setProperty("beatProminence", (int)n.beat_prominence());
 
         return juce::JSON::toString(juce::var(obj.get()), true);
       };
@@ -379,7 +383,6 @@ void MainComponent::runInitStep(int step) {
                             juce::String((juce::int64)n.id()) + " (Ch " +
                             juce::String((int)n.channel()) + ")");
              subnoteGenerator.onNoteStarted(n);
-             scriptEngine->execute("void processNote(Note@)", (void *)&n);
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
                                     mixer_.getPlaybackDelayMs();
@@ -388,8 +391,8 @@ void MainComponent::runInitStep(int step) {
              // n.channel() from Dorico is 1-based; strip inputChannel is
              // 0-based, so subtract 1.
              int notePort = (int)n.port();
-             std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
-                       << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
+             // std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
+             //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
              // Mutable copy so annotators can populate pre_note/post_note
              fiddle::Note mutableNote(n);
              mixer_.routeAnnotatedNoteOn(notePort, (int)n.channel() - 1,
@@ -412,8 +415,8 @@ void MainComponent::runInitStep(int step) {
                                     mixer_.getPlaybackDelayMs();
              // Route through annotator-aware path.
              int noteOffPort = (int)n.port();
-             std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
-                       << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
+             // std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
+             //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
              fiddle::Note mutableNote(n);
              mixer_.routeAnnotatedNoteOff(noteOffPort, (int)n.channel() - 1,
                                           mutableNote, triggerTimeMs);
@@ -447,6 +450,34 @@ void MainComponent::runInitStep(int step) {
                mixer_.releaseAllKeyswitches(triggerTimeMs);
              }
 
+             // Live tempo from FiddleNative's ProcessContext.
+             // Forward to the classifier so beat-duration weighting is accurate.
+             if (event.has_tempo() && event.tempo().bpm() > 0.0) {
+               double bpm = event.tempo().bpm();
+               currentBpm_.store(bpm, std::memory_order_relaxed);
+               tonalClassifier_.setBpm(bpm);
+               std::cerr << "[Tempo] BPM=" << bpm
+                         << " timeSig=" << event.tempo().time_sig_numerator()
+                         << "/" << event.tempo().time_sig_denominator()
+                         << std::endl;
+
+               // Broadcast to the UI so the Timeline can align its beat grid.
+               juce::DynamicObject::Ptr tempoObj = new juce::DynamicObject();
+               tempoObj->setProperty("bpm", bpm);
+               tempoObj->setProperty("timeSigNumerator",
+                   event.tempo().time_sig_numerator());
+               tempoObj->setProperty("timeSigDenominator",
+                   event.tempo().time_sig_denominator());
+               // absoluteSamples gives the exact sample position so the UI can
+               // draw the marker at the correct x on the timeline.
+               tempoObj->setProperty("samplePosition",
+                   (juce::int64)absoluteSamples);
+               juce::var tempoVar(tempoObj.get());
+               safeCallAsync([this, tempoVar]() {
+                 broadcastMessage("setTempo", tempoVar);
+               });
+             }
+
              juce::var eventVar = juce::JSON::fromString(
                  midiEventToJson(event, absoluteSamples, oldCCVal));
              safeCallAsync([this, eventVar]() {
@@ -456,9 +487,6 @@ void MainComponent::runInitStep(int step) {
 
       subnoteGenerator.setCallbacks(
           {[this](const fiddle::Subnote &s) {
-             // Call into script
-             scriptEngine->execute("void processSubnote(Subnote@)", (void *)&s);
-
              pushSubnoteToWebView(s);
              safeCallAsync([this, id = s.id()]() {
                juce::DynamicObject::Ptr nd = new juce::DynamicObject();
@@ -487,6 +515,55 @@ void MainComponent::runInitStep(int step) {
         pushLogMessage("<b>[Server]</b> Received Event Case: " +
                        juce::String((int)event.event_case()) +
                        " Ch: " + juce::String(event.channel()));
+
+        // ── Metronome interception ────────────────────────────────────
+        // The reserved metronome channel is port 0, channel 0 (0-based).
+        // In the protobuf, channel is 1-based, so channel()==1 is ch 0.
+        bool isMetronomeChannel =
+            ((int)event.port() == kMetronomePort &&
+             (int)event.channel() == kMetronomeChannel + 1);
+
+        // ── Reset metronome tracker on transport stop ──────────────────
+        // Transport events arrive on channel 0 (default), not on the
+        // metronome channel, so this must be checked before the
+        // channel-specific block.
+        if (event.has_transport() &&
+            event.transport().type() ==
+                fiddle::MidiEvent_TransportEvent_Type_STOP) {
+          metronomeTracker_.reset();
+        }
+
+        if (isMetronomeChannel) {
+          // Feed note-on events to the tempo tracker
+          if (event.has_note_on() && event.note_on().velocity() > 0) {
+            uint64_t samplePos =
+                event.has_host_sample_position()
+                    ? event.host_sample_position()
+                    : event.timestamp_samples();
+            int noteNum = (int)event.note_on().note_number();
+            metronomeTracker_.onBeat(noteNum, samplePos);
+
+            // Broadcast each beat position to the UI so the Timeline
+            // can use actual beat positions for its grid.
+            bool isDownbeat = (noteNum == metronomeTracker_.downbeatNote);
+            juce::DynamicObject::Ptr beatObj = new juce::DynamicObject();
+            beatObj->setProperty("samplePosition",
+                                 (juce::int64)samplePos);
+            beatObj->setProperty("isDownbeat", isDownbeat);
+            beatObj->setProperty("noteNumber", noteNum);
+            beatObj->setProperty("velocity",
+                                 (int)event.note_on().velocity());
+            juce::var beatVar(beatObj.get());
+            safeCallAsync([this, beatVar]() {
+              broadcastMessage("metronomeBeat", beatVar);
+            });
+          }
+
+          // Still push to WebView so click notes are visible in Timeline,
+          // but do NOT route through noteTracker or mixer.
+          pushEventToWebView(event);
+          return; // Skip normal processing
+        }
 
         noteTracker.processEvent(event);
         pushEventToWebView(event);
@@ -649,6 +726,16 @@ void MainComponent::runInitStep(int step) {
                           });
                       break;
                     }
+                  }
+                }
+
+                // Restore Lua plugins
+                for (const auto &fileName : rs.luaPluginFileNames) {
+                  auto resolved = luaCatalog_.resolvePluginPath(fileName);
+                  if (!resolved.empty()) {
+                    auto plugin = std::make_shared<LuaPlugin>(resolved);
+                    if (plugin->load())
+                      strip->addLuaPlugin(std::move(plugin));
                   }
                 }
               }
@@ -855,28 +942,29 @@ void MainComponent::runInitStep(int step) {
       }
     }
 
-    // Restore setup window if it was previously visible.
+
+    // Restore library manager window if it was previously visible.
     {
-      auto sws = db_.loadWindowSettings("setup");
-      if (sws.visible) {
-        safeCallAsync([this, sws]() {
-          if (!setupWindow_) {
-            setupWindow_ =
-                std::make_unique<SetupWindow>(createWebOptions());
-            setupWindowLoaded_ = false;
+      auto lws = db_.loadWindowSettings("library");
+      if (lws.visible) {
+        safeCallAsync([this, lws]() {
+          if (!libraryManagerWindow_) {
+            libraryManagerWindow_ =
+                std::make_unique<LibraryManagerWindow>(createWebOptions());
+            libraryManagerWindowLoaded_ = false;
             juce::String root =
                 juce::WebBrowserComponent::getResourceProviderRoot();
-            setupWindow_->getWebView().goToURL(root +
-                                               "index.html?view=setup");
-            setupWindow_->setGeometrySaver(
-                [this]() { saveSetupWindowGeometry(); });
-            if (sws.width > 0 && sws.height > 0) {
-              setupWindow_->restoreGeometry(sws.x, sws.y, sws.width,
-                                            sws.height, true);
+            libraryManagerWindow_->getWebView().goToURL(
+                root + "index.html?view=library");
+            libraryManagerWindow_->setGeometrySaver(
+                [this]() { saveLibraryManagerWindowGeometry(); });
+            if (lws.width > 0 && lws.height > 0) {
+              libraryManagerWindow_->restoreGeometry(lws.x, lws.y, lws.width,
+                                                     lws.height, true);
             } else {
-              setupWindow_->setVisible(true);
+              libraryManagerWindow_->setVisible(true);
             }
-            std::cerr << "[SetupWindow] Restored from saved settings"
+            std::cerr << "[LibraryManager] Restored from saved settings"
                       << std::endl;
           }
         });
@@ -1185,6 +1273,7 @@ void MainComponent::loadStripsFromDB() {
       strip->library = row.library;
       strip->family = row.family;
       strip->isSolo = row.isSolo;
+      strip->active = row.active;
       strip->inputPort = row.inputPort;
       strip->inputChannel = row.inputChannel;
       strip->gainDb.store(row.gainDb, std::memory_order_relaxed);
@@ -1221,6 +1310,25 @@ void MainComponent::loadStripsFromDB() {
           }
         }
       }
+
+      // Restore Lua plugins
+      for (const auto &fileName : row.luaPluginFileNames) {
+        auto resolved = luaCatalog_.resolvePluginPath(fileName);
+        if (resolved.empty()) {
+          std::cerr << "[loadDB] Lua plugin not found: " << fileName
+                    << std::endl;
+          continue;
+        }
+        auto plugin = std::make_shared<LuaPlugin>(resolved);
+        if (plugin->load()) {
+          strip->addLuaPlugin(std::move(plugin));
+          std::cerr << "[loadDB] Restored Lua plugin '" << fileName
+                    << "' for strip " << strip->id << std::endl;
+        } else {
+          std::cerr << "[loadDB] Failed to load Lua plugin: " << fileName
+                    << std::endl;
+        }
+      }
     }
   }
   std::cerr << "[MainComponent] Loaded " << rows.size() << " strips from SQLite"
@@ -1252,18 +1360,6 @@ MainComponent::~MainComponent() {
     db_.saveWindowSettings(ws);
   }
 
-  // Persist setup window geometry on quit.
-  if (setupWindow_) {
-    fiddle::WindowSettings ws;
-    ws.windowId = "setup";
-    auto bounds = setupWindow_->getBounds();
-    ws.x = bounds.getX();
-    ws.y = bounds.getY();
-    ws.width = bounds.getWidth();
-    ws.height = bounds.getHeight();
-    ws.visible = setupWindow_->isVisible();
-    db_.saveWindowSettings(ws);
-  }
 
   // Persist library manager window geometry on quit.
   if (libraryManagerWindow_) {
@@ -1518,48 +1614,6 @@ bool MainComponent::isHistoryWindowVisible() const {
   return historyWindow_ && historyWindow_->isVisible();
 }
 
-void MainComponent::toggleSetupWindow() {
-  // Lazily create the Setup window on first toggle.
-  if (!setupWindow_) {
-    setupWindow_ = std::make_unique<SetupWindow>(createWebOptions());
-    setupWindowLoaded_ = false;
-    juce::String root =
-        juce::WebBrowserComponent::getResourceProviderRoot();
-    setupWindow_->getWebView().goToURL(root + "index.html?view=setup");
-    setupWindow_->setGeometrySaver(
-        [this]() { saveSetupWindowGeometry(); });
-
-    // Restore saved geometry (if any).
-    auto sws = db_.loadWindowSettings("setup");
-    if (sws.width > 0 && sws.height > 0) {
-      setupWindow_->restoreGeometry(sws.x, sws.y, sws.width, sws.height,
-                                    false /* we toggle below */);
-    }
-  }
-
-  if (setupWindow_) {
-    bool wasVisible = setupWindow_->isVisible();
-    bool nowVisible = !wasVisible;
-    setupWindow_->setVisible(nowVisible);
-    if (nowVisible) {
-      setupWindow_->toFront(true);
-    }
-
-    auto bounds = setupWindow_->getBounds();
-    fiddle::WindowSettings ws;
-    ws.windowId = "setup";
-    ws.x = bounds.getX();
-    ws.y = bounds.getY();
-    ws.width = bounds.getWidth();
-    ws.height = bounds.getHeight();
-    ws.visible = nowVisible;
-    db_.saveWindowSettings(ws);
-  }
-}
-
-bool MainComponent::isSetupWindowVisible() const {
-  return setupWindow_ && setupWindow_->isVisible();
-}
 
 void MainComponent::toggleLibraryManagerWindow() {
   // Lazily create the Library Manager window on first toggle.
@@ -1632,23 +1686,15 @@ void MainComponent::saveDebugWindowGeometry() {
   db_.saveWindowSettings(ws);
 }
 
-void MainComponent::saveSetupWindowGeometry() {
-  if (!setupWindow_)
-    return;
-  fiddle::WindowSettings ws;
-  ws.windowId = "setup";
-  auto bounds = setupWindow_->getBounds();
-  ws.x = bounds.getX();
-  ws.y = bounds.getY();
-  ws.width = bounds.getWidth();
-  ws.height = bounds.getHeight();
-  ws.visible = setupWindow_->isVisible();
-  db_.saveWindowSettings(ws);
-}
 
 void MainComponent::saveLibraryManagerWindowGeometry() {
   if (!libraryManagerWindow_)
     return;
+  // Only persist position/size from move/resize/close callbacks.
+  // Visibility is managed explicitly by toggleLibraryManagerWindow() and the
+  // destructor — NOT from closeButtonPressed, which calls setVisible(false)
+  // before this callback fires, causing isVisible() to return stale (false).
+  auto existing = db_.loadWindowSettings("library");
   fiddle::WindowSettings ws;
   ws.windowId = "library";
   auto bounds = libraryManagerWindow_->getBounds();
@@ -1656,7 +1702,7 @@ void MainComponent::saveLibraryManagerWindowGeometry() {
   ws.y = bounds.getY();
   ws.width = bounds.getWidth();
   ws.height = bounds.getHeight();
-  ws.visible = libraryManagerWindow_->isVisible();
+  ws.visible = existing.found ? existing.visible : libraryManagerWindow_->isVisible();
   db_.saveWindowSettings(ws);
 }
 
@@ -1792,9 +1838,9 @@ void MainComponent::audioDeviceIOCallbackWithContext(
           peak = chPeak;
       }
       if (peak > 0.0f) {
-        std::cerr << "[AudioDiag] Peak after mixer: " << peak
-                  << " dB=" << juce::Decibels::gainToDecibels(peak)
-                  << std::endl;
+        // std::cerr << "[AudioDiag] Peak after mixer: " << peak
+        //           << " dB=" << juce::Decibels::gainToDecibels(peak)
+        //           << std::endl;
       }
     }
   }
@@ -1865,9 +1911,7 @@ void MainComponent::broadcastJavascript(const juce::String &js) {
   if (historyWindow_ && historyWindowLoaded_) {
     historyWindow_->getWebView().evaluateJavascript(js);
   }
-  if (setupWindow_ && setupWindowLoaded_) {
-    setupWindow_->getWebView().evaluateJavascript(js);
-  }
+
   if (libraryManagerWindow_ && libraryManagerWindowLoaded_) {
     libraryManagerWindow_->getWebView().evaluateJavascript(js);
   }
@@ -1907,11 +1951,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
       historyWindowLoaded_ = true;
       isHistoryWindow = true;
       std::cerr << "[WebView] Handshake: History window ready" << std::endl;
-    } else if (viewMode == "setup" && setupWindow_) {
-      targetWebComponent = &(setupWindow_->getWebView());
-      setupWindowLoaded_ = true;
-      isHistoryWindow = true; // Reuse flag to skip main-window-only init
-      std::cerr << "[WebView] Handshake: Setup window ready" << std::endl;
+
     } else if (viewMode == "library" && libraryManagerWindow_) {
       targetWebComponent = &(libraryManagerWindow_->getWebView());
       libraryManagerWindowLoaded_ = true;
@@ -1934,12 +1974,24 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushLogMessage("<i>Server started and listening for connections...</i>");
     }
 
-    bool isSetupWindow = (viewMode == "setup");
+
 
     // Send Version
     if (auto *app = juce::JUCEApplication::getInstance()) {
       broadcastMessage("setServerVersion",
                        juce::var(app->getApplicationVersion()));
+    }
+
+    // Push current BPM
+    double bpm = currentBpm_.load(std::memory_order_relaxed);
+    if (bpm > 0.0) {
+      juce::DynamicObject::Ptr tempoObj = new juce::DynamicObject();
+      tempoObj->setProperty("bpm", bpm);
+      // Hardcode initial marker to 0, future ones get correct absoluteSamples
+      tempoObj->setProperty("samplePosition", (juce::int64)0);
+      tempoObj->setProperty("timeSigNumerator", 4);
+      tempoObj->setProperty("timeSigDenominator", 4);
+      broadcastMessage("setTempo", juce::var(tempoObj.get()));
     }
 
     // Push channel map (port/channel → instrument) to Timeline
@@ -1958,6 +2010,36 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (!isHistoryWindow) {
       pushMixerState(false);
 
+      // Push available Lua plugins catalog
+      {
+        juce::Array<juce::var> pluginArr;
+        for (const auto &meta : luaCatalog_.plugins()) {
+          auto *obj = new juce::DynamicObject();
+          obj->setProperty("name", juce::String(meta.name));
+          obj->setProperty("version", juce::String(meta.version));
+          obj->setProperty("author", juce::String(meta.author));
+          obj->setProperty("description", juce::String(meta.description));
+          obj->setProperty("filePath", juce::String(meta.filePath));
+          juce::Array<juce::var> params;
+          for (const auto &p : meta.params) {
+            auto *pObj = new juce::DynamicObject();
+            pObj->setProperty("name", juce::String(p.name));
+            pObj->setProperty("type", juce::String(p.type));
+            pObj->setProperty("min", p.min);
+            pObj->setProperty("max", p.max);
+            pObj->setProperty("default", p.defaultVal);
+            juce::Array<juce::var> opts;
+            for (const auto &o : p.options)
+              opts.add(juce::String(o));
+            pObj->setProperty("options", opts);
+            params.add(juce::var(pObj));
+          }
+          obj->setProperty("params", params);
+          pluginArr.add(juce::var(obj));
+        }
+        broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
+      }
+
       // Send Dorico instruments (with score order) so mixer can sort
       juce::String instrJson = instrumentBrowser_.getInstrumentsAsJson();
       safeCallAsync([this, instrJson]() {
@@ -1970,12 +2052,10 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (!isHistoryWindow) {
       auto mws = db_.loadWindowSettings("main");
       juce::String mode = mws.mode;
-      if (masterList_.isEmpty() && mode != "setup")
-        mode = "setup";
       broadcastMessage("setMainMode", juce::var(mode));
     }
 
-    if (isHistoryWindow && !isSetupWindow) {
+    if (isHistoryWindow) {
       safeCallAsync([this]() {
         pushDagHistory();
         pushBranches();
@@ -1983,19 +2063,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
 
-    // Push setup data to the setup window
-    if (isSetupWindow) {
-      safeCallAsync([this]() {
-        juce::String instrJson = instrumentBrowser_.getInstrumentsAsJson();
-        broadcastMessage("setDoricoInstruments",
-                         juce::JSON::fromString(instrJson));
-        juce::String selJson = masterList_.getSlotsAsJson();
-        broadcastMessage("setSelectedInstruments",
-                         juce::JSON::fromString(selJson));
-        juce::String mapJson = masterList_.getChannelMapAsJson();
-        broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson));
-      });
-    }
+
 
     // Push branches to main window
     if (!isHistoryWindow) {
@@ -2338,6 +2406,35 @@ void MainComponent::handleJsMessage(const juce::String &type,
     });
     return;
   }
+  if (type == "toggleLibraryActive") {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+
+    if (args.size() < 1)
+      return;
+    juce::String libraryName = args[0].toString();
+    safeCallAsync([this, libraryName]() {
+      // Determine current state: active if ALL strips with this library are
+      // active
+      bool allActive = true;
+      auto strips = mixer_.getAllStrips();
+      for (auto *s : strips) {
+        if (s->library == libraryName && !s->active) {
+          allActive = false;
+          break;
+        }
+      }
+      // Toggle: if all active, deactivate; if any inactive, activate all
+      bool newState = !allActive;
+      auto action = std::make_unique<ToggleLibraryActiveAction>(
+          mixer_, libraryName, newState);
+      undoManager_.perform(std::move(action));
+      saveAllStripsToDB();
+      pushMixerState();
+    });
+    return;
+  }
   if (type == "getAnnotationRecords") {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2515,6 +2612,76 @@ void MainComponent::handleJsMessage(const juce::String &type,
     return;
   }
 
+  // ── Lua plugin management ──────────────────────────────────────────
+
+  if (type == "addStripLuaPlugin") {
+    // payload: [stripId, pluginFilePath]
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    std::string pluginPath = args[1].toString().toStdString();
+
+    // Verify the plugin is in the catalog (try full path first, then just filename)
+    std::string fileName =
+        std::filesystem::path(pluginPath).filename().string();
+    const auto *meta = luaCatalog_.findByPath(pluginPath);
+    if (!meta)
+      meta = luaCatalog_.findByFileName(fileName);
+    if (!meta) {
+      std::cerr << "[Lua] Plugin not in catalog: " << pluginPath << std::endl;
+      return;
+    }
+    safeCallAsync([this, stripId, fileName]() {
+      auto action = std::make_unique<AddLuaPluginAction>(
+          mixer_, luaCatalog_, stripId, fileName);
+      undoManager_.perform(std::move(action));
+      saveAllStripsToDB();
+      pushMixerState();
+      scheduleStateRebuild();
+    });
+    return;
+  }
+
+  if (type == "removeStripLuaPlugin") {
+    // payload: [stripId, pluginIndex]
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.size() < 2)
+      return;
+    juce::String stripId = args[0].toString();
+    int pluginIndex = (int)args[1];
+
+    safeCallAsync([this, stripId, pluginIndex]() {
+      auto action = std::make_unique<RemoveLuaPluginAction>(
+          mixer_, luaCatalog_, stripId, pluginIndex);
+      undoManager_.perform(std::move(action));
+      saveAllStripsToDB();
+      pushMixerState();
+      scheduleStateRebuild();
+    });
+    return;
+  }
+
+  if (type == "getLuaPluginCatalog") {
+    // Re-push the catalog (e.g., after a rescan)
+    juce::Array<juce::var> pluginArr;
+    for (const auto &meta : luaCatalog_.plugins()) {
+      auto *obj = new juce::DynamicObject();
+      obj->setProperty("name", juce::String(meta.name));
+      obj->setProperty("version", juce::String(meta.version));
+      obj->setProperty("author", juce::String(meta.author));
+      obj->setProperty("description", juce::String(meta.description));
+      obj->setProperty("filePath", juce::String(meta.filePath));
+      pluginArr.add(juce::var(obj));
+    }
+    broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
+    return;
+  }
+
   if (type == "setStripPlugin") {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2614,7 +2781,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
                 << " instruments=" << instruments.size() << std::endl;
       bool found = false;
       for (const auto &inst : instruments) {
-        if (inst.entityId == entityId && inst.instanceNum == instanceNum) {
+        if (inst.entityId == entityId && inst.hasInstance(instanceNum)) {
           std::cerr << "[restoreLibraryPluginState] Found entity+instance, blobSize="
                     << inst.pluginState.getSize() << std::endl;
           if (inst.pluginState.getSize() > 0) {
@@ -2740,6 +2907,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         arr.add(juce::var(obj));
       }
       broadcastMessage("setLibraryList", juce::var(arr));
+      broadcastTemplateDirty();
     });
     return;
   }
@@ -2777,8 +2945,18 @@ void MainComponent::handleJsMessage(const juce::String &type,
           inst.vstPlugin = instObj->getProperty("vstPlugin").toString();
           inst.exprMap = instObj->getProperty("exprMap").toString();
           inst.note = instObj->getProperty("note").toString();
-          auto instNumProp = instObj->getProperty("instanceNum");
-          inst.instanceNum = instNumProp.isVoid() ? 1 : (int)instNumProp;
+          auto instNumProp = instObj->getProperty("instanceNums");
+          if (instNumProp.isArray()) {
+            inst.instanceNums.clear();
+            for (const auto &v : *instNumProp.getArray())
+              inst.instanceNums.push_back((int)v);
+            if (inst.instanceNums.empty())
+              inst.instanceNums.push_back(1);
+          } else {
+            // Legacy: single integer
+            int n = instNumProp.isVoid() ? 1 : (int)instNumProp;
+            inst.instanceNums = {n};
+          }
           // Capture live plugin state from the mixer strip (if linked)
           juce::String stripId = instObj->getProperty("stripId").toString();
           if (stripId.isNotEmpty()) {
@@ -2788,6 +2966,10 @@ void MainComponent::handleJsMessage(const juce::String &type,
               inst.pluginState = strip->cachedPluginState_;
             }
           }
+          // Ensure pluginUid is populated from the vstPlugin string
+          // even when no live strip was linked during this save.
+          if (inst.pluginUid == 0 && inst.vstPlugin.isNotEmpty())
+            inst.pluginUid = inst.vstPlugin.getIntValue();
           instruments.push_back(std::move(inst));
         }
       }
@@ -2809,6 +2991,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         arr.add(juce::var(obj));
       }
       broadcastMessage("setLibraryList", juce::var(arr));
+      broadcastTemplateDirty();
     });
     return;
   }
@@ -2854,7 +3037,9 @@ void MainComponent::handleJsMessage(const juce::String &type,
         instObj->setProperty("pluginUid", inst.pluginUid);
         instObj->setProperty("hasPluginState",
                              inst.pluginState.getSize() > 0);
-        instObj->setProperty("instanceNum", inst.instanceNum);
+        juce::Array<juce::var> iNums;
+        for (int n : inst.instanceNums) iNums.add(n);
+        instObj->setProperty("instanceNums", juce::var(iNums));
         instObj->setProperty("isSolo", inst.isSolo);
         instObj->setProperty("note", inst.note);
         instArr.add(juce::var(instObj));
@@ -2862,6 +3047,332 @@ void MainComponent::handleJsMessage(const juce::String &type,
       result->setProperty("instruments", juce::var(instArr));
 
       broadcastMessage("setLibraryData", juce::var(result));
+    });
+    return;
+  }
+  if (type == "buildPlaybackTemplate") {
+    safeCallAsync([this]() {
+      std::cerr << "[BuildTemplate] Starting..." << std::endl;
+
+      // 1. Load all libraries and their instruments
+      auto libs = db_.listLibraries();
+      auto allInstruments = db_.loadAllLibraryInstruments();
+
+      // Build library name lookup
+      std::map<juce::String, juce::String> libNames;
+      for (const auto &lib : libs)
+        libNames[lib.id] = lib.name;
+
+      // 2. Compute union of instruments → EnsembleSlots
+      //    Key: (entityId, isSolo) → max instanceNum
+      struct SlotKey {
+        juce::String entityId;
+        bool isSolo;
+        bool operator<(const SlotKey &o) const {
+          if (entityId != o.entityId) return entityId < o.entityId;
+          return isSolo < o.isSolo;
+        }
+      };
+      // Track: max instanceNum per unique instrument type, plus count of
+      // libraries that have each (entityId, isSolo, instanceNum) tuple.
+      // The total count for a slot = number of libraries × max instanceNum.
+      struct SlotInfo {
+        int maxInstanceNum = 0;
+        juce::String name;
+        juce::String family;
+        juce::String category;
+        // Track which libraries have this instrument type
+        std::set<juce::String> libraryIds;
+      };
+      std::map<SlotKey, SlotInfo> slotMap;
+
+      // Also keep a flat lookup for strip initialization later
+      // Key: (entityId, isSolo, instanceNum) → list of library instruments
+      using StripKey = std::tuple<juce::String, bool, int>;
+      std::map<StripKey, std::vector<fiddle::LibraryInstrumentRow>> stripLookup;
+
+      for (const auto &inst : allInstruments) {
+        SlotKey key{inst.entityId, inst.isSolo};
+        auto &info = slotMap[key];
+        info.maxInstanceNum = std::max(info.maxInstanceNum, inst.maxInstance());
+        if (info.name.isEmpty()) {
+          info.name = inst.name;
+          info.family = inst.family;
+          info.category = inst.category;
+        }
+        info.libraryIds.insert(inst.libraryId);
+
+        // Insert one lookup entry per instance number so the strip
+        // creation loop can find this row for each Dorico channel.
+        for (int iNum : inst.instanceNums) {
+          StripKey sk{inst.entityId, inst.isSolo, iNum};
+          stripLookup[sk].push_back(inst);
+        }
+      }
+
+      // Build EnsembleSlots. For each unique (entityId, isSolo), the count
+      // is: numLibraries × maxInstanceNum (each library gets its own set of
+      // strips for each instance).
+      std::vector<MasterInstrumentList::EnsembleSlot> newSlots;
+
+      // First collect unique entityIds to preserve order
+      std::map<juce::String, std::pair<int, int>> entityCounts; // soloCount, sectionCount
+      struct EntityInfo {
+        juce::String name, family;
+        juce::String musicXMLSoundID;
+        int soloCount = 0;
+        int sectionCount = 0;
+      };
+      std::map<juce::String, EntityInfo> entityMap;
+
+      // Look up musicXMLSoundID from the instrument browser
+      auto &browserInstruments = instrumentBrowser_.getInstruments();
+      std::map<juce::String, juce::String> entityToSoundID;
+      for (const auto &bi : browserInstruments)
+        entityToSoundID[bi.entityID] = bi.musicXMLSoundID;
+
+      for (const auto &[key, info] : slotMap) {
+        auto &ei = entityMap[key.entityId];
+        if (ei.name.isEmpty()) {
+          ei.name = info.name;
+          ei.family = info.family;
+          ei.musicXMLSoundID = entityToSoundID[key.entityId];
+        }
+        // Use max instance count across libraries (not sum).
+        // Multiple libraries share the same Dorico channels.
+        int count = info.maxInstanceNum;
+        if (key.isSolo)
+          ei.soloCount += count;
+        else
+          ei.sectionCount += count;
+      }
+
+      for (const auto &[entityId, ei] : entityMap) {
+        MasterInstrumentList::EnsembleSlot slot;
+        slot.entityID = entityId;
+        slot.name = ei.name;
+        slot.musicXMLSoundID = ei.musicXMLSoundID;
+        slot.family = ei.family;
+        slot.soloCount = ei.soloCount;
+        slot.sectionCount = ei.sectionCount;
+        newSlots.push_back(std::move(slot));
+      }
+
+      if (newSlots.empty()) {
+        broadcastMessage("buildPlaybackTemplateResult",
+                         juce::var("Error: No library instruments found"));
+        return;
+      }
+
+      std::cerr << "[BuildTemplate] " << newSlots.size()
+                << " unique instrument types from " << libs.size()
+                << " libraries" << std::endl;
+
+      // 3. Set slots and generate Dorico config
+      masterList_.setSlots(std::move(newSlots));
+      masterList_.saveToDB(db_);
+      // Clear graveyard so stale entries don't get reclaimed into the new template
+      db_.clearGraveyard();
+
+      DoricoConfigGenerator generator;
+      auto slots = masterList_.getSlots();
+      auto assignments = DoricoConfigGenerator::expandSlots(slots);
+      int numChannels = masterList_.totalSlotCount();
+
+      auto result = generator.generateAndInstallFiles(
+          assignments, numChannels, browserInstruments);
+
+      juce::String msg;
+      if (result.wasOk()) {
+        msg = "OK: Built template with " +
+              juce::String((int)assignments.size()) + " instruments (" +
+              juce::String(numChannels) + " channels)";
+
+        // Rebuild channel assignments
+        std::vector<ChannelAssignmentRow> newRows;
+        newRows.reserve(assignments.size());
+        std::map<std::pair<juce::String, bool>, int> instanceCounts;
+        for (int idx = 0; idx < (int)assignments.size(); ++idx) {
+          const auto &a = assignments[idx];
+          auto aKey = std::make_pair(a.entityID, a.isSolo);
+          int instanceNum = ++instanceCounts[aKey];
+          ChannelAssignmentRow row;
+          row.flatIndex = idx;
+          row.entityID = a.entityID;
+          row.isSolo = a.isSolo;
+          row.instanceNum = instanceNum;
+          newRows.push_back(row);
+        }
+        db_.saveChannelAssignments(newRows);
+        masterList_.reconcileAssignments(db_);
+      } else {
+        msg = "Error: " + result.getErrorMessage();
+      }
+
+      // 4. Snapshot which libraries are currently active before clearing.
+      //    Any library that had at least one active strip is considered
+      //    "previously active" and should remain active after rebuild.
+      std::set<juce::String> previouslyActiveLibs;
+      for (auto *s : mixer_.getAllStrips()) {
+        if (s->active && s->library.isNotEmpty())
+          previouslyActiveLibs.insert(s->library);
+      }
+
+      // Clear existing strips and create fresh ones from the new template
+      mixer_.clear();
+      mixer_.syncStripsToInstruments(masterList_);
+
+      // 5. Initialize strips from library data.
+      // For each Dorico channel, create one strip per library that has
+      // that instrument. All strips for the same channel share the same
+      // inputPort/inputChannel.
+      juce::String mapJson = masterList_.getChannelMapAsJson();
+      auto parsed = juce::JSON::parse(mapJson);
+      if (auto *mapArr = parsed.getArray()) {
+        for (const auto &item : *mapArr) {
+          if (auto *obj = item.getDynamicObject()) {
+            int port = (int)obj->getProperty("port");
+            int ch = (int)obj->getProperty("channel");
+            juce::String entityId = obj->getProperty("entityID").toString();
+            bool isSolo = (bool)obj->getProperty("isSolo");
+            int instNum = (int)obj->getProperty("instanceNum");
+
+            // Find the base strip (created by syncStripsToInstruments)
+            auto *baseStrip = [&]() -> MixerStrip * {
+              auto strips = mixer_.getAllStrips();
+              for (auto *s : strips) {
+                if (s->inputPort == port && s->inputChannel == ch &&
+                    s->library.isEmpty())
+                  return s;
+              }
+              return nullptr;
+            }();
+
+            // Get the slot info for this instrument type
+            SlotKey sKey{entityId, isSolo};
+            auto slotIt = slotMap.find(sKey);
+            if (slotIt == slotMap.end()) continue;
+            const auto &sInfo = slotIt->second;
+
+            // Get sorted library IDs for deterministic order
+            std::vector<juce::String> sortedLibIds(sInfo.libraryIds.begin(),
+                                                    sInfo.libraryIds.end());
+            std::sort(sortedLibIds.begin(), sortedLibIds.end());
+
+            // Helper lambda to set up a strip from a library instrument
+            auto initStrip = [&](MixerStrip *strip,
+                                 const fiddle::LibraryInstrumentRow &inst,
+                                 const juce::String &libId) {
+              strip->library = libNames[libId];
+              // Preserve activation for previously-active libraries;
+              // new libraries default to inactive.
+              strip->active = previouslyActiveLibs.count(libNames[libId]) > 0;
+
+              if (inst.exprMap.isNotEmpty()) {
+                auto xmapData = xmapLibrary_.load(
+                    inst.exprMap.toStdString());
+                if (xmapData)
+                  strip->setExpressionMap(xmapData);
+              }
+
+              // Resolve effective plugin UID: pluginUid is set when a
+              // live strip was linked during save; vstPlugin (string)
+              // always holds the dropdown selection.
+              int effectiveUid = inst.pluginUid;
+              if (effectiveUid == 0 && inst.vstPlugin.isNotEmpty())
+                effectiveUid = inst.vstPlugin.getIntValue();
+
+              if (effectiveUid != 0) {
+                strip->pluginUid = effectiveUid;
+                for (const auto &d :
+                     pluginScanner_.getKnownPluginList().getTypes()) {
+                  if (d.uniqueId == effectiveUid) {
+                    auto stateBlock = inst.pluginState;
+                    strip->loadPlugin(
+                        d, mixer_.getFormatManager(),
+                        [strip, stateBlock](bool success) {
+                          if (success && stateBlock.getSize() > 0 &&
+                              strip->pluginInstance) {
+                            strip->pluginInstance->setStateInformation(
+                                stateBlock.getData(),
+                                (int)stateBlock.getSize());
+                            strip->refreshPluginStateCache();
+                          }
+                        });
+                    break;
+                  }
+                }
+              }
+            };
+
+            // Create one strip per library for this channel
+            for (int libIdx = 0; libIdx < (int)sortedLibIds.size(); ++libIdx) {
+              const juce::String &libId = sortedLibIds[libIdx];
+
+              // Find the matching library instrument
+              StripKey lookupKey{entityId, isSolo, instNum};
+              auto lookupIt = stripLookup.find(lookupKey);
+              if (lookupIt == stripLookup.end()) continue;
+
+              const fiddle::LibraryInstrumentRow *matchedInst = nullptr;
+              for (const auto &li : lookupIt->second) {
+                if (li.libraryId == libId) {
+                  matchedInst = &li;
+                  break;
+                }
+              }
+              if (!matchedInst) continue;
+
+              if (libIdx == 0 && baseStrip) {
+                // First library uses the base strip
+                initStrip(baseStrip, *matchedInst, libId);
+              } else {
+                // Additional libraries: create a new strip sharing
+                // the same input
+                auto newStrip = std::make_unique<MixerStrip>();
+                newStrip->id = juce::Uuid().toString();
+                newStrip->inputPort = port;
+                newStrip->inputChannel = ch;
+                newStrip->family = baseStrip ? baseStrip->family : "";
+                newStrip->isSolo = isSolo;
+                auto *rawPtr = newStrip.get();
+
+                // Insert right after the base strip (or at end)
+                int insertIdx = -1;
+                if (baseStrip)
+                  insertIdx = mixer_.stripIndex(baseStrip->id) + 1;
+                else
+                  insertIdx = mixer_.size();
+                mixer_.insertStripAt(std::move(newStrip), insertIdx);
+
+                initStrip(rawPtr, *matchedInst, libId);
+              }
+            }
+          }
+        }
+      }
+
+      // 6. Push state to UIs
+      saveAllStripsToDB();
+
+      juce::String mapJson2 = masterList_.getChannelMapAsJson();
+      broadcastMessage("setInstrumentMap", juce::JSON::fromString(mapJson2));
+
+      pushMixerState();
+
+      // Push updated setup data for the Setup pane
+      {
+        juce::String selJson = masterList_.getSlotsAsJson();
+        broadcastMessage("setSelectedInstruments",
+                         juce::JSON::fromString(selJson));
+      }
+
+      broadcastMessage("buildPlaybackTemplateResult", juce::var(msg));
+      std::cerr << "[BuildTemplate] " << msg << std::endl;
+
+      // Update fingerprint so the button disables until libraries change
+      lastInstalledFingerprint_ = computeLibraryFingerprint();
+      broadcastTemplateDirty();
     });
     return;
   }
@@ -2887,6 +3398,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
         arr.add(juce::var(obj));
       }
       broadcastMessage("setLibraryList", juce::var(arr));
+      broadcastTemplateDirty();
     });
     return;
   }
@@ -3497,6 +4009,7 @@ void MainComponent::handleJsMessage(const juce::String &type,
               strip->library = blobOpt->library;
               strip->family = blobOpt->family;
               strip->isSolo = blobOpt->isSolo;
+              strip->active = blobOpt->active;
               strip->inputPort = blobOpt->inputPort;
               strip->inputChannel = blobOpt->inputChannel;
               strip->pluginUid = blobOpt->pluginUid;
@@ -3676,39 +4189,40 @@ void MainComponent::handleJsMessage(const juce::String &type,
     safeCallAsync([this]() { saveConfig(); });
     return;
   }
-  if (type == "cancelSetup") {
-    // Hide the setup window and persist the closed state
-    safeCallAsync([this]() {
-      if (setupWindow_) {
-        setupWindow_->setVisible(false);
-        saveSetupWindowGeometry();
-      }
-    });
-    return;
-  }
-  if (type == "openSetupWindow") {
-    safeCallAsync([this]() {
-      // If already open, just bring to front
-      if (setupWindow_ && setupWindow_->isVisible()) {
-        setupWindow_->toFront(true);
-        return;
-      }
-      toggleSetupWindow();
-    });
-    return;
-  }
-  if (type == "saveSetup") {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
 
-    // Trigger the save flow — target the setup window's WebView
-    safeCallAsync([this]() {
-      broadcastMessage("triggerSaveSetup", juce::var());
-    });
-    return;
-  }
   std::cerr << "[IPC] Unknown message type: " << type << std::endl;
+}
+
+juce::String MainComponent::computeLibraryFingerprint() {
+  // Build a deterministic string from all library instruments.
+  // Sort by libraryId + entityId + isSolo + instanceNum for stability.
+  auto instruments = db_.loadAllLibraryInstruments();
+  std::sort(instruments.begin(), instruments.end(),
+            [](const fiddle::LibraryInstrumentRow &a,
+               const fiddle::LibraryInstrumentRow &b) {
+              if (a.libraryId != b.libraryId)
+                return a.libraryId < b.libraryId;
+              if (a.entityId != b.entityId)
+                return a.entityId < b.entityId;
+              if (a.isSolo != b.isSolo)
+                return a.isSolo < b.isSolo;
+              return a.maxInstance() < b.maxInstance();
+            });
+
+  juce::String data;
+  for (const auto &inst : instruments) {
+    data += inst.libraryId + "|" + inst.entityId + "|" +
+            (inst.isSolo ? "S" : "T") + "|" +
+            inst.instanceNumsToString() + "|" + inst.exprMap + "|" +
+            juce::String(inst.pluginUid) + "\n";
+  }
+  return juce::String(data.hashCode64());
+}
+
+void MainComponent::broadcastTemplateDirty() {
+  juce::String current = computeLibraryFingerprint();
+  bool dirty = current != lastInstalledFingerprint_;
+  broadcastMessage("setTemplateDirty", juce::var(dirty));
 }
 
 } // namespace fiddle

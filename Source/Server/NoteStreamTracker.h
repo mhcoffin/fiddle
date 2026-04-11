@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ExpressionMap.h"
+#include "MetronomeTempoTracker.h"
 #include "midi_event.pb.h"
 #include <algorithm> // Added for std::find
 #include <array>
@@ -47,6 +48,10 @@ public:
 
   void setExpressionMap(const ExpressionMap *map) { expMap = map; }
 
+  void setMetronomeTracker(const MetronomeTempoTracker *tracker) {
+    metronomeTracker_ = tracker;
+  }
+
   void resetSessionStartTime() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     sessionStartTime = -1.0;
@@ -61,9 +66,9 @@ public:
                juce::String((int)event.event_case()));
 
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    std::cerr << "[NoteStreamTracker] processEvent: Case="
-              << (int)event.event_case() << " Ch=" << event.channel()
-              << std::endl;
+    // std::cerr << "[NoteStreamTracker] processEvent: Case="
+    //           << (int)event.event_case() << " Ch=" << event.channel()
+    //           << std::endl;
 
     uint64_t sessionTimestamp = getSessionSamples();
     uint64_t absoluteSamples =
@@ -190,6 +195,7 @@ private:
   mutable std::recursive_mutex mutex;
   Callbacks callbacks;
   const ExpressionMap *expMap = nullptr;
+  const MetronomeTempoTracker *metronomeTracker_ = nullptr;
 
   std::vector<fiddle::Note> activeNotes;
   std::array<std::array<uint8_t, 128>, 16> currentCCs;
@@ -275,11 +281,20 @@ private:
       }
     }
 
+    // Annotate rhythmic prominence from metronome beat history
+    if (metronomeTracker_ != nullptr) {
+      int prom = metronomeTracker_->getProminenceAt(absoluteSamples);
+      note.set_beat_prominence(static_cast<uint32_t>(prom));
+    } else {
+      note.set_beat_prominence(
+          static_cast<uint32_t>(MetronomeTempoTracker::kProminenceOffBeat));
+    }
+
     activeNotes.push_back(note);
 
     if (callbacks.onNoteStarted) {
-      std::cerr << "[NoteStreamTracker] Triggering onNoteStarted: ID="
-                << note.id() << std::endl;
+      // std::cerr << "[NoteStreamTracker] Triggering onNoteStarted: ID="
+      //           << note.id() << std::endl;
       callbacks.onNoteStarted(note);
     }
   }
