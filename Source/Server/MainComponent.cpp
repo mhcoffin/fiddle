@@ -419,7 +419,7 @@ void MainComponent::runInitStep(int step) {
              subnoteGenerator.onNoteStarted(n);
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
-                                    mixer_.getPlaybackDelayMs();
+                                    mixer_.getPlaybackDelayMs() - 40.0;
              // Route through annotator-aware path.
              // n.port() from Dorico is 0-based (matches strip inputPort).
              // n.channel() from Dorico is 1-based; strip inputChannel is
@@ -452,7 +452,7 @@ void MainComponent::runInitStep(int step) {
              subnoteGenerator.onNoteEnded(n);
 
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
-                                    mixer_.getPlaybackDelayMs();
+                                    mixer_.getPlaybackDelayMs() - 40.0;
              // Route through annotator-aware path.
              
              // Feed the harmonic analysis service.
@@ -492,7 +492,7 @@ void MainComponent::runInitStep(int step) {
                      fiddle::MidiEvent_TransportEvent_Type_STOP) {
                double triggerTimeMs =
                    juce::Time::getMillisecondCounterHiRes() +
-                   mixer_.getPlaybackDelayMs();
+                   mixer_.getPlaybackDelayMs() - 40.0;
                mixer_.releaseAllKeyswitches(triggerTimeMs);
                harmonicService_.onTransportStop();
              }
@@ -663,7 +663,7 @@ void MainComponent::runInitStep(int step) {
                 juce::MidiMessage::controllerEvent(ch, ccNum, ccVal);
             double triggerTimeMs =
                 juce::Time::getMillisecondCounterHiRes() +
-                mixer_.getPlaybackDelayMs();
+                mixer_.getPlaybackDelayMs() - 40.0;
             mixer_.routeAnnotatedCC(port, ch - 1, event, ccMsg,
                                     triggerTimeMs);
           }

@@ -53,6 +53,9 @@ public:
            state_->magic.load(std::memory_order_acquire) == kMagic;
   }
 
+  bool buffering_ = true;
+  double jitterMs_ = 40.0;
+
   /// Pull audio from the ring buffer into an interleaved output.
   /// numSamples = number of sample frames (not total floats).
   /// output must hold at least numSamples * kNumChannels floats.
@@ -68,8 +71,33 @@ public:
     uint64_t writePos = state_->writeIndex.load(std::memory_order_acquire);
     uint64_t readPos = state_->readIndex.load(std::memory_order_relaxed);
     uint64_t available = writePos - readPos;
-    int samplesToRead = static_cast<int>(
-        available < static_cast<uint64_t>(numSamples) ? available : numSamples);
+
+    uint64_t targetBuffer = static_cast<uint64_t>(
+        state_->sampleRate.load(std::memory_order_relaxed) * (jitterMs_ / 1000.0));
+    if (targetBuffer == 0) targetBuffer = 1764; // Fallback ~40ms at 44.1kHz
+
+    if (buffering_) {
+        if (available >= targetBuffer) {
+            buffering_ = false;
+        } else {
+            // Output silence while filling the buffer
+            for (int c = 0; c < numChannels; ++c)
+              if (outputChannels[c])
+                std::memset(outputChannels[c], 0, numSamples * sizeof(float));
+            return;
+        }
+    }
+
+    // Check for underrun
+    if (available < static_cast<uint64_t>(numSamples)) {
+        buffering_ = true; // Enter buffering mode to re-sync
+        for (int c = 0; c < numChannels; ++c)
+          if (outputChannels[c])
+            std::memset(outputChannels[c], 0, numSamples * sizeof(float));
+        return;
+    }
+
+    int samplesToRead = numSamples;
 
     int outCh = numChannels < static_cast<int>(kNumChannels)
                     ? numChannels
@@ -80,15 +108,6 @@ public:
       size_t index = (readPos + i) % kBufferCapacity;
       for (int c = 0; c < outCh; ++c) {
         outputChannels[c][i] = state_->audioData[index * kNumChannels + c];
-      }
-    }
-
-    // Pad remaining samples with silence
-    if (samplesToRead < numSamples) {
-      for (int c = 0; c < numChannels; ++c) {
-        if (outputChannels[c])
-          std::memset(outputChannels[c] + samplesToRead, 0,
-                      (numSamples - samplesToRead) * sizeof(float));
       }
     }
 
