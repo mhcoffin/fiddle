@@ -118,6 +118,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/MainComponent.cpp
     Source/Server/MainComponent.h
+    Source/Server/WebViewBridge.cpp
+    Source/Server/WebViewBridge.h
     Source/Server/DoricoConfigGenerator.cpp
     Source/Server/DoricoConfigGenerator.h
     Source/Server/DoricoInstrumentBrowser.cpp

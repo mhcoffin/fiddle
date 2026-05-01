@@ -13,64 +13,18 @@
 
 namespace fiddle {
 
-juce::WebBrowserComponent::Options MainComponent::createWebOptions() {
-  return juce::WebBrowserComponent::Options{}
-      .withNativeIntegrationEnabled(true)
-      .withResourceProvider(
-          [this](const juce::String &url) { return getResource(url); })
-      .withNativeFunction(
-          "dispatchMessage",
-          [this](
-              const juce::Array<juce::var> &args,
-              juce::WebBrowserComponent::NativeFunctionCompletion completion) {
-            if (args.isEmpty() || !args[0].isObject()) {
-              completion(true);
-              return;
-            }
-            auto *obj = args[0].getDynamicObject();
-            juce::String type = obj->getProperty("type").toString();
-            juce::var payload = obj->getProperty("payload");
 
-            safeCallAsync(
-                [this, type, payload]() { handleJsMessage(type, payload); });
-            completion(true);
-          })
-      .withUserScript(
-          "if (window.__JUCE__ && window.__JUCE__.initialisationData "
-          "&& window.__JUCE__.initialisationData.__juce__functions) {"
-          "  var funcs = "
-          "window.__JUCE__.initialisationData.__juce__functions;"
-          "  funcs.forEach(function(name) {"
-          "    if (window.__JUCE__.backend && "
-          "!window.__JUCE__.backend[name]) {"
-          "      window.__JUCE__.backend[name] = function() {"
-          "        var args = Array.prototype.slice.call(arguments);"
-          "        window.__JUCE__.backend.emitEvent('__juce__invoke', "
-          "{"
-          "          name: name, params: args, resultId: Date.now()"
-          "        });"
-          "      };"
-          "    }"
-          "  });"
-          "}")
-
-      // ── Mixer native functions ──
-
-      // ── Branch / Version native functions ──
-
-      ;
-}
 
 MainComponent::MainComponent()
-    : webComponent(createWebOptions()) {
+    : webViewBridge_(jsRouter_, [this](std::function<void()> f) { safeCallAsync(f); }) {
   setupJsHandlers();
-  setupWebView();
+  webViewBridge_.setup();
 
   // Add webComponent with zero-size bounds so the native WKWebView peer
   // is created immediately and starts loading in parallel with C++ init.
   // Zero-size means the splash screen remains visible underneath.
-  addAndMakeVisible(webComponent);
-  webComponent.setBounds(0, 0, 0, 0);
+  addAndMakeVisible(webViewBridge_.getMainWebComponent());
+  webViewBridge_.getMainWebComponent().setBounds(0, 0, 0, 0);
 
   // Create debug window eagerly (hidden by default).
   // Native functions are registered inside DebugWindow's own constructor
@@ -123,7 +77,7 @@ MainComponent::MainComponent()
       safeCallAsync([this]() {
         if (pluginScanner_.getPluginCount() > 0) {
           juce::String json = pluginScanner_.getPluginListAsJson();
-          juce::String call = "setPluginList('" + escapeForJS(json) + "')";
+          juce::String call = "setPluginList('" + WebViewBridge::escapeForJS(json) + "')";
           pushToDebugWindow(call);
         }
       });
@@ -132,11 +86,11 @@ MainComponent::MainComponent()
     cbs.onForwardMessage = [this](const juce::String &type,
                                    const juce::var &payload) {
       safeCallAsync(
-          [this, type, payload]() { handleJsMessage(type, payload); });
+          [this, type, payload]() { jsRouter_.handleMessage(type, payload); });
     };
 
     debugWindow_ = std::make_unique<DebugWindow>(
-        [this](const juce::String &url) { return getResource(url); },
+        [this](const juce::String &url) { return webViewBridge_.getResource(url); },
         std::move(cbs));
     debugWindow_->loadDebugPage(root);
 
@@ -155,7 +109,7 @@ MainComponent::MainComponent()
   safeCallAsync([this]() { initializeApp(); });
 
   // Initialize the bridge for UI testing on the main window using port 9223
-  jsTestBridge_ = std::make_unique<JsTestBridge>(webComponent, 9223);
+  jsTestBridge_ = std::make_unique<JsTestBridge>(webViewBridge_.getMainWebComponent(), 9223);
 }
 
 void MainComponent::addInitMessage(const juce::String &msg) {
@@ -960,7 +914,7 @@ void MainComponent::initDatabase() {
         safeCallAsync([this, hws]() {
           if (!historyWindow_ && versionStore_) {
             historyWindow_ =
-                std::make_unique<HistoryWindow>(createWebOptions());
+                std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
             historyWindowLoaded_ = false;
             juce::String root =
                 juce::WebBrowserComponent::getResourceProviderRoot();
@@ -987,7 +941,7 @@ void MainComponent::initDatabase() {
         safeCallAsync([this, lws]() {
           if (!libraryManagerWindow_) {
             libraryManagerWindow_ =
-                std::make_unique<LibraryManagerWindow>(createWebOptions());
+                std::make_unique<LibraryManagerWindow>(webViewBridge_.createWebOptions());
             libraryManagerWindowLoaded_ = false;
             juce::String root =
                 juce::WebBrowserComponent::getResourceProviderRoot();
@@ -1411,48 +1365,10 @@ MainComponent::~MainComponent() {
   server.reset();
 }
 
-void MainComponent::setupWebView() {
-  juce::File current =
-      juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-  // 1. Try relative to the executable (Production/Bundle)
-  uiDir = current.getSiblingFile("ui");
 
-  if (!uiDir.exists()) {
-    // Try Resources folder if in a macOS bundle
-    uiDir = current.getParentDirectory().getSiblingFile("Resources/ui");
-  }
-
-  if (!uiDir.exists()) {
-    // 2. Try Source Tree Fallback (Development)
-    juce::File projectRoot;
-    juce::File searchDir = current;
-    for (int i = 0; i < 10; ++i) {
-      if (searchDir.getChildFile("Source").isDirectory()) {
-        projectRoot = searchDir;
-        break;
-      }
-      searchDir = searchDir.getParentDirectory();
-    }
-
-    if (projectRoot != juce::File()) {
-      uiDir = projectRoot.getChildFile("Source/Server/ui/dist");
-    }
-  }
-
-  if (!uiDir.exists()) {
-    std::cerr
-        << "[WebView] Error: UI directory not found. WebView will be empty."
-        << std::endl;
-  }
-
-  webViewLoaded = false;
-  juce::String root = juce::WebBrowserComponent::getResourceProviderRoot();
-  std::cerr << "[WebView] Navigating to: " << root << "index.html" << std::endl;
-  webComponent.goToURL(root + "index.html");
-}
 
 void MainComponent::pushMixerState(bool markDirty) {
-  if (!webViewLoaded)
+  if (!webViewBridge_.isLoaded())
     return;
   if (markDirty) {
     bool wasDirty = stateManager_.isDirty();
@@ -1468,7 +1384,7 @@ void MainComponent::pushMixerState(bool markDirty) {
 
 void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
   std::lock_guard<std::mutex> lock(logMutex);
-  if (!webViewLoaded) {
+  if (!webViewBridge_.isLoaded()) {
     if (logQueue.size() < 1000) {
       logQueue.push_back({msg, isError});
     }
@@ -1483,81 +1399,7 @@ void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
   });
 }
 
-juce::String MainComponent::escapeForJS(const juce::String &str) {
-  juce::String out;
-  out.preallocateBytes((size_t)str.length() + 256);
-  for (auto c : str) {
-    switch (c) {
-    case '\\':
-      out += "\\\\";
-      break;
-    case '\'':
-      out += "\\'";
-      break;
-    case '"':
-      out += "\\\"";
-      break;
-    case '\r':
-      out += "\\r";
-      break;
-    case '\n':
-      out += "\\n";
-      break;
-    default:
-      out += c;
-      break;
-    }
-  }
-  return out;
-}
 
-std::optional<juce::WebBrowserComponent::Resource>
-MainComponent::getResource(const juce::String &url) {
-  juce::String path = (url == "/" || url == "") ? "index.html" : url;
-  if (path.startsWith("/"))
-    path = path.substring(1);
-
-  // Strip query parameters and fragment identifiers
-  int qMark = path.indexOf("?");
-  if (qMark >= 0)
-    path = path.substring(0, qMark);
-  int hash = path.indexOf("#");
-  if (hash >= 0)
-    path = path.substring(0, hash);
-  if (path.isEmpty())
-    path = "index.html";
-
-  juce::File resourceFile = uiDir.getChildFile(path);
-  std::cerr << "[WebView] getResource: " << url << " -> "
-            << resourceFile.getFullPathName()
-            << (resourceFile.exists() ? " (FOUND)" : " (NOT FOUND)")
-            << std::endl;
-
-  if (resourceFile.existsAsFile()) {
-    juce::MemoryBlock mb;
-    if (resourceFile.loadFileAsData(mb)) {
-      juce::String mimeType = "application/octet-stream";
-      if (path.endsWith(".html"))
-        mimeType = "text/html; charset=utf-8";
-      else if (path.endsWith(".js"))
-        mimeType = "text/javascript";
-      else if (path.endsWith(".css"))
-        mimeType = "text/css";
-      else if (path.endsWith(".svg"))
-        mimeType = "image/svg+xml";
-      else if (path.endsWith(".png"))
-        mimeType = "image/png";
-
-      std::vector<std::byte> data;
-      data.resize(mb.getSize());
-      std::memcpy(data.data(), mb.getData(), mb.getSize());
-      return juce::WebBrowserComponent::Resource{std::move(data),
-                                                 mimeType.toStdString()};
-    }
-  }
-
-  return std::nullopt;
-}
 
 void MainComponent::pushEventToWebView(const fiddle::MidiEvent &event) {
   std::string text;
@@ -1608,7 +1450,7 @@ void MainComponent::toggleHistoryWindow() {
   // Lazily create the History window on first toggle (same logic as the JS
   // "openHistoryWindow" handler).
   if (!historyWindow_ && versionStore_) {
-    historyWindow_ = std::make_unique<HistoryWindow>(createWebOptions());
+    historyWindow_ = std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
     historyWindowLoaded_ = false;
     juce::String root =
         juce::WebBrowserComponent::getResourceProviderRoot();
@@ -1651,7 +1493,7 @@ void MainComponent::toggleLibraryManagerWindow() {
   // Lazily create the Library Manager window on first toggle.
   if (!libraryManagerWindow_) {
     libraryManagerWindow_ =
-        std::make_unique<LibraryManagerWindow>(createWebOptions());
+        std::make_unique<LibraryManagerWindow>(webViewBridge_.createWebOptions());
     libraryManagerWindowLoaded_ = false;
     juce::String root =
         juce::WebBrowserComponent::getResourceProviderRoot();
@@ -1825,7 +1667,7 @@ void MainComponent::paint(juce::Graphics &g) {
 
 void MainComponent::resized() {
   if (initComplete_)
-    webComponent.setBounds(getLocalBounds());
+    webViewBridge_.getMainWebComponent().setBounds(getLocalBounds());
 }
 
 void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice *device) {
@@ -1936,22 +1778,7 @@ void MainComponent::pushCurrentVersion() {
   broadcastMessage("setCurrentVersion", juce::String(currentVersionId_));
 }
 
-void MainComponent::broadcastJavascript(const juce::String &js) {
-  if (webViewLoaded) {
-    webComponent.evaluateJavascript(js);
-  }
-  if (historyWindow_ && historyWindowLoaded_) {
-    historyWindow_->getWebView().evaluateJavascript(js);
-  }
 
-  if (libraryManagerWindow_ && libraryManagerWindowLoaded_) {
-    libraryManagerWindow_->getWebView().evaluateJavascript(js);
-  }
-  // Include debug window so broadcastMessage reaches the Plugins/Timeline panels
-  if (debugWindow_) {
-    debugWindow_->evaluateJavascript(js);
-  }
-}
 
 void MainComponent::broadcastMessage(const juce::String &type,
                                      const juce::var &data) {
@@ -1961,7 +1788,13 @@ void MainComponent::broadcastMessage(const juce::String &type,
   juce::String json = juce::JSON::toString(juce::var(envelope), true);
   juce::String js =
       "window.__dispatchFromCpp && window.__dispatchFromCpp(" + json + ")";
-  broadcastJavascript(js);
+  webViewBridge_.broadcastJavascript(js, 
+                                     historyWindow_ ? &historyWindow_->getWebView() : nullptr,
+                                     libraryManagerWindow_ ? &libraryManagerWindow_->getWebView() : nullptr);
+  // Include debug window so broadcastMessage reaches the Plugins/Timeline panels
+  if (debugWindow_) {
+    debugWindow_->evaluateJavascript(js);
+  }
 }
 
 void MainComponent::setupJsHandlers() {
@@ -1974,7 +1807,7 @@ void MainComponent::setupJsHandlers() {
       viewMode = args[0].toString();
     }
 
-    juce::WebBrowserComponent *targetWebComponent = &webComponent;
+    juce::WebBrowserComponent *targetWebComponent = &webViewBridge_.getMainWebComponent();
     bool isHistoryWindow = false;
 
     if (viewMode == "history" && historyWindow_) {
@@ -1990,7 +1823,7 @@ void MainComponent::setupJsHandlers() {
       std::cerr << "[WebView] Handshake: Library Manager window ready"
                 << std::endl;
     } else {
-      webViewLoaded = true;
+      webViewBridge_.setLoaded(true);
       std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
 
       std::vector<std::pair<juce::String, bool>> pending;
@@ -2104,7 +1937,7 @@ void MainComponent::setupJsHandlers() {
     // Reveal the WebView now that it's fully loaded
     if (!isHistoryWindow) {
       initComplete_ = true;
-      webComponent.setBounds(getLocalBounds());
+      webViewBridge_.getMainWebComponent().setBounds(getLocalBounds());
       repaint();
     }
     return;
@@ -3751,7 +3584,7 @@ void MainComponent::setupJsHandlers() {
   jsRouter_.registerHandler("openHistoryWindow", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       if (!historyWindow_ && versionStore_) {
-        historyWindow_ = std::make_unique<HistoryWindow>(createWebOptions());
+        historyWindow_ = std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
         historyWindowLoaded_ = false;
         juce::String root =
             juce::WebBrowserComponent::getResourceProviderRoot();
@@ -4195,12 +4028,6 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() { saveConfig(); });
     return;
   });
-}
-
-void MainComponent::handleJsMessage(const juce::String &type, const juce::var &payload) {
-  if (!jsRouter_.handleMessage(type, payload)) {
-    std::cerr << "Unknown JS message: " << type << std::endl;
-  }
 }
 
 juce::String MainComponent::computeLibraryFingerprint() {

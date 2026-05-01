@@ -21,6 +21,7 @@
 #include "SubnoteGenerator.h"
 #include "HarmonicAnalysisService.h"
 #include "MessageRouter.h"
+#include "WebViewBridge.h"
 #include "MetronomeTempoTracker.h"
 #include "UndoActions.h"
 #include "midi_event.pb.h"
@@ -91,8 +92,9 @@ public:
   void audioDeviceStopped() override;
 
 private:
-  juce::File uiDir;
-  juce::WebBrowserComponent webComponent;
+  MessageRouter jsRouter_;
+  WebViewBridge webViewBridge_;
+
   juce::AudioDeviceManager deviceManager;
   DoricoInstrumentBrowser instrumentBrowser_;
   MasterInstrumentList masterList_;
@@ -181,22 +183,16 @@ private:
   void initDatabase();
   void initPluginsAndStrips();
   void timerCallback() override;
-  void setupWebView();
-  juce::WebBrowserComponent::Options createWebOptions();
 
-  MessageRouter jsRouter_;
   void setupJsHandlers();
 
-  void broadcastJavascript(const juce::String &js);
   /// Send a typed message to all ready WebViews via window.__dispatchFromCpp.
   /// This is the preferred API — avoid raw broadcastJavascript where possible.
   void broadcastMessage(const juce::String &type,
                         const juce::var &data = juce::var());
-  void handleJsMessage(const juce::String &type, const juce::var &payload);
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
   void pushToDebugWindow(const juce::String &js);
-  static juce::String escapeForJS(const juce::String &str);
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
   void pushSubnoteToWebView(const fiddle::Subnote &subnote);
@@ -248,12 +244,8 @@ private:
   /// Broadcast whether the playback template is out-of-date to all UIs.
   void broadcastTemplateDirty();
 
-  std::optional<juce::WebBrowserComponent::Resource>
-  getResource(const juce::String &url);
-
   std::mutex logMutex;
   std::vector<std::pair<juce::String, bool>> logQueue;
-  bool webViewLoaded = false;
 
   /// Post a callback to the message thread, guarded against destruction.
   /// If this MainComponent is destroyed before the callback fires, it is
