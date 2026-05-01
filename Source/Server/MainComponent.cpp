@@ -152,7 +152,7 @@ MainComponent::MainComponent()
   // Kick off phased async initialization so the splash screen can paint
   // between steps.
   addInitMessage("Starting up...");
-  safeCallAsync([this]() { runInitStep(0); });
+  safeCallAsync([this]() { initializeApp(); });
 
   // Initialize the bridge for UI testing on the main window using port 9223
   jsTestBridge_ = std::make_unique<JsTestBridge>(webComponent, 9223);
@@ -163,20 +163,19 @@ void MainComponent::addInitMessage(const juce::String &msg) {
   repaint();
 }
 
-void MainComponent::runInitStep(int step) {
-  switch (step) {
+void MainComponent::initializeApp() {
+  initExpressionMaps();
+}
 
-  case 0:
-
-    // Scan for expression maps in Dorico directories
+void MainComponent::initExpressionMaps() {
+  // Scan for expression maps in Dorico directories
     addInitMessage("Scanning expression maps...");
     xmapLibrary_.scanDefaultDirectories();
-    safeCallAsync([this]() { runInitStep(1); });
-    return;
+    safeCallAsync([this]() { initInstrumentBrowser(); });
+}
 
-  case 1:
-
-    // Load Dorico instrument browser
+void MainComponent::initInstrumentBrowser() {
+  // Load Dorico instrument browser
     addInitMessage("Loading Dorico instruments...");
     if (instrumentBrowser_.loadFromDorico()) {
       pushLogMessage(
@@ -186,20 +185,18 @@ void MainComponent::runInitStep(int step) {
     } else {
       pushLogMessage("<b>[Setup]</b> Could not load Dorico instruments", true);
     }
-    safeCallAsync([this]() { runInitStep(2); });
-    return;
+    safeCallAsync([this]() { initPlaceholder(); });
+}
 
-  case 2:
-
-    // Ensemble is now loaded from DB after db_.open() (init step 7+).
+void MainComponent::initPlaceholder() {
+  // Ensemble is now loaded from DB after db_.open() (init step 7+).
     // This step is kept as a placeholder for the splash screen message.
     addInitMessage("Loading instrument selections...");
-    safeCallAsync([this]() { runInitStep(3); });
-    return;
+    safeCallAsync([this]() { initLuaPlugins(); });
+}
 
-  case 3:
-  {
-    addInitMessage("Initializing Lua plugin system...");
+void MainComponent::initLuaPlugins() {
+  addInitMessage("Initializing Lua plugin system...");
     // Scan bundled plugins (in app bundle next to executable)
     auto exeFile = juce::File::getSpecialLocation(
         juce::File::currentExecutableFile);
@@ -214,14 +211,11 @@ void MainComponent::runInitStep(int step) {
     std::cerr << "[Init] Lua plugin system ready — "
               << luaCatalog_.plugins().size() << " plugins found"
               << std::endl;
-    safeCallAsync([this]() { runInitStep(4); });
-    return;
-  }
+    safeCallAsync([this]() { initExpressionMapLibrary(); });
+}
 
-  case 4:
-
-  {
-    // Load Expression Map from .doricolib
+void MainComponent::initExpressionMapLibrary() {
+  // Load Expression Map from .doricolib
     addInitMessage("Loading expression map...");
     juce::File exeFile =
         juce::File::getSpecialLocation(juce::File::currentExecutableFile);
@@ -260,13 +254,11 @@ void MainComponent::runInitStep(int step) {
     // Wire metronome tracker unconditionally — prominence annotations
     // work even without an expression map.
     noteTracker.setMetronomeTracker(&metronomeTracker_);
-    safeCallAsync([this]() { runInitStep(5); });
-    return;
-  }
+    safeCallAsync([this]() { initMidiServer(); });
+}
 
-  case 5:
-
-    // Set up note/MIDI callbacks, server, and start listening
+void MainComponent::initMidiServer() {
+  // Set up note/MIDI callbacks, server, and start listening
     addInitMessage("Starting MIDI server...");
     {
       // Start the harmonic analysis service (HMM-based key/chord detection)
@@ -825,11 +817,11 @@ void MainComponent::runInitStep(int step) {
 
       startTimer(20); // 20ms tick for subnotes
     }
-    safeCallAsync([this]() { runInitStep(6); });
-    return;
+    safeCallAsync([this]() { initAudioDevice(); });
+}
 
-  case 6:
-    // Initialize audio device for driving VST3 plugins
+void MainComponent::initAudioDevice() {
+  // Initialize audio device for driving VST3 plugins
     addInitMessage("Initializing audio device...");
     {
       juce::String err = deviceManager.initialiseWithDefaultDevices(0, 2);
@@ -840,13 +832,11 @@ void MainComponent::runInitStep(int step) {
         deviceManager.addAudioCallback(this);
       }
     }
-    safeCallAsync([this]() { runInitStep(7); });
-    return;
+    safeCallAsync([this]() { initDatabase(); });
+}
 
-  case 7:
-
-  {
-    addInitMessage("Opening database...");
+void MainComponent::initDatabase() {
+  addInitMessage("Opening database...");
 
     // Open SQLite database
     auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
@@ -1071,12 +1061,11 @@ void MainComponent::runInitStep(int step) {
       cs->set_delay_ms(1000); // default, updated later
       server->setCachedConfigStatus(msg);
     }
-    safeCallAsync([this]() { runInitStep(8); });
-    return;
-  }
+    safeCallAsync([this]() { initPluginsAndStrips(); });
+}
 
-  case 8:
-    // Load plugins and strips from database
+void MainComponent::initPluginsAndStrips() {
+  // Load plugins and strips from database
     addInitMessage("Loading plugins...");
 
     // Load persisted plugin listener capabilities
@@ -1102,12 +1091,8 @@ void MainComponent::runInitStep(int step) {
 
     // Wait for the WebView to signal it's ready before dismissing splash
     addInitMessage("Preparing interface...");
-    return;
-
-  default:
-    return;
-  } // switch
 }
+
 
 void MainComponent::saveConfig() {
   saveAllStripsToDB();

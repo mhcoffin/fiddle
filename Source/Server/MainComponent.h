@@ -170,7 +170,16 @@ private:
   bool migratedToDag_ = false;
   juce::StringArray initMessages_;
   void addInitMessage(const juce::String &msg);
-  void runInitStep(int step);
+  void initializeApp();
+  void initExpressionMaps();
+  void initInstrumentBrowser();
+  void initPlaceholder();
+  void initLuaPlugins();
+  void initExpressionMapLibrary();
+  void initMidiServer();
+  void initAudioDevice();
+  void initDatabase();
+  void initPluginsAndStrips();
   void timerCallback() override;
   void setupWebView();
   juce::WebBrowserComponent::Options createWebOptions();
