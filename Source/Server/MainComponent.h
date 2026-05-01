@@ -20,6 +20,7 @@
 #include "StateManager.h"
 #include "SubnoteGenerator.h"
 #include "HarmonicAnalysisService.h"
+#include "MessageRouter.h"
 #include "MetronomeTempoTracker.h"
 #include "UndoActions.h"
 #include "midi_event.pb.h"
@@ -173,6 +174,10 @@ private:
   void timerCallback() override;
   void setupWebView();
   juce::WebBrowserComponent::Options createWebOptions();
+
+  MessageRouter jsRouter_;
+  void setupJsHandlers();
+
   void broadcastJavascript(const juce::String &js);
   /// Send a typed message to all ready WebViews via window.__dispatchFromCpp.
   /// This is the preferred API — avoid raw broadcastJavascript where possible.

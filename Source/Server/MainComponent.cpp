@@ -63,6 +63,7 @@ juce::WebBrowserComponent::Options MainComponent::createWebOptions() {
 
 MainComponent::MainComponent()
     : webComponent(createWebOptions()) {
+  setupJsHandlers();
   setupWebView();
 
   // Add webComponent with zero-size bounds so the native WKWebView peer
@@ -1978,9 +1979,8 @@ void MainComponent::broadcastMessage(const juce::String &type,
   broadcastJavascript(js);
 }
 
-void MainComponent::handleJsMessage(const juce::String &type,
-                                    const juce::var &payload) {
-  if (type == "signalReady") {
+void MainComponent::setupJsHandlers() {
+  jsRouter_.registerHandler("signalReady", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2123,8 +2123,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       repaint();
     }
     return;
-  }
-  if (type == "setMode") {
+  });
+  jsRouter_.registerHandler("setMode", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2139,8 +2139,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     }
     return;
-  }
-  if (type == "nativeLog") {
+  });
+  jsRouter_.registerHandler("nativeLog", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2148,8 +2148,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (args.size() > 0)
       std::cerr << "[JS NativeLog] " << args[0].toString() << std::endl;
     return;
-  }
-  if (type == "requestSetupData") {
+  });
+  jsRouter_.registerHandler("requestSetupData", [this](const juce::var& payload) {
     std::cerr << "[Setup] requestSetupData called" << std::endl;
 
     // Send Dorico instruments list
@@ -2185,8 +2185,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  if (type == "saveSelectedInstruments") {
+  });
+  jsRouter_.registerHandler("saveSelectedInstruments", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2271,8 +2271,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  if (type == "scanPlugins") {
+  });
+  jsRouter_.registerHandler("scanPlugins", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2290,8 +2290,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
     return;
-  }
-  if (type == "rescanPlugins") {
+  });
+  jsRouter_.registerHandler("rescanPlugins", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2308,8 +2308,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setPluginList", juce::JSON::fromString(json));
     });
     return;
-  }
-  if (type == "addMixerStrip") {
+  });
+  jsRouter_.registerHandler("addMixerStrip", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2320,8 +2320,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "duplicateStripInput") {
+  });
+  jsRouter_.registerHandler("duplicateStripInput", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2336,8 +2336,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "removeMixerStrip") {
+  });
+  jsRouter_.registerHandler("removeMixerStrip", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2352,8 +2352,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "setStripLibrary") {
+  });
+  jsRouter_.registerHandler("setStripLibrary", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2373,8 +2373,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "setStripInput") {
+  });
+  jsRouter_.registerHandler("setStripInput", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2397,8 +2397,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "setStripGain") {
+  });
+  jsRouter_.registerHandler("setStripGain", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2419,8 +2419,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "setStripMute") {
+  });
+  jsRouter_.registerHandler("setStripMute", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2435,8 +2435,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "setStripSolo") {
+  });
+  jsRouter_.registerHandler("setStripSolo", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2451,8 +2451,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "toggleLibraryActive") {
+  });
+  jsRouter_.registerHandler("toggleLibraryActive", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2480,8 +2480,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "getAnnotationRecords") {
+  });
+  jsRouter_.registerHandler("getAnnotationRecords", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2500,8 +2500,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setAnnotationRecords", juce::var(envelope));
     });
     return;
-  }
-  if (type == "clearAnnotationRecords") {
+  });
+  jsRouter_.registerHandler("clearAnnotationRecords", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2516,11 +2516,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       strip->clearAnnotations();
     });
     return;
-  }
-
-  // ── MIDI Capture IPC ─────────────────────────────────────────────────
-
-  if (type == "startMidiCapture") {
+  });
+  jsRouter_.registerHandler("startMidiCapture", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2537,9 +2534,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (mode == "emitted" || mode == "both")
       strip->emittedCapture.startCapture();
     return;
-  }
-
-  if (type == "stopMidiCapture") {
+  });
+  jsRouter_.registerHandler("stopMidiCapture", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2556,9 +2552,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (mode == "emitted" || mode == "both")
       strip->emittedCapture.stopCapture();
     return;
-  }
-
-  if (type == "getMidiCapture") {
+  });
+  jsRouter_.registerHandler("getMidiCapture", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2585,9 +2580,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setMidiCapture", juce::var(envelope));
     });
     return;
-  }
-
-  if (type == "clearMidiCapture") {
+  });
+  jsRouter_.registerHandler("clearMidiCapture", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2604,9 +2598,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
     if (mode == "emitted" || mode == "both")
       strip->emittedCapture.clear();
     return;
-  }
-
-  if (type == "getCaptureStripList") {
+  });
+  jsRouter_.registerHandler("getCaptureStripList", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       juce::Array<juce::var> arr;
       for (auto *strip : mixer_.getAllStrips()) {
@@ -2626,9 +2619,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setCaptureStripList", juce::var(arr));
     });
     return;
-  }
-
-  if (type == "exportCaptureFile") {
+  });
+  jsRouter_.registerHandler("exportCaptureFile", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2656,11 +2648,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
           file.replaceWithText(text);
         });
     return;
-  }
-
-  // ── Lua plugin management ──────────────────────────────────────────
-
-  if (type == "addStripLuaPlugin") {
+  });
+  jsRouter_.registerHandler("addStripLuaPlugin", [this](const juce::var& payload) {
     // payload: [stripId, pluginFilePath]
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2689,9 +2678,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       scheduleStateRebuild();
     });
     return;
-  }
-
-  if (type == "removeStripLuaPlugin") {
+  });
+  jsRouter_.registerHandler("removeStripLuaPlugin", [this](const juce::var& payload) {
     // payload: [stripId, pluginIndex]
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2710,9 +2698,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       scheduleStateRebuild();
     });
     return;
-  }
-
-  if (type == "getLuaPluginCatalog") {
+  });
+  jsRouter_.registerHandler("getLuaPluginCatalog", [this](const juce::var& payload) {
     // Re-push the catalog (e.g., after a rescan)
     juce::Array<juce::var> pluginArr;
     for (const auto &meta : luaCatalog_.plugins()) {
@@ -2726,9 +2713,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
     }
     broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
     return;
-  }
-
-  if (type == "setStripPlugin") {
+  });
+  jsRouter_.registerHandler("setStripPlugin", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2763,8 +2749,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       undoManager_.perform(std::move(action));
     });
     return;
-  }
-  if (type == "setStripProgram") {
+  });
+  jsRouter_.registerHandler("setStripProgram", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2782,8 +2768,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "showStripEditor") {
+  });
+  jsRouter_.registerHandler("showStripEditor", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2797,8 +2783,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
         s->showEditor();
     });
     return;
-  }
-  if (type == "restoreLibraryPluginState") {
+  });
+  jsRouter_.registerHandler("restoreLibraryPluginState", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2852,8 +2838,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "loadExpressionMap") {
+  });
+  jsRouter_.registerHandler("loadExpressionMap", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2881,8 +2867,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "clearExpressionMap") {
+  });
+  jsRouter_.registerHandler("clearExpressionMap", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2905,8 +2891,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       pushMixerState();
     });
     return;
-  }
-  if (type == "loadExpressionMapFromFile") {
+  });
+  jsRouter_.registerHandler("loadExpressionMapFromFile", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -2939,8 +2925,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
                            safeCallAsync([this]() { pushMixerState(); });
                          });
     return;
-  }
-  if (type == "requestLibraries") {
+  });
+  jsRouter_.registerHandler("requestLibraries", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       auto libs = db_.listLibraries();
       juce::Array<juce::var> arr;
@@ -2956,8 +2942,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastTemplateDirty();
     });
     return;
-  }
-  if (type == "saveLibrary") {
+  });
+  jsRouter_.registerHandler("saveLibrary", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3040,8 +3026,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastTemplateDirty();
     });
     return;
-  }
-  if (type == "loadLibrary") {
+  });
+  jsRouter_.registerHandler("loadLibrary", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3095,8 +3081,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setLibraryData", juce::var(result));
     });
     return;
-  }
-  if (type == "buildPlaybackTemplate") {
+  });
+  jsRouter_.registerHandler("buildPlaybackTemplate", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       std::cerr << "[BuildTemplate] Starting..." << std::endl;
 
@@ -3421,8 +3407,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastTemplateDirty();
     });
     return;
-  }
-  if (type == "deleteLibrary") {
+  });
+  jsRouter_.registerHandler("deleteLibrary", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3447,8 +3433,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastTemplateDirty();
     });
     return;
-  }
-  if (type == "requestExpressionMaps") {
+  });
+  jsRouter_.registerHandler("requestExpressionMaps", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3458,8 +3444,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setExpressionMaps", juce::JSON::parse(json));
     });
     return;
-  }
-  if (type == "undo") {
+  });
+  jsRouter_.registerHandler("undo", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3475,8 +3461,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "redo") {
+  });
+  jsRouter_.registerHandler("redo", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3492,8 +3478,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "requestPluginsState") {
+  });
+  jsRouter_.registerHandler("requestPluginsState", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3509,16 +3495,16 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "requestMixerState") {
+  });
+  jsRouter_.registerHandler("requestMixerState", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
 
     safeCallAsync([this]() { pushMixerState(false); });
     return;
-  }
-  if (type == "getAvailableInputs") {
+  });
+  jsRouter_.registerHandler("getAvailableInputs", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3528,8 +3514,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setAvailableInputs", juce::JSON::parse(json));
     });
     return;
-  }
-  if (type == "setPlaybackDelay") {
+  });
+  jsRouter_.registerHandler("setPlaybackDelay", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3544,8 +3530,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  if (type == "getPlaybackDelay") {
+  });
+  jsRouter_.registerHandler("getPlaybackDelay", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3555,8 +3541,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setPlaybackDelay", juce::var(ms));
     });
     return;
-  }
-  if (type == "setGroupGainDelta") {
+  });
+  jsRouter_.registerHandler("setGroupGainDelta", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3589,8 +3575,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "setGroupGainAbsolute") {
+  });
+  jsRouter_.registerHandler("setGroupGainAbsolute", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3623,8 +3609,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "setGroupPlugin") {
+  });
+  jsRouter_.registerHandler("setGroupPlugin", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3656,8 +3642,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "setGroupLibrary") {
+  });
+  jsRouter_.registerHandler("setGroupLibrary", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3688,8 +3674,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "setGroupExpressionMap") {
+  });
+  jsRouter_.registerHandler("setGroupExpressionMap", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3728,8 +3714,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "removeGroupStrips") {
+  });
+  jsRouter_.registerHandler("removeGroupStrips", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3758,12 +3744,12 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "requestBranches") {
+  });
+  jsRouter_.registerHandler("requestBranches", [this](const juce::var& payload) {
     safeCallAsync([this]() { pushBranches(); });
     return;
-  }
-  if (type == "requestCurrentBranch") {
+  });
+  jsRouter_.registerHandler("requestCurrentBranch", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       if (versionStore_) {
         auto b = versionStore_->getStorage().getBranch(currentBranchId_);
@@ -3776,8 +3762,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       broadcastMessage("setCurrentBranch", juce::var(juce::String("default")));
     });
     return;
-  }
-  if (type == "openHistoryWindow") {
+  });
+  jsRouter_.registerHandler("openHistoryWindow", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       if (!historyWindow_ && versionStore_) {
         historyWindow_ = std::make_unique<HistoryWindow>(createWebOptions());
@@ -3793,12 +3779,12 @@ void MainComponent::handleJsMessage(const juce::String &type,
       }
     });
     return;
-  }
-  if (type == "requestDagHistory") {
+  });
+  jsRouter_.registerHandler("requestDagHistory", [this](const juce::var& payload) {
     safeCallAsync([this]() { pushDagHistory(); });
     return;
-  }
-  if (type == "createBranch") {
+  });
+  jsRouter_.registerHandler("createBranch", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -3900,8 +3886,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  if (type == "checkoutBranch") {
+  });
+  jsRouter_.registerHandler("checkoutBranch", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -4001,14 +3987,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  // ── checkoutVersion ────────────────────────────────────────────────────────
-  // args[0] = version UUID.  Loads that version's state into the mixer.
-  // If the version is NOT the head of its branch, enters "detached HEAD" mode:
-  //   - currentBranchId_ is left unchanged so Dorico state stays anchored.
-  //   - scheduleStateRebuild() is a no-op while detached.
-  //   - The UI shows a badge and disables Save.
-  if (type == "checkoutVersion") {
+  });
+  jsRouter_.registerHandler("checkoutVersion", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -4098,11 +4078,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  // ── mergeBranch ────────────────────────────────────────────────────────────
-  // args[0] = sourceBranchId, args[1] = targetBranchId.
-  // Merges source onto target.  If target is the current branch, reloads mixer.
-  if (type == "mergeBranch") {
+  });
+  jsRouter_.registerHandler("mergeBranch", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -4185,10 +4162,8 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  // ── squashVersion ──────────────────────────────────────────────────────────
-  // args[0] = version hash to squash.
-  if (type == "deleteVersion") {
+  });
+  jsRouter_.registerHandler("deleteVersion", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
@@ -4226,17 +4201,21 @@ void MainComponent::handleJsMessage(const juce::String &type,
       });
     }
     return;
-  }
-  if (type == "saveConfig") {
+  });
+  jsRouter_.registerHandler("saveConfig", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
       args = *payload.getArray();
 
     safeCallAsync([this]() { saveConfig(); });
     return;
-  }
+  });
+}
 
-  std::cerr << "[IPC] Unknown message type: " << type << std::endl;
+void MainComponent::handleJsMessage(const juce::String &type, const juce::var &payload) {
+  if (!jsRouter_.handleMessage(type, payload)) {
+    std::cerr << "Unknown JS message: " << type << std::endl;
+  }
 }
 
 juce::String MainComponent::computeLibraryFingerprint() {
