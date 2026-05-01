@@ -9,7 +9,7 @@ StateManager::~StateManager() = default;
 
 void StateManager::initialize() {
   sharedMemory_ = std::make_unique<StateSharedMemory>(true /* producer */);
-  std::cerr << "[StateManager] Initialized" << std::endl;
+  // std::cerr << "[StateManager] Initialized" << std::endl;
 }
 
 void StateManager::markDirty() {
@@ -61,12 +61,14 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
+    sb.active = strip->active;
     sb.inputPort = strip->inputPort;
     sb.inputChannel = strip->inputChannel;
     sb.pluginUid = strip->pluginUid;
     sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState_;
     if (cached.getSize() > 0) {
@@ -125,6 +127,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     obj->setProperty("library", strip->library);
     obj->setProperty("family", strip->family);
     obj->setProperty("isSolo", strip->isSolo);
+    obj->setProperty("active", strip->active);
     obj->setProperty("inputPort", strip->inputPort);
     obj->setProperty("inputChannel", strip->inputChannel);
     obj->setProperty("pluginUid", strip->pluginUid);
@@ -134,6 +137,12 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
                      strip->expressionMap
                          ? juce::String(strip->expressionMap->entityID)
                          : juce::String());
+
+    // Lua plugin filenames (stored as basenames for portability)
+    juce::Array<juce::var> luaArr;
+    for (const auto &name : strip->getLuaPluginFileNames())
+      luaArr.add(juce::String(name));
+    obj->setProperty("luaPlugins", luaArr);
 
     juce::String json = juce::JSON::toString(juce::var(obj), true);
     std::string jsonUtf8 = json.toStdString();
@@ -153,8 +162,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   uint32_t totalSize = (uint32_t)(blob.getSize() - 12);
   std::memcpy(static_cast<uint8_t *>(blob.getData()) + 8, &totalSize, 4);
 
-  std::cerr << "[StateManager] Built blob: " << blob.getSize() << " bytes, "
-            << stripCount << " strips" << std::endl;
+  // std::cerr << "[StateManager] Built blob: " << blob.getSize() << " bytes, "
+  //           << stripCount << " strips" << std::endl;
 
   return blob;
 }
@@ -175,12 +184,14 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
+    sb.active = strip->active;
     sb.inputPort = strip->inputPort;
     sb.inputChannel = strip->inputChannel;
     sb.pluginUid = strip->pluginUid;
     sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState_;
     if (cached.getSize() > 0) {
@@ -193,8 +204,8 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
   }
 
   if (branchId.empty()) {
-    std::cerr << "[StateManager] Error: Cannot commit, branch ID is empty."
-              << std::endl;
+    // std::cerr << "[StateManager] Error: Cannot commit, branch ID is empty."
+    //           << std::endl;
     return "";
   }
 
@@ -313,6 +324,13 @@ StateManager::deserializeBlob(const void *data, size_t size) {
       strip.gainDb = (float)(double)obj->getProperty("gainDb");
       strip.expressionMapEntityID =
           obj->getProperty("expressionMap").toString().toStdString();
+
+      // Lua plugins (array of filenames)
+      auto luaVar = obj->getProperty("luaPlugins");
+      if (auto *luaArr = luaVar.getArray()) {
+        for (const auto &item : *luaArr)
+          strip.luaPluginFileNames.push_back(item.toString().toStdString());
+      }
     }
 
     // Plugin BLOB
@@ -325,8 +343,8 @@ StateManager::deserializeBlob(const void *data, size_t size) {
     state.strips.push_back(std::move(strip));
   }
 
-  std::cerr << "[StateManager] Deserialized blob: " << state.strips.size()
-            << " strips, config='" << state.configName << "'" << std::endl;
+  // std::cerr << "[StateManager] Deserialized blob: " << state.strips.size()
+  //           << " strips, config='" << state.configName << "'" << std::endl;
 
   return state;
 }

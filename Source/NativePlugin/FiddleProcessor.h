@@ -81,9 +81,9 @@ private:
 
   // Per-channel state
   struct ChannelState {
-    int program = -1; // -1 = not set
-    int bankMSB = 0;
-    int bankLSB = 0;
+    std::atomic<int> program{-1}; // -1 = not set
+    std::atomic<int> bankMSB{0};
+    std::atomic<int> bankLSB{0};
   };
   std::array<ChannelState, kTotalChannels> channelStates_;
 
@@ -111,6 +111,12 @@ private:
   double cachedSampleRate_ = 44100.0;
   int lastKnownDelayMs_ = 1000;
   Steinberg::uint32 latencySamples_ = 0;
+
+  // Last known BPM — used to detect tempo changes in process() so we only
+  // send a TempoEvent when the tempo actually changes (>0.01 BPM threshold).
+  // NOTE: Dorico only reports the project's initial/default tempo via
+  // ProcessContext::tempo. Score-embedded tempo changes are not exposed.
+  double lastKnownBpm_ = -1.0; // -1 = never sent, forces first send
 };
 
 } // namespace fiddle

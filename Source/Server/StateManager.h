@@ -96,11 +96,13 @@ public:
   struct RestoredStrip {
     juce::String id, library, family;
     bool isSolo = true;
+    bool active = true;
     int inputPort = -1, inputChannel = -1;
     int pluginUid = 0;
     float gainDb = 0.0f;
     std::string expressionMapEntityID;
     juce::MemoryBlock pluginState;
+    std::vector<std::string> luaPluginFileNames; // ordered plugin filenames
   };
 
   struct RestoredState {

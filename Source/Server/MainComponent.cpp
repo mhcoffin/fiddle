@@ -268,12 +268,45 @@ void MainComponent::runInitStep(int step) {
     // Set up note/MIDI callbacks, server, and start listening
     addInitMessage("Starting MIDI server...");
     {
-      // Start the tonal center classifier and wire it to the mixer.
-      // The classifier is owned by MainComponent; MixerModel holds a raw ptr.
-      tonalClassifier_.setBpm(currentBpm_.load(std::memory_order_relaxed));
-      mixer_.setClassifier(&tonalClassifier_);
-      tonalClassifier_.start();
-      std::cerr << "[Init] TonalCenterClassifier started" << std::endl;
+      // Start the harmonic analysis service (HMM-based key/chord detection)
+      // and wire it to the mixer. The service is owned by MainComponent;
+      // MixerModel holds a raw ptr.
+      harmonicService_.setBpm(currentBpm_.load(std::memory_order_relaxed));
+      harmonicService_.setPlaybackDelayMs(mixer_.getPlaybackDelayMs());
+      harmonicService_.buildDefaultEmissions();
+
+      // Load trained transition matrix from bundle resources.
+      {
+        auto bundleDir = juce::File::getSpecialLocation(
+            juce::File::currentExecutableFile).getParentDirectory();
+        auto transFile = bundleDir.getChildFile("resources/hmm/cpe_transitions.bin");
+        if (!transFile.existsAsFile()) {
+          // Also check project resources dir (for dev builds).
+          // From MacOS dir, project root is 6 levels up:
+          // MacOS → Contents → .app → Debug → FiddleServer_artefacts → build → project
+          auto projectRoot = bundleDir;
+          for (int i = 0; i < 6; ++i)
+            projectRoot = projectRoot.getParentDirectory();
+          auto projectResources = projectRoot.getChildFile("resources/hmm/cpe_transitions.bin");
+          if (projectResources.existsAsFile())
+            transFile = projectResources;
+        }
+
+        if (transFile.existsAsFile()) {
+          juce::MemoryBlock data;
+          transFile.loadFileAsData(data);
+          if (harmonicService_.loadTransitionMatrix(data.getData(), data.getSize()))
+            std::cerr << "[Init] Loaded transition matrix: " << transFile.getFullPathName() << std::endl;
+          else
+            std::cerr << "[Init] WARNING: Failed to parse transition matrix" << std::endl;
+        } else {
+          std::cerr << "[Init] No transition matrix found; using emission-only mode" << std::endl;
+        }
+      }
+
+      mixer_.setHarmonicService(&harmonicService_);
+      harmonicService_.start();
+      std::cerr << "[Init] HarmonicAnalysisService started" << std::endl;
 
       // Wire metronome tempo tracker callback.
       // When the tracker detects a tempo change from the click track,
@@ -281,7 +314,7 @@ void MainComponent::runInitStep(int step) {
       metronomeTracker_.onTempoChanged =
           [this](double bpm, int tsNum, int tsDen, uint64_t samplePos) {
         currentBpm_.store(bpm, std::memory_order_relaxed);
-        tonalClassifier_.setBpm(bpm);
+        harmonicService_.setBpm(bpm);
 
         juce::DynamicObject::Ptr tempoObj = new juce::DynamicObject();
         tempoObj->setProperty("bpm", bpm);
@@ -390,6 +423,12 @@ void MainComponent::runInitStep(int step) {
              // n.port() from Dorico is 0-based (matches strip inputPort).
              // n.channel() from Dorico is 1-based; strip inputChannel is
              // 0-based, so subtract 1.
+             
+             // Feed the harmonic analysis service.
+             harmonicService_.onNoteEvent(
+                 (int)n.note_number(), true, (int)n.start_velocity(),
+                 juce::Time::getMillisecondCounterHiRes());
+
              int notePort = (int)n.port();
              // std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
              //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
@@ -414,6 +453,12 @@ void MainComponent::runInitStep(int step) {
              double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
                                     mixer_.getPlaybackDelayMs();
              // Route through annotator-aware path.
+             
+             // Feed the harmonic analysis service.
+             harmonicService_.onNoteEvent(
+                 (int)n.note_number(), false, 0,
+                 juce::Time::getMillisecondCounterHiRes());
+
              int noteOffPort = (int)n.port();
              // std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
              //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
@@ -448,6 +493,7 @@ void MainComponent::runInitStep(int step) {
                    juce::Time::getMillisecondCounterHiRes() +
                    mixer_.getPlaybackDelayMs();
                mixer_.releaseAllKeyswitches(triggerTimeMs);
+               harmonicService_.onTransportStop();
              }
 
              // Live tempo from FiddleNative's ProcessContext.
@@ -455,7 +501,7 @@ void MainComponent::runInitStep(int step) {
              if (event.has_tempo() && event.tempo().bpm() > 0.0) {
                double bpm = event.tempo().bpm();
                currentBpm_.store(bpm, std::memory_order_relaxed);
-               tonalClassifier_.setBpm(bpm);
+               harmonicService_.setBpm(bpm);
                std::cerr << "[Tempo] BPM=" << bpm
                          << " timeSig=" << event.tempo().time_sig_numerator()
                          << "/" << event.tempo().time_sig_denominator()

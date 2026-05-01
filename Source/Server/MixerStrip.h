@@ -2,13 +2,17 @@
 
 #include "AnnotationRecord.h"
 #include "Annotator.h"
+#include "AnnotatorChain.h"
 #include "ExpressionMapAnnotator.h"
 #include "ExpressionMapData.h"
 #include "IncomingSwitchTracker.h"
+#include "LuaAnnotator.h"
+#include "LuaPlugin.h"
 #include "MidiCaptureLog.h"
 #include "PluginEditorWindow.h"
 #include <atomic>
 #include <deque>
+#include <filesystem>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
@@ -70,6 +74,9 @@ struct MixerStrip {
   juce::String family;  // Instrument family (e.g. "Strings", "Brass")
   bool isSolo = true;   // true = solo player, false = section
 
+  // Library activation state (per-version)
+  bool active = true;
+
   // Mute/Solo state (standard mixer behavior)
   bool muted = false;
   bool soloed = false;
@@ -103,22 +110,81 @@ struct MixerStrip {
   juce::String expressionMapPath; // file path for persistence
 
   /// Set (or clear) the expression map for this strip.
-  /// Automatically creates/destroys the ExpressionMapAnnotator.
+  /// Automatically creates/destroys the ExpressionMapAnnotator
+  /// and rebuilds the full annotator chain.
   void setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
     expressionMap = std::move(em);
     if (expressionMap) {
-      annotator = std::make_unique<ExpressionMapAnnotator>(expressionMap);
       incomingTracker = std::make_unique<IncomingSwitchTracker>(expressionMap);
     } else {
-      annotator = std::make_unique<PassthroughAnnotator>();
       incomingTracker.reset();
+    }
+    rebuildAnnotatorChain();
+  }
+
+  // Lua plugins installed on this strip (ordered chain).
+  std::vector<std::shared_ptr<LuaPlugin>> luaPlugins;
+
+  /// Add a Lua plugin to this strip and rebuild the chain.
+  void addLuaPlugin(std::shared_ptr<LuaPlugin> plugin) {
+    if (plugin) {
+      luaPlugins.push_back(std::move(plugin));
+      rebuildAnnotatorChain();
     }
   }
 
-  // Annotator: translates semantic note info into concrete MIDI for this VST.
-  // Defaults to PassthroughAnnotator (no transformation).
-  std::unique_ptr<Annotator> annotator =
-      std::make_unique<PassthroughAnnotator>();
+  /// Remove a Lua plugin by index and rebuild the chain.
+  void removeLuaPlugin(size_t index) {
+    if (index < luaPlugins.size()) {
+      luaPlugins.erase(luaPlugins.begin() + (ptrdiff_t)index);
+      rebuildAnnotatorChain();
+    }
+  }
+
+  /// Insert a Lua plugin at a specific index (for undo restore).
+  void insertLuaPlugin(size_t index, std::shared_ptr<LuaPlugin> plugin) {
+    if (plugin) {
+      if (index >= luaPlugins.size())
+        luaPlugins.push_back(std::move(plugin));
+      else
+        luaPlugins.insert(luaPlugins.begin() + (ptrdiff_t)index,
+                          std::move(plugin));
+      rebuildAnnotatorChain();
+    }
+  }
+
+  /// Get just the filenames of installed Lua plugins (for serialization).
+  /// Returns basenames only (e.g. "force_staccato.lua"), not full paths.
+  std::vector<std::string> getLuaPluginFileNames() const {
+    std::vector<std::string> names;
+    for (const auto &p : luaPlugins) {
+      std::filesystem::path fp(p->filePath());
+      names.push_back(fp.filename().string());
+    }
+    return names;
+  }
+
+  /// Rebuild the annotator chain from the Lua plugins + expression map.
+  /// Lua plugins run first (in order), then the ExpressionMapAnnotator.
+  void rebuildAnnotatorChain() {
+    auto chain = std::make_unique<AnnotatorChain>();
+    for (auto &plugin : luaPlugins)
+      chain->add(std::make_unique<LuaAnnotator>(plugin));
+    if (expressionMap)
+      chain->add(std::make_unique<ExpressionMapAnnotator>(expressionMap));
+    else
+      chain->add(std::make_unique<PassthroughAnnotator>());
+    annotator = std::move(chain);
+  }
+
+  // Annotator chain: Lua plugins → ExpressionMapAnnotator.
+  // Defaults to a chain with just a PassthroughAnnotator.
+  std::unique_ptr<AnnotatorChain> annotator =
+      [] {
+        auto chain = std::make_unique<AnnotatorChain>();
+        chain->add(std::make_unique<PassthroughAnnotator>());
+        return chain;
+      }();
 
   // Incoming switch tracker: reverse-matches Dorico MIDI to switch names.
   std::unique_ptr<IncomingSwitchTracker> incomingTracker;
@@ -310,18 +376,18 @@ struct MixerStrip {
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
                     bool anySoloed = false) {
-    // Effective audibility: not muted AND (no solos active OR this strip
-    // soloed)
-    bool audible = !muted && (!anySoloed || soloed);
+    // Effective audibility: active AND not muted AND (no solos active OR
+    // this strip soloed)
+    bool audible = active && !muted && (!anySoloed || soloed);
     juce::MidiBuffer midiBuffer;
     {
       std::lock_guard<std::mutex> lock(midiMutex);
       for (auto it = delayedMessages.begin(); it != delayedMessages.end();) {
         if (currentTime >= it->first) {
-          std::cerr << "[MixerStrip " << id << "] Popped delayed event: len="
-                    << it->second.getRawDataSize()
-                    << ", timeDiff=" << (currentTime - it->first) << "ms"
-                    << std::endl;
+          // std::cerr << "[MixerStrip " << id << "] Popped delayed event: len="
+          //           << it->second.getRawDataSize()
+          //           << ", timeDiff=" << (currentTime - it->first) << "ms"
+          //           << std::endl;
           midiBuffer.addEvent(it->second,
                               0); // Event fires effectively at sample 0
           it = delayedMessages.erase(it);
@@ -411,8 +477,8 @@ struct MixerStrip {
             return;
 
           if (!instance) {
-            std::cerr << "[MixerStrip " << id << "] Failed to load "
-                      << desc.name << ": " << error << std::endl;
+            // std::cerr << "[MixerStrip " << id << "] Failed to load "
+            //           << desc.name << ": " << error << std::endl;
             if (onComplete)
               onComplete(false);
             return;
@@ -455,8 +521,8 @@ struct MixerStrip {
           // oldPlugin is safely destroyed here, off the audio thread lock.
           // Editor is NOT opened here — user opens it via showEditor().
 
-          std::cerr << "[MixerStrip " << id << "] Loaded (Async): " << desc.name
-                    << std::endl;
+          // std::cerr << "[MixerStrip " << id << "] Loaded (Async): " << desc.name
+          //           << std::endl;
           if (onComplete)
             onComplete(true);
         });
@@ -495,6 +561,7 @@ struct MixerStrip {
     obj->setProperty("library", library);
     obj->setProperty("family", family);
     obj->setProperty("isSolo", isSolo);
+    obj->setProperty("active", active);
     obj->setProperty("muted", muted);
     obj->setProperty("soloed", soloed);
     obj->setProperty("inputPort", inputPort);
@@ -524,6 +591,21 @@ struct MixerStrip {
       for (int i = 0; i < numProgs; ++i)
         names.add(pluginInstance->getProgramName(i));
       obj->setProperty("programNames", names);
+    }
+
+    // Lua plugin chain info
+    {
+      juce::Array<juce::var> luaArr;
+      for (size_t i = 0; i < luaPlugins.size(); ++i) {
+        auto *lObj = new juce::DynamicObject();
+        const auto &meta = luaPlugins[i]->meta();
+        lObj->setProperty("index", (int)i);
+        lObj->setProperty("name", juce::String(meta.name));
+        lObj->setProperty("filePath", juce::String(meta.filePath));
+        lObj->setProperty("loaded", luaPlugins[i]->isLoaded());
+        luaArr.add(juce::var(lObj));
+      }
+      obj->setProperty("luaPlugins", luaArr);
     }
 
     return juce::var(obj);

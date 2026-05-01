@@ -16,6 +16,7 @@
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
     let availableXmaps = $state([]);
+    let luaPluginCatalog = $state([]);
     let branches = $state([]);
     let currentBranch = $state("default");
 
@@ -97,6 +98,14 @@
             availableXmaps = data;
         } catch (e) {
             console.error("[Mixer] xmap error:", e);
+        }
+    });
+    onFromCpp("setLuaPluginCatalog", (data) => {
+        try {
+            luaPluginCatalog = Array.isArray(data) ? data : [];
+            console.log(`[Mixer] Lua plugin catalog: ${luaPluginCatalog.length} plugins`);
+        } catch (e) {
+            console.error("[Mixer] luaCatalog error:", e);
         }
     });
     // Populate orchestral score order when Dorico instruments arrive
@@ -258,6 +267,14 @@
         dispatchCpp("clearExpressionMap", stripId);
     };
 
+    // ── Lua Plugin Management ────────────────────────────────
+    const addLuaPlugin = (stripId, filePath) => {
+        dispatchCpp("addStripLuaPlugin", stripId, filePath);
+    };
+    const removeLuaPlugin = (stripId, index) => {
+        dispatchCpp("removeStripLuaPlugin", stripId, index);
+    };
+
     // Shadow map: last gain value we sent for each strip (plain object, not reactive).
     // Used so that rapid master-fader events read our own last write, not the async
     // IPC-reflected strip.gainDb (which may still show the old value).
@@ -389,10 +406,31 @@
         dispatchCpp("setStripGain", stripId, clamped);
     };
 
+    // ── Library Activation ────────────────────────────────────────
+    let uniqueLibraries = $derived.by(() => {
+        const libMap = new Map();
+        for (const strip of strips) {
+            const name = strip.library || "";
+            if (!name) continue;
+            const cur = libMap.get(name);
+            if (!cur) {
+                libMap.set(name, { name, active: strip.active !== false });
+            } else {
+                // Library is active only if ALL its strips are active
+                if (strip.active === false) cur.active = false;
+            }
+        }
+        return [...libMap.values()];
+    });
+
+    const toggleLibActive = (libraryName) => {
+        dispatchCpp("toggleLibraryActive", libraryName);
+    };
+
     // ── Mute / Solo ──────────────────────────────────────────────
     let anySoloed = $derived(strips.some((s) => s.soloed));
 
-    const isAudible = (strip) => !strip.muted && (!anySoloed || strip.soloed);
+    const isAudible = (strip) => strip.active !== false && !strip.muted && (!anySoloed || strip.soloed);
 
     const toggleMute = (stripId) => {
         const strip = strips.find((s) => s.id === stripId);
@@ -893,11 +931,28 @@
         </div>
     </div>
 
+    {#if uniqueLibraries.length > 0}
+        <div class="library-chip-bar">
+            {#each uniqueLibraries as lib (lib.name)}
+                <button
+                    class="library-chip"
+                    class:library-chip-active={lib.active}
+                    class:library-chip-inactive={!lib.active}
+                    onclick={() => toggleLibActive(lib.name)}
+                    title={lib.active ? `Deactivate ${lib.name}` : `Activate ${lib.name}`}
+                >
+                    <span class="chip-icon">{lib.active ? "✓" : "○"}</span>
+                    <span class="chip-label">{lib.name}</span>
+                </button>
+            {/each}
+        </div>
+    {/if}
+
     <div class="mixer-body" class:resizing={isResizing}>
     {#if strips.length === 0}
         <div class="empty-state">
             <p>
-                No channel strips. Use <strong>View → Show Setup Window</strong> to set
+                No channel strips. Use <strong>View → Show Library Manager</strong> to set
                 up your ensemble.
             </p>
         </div>
@@ -1031,6 +1086,7 @@
                                                 class="channel-strip"
                                                 class:selected={selectedIds.has(strip.id)}
                                                 class:suppressed={!isAudible(strip)}
+                                                class:inactive={strip.active === false}
                                                 onclick={(e) => e.stopPropagation()}
                                             >
                                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1043,6 +1099,42 @@
                                                         handleStripClick(strip.id, e);
                                                     }}
                                                 ></div>
+
+                                                <!-- Lua Plugins (top of strip = first in signal chain) -->
+                                                <div class="ch-lua">
+                                                    {#if strip.luaPlugins && strip.luaPlugins.length > 0}
+                                                        <div class="ch-lua-chips">
+                                                            {#each strip.luaPlugins as lp}
+                                                                <span class="ch-lua-chip" class:error={!lp.loaded} title={lp.filePath}>
+                                                                    <span class="ch-lua-chip-name">{lp.name || 'Unknown'}</span>
+                                                                    <button
+                                                                        class="ch-lua-chip-x"
+                                                                        title="Remove"
+                                                                        onclick={() => removeLuaPlugin(strip.id, lp.index)}
+                                                                    >×</button>
+                                                                </span>
+                                                            {/each}
+                                                        </div>
+                                                    {/if}
+                                                    {#if luaPluginCatalog.length > 0}
+                                                        <select
+                                                            class="ch-select ch-lua-select"
+                                                            value=""
+                                                            onchange={(e) => {
+                                                                const val = /** @type {HTMLSelectElement} */ (e.target).value;
+                                                                if (val) {
+                                                                    addLuaPlugin(strip.id, val);
+                                                                    /** @type {HTMLSelectElement} */ (e.target).value = "";
+                                                                }
+                                                            }}
+                                                        >
+                                                            <option value="">+ lua plugin</option>
+                                                            {#each luaPluginCatalog as lp}
+                                                                <option value={lp.filePath}>{lp.name}</option>
+                                                            {/each}
+                                                        </select>
+                                                    {/if}
+                                                </div>
 
                                                 <!-- Vertical fader -->
                                                 <div class="ch-fader">
@@ -1234,6 +1326,7 @@
                                                         </select>
                                                     </div>
                                                 {/if}
+
 
                                                 <!-- Strip name area: only library name now (instrument moved to bridge header) -->
                                                 <div class="ch-name-area">
@@ -1696,7 +1789,8 @@
     /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
     .master-strip-top-spacer {
         flex-shrink: 0;
-        height: 6px; /* same as .select-bar */
+        /* select-bar (6px) + ch-lua fixed area (90px) + gap (4px) */
+        height: 100px;
     }
     /* Mirrors bottom controls (ch-mute-solo + ch-xmap + ch-plugin + measured correction) */
     .master-strip-bot-spacer {
@@ -1983,6 +2077,74 @@
         opacity: 1;
     }
 
+    /* Inactive strip (library deactivated) — stronger dimming */
+    .channel-strip.inactive {
+        opacity: 0.35;
+        filter: saturate(0.3);
+    }
+    .channel-strip.inactive .ms-btn {
+        opacity: 1;
+    }
+
+    /* ── Library chip bar ─────────────────────────────────────── */
+    .library-chip-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 6px 12px;
+        background: #0d1117;
+        border-bottom: 1px solid #1e293b;
+    }
+
+    .library-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px 3px 7px;
+        border-radius: 14px;
+        border: 1px solid #334155;
+        background: #1e293b;
+        color: #94a3b8;
+        font-size: 0.7rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        line-height: 1.3;
+    }
+
+    .library-chip:hover {
+        border-color: #475569;
+        color: #cbd5e1;
+    }
+
+    .library-chip-active {
+        background: rgba(59, 130, 246, 0.2);
+        border-color: #3b82f6;
+        color: #93c5fd;
+    }
+    .library-chip-active:hover {
+        background: rgba(59, 130, 246, 0.3);
+        border-color: #60a5fa;
+        color: #bfdbfe;
+    }
+
+    .library-chip-inactive {
+        background: #1a1a2e;
+        border-color: #2a2a40;
+        color: #4a5568;
+    }
+    .library-chip-inactive:hover {
+        border-color: #475569;
+        color: #718096;
+    }
+
+    .chip-icon {
+        font-size: 0.65rem;
+    }
+    .chip-label {
+        white-space: nowrap;
+    }
+
     .ch-xmap {
         display: flex;
         flex-direction: column;
@@ -2030,6 +2192,71 @@
     .ch-program {
         display: flex;
         gap: 2px;
+    }
+
+    /* ── Lua Plugin Section ──────────────────────────────── */
+    .ch-lua {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        height: 90px;
+        flex-shrink: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        justify-content: flex-end;
+    }
+    .ch-lua-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 2px;
+    }
+    .ch-lua-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: #1e293b;
+        border: 1px solid #475569;
+        font-size: 0.5rem;
+        color: #e2e8f0;
+        line-height: 1.2;
+        transition: border-color 0.15s;
+    }
+    .ch-lua-chip:hover {
+        border-color: #cbd5e1;
+    }
+    .ch-lua-chip.error {
+        color: #fca5a5;
+        border-color: #991b1b;
+    }
+    .ch-lua-chip-name {
+        white-space: nowrap;
+        max-width: 60px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .ch-lua-chip-x {
+        background: none;
+        border: none;
+        color: #94a3b8;
+        cursor: pointer;
+        font-size: 0.6rem;
+        padding: 0;
+        line-height: 1;
+    }
+    .ch-lua-chip-x:hover {
+        color: #f87171;
+    }
+    .ch-lua-select {
+        font-size: 0.5rem;
+        color: #94a3b8;
+        background: transparent;
+        border: none;
+        outline: none;
+    }
+    .ch-lua-select option {
+        color: initial;
     }
     .ch-program-select {
         font-size: 0.5rem;

@@ -1,0 +1,785 @@
+{
+  "label": "Timeline",
+  "help": "",
+  "is_actionable": true,
+  "title": "Timeline",
+  "role": "button",
+  "id": "elem_8",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "Event Log",
+  "help": "",
+  "is_actionable": true,
+  "title": "Event Log",
+  "role": "button",
+  "id": "elem_9",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "Plugins",
+  "help": "",
+  "is_actionable": true,
+  "title": "Plugins",
+  "role": "button",
+  "id": "elem_10",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "MIDI Capture",
+  "help": "",
+  "is_actionable": true,
+  "title": "MIDI Capture",
+  "role": "button",
+  "id": "elem_11",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "role_description": "close button",
+  "role": "button",
+  "id": "elem_17",
+  "label": "close button",
+  "is_actionable": true
+}
+{
+  "role_description": "zoom button",
+  "role": "button",
+  "id": "elem_18",
+  "label": "zoom button",
+  "is_actionable": true
+}
+{
+  "role_description": "minimize button",
+  "role": "button",
+  "id": "elem_21",
+  "label": "minimize button",
+  "is_actionable": true
+}
+{
+  "label": "B1",
+  "help": "Select Version Branch",
+  "is_actionable": true,
+  "title": "B1",
+  "role": "button",
+  "id": "elem_25",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "💾 Save",
+  "help": "Save config (creates a new version)",
+  "is_actionable": false,
+  "title": "💾 Save",
+  "role": "button",
+  "id": "elem_31",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "✓ Elite",
+  "help": "Deactivate Elite",
+  "is_actionable": true,
+  "title": "✓ Elite",
+  "role": "button",
+  "id": "elem_32",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "✓ Duality",
+  "help": "Deactivate Duality",
+  "is_actionable": true,
+  "title": "✓ Duality",
+  "role": "button",
+  "id": "elem_33",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "✓ SY WW",
+  "help": "Deactivate SY WW",
+  "is_actionable": true,
+  "title": "✓ SY WW",
+  "role": "button",
+  "id": "elem_34",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "wind 17",
+  "help": "Collapse wind",
+  "is_actionable": true,
+  "title": "wind 17",
+  "role": "button",
+  "id": "elem_35",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "+ lua plugin",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_40",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "M",
+  "help": "Mute",
+  "is_actionable": true,
+  "title": "M",
+  "role": "button",
+  "id": "elem_47",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "S",
+  "help": "Solo",
+  "is_actionable": true,
+  "title": "S",
+  "role": "button",
+  "id": "elem_48",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "VSL SY Woodwinds - High lyrical woodwinds",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_49",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "🔍",
+  "help": "Note Inspector",
+  "is_actionable": true,
+  "title": "🔍",
+  "role": "button",
+  "id": "elem_50",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "Vienna Synchron Player",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_51",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "e",
+  "help": "Open editor",
+  "is_actionable": true,
+  "title": "e",
+  "role": "button",
+  "id": "elem_52",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "+",
+  "help": "Add parallel strip with same input",
+  "is_actionable": true,
+  "title": "+",
+  "role": "button",
+  "id": "elem_55",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "✕",
+  "help": "Delete strip",
+  "is_actionable": true,
+  "title": "✕",
+  "role": "button",
+  "id": "elem_56",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "+ lua plugin",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_62",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "M",
+  "help": "Mute",
+  "is_actionable": true,
+  "title": "M",
+  "role": "button",
+  "id": "elem_69",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "S",
+  "help": "Solo",
+  "is_actionable": true,
+  "title": "S",
+  "role": "button",
+  "id": "elem_70",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "VSL SY Woodwinds - High lyrical woodwinds",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_71",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "🔍",
+  "help": "Note Inspector",
+  "is_actionable": true,
+  "title": "🔍",
+  "role": "button",
+  "id": "elem_72",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "Vienna Synchron Player",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "button",
+  "id": "elem_73",
+  "role_description": "pop up button",
+  "description": ""
+}
+{
+  "label": "e",
+  "help": "Open editor",
+  "is_actionable": true,
+  "title": "e",
+  "role": "button",
+  "id": "elem_74",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "+",
+  "help": "Add parallel strip with same input",
+  "is_actionable": true,
+  "title": "+",
+  "role": "button",
+  "id": "elem_77",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "✕",
+  "help": "Delete strip",
+  "is_actionable": true,
+  "title": "✕",
+  "role": "button",
+  "id": "elem_78",
+  "role_description": "button",
+  "description": ""
+}
+{
+  "label": "main",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "textField",
+  "id": "elem_24",
+  "role_description": "main",
+  "description": ""
+}
+{
+  "label": "0",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "textField",
+  "id": "elem_45",
+  "role_description": "number field",
+  "description": ""
+}
+{
+  "label": "0",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "textField",
+  "id": "elem_67",
+  "role_description": "number field",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_1",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_2",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "role_description": "group",
+  "role": "group",
+  "id": "elem_3",
+  "label": "group",
+  "is_actionable": true
+}
+{
+  "role_description": "group",
+  "role": "group",
+  "id": "elem_4",
+  "label": "group",
+  "is_actionable": false
+}
+{
+  "label": "navigation",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_7",
+  "role_description": "navigation",
+  "description": ""
+}
+{
+  "label": "main",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_12",
+  "role_description": "main",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_13",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_15",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "role_description": "group",
+  "role": "group",
+  "id": "elem_19",
+  "label": "group",
+  "is_actionable": false
+}
+{
+  "role_description": "group",
+  "role": "group",
+  "id": "elem_20",
+  "label": "group",
+  "is_actionable": false
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_39",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_46",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "Double-click to set library name",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_53",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_57",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_61",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_68",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "Double-click to set library name",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_75",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "group",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "group",
+  "id": "elem_79",
+  "role_description": "group",
+  "description": ""
+}
+{
+  "label": "slider",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "slider",
+  "id": "elem_28",
+  "role_description": "slider",
+  "description": ""
+}
+{
+  "label": "slider",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "slider",
+  "id": "elem_42",
+  "role_description": "slider",
+  "description": ""
+}
+{
+  "label": "slider",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "slider",
+  "id": "elem_64",
+  "role_description": "slider",
+  "description": ""
+}
+{
+  "label": "Fiddle - Debug",
+  "is_actionable": false,
+  "title": "Fiddle - Debug",
+  "role": "other",
+  "id": "elem_0",
+  "role_description": "standard window",
+  "description": ""
+}
+{
+  "label": "scroll area",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_5",
+  "role_description": "scroll area",
+  "description": ""
+}
+{
+  "label": "HTML content",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_6",
+  "role_description": "HTML content",
+  "description": "Fiddle"
+}
+{
+  "label": "No instruments active",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_14",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "Play some notes in Dorico to see them here",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_16",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "role_description": "text",
+  "role": "other",
+  "id": "elem_22",
+  "label": "Fiddle - Debug",
+  "is_actionable": true
+}
+{
+  "label": "HTML content",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_23",
+  "role_description": "HTML content",
+  "description": "Fiddle"
+}
+{
+  "label": "Delay",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_26",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "Delay",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_27",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "value indicator",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_29",
+  "role_description": "value indicator",
+  "description": ""
+}
+{
+  "label": "1000ms",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_30",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "👤",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_36",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "Piccolo",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_37",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "P2.6",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_38",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "+6",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_41",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "value indicator",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_43",
+  "role_description": "value indicator",
+  "description": ""
+}
+{
+  "label": "-∞",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_44",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "SY WW",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_54",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "👤",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_58",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "Flute 1",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_59",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "P1.15",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_60",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "+6",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_63",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "value indicator",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_65",
+  "role_description": "value indicator",
+  "description": ""
+}
+{
+  "label": "-∞",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_66",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "SY WW",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_76",
+  "role_description": "text",
+  "description": ""
+}
+{
+  "label": "👤",
+  "help": "",
+  "is_actionable": true,
+  "title": "",
+  "role": "other",
+  "id": "elem_80",
+  "role_description": "text",
+  "description": ""
+}

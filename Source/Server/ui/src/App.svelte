@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import Timeline from "./lib/Timeline.svelte";
   import EventLog from "./lib/EventLog.svelte";
-  import SetupPanel from "./lib/SetupPanel.svelte";
+
   import PluginsPanel from "./lib/PluginsPanel.svelte";
   import MidiCapture from "./lib/MidiCapture.svelte";
   import VersionHistory from "./lib/VersionHistory.svelte";
@@ -16,8 +16,7 @@
   const windowMode = urlParams.get("mode") || "main";
   const viewMode = urlParams.get("view") || "default";
 
-  // Main window mode: "mixer" or "setup"
-  let mainMode = $state("mixer");
+
 
   // Use Svelte 5 Runes for reactivity
   let logs = $state([]);
@@ -25,6 +24,11 @@
   let noteHistory = $state([]);
   let diagnostics = $state([]);
   let heartbeat = $state(0);
+  // Ordered list of tempo changes: { bpm, samplePosition, timeSigNumerator, timeSigDenominator }
+  // Used by the Timeline tempo track. Reset on transport start.
+  let tempoChanges = $state([]);
+  // Latest BPM (derived from the last entry in tempoChanges, default 120)
+  let liveBpm = $derived(tempoChanges.length > 0 ? tempoChanges[tempoChanges.length - 1].bpm : 120);
   let hoveredNote = $state(null);
   let tooltipPos = $state({ x: 0, y: 0 });
   let tooltipPlacement = $state("top");
@@ -34,6 +38,9 @@
   let serverVersion = $state("");
   let isConnected = $state(false);
   let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }
+  let metronomeActive = $state(false); // true when tempo is derived from click track
+  let metronomeBeats = $state([]); // [{samplePosition, isDownbeat}] — actual beat positions from click track
+  let uiZoom = $state(1.0);
   let sessionOffset = $derived.by(() => {
     let min = Infinity;
     if (noteHistory.length > 0) {
@@ -61,6 +68,16 @@
     logs = [];
     heartbeat = 0;
     channelInstruments = {};
+    // When the metronome is active, the click track will provide fresh
+    // tempo data — start clean so stale values don't linger.
+    // When inactive, preserve the last tempo so the beat grid stays correct.
+    if (metronomeActive) {
+      tempoChanges = [];
+    } else if (tempoChanges.length > 0) {
+      const last = tempoChanges[tempoChanges.length - 1];
+      tempoChanges = [{ ...last, samplePosition: 0 }];
+    }
+    metronomeBeats = [];
   };
 
   let logId = 0;
@@ -73,6 +90,34 @@
 
   onFromCpp("setHeartbeat", (val) => {
     heartbeat = val;
+  });
+
+  onFromCpp("setTempo", ({ bpm, timeSigNumerator: n, timeSigDenominator: d, samplePosition, source }) => {
+    if (bpm > 0) {
+      // Track whether this tempo came from the metronome click track
+      metronomeActive = (source === "metronome");
+
+      // Deduplicate: skip if BPM hasn't changed (Dorico sends on every block)
+      const last = tempoChanges[tempoChanges.length - 1];
+      if (!last || Math.abs(last.bpm - bpm) > 0.01) {
+        tempoChanges = [...tempoChanges, {
+          bpm,
+          samplePosition: Number(samplePosition ?? 0),
+          timeSigNumerator: n ?? 4,
+          timeSigDenominator: d ?? 4,
+          source: source || "host",
+        }];
+      }
+    }
+  });
+
+  onFromCpp("metronomeBeat", ({ samplePosition, isDownbeat, noteNumber, velocity }) => {
+    metronomeBeats = [...metronomeBeats, {
+      samplePosition: Number(samplePosition),
+      isDownbeat: !!isDownbeat,
+      noteNumber: noteNumber ?? 0,
+      velocity: velocity ?? 0,
+    }];
   });
 
   onFromCpp("setServerVersion", (ver) => {
@@ -92,11 +137,14 @@
   });
 
   // data = array of { port, channel, label, name, family, isSolo }
+  // Note: port/channel from getChannelMapAsJson() are 0-based,
+  // but protobuf note.channel() is 1-based. Convert to 1-based here
+  // so the instrumentMap keys match the note-derived keys in Timeline.
   onFromCpp("setInstrumentMap", (arr) => {
     try {
       const map = {};
       for (const item of arr) {
-        const key = `${item.port}:${item.channel}`;
+        const key = `${item.port}:${item.channel + 1}`;
         map[key] = {
           name: item.label || item.name,
           family: item.family,
@@ -139,11 +187,7 @@
     return false;
   };
 
-  onFromCpp("setMainMode", (mode) => {
-    if (mode === "mixer" || mode === "setup") {
-      mainMode = mode;
-    }
-  });
+
 
   nativeLog("JS Booting: Bundle loaded");
   window.addLogMessage("<i>JS Booting: Bundle loaded</i>");
@@ -266,21 +310,39 @@
     const signalReady = () => {
       // Small timeout to simulate fallback retry if juce bridge isn't immediately ready
       // though typically `dispatchCpp` handles warnings if missing.
-      dispatchCpp("signalReady", viewMode === "history" ? "history" : viewMode === "setup" ? "setup" : viewMode === "library" ? "library" : "mixer");
+      dispatchCpp("signalReady", viewMode === "history" ? "history" : viewMode === "library" ? "library" : "mixer");
       window.addLogMessage("<i>UI signaled readiness to C++</i>");
       console.log("UI Ready signaled via native function");
     };
 
     signalReady();
 
-    // Undo/Redo keyboard shortcuts
+    // Global keyboard shortcuts (Undo/Redo, Zoom)
     const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "z") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          dispatchCpp("redo");
-        } else {
-          dispatchCpp("undo");
+      if (e.metaKey || e.ctrlKey) {
+        if (e.key === "z") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            dispatchCpp("redo");
+          } else {
+            dispatchCpp("undo");
+          }
+          return;
+        }
+        if (e.key === "=" || e.key === "+") {
+          e.preventDefault();
+          uiZoom = Math.min(uiZoom + 0.1, 3.0);
+          return;
+        }
+        if (e.key === "-") {
+          e.preventDefault();
+          uiZoom = Math.max(uiZoom - 0.1, 0.5);
+          return;
+        }
+        if (e.key === "0") {
+          e.preventDefault();
+          uiZoom = 1.0;
+          return;
         }
       }
     };
@@ -346,7 +408,7 @@
   };
 </script>
 
-<div class="app-container">
+<div class="app-container" style="zoom: {uiZoom};">
   {#if windowMode === "debug"}
     <!-- DEBUG WINDOW: tab bar with timeline, eventlog, plugins -->
     <nav class="tab-nav">
@@ -374,11 +436,16 @@
           <Timeline
             {noteHistory}
             {heartbeat}
+            bpm={liveBpm}
+            {tempoChanges}
             firstSample={sessionOffset}
             {channelInstruments}
             {instrumentMap}
+            {metronomeActive}
+            {metronomeBeats}
             onHover={handleHover}
             onLeave={handleLeave}
+            onTempoChange={(updated) => tempoChanges = updated}
           />
         </div>
       {:else if activeTab === "eventlog"}
@@ -435,13 +502,7 @@
         <VersionHistory />
       </div>
     </main>
-  {:else if viewMode === "setup"}
-    <!-- SETUP WINDOW -->
-    <main class="main-content">
-      <div class="panel-setup" style="width: 100%; height: 100%;">
-        <SetupPanel standalone={true} />
-      </div>
-    </main>
+
   {:else if viewMode === "library"}
     <!-- LIBRARY MANAGER WINDOW -->
     <main class="main-content">
@@ -527,7 +588,6 @@
 
   .panel-timeline,
   .panel-eventlog,
-  .panel-setup,
   .panel-plugins,
   .panel-capture {
     flex: 1;

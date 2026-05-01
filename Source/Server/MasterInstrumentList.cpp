@@ -82,6 +82,13 @@ MasterInstrumentList::getSlots() const {
   return slots_;
 }
 
+void MasterInstrumentList::setSlots(std::vector<EnsembleSlot> newSlots) {
+  slots_ = std::move(newSlots);
+  std::cerr << "[MasterList] Set " << slots_.size()
+            << " ensemble slots (" << totalSlotCount()
+            << " total channels)" << std::endl;
+}
+
 bool MasterInstrumentList::setSlotsFromJson(const juce::String &json) {
   slots_.clear();
 
@@ -183,7 +190,7 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
   // for port/channel if available.
   std::map<juce::String, int> soloCounters, sectionCounters;
   juce::Array<juce::var> arr;
-  int fallbackIndex = 0;
+  int fallbackIndex = 1; // Start at 1; flatIndex 0 is reserved for metronome
 
   for (const auto &slot : slots_) {
     for (int i = 0; i < slot.soloCount; ++i) {
@@ -205,6 +212,7 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
       obj->setProperty("family", slot.family);
       obj->setProperty("entityID", slot.entityID);
       obj->setProperty("isSolo", true);
+      obj->setProperty("instanceNum", num);
       arr.add(juce::var(obj));
       ++fallbackIndex;
     }
@@ -226,6 +234,7 @@ juce::String MasterInstrumentList::getChannelMapAsJson() const {
       obj->setProperty("family", slot.family);
       obj->setProperty("entityID", slot.entityID);
       obj->setProperty("isSolo", false);
+      obj->setProperty("instanceNum", num);
       arr.add(juce::var(obj));
       ++fallbackIndex;
     }
@@ -292,7 +301,7 @@ bool MasterInstrumentList::reconcileAssignments(FiddleDatabase &db) {
 
   // 3. Partition: keep vs. remove
   std::map<Key, int> kept; // assignments to keep
-  int maxIndex = -1;
+  int maxIndex = 0; // Start at 0; flatIndex 0 is reserved for metronome
 
   for (const auto &r : existing) {
     Key k = {r.entityID, r.isSolo, r.instanceNum};

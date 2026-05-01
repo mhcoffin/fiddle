@@ -158,6 +158,13 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     sendConfigToController();
     pluginLog("[process] deferred connection status: " +
               std::string(connected ? "connected" : "disconnected"));
+
+    // Reset lastKnownBpm_ so we force-send a TempoEvent on the next
+    // audio block after a new connection. When FiddleServer is restarted
+    // the plugin's lastKnownBpm_ still holds its old value, so without
+    // this reset the server would never learn the current tempo.
+    if (connected)
+      lastKnownBpm_ = -1.0;
   }
 
   // Check for delay changes pushed via TCP (lock-free atomic read).
@@ -206,6 +213,36 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
       if (hostSamples < 0)
         hostSamples = 0; // Prevent uint64_t overflow
     }
+
+    // Forward live tempo to FiddleServer when it changes.
+    //
+    // NOTE: Dorico's ProcessContext::tempo reports only the project's
+    // initial/default tempo. Score-embedded tempo changes (rit., accel.,
+    // tempo marks at specific bars) are NOT reflected in any ProcessContext
+    // field — projectTimeMusic also advances at a constant rate regardless
+    // of the score's tempo map. This is a known Dorico limitation.
+    // We send ProcessContext::tempo as-is; it correctly reports the initial
+    // project tempo but cannot detect mid-score changes.
+    if (tcpRelay_ && data.numSamples > 0 &&
+        (data.processContext->state & ProcessContext::kTempoValid)) {
+      double bpm = data.processContext->tempo;
+      if (bpm > 0.0 && std::abs(bpm - lastKnownBpm_) > 0.01) {
+        lastKnownBpm_ = bpm;
+        MidiEvent tempoEvent;
+        tempoEvent.set_host_sample_position((uint64)hostSamples);
+        auto *t = tempoEvent.mutable_tempo();
+        t->set_bpm(bpm);
+        if (data.processContext->state & ProcessContext::kTimeSigValid) {
+          t->set_time_sig_numerator(data.processContext->timeSigNumerator);
+          // VST3 timeSigDenominator is the literal value (e.g., 4 for 4/4)
+          t->set_time_sig_denominator(data.processContext->timeSigDenominator);
+        } else {
+          t->set_time_sig_numerator(4);
+          t->set_time_sig_denominator(4);
+        }
+        tcpRelay_->pushMessage(tempoEvent);
+      }
+    }
   }
 
   // Process parameter changes from host (program changes, bank select, etc.)
@@ -237,7 +274,7 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         int program = static_cast<int>(
             value * (FiddleController::kNumPrograms - 1) + 0.5);
 
-        channelStates_[logicalCh].program = program;
+        channelStates_[logicalCh].program.store(program, std::memory_order_relaxed);
         programStatesDirty_.store(true, std::memory_order_relaxed);
 
         if (tcpRelay_) {
@@ -269,9 +306,9 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         // Track Bank Select in channel state
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
           if (ccNum == 0)
-            channelStates_[logicalCh].bankMSB = ccVal;
+            channelStates_[logicalCh].bankMSB.store(ccVal, std::memory_order_relaxed);
           else if (ccNum == 32)
-            channelStates_[logicalCh].bankLSB = ccVal;
+            channelStates_[logicalCh].bankLSB.store(ccVal, std::memory_order_relaxed);
         }
 
         if (tcpRelay_) {
@@ -417,9 +454,9 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
         int logicalCh = eventBus * 16 + cc.channel;
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
           if (cc.controlNumber == 0)
-            channelStates_[logicalCh].bankMSB = cc.value;
+            channelStates_[logicalCh].bankMSB.store(cc.value, std::memory_order_relaxed);
           else if (cc.controlNumber == 32)
-            channelStates_[logicalCh].bankLSB = cc.value;
+            channelStates_[logicalCh].bankLSB.store(cc.value, std::memory_order_relaxed);
         }
       } else if (cc.controlNumber == 129) {
         // kPitchBend
@@ -437,7 +474,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
 
         int logicalCh = eventBus * 16 + cc.channel;
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
-          channelStates_[logicalCh].program = cc.value;
+          channelStates_[logicalCh].program.store(cc.value, std::memory_order_relaxed);
         }
       }
       break;
@@ -465,14 +502,14 @@ void FiddleProcessor::replayProgramState() {
 
   // Replay all stored program states on connection
   for (int ch = 0; ch < kTotalChannels; ++ch) {
-    if (channelStates_[ch].program >= 0) {
+    if (channelStates_[ch].program.load(std::memory_order_relaxed) >= 0) {
       MidiEvent protoEvent;
       protoEvent.set_timestamp_samples(0);
       protoEvent.set_port(ch / 16 + 1);    // 1-based port
       protoEvent.set_channel(ch % 16 + 1); // 1-based channel within port
 
       auto *pc = protoEvent.mutable_program_change();
-      pc->set_program_number(channelStates_[ch].program);
+      pc->set_program_number(channelStates_[ch].program.load(std::memory_order_relaxed));
 
       tcpRelay_->pushMessage(protoEvent);
     }
@@ -494,7 +531,7 @@ tresult PLUGIN_API FiddleProcessor::setState(IBStream *state) {
     // Older or empty state streams may contain garbage values.
     if (prog < -1 || prog > 127)
       prog = -1;
-    channelStates_[ch].program = prog;
+    channelStates_[ch].program.store(prog, std::memory_order_relaxed);
   }
 
   // Read config path (appended after program state)
@@ -532,7 +569,7 @@ tresult PLUGIN_API FiddleProcessor::getState(IBStream *state) {
     return kResultFalse;
 
   for (int ch = 0; ch < kTotalChannels; ++ch) {
-    int32 prog = channelStates_[ch].program;
+    int32 prog = channelStates_[ch].program.load(std::memory_order_relaxed);
     state->write(&prog, sizeof(int32));
   }
 
@@ -577,7 +614,7 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
         attrs->getInt("Program", program) == kResultOk) {
       int ch = static_cast<int>(channel); // 0-based logical channel
       if (ch >= 0 && ch < kTotalChannels) {
-        channelStates_[ch].program = static_cast<int>(program);
+        channelStates_[ch].program.store(static_cast<int>(program), std::memory_order_relaxed);
 
         // Send to TCP relay
         if (tcpRelay_) {
@@ -622,7 +659,7 @@ void FiddleProcessor::sendProgramStatesToController() {
       // Attribute keys: "P0" through "P767"
       char key[16];
       snprintf(key, sizeof(key), "P%d", ch);
-      attrs->setInt(key, channelStates_[ch].program);
+      attrs->setInt(key, channelStates_[ch].program.load(std::memory_order_relaxed));
     }
     sendMessage(msg);
   }

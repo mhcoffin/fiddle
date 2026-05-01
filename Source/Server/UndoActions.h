@@ -1,9 +1,11 @@
 #pragma once
 
 #include "ExpressionMapLibrary.h"
+#include "LuaPlugin.h"
 #include "MixerModel.h"
 #include "PluginScanner.h"
 #include "UndoManager.h"
+#include <filesystem>
 
 namespace fiddle {
 
@@ -270,6 +272,139 @@ private:
   MixerModel &mixer_;
   juce::String sourceStripId_;
   juce::String createdId_;
+};
+
+/// Undo/redo for toggleLibraryActive. Captures per-strip old active states.
+class ToggleLibraryActiveAction : public UndoableAction {
+public:
+  ToggleLibraryActiveAction(MixerModel &mixer, const juce::String &libraryName,
+                            bool newState)
+      : mixer_(mixer), libraryName_(libraryName), newState_(newState) {
+    // Capture old active state for every strip in this library
+    for (auto *s : mixer_.getAllStrips()) {
+      if (s->library == libraryName_)
+        oldStates_.push_back({s->id, s->active});
+    }
+  }
+
+  void execute() override {
+    for (auto *s : mixer_.getAllStrips()) {
+      if (s->library == libraryName_)
+        s->active = newState_;
+    }
+  }
+  void undo() override {
+    for (const auto &[id, was] : oldStates_) {
+      if (auto *s = mixer_.getStrip(id))
+        s->active = was;
+    }
+  }
+  juce::String getDescription() const override {
+    return (newState_ ? "Activate " : "Deactivate ") + libraryName_;
+  }
+
+private:
+  MixerModel &mixer_;
+  juce::String libraryName_;
+  bool newState_;
+  std::vector<std::pair<juce::String, bool>> oldStates_;
+};
+
+// ─── Lua plugin actions ──────────────────────────────────────────────
+
+/// Undo/redo for adding a Lua plugin to a strip.
+class AddLuaPluginAction : public UndoableAction {
+public:
+  AddLuaPluginAction(MixerModel &mixer, LuaPluginCatalog &catalog,
+                     const juce::String &stripId,
+                     const std::string &pluginFileName)
+      : mixer_(mixer), catalog_(catalog), stripId_(stripId),
+        pluginFileName_(pluginFileName) {}
+
+  void execute() override {
+    auto *s = mixer_.getStrip(stripId_);
+    if (!s) {
+      std::cerr << "[Lua] AddLuaPluginAction: strip not found: " << stripId_
+                << std::endl;
+      return;
+    }
+    auto resolved = catalog_.resolvePluginPath(pluginFileName_);
+    if (resolved.empty()) {
+      std::cerr << "[Lua] AddLuaPluginAction: resolvePluginPath failed for '"
+                << pluginFileName_ << "'" << std::endl;
+      return;
+    }
+    auto plugin = std::make_shared<LuaPlugin>(resolved);
+    if (plugin->load()) {
+      s->addLuaPlugin(std::move(plugin));
+      insertIndex_ = (int)s->luaPlugins.size() - 1;
+      std::cerr << "[Lua] AddLuaPluginAction: added '" << pluginFileName_
+                << "' to strip " << stripId_
+                << " (chain size: " << s->luaPlugins.size() << ")"
+                << std::endl;
+    } else {
+      std::cerr << "[Lua] AddLuaPluginAction: plugin->load() failed for '"
+                << resolved << "'" << std::endl;
+    }
+  }
+  void undo() override {
+    auto *s = mixer_.getStrip(stripId_);
+    if (!s || insertIndex_ < 0) return;
+    s->removeLuaPlugin((size_t)insertIndex_);
+  }
+  juce::String getDescription() const override {
+    return "Add Lua plugin '" + juce::String(pluginFileName_) + "'";
+  }
+
+private:
+  MixerModel &mixer_;
+  LuaPluginCatalog &catalog_;
+  juce::String stripId_;
+  std::string pluginFileName_;
+  int insertIndex_ = -1;
+};
+
+/// Undo/redo for removing a Lua plugin from a strip.
+class RemoveLuaPluginAction : public UndoableAction {
+public:
+  RemoveLuaPluginAction(MixerModel &mixer, LuaPluginCatalog &catalog,
+                        const juce::String &stripId, int pluginIndex)
+      : mixer_(mixer), catalog_(catalog), stripId_(stripId),
+        pluginIndex_(pluginIndex) {
+    // Capture the plugin filename before removal for undo
+    if (auto *s = mixer_.getStrip(stripId_)) {
+      if (pluginIndex_ >= 0 && (size_t)pluginIndex_ < s->luaPlugins.size()) {
+        std::filesystem::path fp(s->luaPlugins[(size_t)pluginIndex_]->filePath());
+        pluginFileName_ = fp.filename().string();
+      }
+    }
+  }
+
+  void execute() override {
+    auto *s = mixer_.getStrip(stripId_);
+    if (!s || pluginIndex_ < 0) return;
+    if ((size_t)pluginIndex_ < s->luaPlugins.size())
+      s->removeLuaPlugin((size_t)pluginIndex_);
+  }
+  void undo() override {
+    auto *s = mixer_.getStrip(stripId_);
+    if (!s || pluginFileName_.empty()) return;
+    auto resolved = catalog_.resolvePluginPath(pluginFileName_);
+    if (resolved.empty()) return;
+    auto plugin = std::make_shared<LuaPlugin>(resolved);
+    if (plugin->load())
+      s->insertLuaPlugin((size_t)pluginIndex_, std::move(plugin));
+  }
+  juce::String getDescription() const override {
+    return "Remove Lua plugin '" + juce::String(pluginFileName_) + "'";
+  }
+
+private:
+  MixerModel &mixer_;
+  LuaPluginCatalog &catalog_;
+  juce::String stripId_;
+  int pluginIndex_;
+  std::string pluginFileName_;
 };
 
 // ─── Compound action (multi-strip group operations) ──────────────────

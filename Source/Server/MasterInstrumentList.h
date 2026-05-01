@@ -73,6 +73,11 @@ public:
   const std::vector<EnsembleSlot> &getSlots() const;
 
   /**
+   * Directly set the ensemble slots (e.g., from library union computation).
+   */
+  void setSlots(std::vector<EnsembleSlot> newSlots);
+
+  /**
    * Set the slots from a JSON string (received from the UI).
    * @param json JSON array of objects with entityID, name,
    * musicXMLSoundID, soloCount, sectionCount.

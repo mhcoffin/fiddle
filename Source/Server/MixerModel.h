@@ -2,7 +2,9 @@
 
 #include "MasterInstrumentList.h"
 #include "MixerStrip.h"
+#include "HarmonicAnalysisService.h"
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
 #include <mutex>
 #include <set>
@@ -25,18 +27,35 @@ struct StripSnapshot {
 
 /// Manages an ordered list of MixerStrips. Owns a shared
 /// AudioPluginFormatManager for plugin instantiation.
-class MixerModel {
+class MixerModel : public juce::Timer {
 public:
-  MixerModel() { formatManager_.addFormat(new juce::VST3PluginFormat()); }
+  MixerModel() { 
+    formatManager_.addFormat(new juce::VST3PluginFormat()); 
+    commitAudioGraph();
+    startTimer(100);
+  }
 
-  ~MixerModel() { clear(); }
+  ~MixerModel() override { 
+    stopTimer();
+    clear(); 
+    auto* currentGraph = activeGraph_.exchange(nullptr);
+    if (currentGraph) delete currentGraph;
+  }
 
   void clear() {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
-      strip->unloadPlugin();
+    std::vector<std::unique_ptr<MixerStrip>> localStrips;
+    {
+      std::lock_guard<std::mutex> lock(stripsMutex_);
+      localStrips.swap(strips_);
+      commitAudioGraph();
     }
-    strips_.clear();
+    
+    // Transfer to garbage
+    std::lock_guard<std::mutex> lock(trashMutex_);
+    for (auto& s : localStrips) {
+      s->unloadPlugin();
+      trashStrips_.emplace_back(std::move(s), juce::Time::getMillisecondCounter());
+    }
   }
 
   /// Add a new empty strip. Returns its ID.
@@ -45,21 +64,34 @@ public:
     strip->id = juce::Uuid().toString();
     strip->library = "";
 
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    juce::String newId = strip->id;
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
     strips_.push_back(std::move(strip));
-    return strips_.back()->id;
+    commitAudioGraph();
+    return newId;
   }
 
   /// Remove a strip by ID.
   bool removeStrip(const juce::String &id) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto it = strips_.begin(); it != strips_.end(); ++it) {
-      if ((*it)->id == id) {
-        (*it)->unloadPlugin();
-        strips_.erase(it);
-        return true;
+    std::unique_ptr<MixerStrip> removedStrip;
+    {
+      std::lock_guard<std::mutex> lock(stripsMutex_);
+      for (auto it = strips_.begin(); it != strips_.end(); ++it) {
+        if ((*it)->id == id) {
+          removedStrip = std::move(*it);
+          strips_.erase(it);
+          commitAudioGraph();
+          break;
+        }
       }
+    }
+    
+    if (removedStrip) {
+      removedStrip->unloadPlugin();
+      std::lock_guard<std::mutex> lock(trashMutex_);
+      trashStrips_.emplace_back(std::move(removedStrip), juce::Time::getMillisecondCounter());
+      return true;
     }
     return false;
   }
@@ -67,11 +99,12 @@ public:
   /// Remove a strip by ID, returning its ownership (for undo).
   /// Does NOT unload the plugin. Caller is responsible.
   std::unique_ptr<MixerStrip> removeStripKeepAlive(const juce::String &id) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (auto it = strips_.begin(); it != strips_.end(); ++it) {
       if ((*it)->id == id) {
         auto strip = std::move(*it);
         strips_.erase(it);
+        commitAudioGraph();
         return strip;
       }
     }
@@ -80,15 +113,16 @@ public:
 
   /// Insert a strip at a specific index (for undo of remove).
   void insertStripAt(std::unique_ptr<MixerStrip> strip, int index) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
     int idx = juce::jlimit(0, (int)strips_.size(), index);
     strips_.insert(strips_.begin() + idx, std::move(strip));
+    commitAudioGraph();
   }
 
   /// Get the index of a strip by ID (-1 if not found).
-  int stripIndex(const juce::String &id) const {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+  [[nodiscard]] int stripIndex(const juce::String &id) const {
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (int i = 0; i < (int)strips_.size(); ++i) {
       if (strips_[i]->id == id)
         return i;
@@ -97,9 +131,9 @@ public:
   }
 
   /// Take a snapshot of a strip's restorable state.
-  StripSnapshot snapshotStrip(const juce::String &id) {
+  [[nodiscard]] StripSnapshot snapshotStrip(const juce::String &id) const {
     StripSnapshot snap;
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (int i = 0; i < (int)strips_.size(); ++i) {
       if (strips_[i]->id == id) {
         auto &s = strips_[i];
@@ -125,7 +159,7 @@ public:
   /// Insert a new strip right after the strip with the given ID,
   /// copying its input port/channel/family but with no plugin.
   juce::String duplicateStripAfter(const juce::String &afterId) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     auto it = strips_.begin();
     for (; it != strips_.end(); ++it) {
       if ((*it)->id == afterId)
@@ -148,12 +182,13 @@ public:
 
     juce::String newId = strip->id;
     strips_.insert(it + 1, std::move(strip));
+    commitAudioGraph();
     return newId;
   }
 
   /// Find a strip by ID (nullptr if not found).
   MixerStrip *getStrip(const juce::String &id) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (auto &s : strips_) {
       if (s->id == id)
         return s.get();
@@ -163,7 +198,7 @@ public:
 
   /// Get raw pointers to all strips (caller must not hold them long).
   std::vector<MixerStrip *> getAllStrips() {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     std::vector<MixerStrip *> result;
     result.reserve(strips_.size());
     for (auto &s : strips_)
@@ -175,39 +210,40 @@ public:
   juce::AudioPluginFormatManager &getFormatManager() { return formatManager_; }
 
   /// Get all strips count.
-  int size() const {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+  [[nodiscard]] int size() const {
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     return static_cast<int>(strips_.size());
   }
 
   /// Serialize all strips to JSON array.
-  juce::String toJson() const {
+  [[nodiscard]] juce::String toJson() const {
     juce::Array<juce::var> arr;
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (const auto &s : strips_)
       arr.add(s->toJson());
     return juce::JSON::toString(juce::var(arr), true);
   }
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
 
     // Pre-compute whether any strip is soloed
     bool anySoloed = false;
-    for (auto &strip : strips_) {
+    for (auto *strip : graph->strips) {
       if (strip->soloed) {
         anySoloed = true;
         break;
       }
     }
 
-    for (auto &strip : strips_) {
+    for (auto *strip : graph->strips) {
       strip->processBlock(audioBuffer, currentTime, anySoloed);
     }
   }
 
   void prepareToPlay(double sampleRate, int blockSize) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     currentSampleRate_ = sampleRate;
     currentBlockSize_ = blockSize;
     for (auto &strip : strips_) {
@@ -218,8 +254,10 @@ public:
   /// Route incoming MIDI note event to matching strips (raw, no annotation).
   void routeNoteEvent(int port, int channel, const juce::MidiMessage &msg,
                       double triggerTime) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       if (strip->inputPort == port && strip->inputChannel == channel) {
         strip->addDelayedMessage(triggerTime, msg);
       }
@@ -228,9 +266,11 @@ public:
 
   /// Route incoming CC event to matching strips (immediate, no delay).
   void routeCCEvent(int port, int channel, const juce::MidiMessage &msg) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
     double now = juce::Time::getMillisecondCounterHiRes();
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    for (auto *strip : graph->strips) {
       if (strip->inputPort == port && strip->inputChannel == channel) {
         strip->addDelayedMessage(now, msg);
       }
@@ -292,8 +332,19 @@ public:
   /// pre_note instructions before the noteOn.
   void routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
                             double triggerTimeMs) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    // ── Read tonal context from the harmonic analysis service ─────────────
+    // The service is fed by MainComponent (onNoteEvent), so we just read.
+    TonalContext tonalCtx;
+    if (harmonicService_) {
+      TonalContext keyCtx = harmonicService_->getContext();
+      tonalCtx = HarmonicAnalysisService::annotateNote(
+          keyCtx, static_cast<int>(note.note_number()));
+    }
+
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       if (strip->inputPort != port || strip->inputChannel != channel)
         continue;
 
@@ -302,6 +353,7 @@ public:
       ctx.stripChannel = channel + 1; // convert 0-based to 1-based
       ctx.currentTimeMs = triggerTimeMs;
       ctx.sampleRate = currentSampleRate_;
+      ctx.tonalContext = tonalCtx; // inject tonal context
       strip->annotator->onNoteStart(note, ctx);
 
       // Record the annotation decision for Note Inspector UI
@@ -372,6 +424,19 @@ public:
           triggerTimeMs, (int)note.channel(),
           CapturedMidiEvent::NoteOn, (int)note.note_number(),
           (int)note.start_velocity());
+
+      // If an annotator (e.g. Lua plugin) scheduled an early note-off,
+      // schedule it now at note-on time + scheduled ms.
+      double noteOffMs = strip->annotator->scheduledNoteOffMs();
+      if (noteOffMs > 0) {
+        double noteOffTime = triggerTimeMs + noteOffMs;
+        juce::MidiMessage earlyNoteOff = juce::MidiMessage::noteOff(
+            (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
+        strip->addDelayedMessage(noteOffTime, earlyNoteOff);
+        strip->emittedCapture.record(
+            noteOffTime, (int)note.channel(),
+            CapturedMidiEvent::NoteOff, (int)note.note_number(), 64);
+      }
     }
   }
 
@@ -379,8 +444,14 @@ public:
   /// the noteOff followed by post_note instructions.
   void routeAnnotatedNoteOff(int port, int channel, fiddle::Note &note,
                              double triggerTimeMs) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    // Note removal from the HMM is handled internally by the
+    // HarmonicAnalysisService (via onNoteEvent called from MainComponent).
+    // No action needed here.
+
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       if (strip->inputPort != port || strip->inputChannel != channel)
         continue;
 
@@ -438,8 +509,10 @@ public:
 
   /// Release all latched keyswitches on every strip (called on transport stop).
   void releaseAllKeyswitches(double triggerTimeMs) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       for (const auto &ks : strip->heldKeyswitchNotes) {
         juce::MidiMessage noteOffMsg =
             juce::MidiMessage::noteOff(ks.channel, ks.noteNumber,
@@ -457,8 +530,10 @@ public:
   /// If the annotator's onCC returns false, the CC is not forwarded.
   void routeAnnotatedCC(int port, int channel, const fiddle::MidiEvent &event,
                         const juce::MidiMessage &msg, double triggerTimeMs) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       if (strip->inputPort != port || strip->inputChannel != channel)
         continue;
 
@@ -482,8 +557,10 @@ public:
   void recordIncomingMidi(int port, int channel,
                           CapturedMidiEvent::Type type, int p1, int p2,
                           double timeMs) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       if (strip->inputPort != port || strip->inputChannel != channel)
         continue;
 
@@ -509,15 +586,17 @@ public:
 
   /// Panic: send All Notes Off to every strip.
   void allNotesOff() {
-    std::lock_guard<std::mutex> lock(stripsMutex);
-    for (auto &strip : strips_) {
+    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph) return;
+
+    for (auto *strip : graph->strips) {
       strip->allNotesOff();
     }
   }
 
   /// Set mute state on a strip by ID.
   bool setStripMute(const juce::String &id, bool mute) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (auto &s : strips_) {
       if (s->id == id) {
         s->muted = mute;
@@ -529,7 +608,7 @@ public:
 
   /// Set solo state on a strip by ID.
   bool setStripSolo(const juce::String &id, bool solo) {
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
     for (auto &s : strips_) {
       if (s->id == id) {
         s->soloed = solo;
@@ -562,6 +641,11 @@ public:
         if (auto *obj = item.getDynamicObject()) {
           int port = (int)obj->getProperty("port");
           int ch = (int)obj->getProperty("channel");
+
+          // Skip the reserved metronome channel (port 0, channel 0).
+          // It is a tempo-analysis signal, not an audio instrument.
+          if (port == 0 && ch == 0) continue;
+
           juce::String label = obj->getProperty("label").toString();
           juce::String family = obj->getProperty("family").toString();
           bool solo = (bool)obj->getProperty("isSolo");
@@ -571,7 +655,7 @@ public:
       }
     }
 
-    std::lock_guard<std::mutex> lock(stripsMutex);
+    std::lock_guard<std::mutex> lock(stripsMutex_);
 
     // Remove strips whose port/channel is no longer in the expected set
     for (auto it = strips_.begin(); it != strips_.end();) {
@@ -615,16 +699,78 @@ public:
         strips_.push_back(std::move(strip));
       }
     }
+    commitAudioGraph();
+  }
+
+  /// Set the harmonic analysis service (owned by MainComponent, not MixerModel).
+  void setHarmonicService(HarmonicAnalysisService *service) {
+    harmonicService_ = service;
   }
 
 private:
-  mutable std::mutex stripsMutex;
+  // Only the main thread accesses these UI representations
+  mutable std::mutex stripsMutex_;
   std::vector<std::unique_ptr<MixerStrip>> strips_;
+
+  struct ActiveAudioGraph {
+    std::vector<MixerStrip*> strips;
+  };
+  std::atomic<ActiveAudioGraph*> activeGraph_{nullptr};
+
+  // Garbage bin emptied by timer
+  mutable std::mutex trashMutex_;
+  std::vector<std::pair<ActiveAudioGraph*, uint32_t>> trashGraphs_;
+  std::vector<std::pair<std::unique_ptr<MixerStrip>, uint32_t>> trashStrips_;
+
+  void commitAudioGraph() {
+    auto* current = new ActiveAudioGraph();
+    for (auto& s : strips_) {
+      current->strips.push_back(s.get());
+    }
+    auto* old = activeGraph_.exchange(current, std::memory_order_acq_rel);
+    if (old) {
+      std::lock_guard<std::mutex> lock(trashMutex_);
+      trashGraphs_.emplace_back(old, juce::Time::getMillisecondCounter());
+    }
+  }
+
+  void timerCallback() override {
+    std::vector<ActiveAudioGraph*> graphsToDelete;
+    std::vector<std::unique_ptr<MixerStrip>> stripsToDelete;
+    uint32_t now = juce::Time::getMillisecondCounter();
+
+    {
+      std::lock_guard<std::mutex> lock(trashMutex_);
+      
+      auto it1 = trashGraphs_.begin();
+      while (it1 != trashGraphs_.end()) {
+        if (now - it1->second > 500) { // 500ms safety window
+          graphsToDelete.push_back(it1->first);
+          it1 = trashGraphs_.erase(it1);
+        } else ++it1;
+      }
+      
+      auto it2 = trashStrips_.begin();
+      while (it2 != trashStrips_.end()) {
+        if (now - it2->second > 500) {
+          stripsToDelete.push_back(std::move(it2->first));
+          it2 = trashStrips_.erase(it2);
+        } else ++it2;
+      }
+    }
+
+    // Deallocation on main thread outside of the lock
+    for (auto* g : graphsToDelete) delete g;
+    stripsToDelete.clear();
+  }
   juce::AudioPluginFormatManager formatManager_;
   int nextStripNumber_ = 1;
   double currentSampleRate_ = 44100.0;
   int currentBlockSize_ = 512;
   int playbackDelayMs_ = 1000;
+
+  // Harmonic analysis service (optional). Owned by MainComponent.
+  HarmonicAnalysisService *harmonicService_ = nullptr;
 
 public:
   int getPlaybackDelayMs() const { return playbackDelayMs_; }

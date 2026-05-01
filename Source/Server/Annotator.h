@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AnnotationRecord.h"
+#include "TonalContext.h"
 #include "midi_event.pb.h"
 #include <array>
 #include <cstdint>
@@ -20,6 +21,11 @@ struct AnnotatorContext {
 
   /// Current CC state: currentCCs[channel_0based][ccNumber] → value (0-127).
   const std::array<std::array<uint8_t, 128>, 16> *currentCCs = nullptr;
+
+  /// Tonal context computed by TonalCenterClassifier for the current note.
+  /// key-level fields are populated first, then annotateNote() fills
+  /// is_diatonic and scale_degree before the annotator chain runs.
+  TonalContext tonalContext;
 };
 
 /**
@@ -66,6 +72,12 @@ public:
   /// Timing delta (ms) computed by the last onNoteEnd() call.
   /// Negative = early noteOff, positive = late noteOff (overlap).
   virtual double durationAdjustMs() const { return 0.0; }
+
+  /// If > 0, schedules an early note-off at note-on time + this many ms.
+  /// This is set during onNoteStart and checked by routeAnnotatedNoteOn.
+  /// Unlike durationAdjustMs (which adjusts Dorico's note-off timing),
+  /// this proactively schedules a note-off independent of Dorico.
+  virtual double scheduledNoteOffMs() const { return -1.0; }
 
   /// Reset cached state (match cache, current match, etc.).
   /// Called when the user clears the Note Inspector so subsequent

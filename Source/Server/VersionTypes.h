@@ -63,6 +63,7 @@ struct StripBlob {
   std::string library; ///< Human-readable library label (e.g. "SSP")
   std::string family;
   bool isSolo = true;
+  bool active = true;
   int inputPort = -1;
   int inputChannel = -1;
   int pluginUid = 0;
@@ -72,16 +73,24 @@ struct StripBlob {
   /// Binary VST3 plugin state. Stored separately in the blob for efficiency.
   std::vector<uint8_t> pluginState;
 
+  /// Ordered Lua plugin filenames (basenames, e.g. "force_staccato.lua").
+  std::vector<std::string> luaPluginFileNames;
+
   /// Serialize all fields into a canonical byte sequence for hashing.
   /// Identity key: (inputPort, inputChannel, libraryId) + content fields.
   std::string serializeForHash() const {
     std::ostringstream os;
     os << inputPort << '\0' << inputChannel << '\0' << libraryId << '\0'
        << library << '\0' << family << '\0' << (isSolo ? '1' : '0') << '\0'
+       << (active ? '1' : '0') << '\0'
        << pluginUid << '\0';
     // Use fixed-precision for float to ensure deterministic hashing
     os << std::fixed << std::setprecision(6) << gainDb << '\0';
     os << expressionMapEntityId << '\0';
+    // Lua plugins (ordered)
+    for (const auto &name : luaPluginFileNames)
+      os << name << '\0';
+    os << '\0'; // terminator for lua plugin list
     std::string header = os.str();
     // Append binary plugin state
     header.append(reinterpret_cast<const char *>(pluginState.data()),

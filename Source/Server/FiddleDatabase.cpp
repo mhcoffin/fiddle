@@ -250,12 +250,27 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN family TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
-  // v5: add instance_num column to library_instruments
+  // v5: add instance_num column to library_instruments (legacy, migrated in v8)
   sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN instance_num INTEGER NOT NULL DEFAULT 1",
                nullptr, nullptr, nullptr);
 
   // v6: add note column to library_instruments
   sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+
+  // v8: replace instance_num INTEGER with instance_nums TEXT (comma-separated)
+  sqlite3_exec(db_, "ALTER TABLE library_instruments ADD COLUMN instance_nums TEXT NOT NULL DEFAULT '1'",
+               nullptr, nullptr, nullptr);
+  // Migrate existing data: copy integer values to text column
+  sqlite3_exec(db_, "UPDATE library_instruments SET instance_nums = CAST(instance_num AS TEXT) WHERE instance_num != 1",
+               nullptr, nullptr, nullptr);
+
+  // v7: add active column to strips (library activation state)
+  sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN active INTEGER NOT NULL DEFAULT 1",
+               nullptr, nullptr, nullptr);
+
+  // v9: add lua_plugins column to strips (comma-separated filenames)
+  sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN lua_plugins TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
   // Seed the default library on first boot
@@ -264,8 +279,8 @@ void FiddleDatabase::createSchema() {
 }
 
 void FiddleDatabase::prepareStatements() {
-  auto prep = [this](const char *sql, sqlite3_stmt **stmt) {
-    int rc = sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr);
+  auto prep = [this](const char *sql, SqliteStatement &stmt) {
+    int rc = sqlite3_prepare_v2(db_, sql, -1, stmt.outPtr(), nullptr);
     if (rc != SQLITE_OK) {
       std::cerr << "[FiddleDB] Prepare failed: " << sqlite3_errmsg(db_)
                 << "\n  SQL: " << sql << std::endl;
@@ -275,93 +290,94 @@ void FiddleDatabase::prepareStatements() {
   prep(R"(
     INSERT OR REPLACE INTO strips
       (id, position, library, family, is_solo, input_port, input_channel,
-       plugin_uid, gain_db, expression_map)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       plugin_uid, gain_db, expression_map, active, lua_plugins)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
-       &stmtSaveStrip_);
+       stmtSaveStrip_);
 
   prep(R"(
     UPDATE strips SET plugin_state = ? WHERE id = ?
   )",
-       &stmtSaveBlob_);
+       stmtSaveBlob_);
 
-  prep("DELETE FROM strips WHERE id = ?", &stmtRemoveStrip_);
+  prep("DELETE FROM strips WHERE id = ?", stmtRemoveStrip_);
 
-  prep("DELETE FROM strips", &stmtClearStrips_);
+  prep("DELETE FROM strips", stmtClearStrips_);
 
   prep("SELECT id, position, library, family, is_solo, input_port, "
-       "input_channel, plugin_uid, gain_db, expression_map, plugin_state "
+       "input_channel, plugin_uid, gain_db, expression_map, plugin_state, active, "
+       "lua_plugins "
        "FROM strips ORDER BY position",
-       &stmtLoadStrips_);
+       stmtLoadStrips_);
 
   prep("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-       &stmtSaveSetting_);
+       stmtSaveSetting_);
 
-  prep("SELECT value FROM settings WHERE key = ?", &stmtLoadSetting_);
+  prep("SELECT value FROM settings WHERE key = ?", stmtLoadSetting_);
 
   prep(R"(
     INSERT INTO saved_configs (name, version, data)
     VALUES (?, datetime('now'), ?)
   )",
-       &stmtSaveConfig_);
+       stmtSaveConfig_);
 
   prep(R"(
     INSERT INTO saved_configs (name, version, data)
     VALUES (?, ?, ?)
   )",
-       &stmtSaveConfigVersion_);
+       stmtSaveConfigVersion_);
 
   prep(R"(
     SELECT data FROM saved_configs
     WHERE name = ? ORDER BY version DESC LIMIT 1
   )",
-       &stmtLoadConfig_);
+       stmtLoadConfig_);
 
   prep(R"(
     SELECT data FROM saved_configs
     WHERE name = ? AND version = ?
   )",
-       &stmtLoadConfigVersion_);
+       stmtLoadConfigVersion_);
 
   prep(R"(
     SELECT COUNT(*) FROM saved_configs
     WHERE name = ? AND version = ?
   )",
-       &stmtHasConfigVersion_);
+       stmtHasConfigVersion_);
 
   prep(R"(
     SELECT name, MAX(version) as version FROM saved_configs
     GROUP BY name ORDER BY version DESC
   )",
-       &stmtListConfigs_);
+       stmtListConfigs_);
 
   prep(R"(
     SELECT name, version FROM saved_configs
     WHERE name = ? ORDER BY version DESC
   )",
-       &stmtListConfigVersions_);
+       stmtListConfigVersions_);
 
-  prep("DELETE FROM saved_configs WHERE name = ?", &stmtDeleteConfig_);
+  prep("DELETE FROM saved_configs WHERE name = ?", stmtDeleteConfig_);
 
   prep(R"(
     INSERT OR REPLACE INTO plugin_capabilities (plugin_uid, uses_listener)
     VALUES (?, 1)
   )",
-       &stmtSavePluginCapability_);
+       stmtSavePluginCapability_);
 
   prep("SELECT plugin_uid FROM plugin_capabilities WHERE uses_listener = 1",
-       &stmtLoadListenerUids_);
+       stmtLoadListenerUids_);
 
   prep(R"(
     INSERT OR REPLACE INTO window_settings
       (window_id, x, y, width, height, visible, mode)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   )",
-       &stmtSaveWindowSettings_);
+       stmtSaveWindowSettings_);
 
   prep("SELECT x, y, width, height, visible, mode FROM window_settings "
        "WHERE window_id = ?",
-       &stmtLoadWindowSettings_);
+       stmtLoadWindowSettings_);
 
   prep(R"(
     INSERT OR REPLACE INTO plugin_cache
@@ -369,90 +385,87 @@ void FiddleDatabase::prepareStatements() {
        uid, num_inputs, num_outputs, valid)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
-       &stmtSavePluginCache_);
+       stmtSavePluginCache_);
 
   prep("SELECT path, mod_time, name, manufacturer, category, format, "
        "uid, num_inputs, num_outputs, valid FROM plugin_cache",
-       &stmtLoadPluginCache_);
+       stmtLoadPluginCache_);
 
-  prep("DELETE FROM plugin_cache WHERE path = ?", &stmtRemovePluginCache_);
+  prep("DELETE FROM plugin_cache WHERE path = ?", stmtRemovePluginCache_);
 
-  prep("DELETE FROM plugin_cache", &stmtClearPluginCache_);
+  prep("DELETE FROM plugin_cache", stmtClearPluginCache_);
 
   // Ensemble
-  prep("DELETE FROM ensemble_slots", &stmtClearEnsemble_);
+  prep("DELETE FROM ensemble_slots", stmtClearEnsemble_);
   prep("INSERT INTO ensemble_slots "
        "(sort_order, entity_id, name, family, music_xml_sound_id, "
        "solo_count, section_count) VALUES (?,?,?,?,?,?,?)",
-       &stmtInsertEnsembleSlot_);
+       stmtInsertEnsembleSlot_);
   prep("SELECT entity_id, name, family, music_xml_sound_id, solo_count, "
        "section_count FROM ensemble_slots ORDER BY sort_order",
-       &stmtLoadEnsemble_);
+       stmtLoadEnsemble_);
 
   // Channel assignments
-  prep("DELETE FROM channel_assignments", &stmtClearAssignments_);
+  prep("DELETE FROM channel_assignments", stmtClearAssignments_);
   prep("INSERT OR REPLACE INTO channel_assignments "
        "(flat_index, entity_id, is_solo, instance_num) VALUES (?,?,?,?)",
-       &stmtInsertAssignment_);
+       stmtInsertAssignment_);
   prep("SELECT flat_index, entity_id, is_solo, instance_num "
        "FROM channel_assignments ORDER BY flat_index",
-       &stmtLoadAssignments_);
+       stmtLoadAssignments_);
 
   // Channel graveyard
-  prep("DELETE FROM channel_graveyard", &stmtClearGraveyard_);
+  prep("DELETE FROM channel_graveyard", stmtClearGraveyard_);
   prep("INSERT OR REPLACE INTO channel_graveyard "
        "(flat_index, entity_id, is_solo, instance_num) VALUES (?,?,?,?)",
-       &stmtInsertGraveyard_);
+       stmtInsertGraveyard_);
   prep("SELECT flat_index FROM channel_graveyard "
        "WHERE entity_id = ? AND is_solo = ? ORDER BY instance_num LIMIT 1",
-       &stmtFindGraveyard_);
+       stmtFindGraveyard_);
   prep("DELETE FROM channel_graveyard WHERE flat_index = ?",
-       &stmtRemoveGraveyard_);
+       stmtRemoveGraveyard_);
   prep("SELECT flat_index, entity_id, is_solo, instance_num "
        "FROM channel_graveyard ORDER BY flat_index",
-       &stmtLoadGraveyard_);
+       stmtLoadGraveyard_);
 
   // Library statements
   prep(R"(
     INSERT OR REPLACE INTO libraries (id, name, vendor, variant)
     VALUES (?, ?, ?, ?)
   )",
-       &stmtSaveLibrary_);
-  prep("DELETE FROM libraries WHERE id = ?", &stmtDeleteLibrary_);
+       stmtSaveLibrary_);
+  prep("DELETE FROM libraries WHERE id = ?", stmtDeleteLibrary_);
   prep("DELETE FROM library_instruments WHERE library_id = ?",
-       &stmtDeleteLibraryInstruments_);
+       stmtDeleteLibraryInstruments_);
   prep(R"(
     INSERT INTO library_instruments
       (library_id, sort_order, entity_id, name, category, is_solo, vst_plugin, expr_map,
-       plugin_uid, plugin_state, family, instance_num, note)
+       plugin_uid, plugin_state, family, instance_nums, note)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
-       &stmtInsertLibraryInstrument_);
+       stmtInsertLibraryInstrument_);
   prep("SELECT id, name, vendor, variant FROM libraries ORDER BY name",
-       &stmtListLibraries_);
+       stmtListLibraries_);
   prep(R"(
     SELECT library_id, sort_order, entity_id, name, category, is_solo, vst_plugin, expr_map,
-           plugin_uid, plugin_state, family, instance_num, note
+           plugin_uid, plugin_state, family, instance_nums, note
     FROM library_instruments WHERE library_id = ? ORDER BY sort_order
   )",
-       &stmtLoadLibraryInstruments_);
+       stmtLoadLibraryInstruments_);
   prep(R"(
     SELECT li.library_id, li.sort_order, li.entity_id, li.name, li.category,
            li.is_solo, li.vst_plugin, li.expr_map, li.plugin_uid, li.plugin_state,
-           li.family, li.instance_num, li.note
+           li.family, li.instance_nums, li.note
     FROM library_instruments li
     INNER JOIN libraries l ON li.library_id = l.id
     ORDER BY l.name, li.sort_order
   )",
-       &stmtLoadAllLibraryInstruments_);
+       stmtLoadAllLibraryInstruments_);
 }
 
 void FiddleDatabase::finalizeStatements() {
-  auto fin = [](sqlite3_stmt *&stmt) {
-    if (stmt) {
-      sqlite3_finalize(stmt);
-      stmt = nullptr;
-    }
+  auto fin = [](SqliteStatement &stmt) {
+    stmt.finalize();
   };
   fin(stmtSaveStrip_);
   fin(stmtSaveBlob_);
@@ -533,6 +546,17 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
 
   std::string xmapId = strip.expressionMap ? strip.expressionMap->entityID : "";
   sqlite3_bind_text(stmtSaveStrip_, 10, xmapId.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmtSaveStrip_, 11, strip.active ? 1 : 0);
+
+  // Serialize Lua plugin filenames as comma-separated list
+  auto luaNames = strip.getLuaPluginFileNames();
+  std::string luaPluginsStr;
+  for (size_t i = 0; i < luaNames.size(); ++i) {
+    if (i > 0) luaPluginsStr += ',';
+    luaPluginsStr += luaNames[i];
+  }
+  sqlite3_bind_text(stmtSaveStrip_, 12, luaPluginsStr.c_str(), -1,
+                    SQLITE_TRANSIENT);
 
   if (sqlite3_step(stmtSaveStrip_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] saveStrip failed: " << sqlite3_errmsg(db_)
@@ -604,6 +628,21 @@ std::vector<StripRow> FiddleDatabase::loadAllStrips() {
     int blobSize = sqlite3_column_bytes(stmtLoadStrips_, 10);
     if (blobData && blobSize > 0) {
       row.pluginState.append(blobData, (size_t)blobSize);
+    }
+
+    // Active flag (column 11, default true for old rows)
+    row.active = sqlite3_column_int(stmtLoadStrips_, 11) != 0;
+
+    // Lua plugins (column 12, comma-separated filenames)
+    auto *luaStr = (const char *)sqlite3_column_text(stmtLoadStrips_, 12);
+    if (luaStr && std::string(luaStr).length() > 0) {
+      juce::StringArray parts =
+          juce::StringArray::fromTokens(juce::String(luaStr), ",", "");
+      for (const auto &part : parts) {
+        auto trimmed = part.trim();
+        if (trimmed.isNotEmpty())
+          row.luaPluginFileNames.push_back(trimmed.toStdString());
+      }
     }
 
     rows.push_back(std::move(row));
@@ -1362,7 +1401,9 @@ void FiddleDatabase::saveLibrary(
       sqlite3_bind_null(stmtInsertLibraryInstrument_, 10);
     sqlite3_bind_text(stmtInsertLibraryInstrument_, 11,
                       inst.family.toRawUTF8(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int(stmtInsertLibraryInstrument_, 12, inst.instanceNum);
+    auto insNumsStr = inst.instanceNumsToString();
+    sqlite3_bind_text(stmtInsertLibraryInstrument_, 12,
+                      insNumsStr.toRawUTF8(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmtInsertLibraryInstrument_, 13,
                       inst.note.toRawUTF8(), -1, SQLITE_TRANSIENT);
     sqlite3_step(stmtInsertLibraryInstrument_);
@@ -1417,7 +1458,8 @@ FiddleDatabase::loadLibraryInstruments(const juce::String &libraryId) {
       row.pluginState.append(blobData, (size_t)blobSize);
     }
     row.family = colText(stmtLoadLibraryInstruments_, 10);
-    row.instanceNum = sqlite3_column_int(stmtLoadLibraryInstruments_, 11);
+    row.instanceNums = LibraryInstrumentRow::parseInstanceNums(
+        colText(stmtLoadLibraryInstruments_, 11));
     row.note = colText(stmtLoadLibraryInstruments_, 12);
     result.push_back(std::move(row));
   }
@@ -1468,7 +1510,8 @@ std::vector<LibraryInstrumentRow> FiddleDatabase::loadAllLibraryInstruments() {
       row.pluginState.append(blobData, (size_t)blobSize);
     }
     row.family = colText(stmtLoadAllLibraryInstruments_, 10);
-    row.instanceNum = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 11);
+    row.instanceNums = LibraryInstrumentRow::parseInstanceNums(
+        colText(stmtLoadAllLibraryInstruments_, 11));
     row.note = colText(stmtLoadAllLibraryInstruments_, 12);
     result.push_back(std::move(row));
   }

@@ -34,7 +34,7 @@
         family:    inst.family || "",
         category:  inst.category || "",
         size:      (inst.isSolo !== undefined && !inst.isSolo) ? "section" : "solo",
-        instanceNum: inst.instanceNum || 1,
+        instanceNums: Array.isArray(inst.instanceNums) ? [...inst.instanceNums] : [inst.instanceNum || 1],
         vstPlugin: Number(inst.vstPlugin) || inst.pluginUid || 0,
         exprMap:   inst.exprMap || "",
         note:      inst.note || "",
@@ -46,6 +46,7 @@
       nextId = instruments.length;
       searchQuery = "";
       modalView = "editor";
+      editorDirty = false;
     } catch (e) { /* ignore */ }
   });
 
@@ -109,7 +110,10 @@
   let searchQuery = $state("");
   let searchFocused = $state(false);
 
-  // ── Dorico instrument database (same as Setup window) ─
+  // ── Editor dirty tracking ─────────────────────────────
+  let editorDirty = $state(false);
+
+  // ── Dorico instrument database ─────────────────────────
   let allDoricoInstruments = $state([]);
 
   onFromCpp("setDoricoInstruments", (arr) => {
@@ -155,7 +159,7 @@
    * @property {string}  family
    * @property {string}  category
    * @property {string}  size
-   * @property {number}  instanceNum
+   * @property {number[]} instanceNums
    * @property {number}  vstPlugin
    * @property {string}  exprMap
    * @property {string}  note
@@ -168,6 +172,7 @@
   /** @type {LibInstrument[]} */
   let instruments = $state([]);
   let nextId = 0;
+  /** @type {string} */ let pendingDeleteId = $state("");
 
   // ── Portal container for modals ───────────────────────
   // Attach modal DOM directly to <body> so overflow:hidden parents
@@ -192,6 +197,29 @@
   };
   const closeCreate = () => { modalView = "none"; };
 
+  // ── Build Playback Template ──────────────────────────
+  let buildingTemplate = $state(false);
+  let buildResult = $state("");
+  let templateDirty = $state(false);
+
+  onFromCpp("setTemplateDirty", (data) => {
+    templateDirty = !!data;
+  });
+
+  onFromCpp("buildPlaybackTemplateResult", (data) => {
+    buildingTemplate = false;
+    buildResult = typeof data === "string" ? data : JSON.stringify(data);
+    // Clear the result after a few seconds
+    setTimeout(() => { buildResult = ""; }, 5000);
+  });
+
+  const handleBuildTemplate = () => {
+    if (buildingTemplate) return;
+    buildingTemplate = true;
+    buildResult = "";
+    dispatchCpp("buildPlaybackTemplate", []);
+  };
+
   const handleInitialize = () => {
     if (!canSubmit) return;
     editorLibId = crypto.randomUUID();
@@ -202,6 +230,7 @@
     nextId = 0;
     searchQuery = "";
     modalView = "editor";
+    editorDirty = false;
   };
 
   // ── Actions: editor modal ─────────────────────────────
@@ -224,10 +253,10 @@
     const usedNums = new Set(
       instruments
         .filter(i => i.entityID === inst.entityID && i.size === type)
-        .map(i => i.instanceNum)
+        .map(i => i.instanceNums[0])
     );
-    let instanceNum = 1;
-    while (usedNums.has(instanceNum)) instanceNum++;
+    let num = 1;
+    while (usedNums.has(num)) num++;
 
     instruments = [...instruments, {
       id:        `inst-${nextId++}`,
@@ -236,7 +265,7 @@
       family:    inst.family || "",
       category:  familyToCategory(inst.family),
       size:      type,
-      instanceNum,
+      instanceNums: [num],
       vstPlugin: 0,
       exprMap:   "",
       note:      "",
@@ -245,6 +274,7 @@
       pluginUid: 0,
       hasPluginState: false,
     }];
+    editorDirty = true;
   };
 
   /** Convert a small integer to a Roman numeral */
@@ -255,49 +285,42 @@
   };
 
   /**
-   * Instruments sorted in orchestral score order with stable instance numbering.
-   * Sort: score order → solo before section → instanceNum.
-   * Display: suppress number when there's only one instance and it's #1.
-   * Numbering: Arabic (1, 2, 3) for solo, Roman (I, II, III) for section.
+   * Instruments sorted in orchestral score order.
+   * Sort: score order → solo before section → instance number.
+   * Display: "Violin 1", "Violin 2" for solo; "Violin I", "Violin II" for section.
    */
   let sortedInstruments = $derived.by(() => {
     const sorted = [...instruments].sort((a, b) => {
-      // Primary sort: orchestral score order by entityID
       const ordA = instrumentScoreOrder(a.entityID);
       const ordB = instrumentScoreOrder(b.entityID);
       if (ordA !== ordB) return ordA - ordB;
-      // Solo before section within the same instrument
       if (a.size !== b.size) return a.size === 'solo' ? -1 : 1;
-      // Tiebreaker: stable instance number
-      return a.instanceNum - b.instanceNum;
+      return a.instanceNums[0] - b.instanceNums[0];
     });
-
-    // Count instances per (entityID, size) and check if numbering is needed
-    /** @type {Record<string, {count: number, allAreOne: boolean}>} */
-    const groups = {};
-    for (const inst of sorted) {
-      const key = `${inst.entityID}::${inst.size}`;
-      if (!groups[key]) groups[key] = { count: 0, allAreOne: true };
-      groups[key].count++;
-      if (inst.instanceNum !== 1) groups[key].allAreOne = false;
-    }
-
-    // Assign display names — suppress number when only one instance with #1
     return sorted.map(inst => {
-      const key = `${inst.entityID}::${inst.size}`;
-      const grp = groups[key];
-      const showNumber = grp.count > 1 || !grp.allAreOne;
-
-      let displayName = inst.name;
-      if (showNumber) {
-        const suffix = inst.size === 'section'
-          ? ` ${toRoman(inst.instanceNum)}`
-          : ` ${inst.instanceNum}`;
-        displayName = inst.name + suffix;
-      }
-      return { ...inst, displayName };
+      const num = inst.instanceNums[0];
+      const suffix = inst.size === 'section' ? ` ${toRoman(num)}` : ` ${num}`;
+      return { ...inst, displayName: inst.name + suffix };
     });
   });
+
+  /** Increment the chair number for a single-instance row */
+  const incrementInstance = (/** @type {string} */ rowId) => {
+    instruments = instruments.map(inst =>
+      inst.id === rowId ? { ...inst, instanceNums: [inst.instanceNums[0] + 1] } : inst
+    );
+    editorDirty = true;
+  };
+
+  /** Decrement the chair number (min 1) */
+  const decrementInstance = (/** @type {string} */ rowId) => {
+    instruments = instruments.map(inst =>
+      inst.id === rowId && inst.instanceNums[0] > 1
+        ? { ...inst, instanceNums: [inst.instanceNums[0] - 1] }
+        : inst
+    );
+    editorDirty = true;
+  };
 
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
     for (const inst of ens.instruments) {
@@ -307,6 +330,7 @@
 
   const removeInstrument = (/** @type {string} */ id) => {
     instruments = instruments.filter(r => r.id !== id);
+    editorDirty = true;
   };
 
   /** Open the VST editor for an instrument row.
@@ -343,7 +367,7 @@
         if (editorLibId) {
           console.log("[openVstEditor] Plugin loaded, restoring state for", row.entityID,
                       "hasPluginState=", row.hasPluginState, "libraryId=", editorLibId);
-          dispatchCpp("restoreLibraryPluginState", stripId, editorLibId, row.entityID, row.instanceNum);
+          dispatchCpp("restoreLibraryPluginState", stripId, editorLibId, row.entityID, row.instanceNums[0]);
           // Delay editor open to let state restore complete
           setTimeout(() => dispatchCpp("showStripEditor", stripId), 500);
         } else {
@@ -377,7 +401,7 @@
         name:        inst.name,
         family:      inst.family,
         category:    inst.category,
-        instanceNum: inst.instanceNum,
+        instanceNums: inst.instanceNums,
         size:        inst.size,
         vstPlugin:   inst.vstPlugin,
         exprMap:     inst.exprMap,
@@ -386,6 +410,7 @@
       })),
     };
     dispatchCpp("saveLibrary", libData);
+    editorDirty = false;
     modalView = "none";
   };
 
@@ -412,15 +437,37 @@
   <div class="lm-body">
     <div class="lm-toolbar">
       <h2 class="lm-section-title">My Libraries</h2>
-      <button class="lm-create-btn" onclick={openCreate}>+ Add Library</button>
+      <div class="lm-toolbar-actions">
+        <button class="lm-build-btn" onclick={handleBuildTemplate} disabled={buildingTemplate || !templateDirty}>
+          {buildingTemplate ? "Installing…" : "⚙ Install Playback Template"}
+        </button>
+        <button class="lm-create-btn" onclick={openCreate}>+ Add Library</button>
+      </div>
     </div>
+    {#if buildResult}
+      <div class="lm-build-result {buildResult.startsWith('OK') ? 'lm-build-ok' : 'lm-build-error'}">
+        {buildResult}
+      </div>
+    {/if}
     <div class="lm-grid">
       {#each savedLibraries.filter(l => l.name) as lib, i}
-        <button class="lm-card" onclick={() => openLibrary(lib.id)}>
+        <div class="lm-card" onclick={() => { pendingDeleteId = ""; openLibrary(lib.id); }} role="button" tabindex="0"
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') openLibrary(lib.id); }}>
+          <button class="lm-card-delete {pendingDeleteId === lib.id ? 'lm-card-delete--confirm' : ''}" title="Delete library"
+            onclick={(e) => {
+              e.stopPropagation();
+              if (pendingDeleteId === lib.id) {
+                removeLibrary(lib.id);
+                pendingDeleteId = "";
+              } else {
+                pendingDeleteId = lib.id;
+              }
+            }}
+          >{pendingDeleteId === lib.id ? '✓ Delete?' : '×'}</button>
           <div class="lm-card-icon">{libraryIcons[i % libraryIcons.length]}</div>
           <div class="lm-card-name">{lib.name}</div>
           <div class="lm-card-sub">{[lib.vendor, lib.variant].filter(Boolean).join(" · ") || "Library"}</div>
-        </button>
+        </div>
       {/each}
       {#if savedLibraries.filter(l => l.name).length === 0}
         <div class="lm-card lm-card--skeleton">
@@ -557,7 +604,13 @@
                   <span class="ir-size-icon" title={row.size === 'section' ? 'Section' : 'Solo'}>{row.size === 'section' ? '👥' : '👤'}</span>
                   <div class="ir-name-text">
                     <div class="ir-name-primary">{row.displayName}</div>
-                    <div class="ir-name-cat">{row.entityID}</div>
+                  </div>
+                  <div class="ir-instance-stepper">
+                    <button class="stepper-btn" disabled={row.instanceNums[0] <= 1}
+                      onclick={() => decrementInstance(row.id)} title="Lower chair number">−</button>
+                    <span class="stepper-val">{row.instanceNums[0]}</span>
+                    <button class="stepper-btn"
+                      onclick={() => incrementInstance(row.id)} title="Higher chair number">+</button>
                   </div>
                 </div>
                 <div class="ir-note">
@@ -568,6 +621,7 @@
                       instruments = instruments.map(i =>
                         i.id === row.id ? { ...i, note: val } : i
                       );
+                      editorDirty = true;
                     }}
                   />
                 </div>
@@ -578,6 +632,7 @@
                       instruments = instruments.map(i =>
                         i.id === row.id ? { ...i, vstPlugin: uid } : i
                       );
+                      editorDirty = true;
                       if (uid) previewPlugin(uid, row.id);
                     }}
                   >
@@ -597,6 +652,7 @@
                       instruments = instruments.map(i =>
                         i.id === row.id ? { ...i, exprMap: val } : i
                       );
+                      editorDirty = true;
                     }}>
                     <option value="">— xmap —</option>
                     {#each availableXmaps as xmap}
@@ -623,7 +679,7 @@
       <!-- Editor footer -->
       <div class="editor-footer">
         <button class="modal-cancel" onclick={closeEditor}><span class="cancel-x">✕</span> CANCEL</button>
-        <button class="modal-submit" onclick={commitToLibrary}>Save</button>
+        <button class="modal-submit" disabled={!editorDirty} onclick={commitToLibrary}>Save</button>
       </div>
     </div>
   </div>
@@ -672,6 +728,30 @@
     transition: background .15s, color .15s;
   }
   .lm-create-btn:hover { background: rgba(149,169,255,.12); color: #c0ccff; }
+  .lm-toolbar-actions {
+    display: flex; gap: 10px; align-items: center;
+  }
+  .lm-build-btn {
+    background: linear-gradient(135deg, #3b5bdb, #5f3dc4);
+    border: none; color: #e5e3ff; font-family: "Inter",sans-serif;
+    font-size: .82rem; font-weight: 600; padding: 7px 18px;
+    border-radius: 4px; cursor: pointer;
+    transition: opacity .15s, transform .1s;
+  }
+  .lm-build-btn:hover:not(:disabled) { opacity: .85; transform: scale(1.02); }
+  .lm-build-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .lm-build-result {
+    font-family: "Inter",sans-serif; font-size: .8rem;
+    padding: 8px 14px; border-radius: 4px; margin-bottom: 16px;
+    animation: fadeIn .2s ease-out;
+  }
+  .lm-build-ok {
+    background: rgba(64,192,87,.12); color: #69db7c; border: 1px solid rgba(64,192,87,.25);
+  }
+  .lm-build-error {
+    background: rgba(255,107,107,.12); color: #ff8787; border: 1px solid rgba(255,107,107,.25);
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
   .lm-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 16px;
@@ -681,7 +761,22 @@
     padding: 20px 18px 18px; display: flex; flex-direction: column; gap: 6px;
     cursor: pointer; transition: border-color .15s, background .15s;
     text-align: left; font-family: inherit; color: inherit;
+    position: relative;
   }
+  .lm-card-delete {
+    position: absolute; top: 6px; right: 6px;
+    background: transparent; border: 1px solid transparent; border-radius: 3px;
+    color: #72719c; font-size: .85rem; cursor: pointer;
+    padding: 1px 5px; line-height: 1; opacity: 0;
+    transition: opacity .15s, color .15s, border-color .15s;
+  }
+  .lm-card:hover .lm-card-delete { opacity: 1; }
+  .lm-card-delete:hover { color: #ff6e84; border-color: #ff6e84; }
+  .lm-card-delete--confirm {
+    opacity: 1 !important; color: #fff; background: #c44; border-color: #c44;
+    font-size: .7rem; padding: 2px 8px;
+  }
+  .lm-card-delete--confirm:hover { background: #e33; border-color: #e33; color: #fff; }
   .lm-card:hover { border-color: #95a9ff; background: #19194b; }
   .lm-card-icon {
     width: 36px; height: 36px; border-radius: 4px; background: #1f1f55;
@@ -918,9 +1013,20 @@
     font-family: "Inter",sans-serif; font-size: .78rem; font-weight: 600;
     color: #e5e3ff; letter-spacing: .01em;
   }
-  .ir-name-cat {
-    font-family: "Inter",sans-serif; font-size: .58rem; font-weight: 500;
-    color: #8887b0; letter-spacing: .02em; margin-top: 2px;
+  .ir-instance-stepper {
+    display: flex; align-items: center; gap: 2px; margin-left: auto; flex-shrink: 0;
+  }
+  .stepper-btn {
+    background: #1e1e50; border: 1px solid #44446c; border-radius: 3px;
+    color: #a8a7d5; cursor: pointer; font-size: .65rem; font-weight: 700;
+    width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+    padding: 0; line-height: 1; transition: all .15s;
+  }
+  .stepper-btn:hover:not(:disabled) { border-color: #7c3aed; color: #c4b5fd; background: #2a2a5c; }
+  .stepper-btn:disabled { opacity: .3; cursor: default; }
+  .stepper-val {
+    font-family: "Inter", sans-serif; font-size: .65rem; font-weight: 700;
+    color: #c4b5fd; min-width: 14px; text-align: center;
   }
   .ir-name { display: flex; align-items: center; gap: 8px; }
   .ir-size-icon { font-size: 1rem; flex-shrink: 0; }

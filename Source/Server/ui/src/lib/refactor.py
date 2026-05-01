@@ -2,7 +2,6 @@ import os, re
 
 files = [
     "MixerPanel.svelte",
-    "SetupPanel.svelte",
     "PluginsPanel.svelte",
     "VersionHistory.svelte"
 ]

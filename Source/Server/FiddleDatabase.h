@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixerModel.h"
+#include "SqliteStatement.h"
 #include "SqliteVersionStorage.h"
 #include <juce_core/juce_core.h>
 #include <mutex>
@@ -15,12 +16,14 @@ namespace fiddle {
 struct StripRow {
   juce::String id, library, family;
   bool isSolo = true;
+  bool active = true;
   int position = 0;
   int inputPort = -1, inputChannel = -1;
   int pluginUid = 0;
   float gainDb = 0.0f;
   std::string expressionMapEntityID;
   juce::MemoryBlock pluginState; // binary BLOB
+  std::vector<std::string> luaPluginFileNames; // ordered Lua plugin filenames
 };
 
 /// Metadata for a saved configuration version.
@@ -78,8 +81,38 @@ struct LibraryInstrumentRow {
   juce::String exprMap;
   int pluginUid = 0;                // scanned plugin uniqueId
   juce::MemoryBlock pluginState;    // binary VST state blob
-  int instanceNum = 1;              // stable instance number (lowest-unused)
+  std::vector<int> instanceNums{1}; // Dorico instance numbers this row fills
   juce::String note;                 // user-facing short text note
+
+  /// Check if this row covers a specific instance number.
+  bool hasInstance(int n) const {
+    return std::find(instanceNums.begin(), instanceNums.end(), n) !=
+           instanceNums.end();
+  }
+
+  /// Maximum instance number in the set.
+  int maxInstance() const {
+    if (instanceNums.empty()) return 1;
+    return *std::max_element(instanceNums.begin(), instanceNums.end());
+  }
+
+  /// Serialize instanceNums to comma-separated string for DB storage.
+  juce::String instanceNumsToString() const {
+    juce::StringArray parts;
+    for (int n : instanceNums) parts.add(juce::String(n));
+    return parts.joinIntoString(",");
+  }
+
+  /// Parse comma-separated string into instanceNums.
+  static std::vector<int> parseInstanceNums(const juce::String &s) {
+    std::vector<int> result;
+    for (const auto &part : juce::StringArray::fromTokens(s, ",", "")) {
+      int n = part.trim().getIntValue();
+      if (n > 0) result.push_back(n);
+    }
+    if (result.empty()) result.push_back(1);
+    return result;
+  }
 };
 
 /// Thread-safe SQLite wrapper for persisting Fiddle server state.
@@ -251,49 +284,49 @@ private:
   std::unique_ptr<versioning::SqliteVersionStorage> versionStorage_;
 
   // Prepared statements
-  sqlite3_stmt *stmtSaveStrip_ = nullptr;
-  sqlite3_stmt *stmtSaveBlob_ = nullptr;
-  sqlite3_stmt *stmtRemoveStrip_ = nullptr;
-  sqlite3_stmt *stmtClearStrips_ = nullptr;
-  sqlite3_stmt *stmtLoadStrips_ = nullptr;
-  sqlite3_stmt *stmtSaveSetting_ = nullptr;
-  sqlite3_stmt *stmtLoadSetting_ = nullptr;
-  sqlite3_stmt *stmtSaveConfig_ = nullptr;
-  sqlite3_stmt *stmtSaveConfigVersion_ = nullptr;
-  sqlite3_stmt *stmtLoadConfig_ = nullptr;
-  sqlite3_stmt *stmtLoadConfigVersion_ = nullptr;
-  sqlite3_stmt *stmtHasConfigVersion_ = nullptr;
-  sqlite3_stmt *stmtListConfigs_ = nullptr;
-  sqlite3_stmt *stmtListConfigVersions_ = nullptr;
-  sqlite3_stmt *stmtDeleteConfig_ = nullptr;
-  sqlite3_stmt *stmtSavePluginCapability_ = nullptr;
-  sqlite3_stmt *stmtLoadListenerUids_ = nullptr;
-  sqlite3_stmt *stmtSaveWindowSettings_ = nullptr;
-  sqlite3_stmt *stmtLoadWindowSettings_ = nullptr;
-  sqlite3_stmt *stmtSavePluginCache_ = nullptr;
-  sqlite3_stmt *stmtLoadPluginCache_ = nullptr;
-  sqlite3_stmt *stmtRemovePluginCache_ = nullptr;
-  sqlite3_stmt *stmtClearPluginCache_ = nullptr;
-  sqlite3_stmt *stmtClearEnsemble_ = nullptr;
-  sqlite3_stmt *stmtInsertEnsembleSlot_ = nullptr;
-  sqlite3_stmt *stmtLoadEnsemble_ = nullptr;
-  sqlite3_stmt *stmtClearAssignments_ = nullptr;
-  sqlite3_stmt *stmtInsertAssignment_ = nullptr;
-  sqlite3_stmt *stmtLoadAssignments_ = nullptr;
-  sqlite3_stmt *stmtClearGraveyard_ = nullptr;
-  sqlite3_stmt *stmtInsertGraveyard_ = nullptr;
-  sqlite3_stmt *stmtFindGraveyard_ = nullptr;
-  sqlite3_stmt *stmtRemoveGraveyard_ = nullptr;
-  sqlite3_stmt *stmtLoadGraveyard_ = nullptr;
+  SqliteStatement stmtSaveStrip_;
+  SqliteStatement stmtSaveBlob_;
+  SqliteStatement stmtRemoveStrip_;
+  SqliteStatement stmtClearStrips_;
+  SqliteStatement stmtLoadStrips_;
+  SqliteStatement stmtSaveSetting_;
+  SqliteStatement stmtLoadSetting_;
+  SqliteStatement stmtSaveConfig_;
+  SqliteStatement stmtSaveConfigVersion_;
+  SqliteStatement stmtLoadConfig_;
+  SqliteStatement stmtLoadConfigVersion_;
+  SqliteStatement stmtHasConfigVersion_;
+  SqliteStatement stmtListConfigs_;
+  SqliteStatement stmtListConfigVersions_;
+  SqliteStatement stmtDeleteConfig_;
+  SqliteStatement stmtSavePluginCapability_;
+  SqliteStatement stmtLoadListenerUids_;
+  SqliteStatement stmtSaveWindowSettings_;
+  SqliteStatement stmtLoadWindowSettings_;
+  SqliteStatement stmtSavePluginCache_;
+  SqliteStatement stmtLoadPluginCache_;
+  SqliteStatement stmtRemovePluginCache_;
+  SqliteStatement stmtClearPluginCache_;
+  SqliteStatement stmtClearEnsemble_;
+  SqliteStatement stmtInsertEnsembleSlot_;
+  SqliteStatement stmtLoadEnsemble_;
+  SqliteStatement stmtClearAssignments_;
+  SqliteStatement stmtInsertAssignment_;
+  SqliteStatement stmtLoadAssignments_;
+  SqliteStatement stmtClearGraveyard_;
+  SqliteStatement stmtInsertGraveyard_;
+  SqliteStatement stmtFindGraveyard_;
+  SqliteStatement stmtRemoveGraveyard_;
+  SqliteStatement stmtLoadGraveyard_;
 
   // Library statements
-  sqlite3_stmt *stmtSaveLibrary_ = nullptr;
-  sqlite3_stmt *stmtDeleteLibrary_ = nullptr;
-  sqlite3_stmt *stmtDeleteLibraryInstruments_ = nullptr;
-  sqlite3_stmt *stmtInsertLibraryInstrument_ = nullptr;
-  sqlite3_stmt *stmtListLibraries_ = nullptr;
-  sqlite3_stmt *stmtLoadLibraryInstruments_ = nullptr;
-  sqlite3_stmt *stmtLoadAllLibraryInstruments_ = nullptr;
+  SqliteStatement stmtSaveLibrary_;
+  SqliteStatement stmtDeleteLibrary_;
+  SqliteStatement stmtDeleteLibraryInstruments_;
+  SqliteStatement stmtInsertLibraryInstrument_;
+  SqliteStatement stmtListLibraries_;
+  SqliteStatement stmtLoadLibraryInstruments_;
+  SqliteStatement stmtLoadAllLibraryInstruments_;
 };
 
 } // namespace fiddle

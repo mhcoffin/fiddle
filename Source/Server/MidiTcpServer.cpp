@@ -65,11 +65,11 @@ bool MidiTcpServer::sendToClient(const fiddle::MidiEvent &msg) {
 
 void MidiTcpServer::run() {
   if (!listenerSocket.createListener(port)) {
-    DBG("MidiTcpServer: Failed to create listener on port " << port);
+    // DBG("MidiTcpServer: Failed to create listener on port " << port);
     return;
   }
 
-  DBG("MidiTcpServer: Listening on port " << port);
+  // DBG("MidiTcpServer: Listening on port " << port);
 
   while (!threadShouldExit()) {
     auto *client = listenerSocket.waitForNextConnection();
@@ -99,7 +99,7 @@ void MidiTcpServer::run() {
 
 void MidiTcpServer::handleConnection(
     std::unique_ptr<juce::StreamingSocket> clientSocket) {
-  DBG("MidiTcpServer: Client connected from " << clientSocket->getHostName());
+  // DBG("MidiTcpServer: Client connected from " << clientSocket->getHostName());
 
   // Note: currentClient_ is already set by run() before this is called.
 
@@ -110,7 +110,7 @@ void MidiTcpServer::handleConnection(
     int bytesRead = clientSocket->read(&networkSize, 4, true);
 
     if (bytesRead != 4) {
-      DBG("MidiTcpServer: Client disconnected or error reading header");
+      // DBG("MidiTcpServer: Client disconnected or error reading header");
       break;
     }
 
@@ -120,7 +120,7 @@ void MidiTcpServer::handleConnection(
 
     uint32_t size = juce::ByteOrder::swapIfLittleEndian(networkSize);
     if (size > 1024 * 1024) { // 1MB sanity check
-      DBG("MidiTcpServer: Invalid message size: " << (int)size);
+      // DBG("MidiTcpServer: Invalid message size: " << (int)size);
       break;
     }
 
@@ -129,7 +129,7 @@ void MidiTcpServer::handleConnection(
     bytesRead = clientSocket->read(buffer.data(), (int)size, true);
 
     if (bytesRead != (int)size) {
-      DBG("MidiTcpServer: Error reading payload");
+      // DBG("MidiTcpServer: Error reading payload");
       break;
     }
 
@@ -141,14 +141,14 @@ void MidiTcpServer::handleConnection(
     // Decode Protobuf
     fiddle::MidiEvent event;
     if (event.ParseFromArray(buffer.data(), (int)size)) {
-      std::cerr << "[MidiTcpServer] Parsed Protobuf event of type "
-                << event.event_case() << std::endl;
+      // std::cerr << "[MidiTcpServer] Parsed Protobuf event of type "
+      //           << event.event_case() << std::endl;
       if (messageCallback) {
         messageCallback(event);
       }
     } else {
-      std::cerr << "[MidiTcpServer] Error: Failed to parse Protobuf message"
-                << std::endl;
+      // std::cerr << "[MidiTcpServer] Error: Failed to parse Protobuf message"
+      //           << std::endl;
     }
   }
 
@@ -158,7 +158,7 @@ void MidiTcpServer::handleConnection(
     currentClient_ = nullptr;
   }
   shouldDisconnect.store(false);
-  DBG("MidiTcpServer: Connection closed");
+  // DBG("MidiTcpServer: Connection closed");
 }
 
 } // namespace fiddle

@@ -29,6 +29,5 @@ Language: C++20
 Key Architecture: 
  - The FiddleNative plugin is installed in Dorico and sends multiple channels of MIDI to FiddleServer.
  - FiddleServer receives MIDI from FiddleNative and converts it to Note data structures.
- - Notes are processed and then converted back into MIDI to drive multiple VSTs hosted in FiddleServer.
+ - Notes are processed by Lua plugings called 'Fiddles' and then converted back into MIDI to drive VSTs hosted in FiddleServer.
  - The audio output of the VSTs is mixed in FiddleServer and sent back to Dorico.
-

@@ -28,13 +28,35 @@ set(protobuf_INSTALL OFF CACHE BOOL "Install protobuf" FORCE)
 set(protobuf_BUILD_LIBPROTOC ON CACHE BOOL "Build libprotoc" FORCE)
 FetchContent_MakeAvailable(protobuf)
 
+# Fetch Lua 5.4 source and build as a static library
 FetchContent_Declare(
-    angelscript
-    URL https://www.angelcode.com/angelscript/sdk/files/angelscript_2.37.0.zip
-    SOURCE_SUBDIR angelscript/projects/cmake
-    PATCH_COMMAND sed -i "" "s/cmake_minimum_required(VERSION 3.5)/cmake_minimum_required(VERSION 3.10)/" angelscript/projects/cmake/CMakeLists.txt
+    lua
+    URL https://www.lua.org/ftp/lua-5.4.7.tar.gz
 )
-FetchContent_MakeAvailable(angelscript)
+FetchContent_GetProperties(lua)
+if(NOT lua_POPULATED)
+    FetchContent_Populate(lua)
+endif()
+
+# Build Lua as a static library (no CMakeLists.txt in official Lua)
+file(GLOB LUA_CORE_SOURCES "${lua_SOURCE_DIR}/src/*.c")
+list(REMOVE_ITEM LUA_CORE_SOURCES "${lua_SOURCE_DIR}/src/lua.c")   # standalone interpreter
+list(REMOVE_ITEM LUA_CORE_SOURCES "${lua_SOURCE_DIR}/src/luac.c")  # compiler
+add_library(lua_static STATIC ${LUA_CORE_SOURCES})
+target_include_directories(lua_static PUBLIC "${lua_SOURCE_DIR}/src")
+# Build Lua as C (not C++) — sol2 handles the extern "C" wrapping
+target_compile_definitions(lua_static PRIVATE LUA_USE_MACOSX)
+
+# Fetch sol2 (header-only C++/Lua binding)
+# Use develop branch — v3.3.1 has a known optional_implementation.hpp
+# bug with clang 18+ (ThePhD/sol2#1657).
+FetchContent_Declare(
+    sol2
+    GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+    GIT_TAG develop
+    GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(sol2)
 
 # Find system SQLite3 (ships with macOS)
 find_package(SQLite3 REQUIRED)
@@ -112,10 +134,16 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginEditorWindow.h
     Source/Server/MixerStrip.h
     Source/Server/MixerModel.h
-    Source/Server/ScriptEngine.cpp
-    Source/Server/ScriptEngine.h
-    Source/Server/ScriptBindings.cpp
-    Source/Server/ScriptBindings.h
+    Source/Server/LuaPlugin.cpp
+    Source/Server/LuaPlugin.h
+    Source/Server/LuaAnnotator.h
+    Source/Server/HarmonicState.h
+    Source/Server/HarmonicAnalyzer.cpp
+    Source/Server/HarmonicAnalyzer.h
+    Source/Server/HarmonicAnalysisService.cpp
+    Source/Server/HarmonicAnalysisService.h
+    Source/Server/TonalContext.h
+    Source/Server/AnnotatorChain.h
     Source/Server/FiddleConfig.h
     Source/Server/ExpressionMapParser.cpp
     Source/Server/ExpressionMapParser.h
@@ -134,7 +162,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/StateManager.cpp
     Source/StateSharedMemory.h
     Source/Server/ConfigChooserWindow.h
-    "${angelscript_SOURCE_DIR}/add_on/scriptstdstring/scriptstdstring.cpp"
+
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
 )
@@ -170,7 +198,8 @@ target_link_libraries(FiddleServer PRIVATE
     juce::juce_audio_formats
     juce::juce_audio_utils
     libprotobuf
-    angelscript
+    lua_static
+    sol2
     SQLite::SQLite3
 )
 
@@ -192,8 +221,7 @@ endif()
 target_include_directories(FiddleServer PRIVATE 
     Source/Server 
     "${CMAKE_CURRENT_BINARY_DIR}"
-    "${angelscript_SOURCE_DIR}/angelscript/include"
-    "${angelscript_SOURCE_DIR}/add_on/scriptstdstring"
+    "${lua_SOURCE_DIR}/src"
     "${xxhash_SOURCE_DIR}"
 )
 
@@ -369,6 +397,20 @@ target_include_directories(GainMathTest PRIVATE
 )
 
 target_compile_features(GainMathTest PRIVATE cxx_std_17)
+
+# ==============================================================================
+# HarmonicAnalyzerTest — test executable for HMM harmonic analysis engine
+# ==============================================================================
+add_executable(HarmonicAnalyzerTest
+    Source/Server/tests/HarmonicAnalyzerTest.cpp
+    Source/Server/HarmonicAnalyzer.cpp
+)
+
+target_include_directories(HarmonicAnalyzerTest PRIVATE
+    Source/Server
+)
+
+target_compile_features(HarmonicAnalyzerTest PRIVATE cxx_std_20)
 
 # ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico

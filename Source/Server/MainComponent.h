@@ -6,18 +6,21 @@
 #include "ExpressionMapLibrary.h"
 #include "FiddleDatabase.h"
 #include "HistoryWindow.h"
-#include "SetupWindow.h"
+
 #include "LibraryManagerWindow.h"
 #include "InstrumentMapper.h"
 #include "JsTestBridge.h"
+#include "LuaPlugin.h"
 #include "MasterInstrumentList.h"
 #include "MidiTcpServer.h"
 #include "MixerModel.h"
 #include "NoteStreamTracker.h"
 #include "PluginScanner.h"
-#include "ScriptEngine.h"
+
 #include "StateManager.h"
 #include "SubnoteGenerator.h"
+#include "HarmonicAnalysisService.h"
+#include "MetronomeTempoTracker.h"
 #include "UndoActions.h"
 #include "midi_event.pb.h"
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -47,11 +50,7 @@ public:
   /// Check if history window is visible.
   bool isHistoryWindowVisible() const;
 
-  /// Toggle setup window visibility (called from View menu or mixer).
-  void toggleSetupWindow();
 
-  /// Check if setup window is visible.
-  bool isSetupWindowVisible() const;
 
   /// Toggle library manager window visibility (called from View menu).
   void toggleLibraryManagerWindow();
@@ -65,8 +64,7 @@ public:
   /// Save debug window geometry + visibility to database.
   void saveDebugWindowGeometry();
 
-  /// Save setup window geometry + visibility to database.
-  void saveSetupWindowGeometry();
+
 
   /// Save library manager window geometry + visibility to database.
   void saveLibraryManagerWindowGeometry();
@@ -109,7 +107,26 @@ private:
   FiddleDatabase db_;
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
-  std::unique_ptr<ScriptEngine> scriptEngine;
+  LuaPluginCatalog luaCatalog_;
+
+  /// Global harmonic analysis service (joint key/chord HMM).
+  /// Owned here; MixerModel holds a raw ptr.
+  HarmonicAnalysisService harmonicService_;
+
+  /// Live BPM from FiddleNative ProcessContext (arrives via TempoEvent).
+  /// Default 120.0 before first TempoEvent is received.
+  std::atomic<double> currentBpm_{120.0};
+
+  /// Metronome-based tempo tracker.  Derives BPM and time signature from
+  /// Dorico's click track routed to the reserved channel (port 0, channel 0).
+  MetronomeTempoTracker metronomeTracker_;
+
+  /// The reserved MIDI slot for the metronome click (flatIndex 0).
+  /// Port/channel are 0-based; Dorico's protobuf channel field is 1-based,
+  /// so incoming events on channel==1 correspond to kMetronomeChannel==0.
+  static constexpr int kMetronomePort = 0;
+  static constexpr int kMetronomeChannel = 0;
+
   std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
 
@@ -137,9 +154,7 @@ private:
   std::unique_ptr<HistoryWindow> historyWindow_;
   bool historyWindowLoaded_ = false;
 
-  /// Setup window (lazy instantiated)
-  std::unique_ptr<SetupWindow> setupWindow_;
-  bool setupWindowLoaded_ = false;
+
 
   /// Library Manager window (lazy instantiated)
   std::unique_ptr<LibraryManagerWindow> libraryManagerWindow_;
@@ -208,6 +223,16 @@ private:
 
   /// Atomic flag for debouncing listener callbacks (fire from any thread).
   std::atomic<bool> listenerDirtyPending_{false};
+
+  /// Fingerprint of library instruments when the template was last installed.
+  /// Used to determine if "Install Playback Template" should be enabled.
+  juce::String lastInstalledFingerprint_;
+
+  /// Compute a fingerprint from all library instruments in the DB.
+  juce::String computeLibraryFingerprint();
+
+  /// Broadcast whether the playback template is out-of-date to all UIs.
+  void broadcastTemplateDirty();
 
   std::optional<juce::WebBrowserComponent::Resource>
   getResource(const juce::String &url);
