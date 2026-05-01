@@ -10,7 +10,7 @@ namespace fiddle {
 /// plugin_cache to avoid re-scanning unchanged plugins.
 class PluginScanner {
 public:
-  PluginScanner() { formatManager_.addFormat(new juce::VST3PluginFormat()); }
+  PluginScanner() { formatManager_.addFormat(std::make_unique<juce::VST3PluginFormat>()); }
 
   /// Is a scan currently running?
   bool isScanning() const { return scanning_.load(); }

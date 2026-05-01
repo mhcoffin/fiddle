@@ -30,7 +30,7 @@ struct StripSnapshot {
 class MixerModel : public juce::Timer {
 public:
   MixerModel() { 
-    formatManager_.addFormat(new juce::VST3PluginFormat()); 
+    formatManager_.addFormat(std::make_unique<juce::VST3PluginFormat>()); 
     commitAudioGraph();
     startTimer(100);
   }
