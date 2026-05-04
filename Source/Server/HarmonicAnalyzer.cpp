@@ -103,6 +103,68 @@ bool HarmonicAnalyzer::loadEmissionTemplates(const void* data, size_t bytes) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Model Loading: Degree Priors
+//
+// Binary format:
+//   uint32 num_modes (2), uint32 num_degrees (12), uint32 num_qualities (9)
+//   For each mode (0=major, 1=minor):
+//     For each degree (0-11):
+//       For each quality (0-8):
+//         float32 log_prior
+// ─────────────────────────────────────────────────────────────────────────────
+
+bool HarmonicAnalyzer::loadDegreePriors(const void* data, size_t bytes) {
+  constexpr size_t kHeaderSize = 3 * sizeof(uint32_t);
+  constexpr size_t kNumEntries = 2 * 12 * kNumQualities;
+  constexpr size_t kExpected = kHeaderSize + kNumEntries * sizeof(float);
+
+  if (data == nullptr || bytes < kExpected)
+    return false;
+
+  const auto* headerPtr = static_cast<const uint8_t*>(data);
+
+  // Validate header.
+  uint32_t numModes = 0, numDegrees = 0, numQualities = 0;
+  std::memcpy(&numModes, headerPtr, sizeof(uint32_t));
+  headerPtr += sizeof(uint32_t);
+  std::memcpy(&numDegrees, headerPtr, sizeof(uint32_t));
+  headerPtr += sizeof(uint32_t);
+  std::memcpy(&numQualities, headerPtr, sizeof(uint32_t));
+  headerPtr += sizeof(uint32_t);
+
+  if (numModes != 2 || numDegrees != 12 ||
+      numQualities != static_cast<uint32_t>(kNumQualities))
+    return false;
+
+  const auto* floatPtr = reinterpret_cast<const float*>(headerPtr);
+  for (int mode = 0; mode < 2; ++mode) {
+    for (int deg = 0; deg < 12; ++deg) {
+      for (int qual = 0; qual < kNumQualities; ++qual) {
+        degreePriors_[mode][deg * kNumQualities + qual] = *floatPtr++;
+      }
+    }
+  }
+
+  degreePriorsLoaded_ = true;
+  return true;
+}
+
+float HarmonicAnalyzer::degreePrior(int keyIdx, int chordIdx) const {
+  if (!degreePriorsLoaded_)
+    return 0.f;  // neutral if no priors loaded
+
+  auto [keyRoot, keyMinor] = keyFromIndex(keyIdx);
+  auto [chordRoot, quality] = chordFromIndex(chordIdx);
+
+  int degree = (chordRoot - keyRoot + 12) % 12;
+  int mode = keyMinor ? 1 : 0;
+
+  return kDegreePriorScale *
+         degreePriors_[mode][degree * kNumQualities +
+                             static_cast<int>(quality)];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Default Emission Templates (music-theory bootstrap)
 //
 // For each chord type, we define:
@@ -256,13 +318,54 @@ void HarmonicAnalyzer::forwardStep(const Observation& obs) {
     candidates_.clear();
     for (int s = 0; s < kNumStates; ++s) {
       auto [keyIdx, chordIdx] = stateFromIndex(s);
-      float emit = computeEmission(chordIdx, obs);
+      // Use the FULL (unscaled) degree prior at initialization to firmly
+      // establish the key. At subsequent events, transitions handle key
+      // tracking and the prior is not applied.
+      float rawPrior = degreePriorsLoaded_
+          ? degreePriors_[keyFromIndex(keyIdx).second ? 1 : 0]
+                [(chordFromIndex(chordIdx).first - keyFromIndex(keyIdx).first + 12) % 12
+                 * kNumQualities + static_cast<int>(chordFromIndex(chordIdx).second)]
+          : 0.f;
+      float emit = computeEmission(chordIdx, obs) + rawPrior;
       // Uniform prior in log space: log(1/kNumStates).
       float prior = -std::log(static_cast<float>(kNumStates));
       candidates_.push_back({s, prior + emit, -1});
     }
 
     pruneBeam(candidates_, beamWidth_);
+
+    // Filter initial beam to the best key.
+    // The first chord establishes the key context. Without this, wrong-key
+    // states survive (e.g., F:Fmaj alongside C:Cmaj) and exploit strong
+    // same-key transitions (V→I) at event 2, causing false modulations.
+    //
+    // We find the best-scoring key root and keep both its major/minor modes.
+    {
+      // Find the best key root.
+      std::array<float, 12> bestScorePerKeyRoot;
+      bestScorePerKeyRoot.fill(-1e30f);
+      for (const auto& c : candidates_) {
+        auto [ki, ci] = stateFromIndex(c.stateIdx);
+        auto [keyRoot, keyMinor] = keyFromIndex(ki);
+        if (c.logProb > bestScorePerKeyRoot[keyRoot])
+          bestScorePerKeyRoot[keyRoot] = c.logProb;
+      }
+      int bestKeyRoot = 0;
+      for (int r = 1; r < 12; ++r) {
+        if (bestScorePerKeyRoot[r] > bestScorePerKeyRoot[bestKeyRoot])
+          bestKeyRoot = r;
+      }
+      // Keep only entries in the best key root (major or minor).
+      candidates_.erase(
+          std::remove_if(candidates_.begin(), candidates_.end(),
+                         [&](const BeamEntry& c) {
+                           auto [ki, ci] = stateFromIndex(c.stateIdx);
+                           auto [keyRoot, keyMinor] = keyFromIndex(ki);
+                           return keyRoot != bestKeyRoot;
+                         }),
+          candidates_.end());
+    }
+
     currentStep.beam = candidates_;
     eventCount_++;
     return;
@@ -285,6 +388,14 @@ void HarmonicAnalyzer::forwardStep(const Observation& obs) {
     // ── Sparse transition expansion ──────────────────────────────────────
     // For each state in the previous beam, expand through its top-K
     // transitions from the trained matrix.
+    //
+    // Key-change penalty: transitions that modulate to a different key
+    // get an additional log penalty. Without this, the V→I cadence
+    // pattern causes every chord to be reinterpreted as the tonic of
+    // a new key (e.g., F chord → I-in-F via F:Cmaj→F:Fmaj V→I
+    // instead of C:Cmaj→C:Fmaj I→IV staying in C).
+    constexpr float kKeyChangePenalty = -2.0f;
+
     for (int bi = 0; bi < static_cast<int>(prevStep.beam.size()); ++bi) {
       const auto& prev = prevStep.beam[bi];
       int srcState = prev.stateIdx;
@@ -292,14 +403,49 @@ void HarmonicAnalyzer::forwardStep(const Observation& obs) {
       if (srcState < 0 || srcState >= kNumStates)
         continue;
 
+      auto [srcKeyIdx, srcChordIdx] = stateFromIndex(srcState);
+
       if (srcState < static_cast<int>(transitions_.size())) {
         for (const auto& trans : transitions_[srcState]) {
           if (trans.targetState >= kNumStates)
             continue;
           auto [tKeyIdx, tChordIdx] = stateFromIndex(trans.targetState);
           float emit = computeEmission(tChordIdx, obs);
-          float score = prev.logProb + trans.logProb + emit;
+          float keyPenalty = (tKeyIdx != srcKeyIdx) ? kKeyChangePenalty : 0.f;
+          float score = prev.logProb + trans.logProb + keyPenalty + emit;
           candidates_.push_back({static_cast<int>(trans.targetState), score, bi});
+
+          // ── Quality smoothing (triad → 7th only) ────────────────
+          // When the transition targets a triad, also create a
+          // candidate for the natural 7th extension. This lets 7th
+          // chords inherit transition strength from their parent triad
+          // when the training data only saw the triad form.
+          //
+          // We do NOT smooth 7th→triad because triads already win on
+          // emission when no 7th is sounding. Smoothing in that
+          // direction creates phantom 7ths from clean triads.
+          constexpr float kQualitySmoothPenalty = -1.0f;
+          auto [tRoot, tQual] = chordFromIndex(tChordIdx);
+
+          // Map triad → natural 7th extension (one-way).
+          auto seventh = [](ChordQuality q) -> ChordQuality {
+            switch (q) {
+              case ChordQuality::Major:      return ChordQuality::Dom7;
+              case ChordQuality::Minor:      return ChordQuality::Min7;
+              case ChordQuality::Diminished: return ChordQuality::HalfDim7;
+              default:                       return q;  // no change
+            }
+          };
+
+          ChordQuality ext = seventh(tQual);
+          if (ext != tQual) {
+            int extChordIdx = chordIndex(tRoot, ext);
+            int extState = stateIndex(tKeyIdx, extChordIdx);
+            float extEmit = computeEmission(extChordIdx, obs);
+            float extScore = prev.logProb + trans.logProb + kQualitySmoothPenalty
+                             + keyPenalty + extEmit;
+            candidates_.push_back({extState, extScore, bi});
+          }
         }
       }
     }

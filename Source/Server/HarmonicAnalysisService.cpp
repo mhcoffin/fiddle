@@ -48,6 +48,11 @@ bool HarmonicAnalysisService::loadEmissionTemplates(const void* data,
   return analyzer_.loadEmissionTemplates(data, bytes);
 }
 
+bool HarmonicAnalysisService::loadDegreePriors(const void* data,
+                                                size_t bytes) {
+  return analyzer_.loadDegreePriors(data, bytes);
+}
+
 void HarmonicAnalysisService::buildDefaultEmissions() {
   analyzer_.buildDefaultEmissionTemplates();
 }

@@ -44,6 +44,11 @@ constexpr int kDefaultLag   = 2;
 /// Default beam width.
 constexpr int kDefaultBeamWidth = 128;
 
+/// Scaling factor for degree-prior contribution to emission.
+/// At 0.3, the prior breaks key ties (~1 nat for I vs bII) without
+/// overriding clear emission evidence (~1.125 nats for Dm7 vs Fmaj).
+constexpr float kDegreePriorScale = 0.3f;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Index Conversion
 //

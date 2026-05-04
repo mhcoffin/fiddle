@@ -497,6 +497,92 @@ def build_transition_matrix(all_sequences, top_k=TOP_K, alpha=LAPLACE_ALPHA):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Degree Prior Computation
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_degree_priors(all_sequences, alpha=1.0):
+    """Compute log P(degree, quality | mode) from training data.
+
+    This gives each (key, chord) state a prior probability based on how
+    common that chord degree is in major vs minor keys. For example, in
+    major keys, degree 0 (I) with Major quality is ~25%, while degree 1
+    (bII) is ~1%.
+
+    Returns:
+        dict mapping mode (0=major, 1=minor) to dict of
+        (degree, quality) -> log_prior.
+    """
+    # Count occurrences of each (mode, degree, quality) triple.
+    counts = {0: defaultdict(int), 1: defaultdict(int)}
+    totals = {0: 0, 1: 0}
+
+    for seq in all_sequences:
+        for key_idx, chord_idx in seq:
+            key_root = key_idx // 2
+            key_minor = key_idx % 2
+            chord_root = chord_idx // NUM_QUALITIES
+            chord_quality = chord_idx % NUM_QUALITIES
+
+            degree = (chord_root - key_root) % 12
+            counts[key_minor][(degree, chord_quality)] += 1
+            totals[key_minor] += 1
+
+    # Convert to log-probabilities with Laplace smoothing.
+    num_categories = 12 * NUM_QUALITIES  # 108
+    priors = {}
+
+    for mode in [0, 1]:
+        mode_name = 'minor' if mode else 'major'
+        total = totals[mode] + alpha * num_categories
+        prior_table = {}
+
+        for degree in range(12):
+            for quality in range(NUM_QUALITIES):
+                count = counts[mode].get((degree, quality), 0)
+                log_prior = math.log((count + alpha) / total)
+                prior_table[(degree, quality)] = log_prior
+
+        priors[mode] = prior_table
+
+        # Print top degrees for this mode
+        sorted_entries = sorted(prior_table.items(), key=lambda x: -x[1])
+        print(f"  Top degrees in {mode_name}:")
+        for (deg, qual), lp in sorted_entries[:8]:
+            deg_names = ['I', 'bII', 'II', 'bIII', 'III', 'IV',
+                         '#IV/bV', 'V', 'bVI', 'VI', 'bVII', 'VII']
+            print(f"    {deg_names[deg]:8s} {QUALITY_NAMES[qual]:12s}  "
+                  f"log_p={lp:+.3f}  ({math.exp(lp)*100:.1f}%)")
+
+    return priors
+
+
+def write_degree_priors_binary(priors, output_path):
+    """Write degree priors binary.
+
+    Format:
+      uint32  num_modes     (2)
+      uint32  num_degrees   (12)
+      uint32  num_qualities (9)
+      For each mode (0=major, 1=minor):
+        For each degree (0-11):
+          For each quality (0-8):
+            float32  log_prior
+    """
+    with open(output_path, 'wb') as f:
+        f.write(struct.pack('<III', 2, 12, NUM_QUALITIES))
+        for mode in [0, 1]:
+            for degree in range(12):
+                for quality in range(NUM_QUALITIES):
+                    lp = priors[mode].get((degree, quality), -10.0)
+                    f.write(struct.pack('<f', lp))
+
+    file_size = os.path.getsize(output_path)
+    print(f"  Wrote {output_path}")
+    print(f"    Entries: 2 modes x 12 degrees x {NUM_QUALITIES} qualities = {2*12*NUM_QUALITIES}")
+    print(f"    File size: {file_size} bytes")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Binary Output
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -675,10 +761,17 @@ def main():
         all_sequences, top_k=args.top_k, alpha=args.alpha
     )
 
+    # Build degree priors
+    print("\n── Building degree priors ──")
+    degree_priors = build_degree_priors(all_sequences)
+
     # Write binary output
     print("\n── Writing binary output ──")
     output_file = output_dir / 'cpe_transitions.bin'
     write_transitions_binary(sparse_matrix, output_file)
+
+    priors_file = output_dir / 'degree_priors.bin'
+    write_degree_priors_binary(degree_priors, priors_file)
 
     # Print statistics
     print_statistics(all_sequences, sparse_matrix)

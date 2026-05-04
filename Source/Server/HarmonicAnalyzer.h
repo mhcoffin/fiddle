@@ -56,6 +56,11 @@ public:
   /// Format: row-major float32, kNumChords × 24.
   bool loadEmissionTemplates(const void* data, size_t bytes);
 
+  /// Load key-degree emission priors: log P(degree, quality | mode).
+  /// Binary format: uint32×3 header (modes, degrees, qualities) +
+  /// modes×degrees×qualities × float32 log-priors.
+  bool loadDegreePriors(const void* data, size_t bytes);
+
   /// Build default emission templates from music theory (no training data).
   /// Useful for testing and as a bootstrapping step.
   void buildDefaultEmissionTemplates();
@@ -109,6 +114,9 @@ private:
   /// Compute log-emission probability for a given chord index and observation.
   float computeEmission(int chordIdx, const Observation& obs) const;
 
+  /// Look up log P(chord_degree, quality | key_mode) for key disambiguation.
+  float degreePrior(int keyIdx, int chordIdx) const;
+
   /// Perform one Viterbi forward step: expand, score, prune.
   void forwardStep(const Observation& obs);
 
@@ -133,8 +141,13 @@ private:
   std::array<std::array<float, 12>, kNumChords> emissionBass_;
   std::array<std::array<float, 12>, kNumChords> emissionUpper_;
 
+  // Degree priors: degreePriors_[mode][degree * kNumQualities + quality]
+  // mode: 0=major, 1=minor. degree: 0-11. quality: 0-8.
+  std::array<std::array<float, 12 * kNumQualities>, 2> degreePriors_;
+
   bool transitionsLoaded_ = false;
   bool emissionsLoaded_   = false;
+  bool degreePriorsLoaded_ = false;
 
   // Workspace to avoid per-event allocation.
   std::vector<BeamEntry> candidates_;

@@ -246,6 +246,17 @@ void MainComponent::initMidiServer() {
             std::cerr << "[Init] Loaded transition matrix: " << transFile.getFullPathName() << std::endl;
           else
             std::cerr << "[Init] WARNING: Failed to parse transition matrix" << std::endl;
+
+          // Load degree priors from the same directory.
+          auto priorsFile = transFile.getSiblingFile("degree_priors.bin");
+          if (priorsFile.existsAsFile()) {
+            juce::MemoryBlock priorsData;
+            priorsFile.loadFileAsData(priorsData);
+            if (harmonicService_.loadDegreePriors(priorsData.getData(), priorsData.getSize()))
+              std::cerr << "[Init] Loaded degree priors: " << priorsFile.getFullPathName() << std::endl;
+            else
+              std::cerr << "[Init] WARNING: Failed to parse degree priors" << std::endl;
+          }
         } else {
           std::cerr << "[Init] No transition matrix found; using emission-only mode" << std::endl;
         }
@@ -364,8 +375,7 @@ void MainComponent::initMidiServer() {
                             juce::String((int)n.channel()) + ")");
              subnoteGenerator.onNoteStarted(n);
 
-             double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
-                                    mixer_.getPlaybackDelayMs() - 40.0;
+             double triggerTimeMs = getDelayedTriggerTimeMs();
              // Route through annotator-aware path.
              // n.port() from Dorico is 0-based (matches strip inputPort).
              // n.channel() from Dorico is 1-based; strip inputChannel is
@@ -397,8 +407,7 @@ void MainComponent::initMidiServer() {
                             juce::String((juce::int64)n.id()));
              subnoteGenerator.onNoteEnded(n);
 
-             double triggerTimeMs = juce::Time::getMillisecondCounterHiRes() +
-                                    mixer_.getPlaybackDelayMs() - 40.0;
+             double triggerTimeMs = getDelayedTriggerTimeMs();
              // Route through annotator-aware path.
              
              // Feed the harmonic analysis service.
@@ -407,11 +416,16 @@ void MainComponent::initMidiServer() {
                  juce::Time::getMillisecondCounterHiRes());
 
              int noteOffPort = (int)n.port();
-             // std::cerr << "[MainComponent] Routing Note OFF (port=" << noteOffPort
-             //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
-             fiddle::Note mutableNote(n);
-             mixer_.routeAnnotatedNoteOff(noteOffPort, (int)n.channel() - 1,
-                                          mutableNote, triggerTimeMs);
+             // Always route the note-off to the VST.
+             // When transport is stopped (e.g. Dorico note audition),
+             // getDelayedTriggerTimeMs() returns 0 so the note-off fires
+             // immediately. The transport-stop panic (allNotesOff) handles
+             // the started→stopped transition separately.
+             {
+                 fiddle::Note mutableNote(n);
+                 mixer_.routeAnnotatedNoteOff(noteOffPort, (int)n.channel() - 1,
+                                              mutableNote, triggerTimeMs);
+             }
 
              juce::var noteVar = juce::JSON::fromString(noteToJson(n));
              juce::DynamicObject::Ptr obj = new juce::DynamicObject();
@@ -432,15 +446,21 @@ void MainComponent::initMidiServer() {
            },
            [this, midiEventToJson](const fiddle::MidiEvent &event,
                                    uint64_t absoluteSamples, int oldCCVal) {
-             // On transport stop, release all latched keyswitches
-             if (event.has_transport() &&
-                 event.transport().type() ==
-                     fiddle::MidiEvent_TransportEvent_Type_STOP) {
-               double triggerTimeMs =
-                   juce::Time::getMillisecondCounterHiRes() +
-                   mixer_.getPlaybackDelayMs() - 40.0;
-               mixer_.releaseAllKeyswitches(triggerTimeMs);
-               harmonicService_.onTransportStop();
+             if (event.has_transport()) {
+               if (event.transport().type() ==
+                   fiddle::MidiEvent_TransportEvent_Type_STOP) {
+                  // Graceful stop: ramp CC1 (expression) to 0 over 300ms,
+                  // then send note-OFFs, then All Sound Off.
+                  auto active = noteTracker.getActiveNotes();
+                  std::map<int, uint8_t> channelCC1;
+                  for (const auto &n : active) {
+                    int ch = (int)n.channel();
+                    if (channelCC1.find(ch) == channelCC1.end())
+                      channelCC1[ch] = noteTracker.getCC(ch, 1);
+                  }
+                  mixer_.gracefulStop(active, 300.0, channelCC1);
+                 harmonicService_.onTransportStop();
+               }
              }
 
              // Live tempo from FiddleNative's ProcessContext.
@@ -504,6 +524,23 @@ void MainComponent::initMidiServer() {
 
       server = std::make_unique<fiddle::MidiTcpServer>();
       server->onMessageReceived([this](const fiddle::MidiEvent &event) {
+        // ── Transport State Machine ───────────────────────────────────
+        if (event.has_transport()) {
+          if (event.transport().type() ==
+              fiddle::MidiEvent_TransportEvent_Type_START) {
+            bool expected = false;
+            if (!isTransportStarted_.compare_exchange_strong(expected, true)) {
+              return; // Already started, ignore redundant event
+            }
+          } else if (event.transport().type() ==
+                     fiddle::MidiEvent_TransportEvent_Type_STOP) {
+            bool expected = true;
+            if (!isTransportStarted_.compare_exchange_strong(expected, false)) {
+              return; // Already stopped, ignore redundant event
+            }
+          }
+        }
+
         // Force a log to the UI so we can see the flow
         pushLogMessage("<b>[Server]</b> Received Event Case: " +
                        juce::String((int)event.event_case()) +
@@ -597,19 +634,21 @@ void MainComponent::initMidiServer() {
           int ccNum = event.cc().controller_number();
           int ccVal = event.cc().controller_value();
 
-          // CC 120 (All Sound Off) or CC 123 (All Notes Off) → panic all strips
+          // CC 120 (All Sound Off) or CC 123 (All Notes Off) → panic matching strips
           if (ccNum == 120 || ccNum == 123) {
-            mixer_.allNotesOff();
+            mixer_.panicStrips(port, ch - 1);
+            // Do NOT update transport state here! Dorico sends CC 123
+            // continually during playback as an emergency off, not just on transport stop.
+            // If we stop transport here, it causes the delay buffer to bypass
+            // and cuts off notes randomly, resulting in tremolo.
             std::cerr << "[MainComponent] Panic: CC " << ccNum
-                      << " → allNotesOff on all strips" << std::endl;
+                      << " → panicStrips on port " << port << " ch " << ch - 1 << std::endl;
           } else {
             // Route CC through annotator-aware path.
             // ch from Dorico is 1-based; JUCE controllerEvent also uses 1-16.
             juce::MidiMessage ccMsg =
                 juce::MidiMessage::controllerEvent(ch, ccNum, ccVal);
-            double triggerTimeMs =
-                juce::Time::getMillisecondCounterHiRes() +
-                mixer_.getPlaybackDelayMs() - 40.0;
+            double triggerTimeMs = getDelayedTriggerTimeMs();
             mixer_.routeAnnotatedCC(port, ch - 1, event, ccMsg,
                                     triggerTimeMs);
           }

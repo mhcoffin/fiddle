@@ -59,6 +59,9 @@ public:
   /// Load emission templates from binary data.
   bool loadEmissionTemplates(const void* data, size_t bytes);
 
+  /// Load key-degree emission priors from binary data.
+  bool loadDegreePriors(const void* data, size_t bytes);
+
   /// Build default (music-theory) emission templates.
   void buildDefaultEmissions();
 
