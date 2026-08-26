@@ -32,10 +32,7 @@ struct MixerStrip {
   /// strip is removed from the mixer while a plugin load is still in flight.
   std::shared_ptr<bool> lifetimeToken_ = std::make_shared<bool>(true);
 
-  ~MixerStrip() {
-    if (lifetimeToken_)
-      *lifetimeToken_ = false;
-  }
+  ~MixerStrip();
 
   /// Listener that detects plugin parameter changes via the standard VST3
   /// notification path. When it fires, we mark the strip dirty and record
@@ -50,22 +47,10 @@ struct MixerStrip {
     std::function<void()> onDirty;
 
     void audioProcessorParameterChanged(juce::AudioProcessor *, int,
-                                        float) override {
-      if (listenerCapableUids && pluginUid != 0)
-        listenerCapableUids->insert(pluginUid);
-      if (onDirty)
-        onDirty();
-    }
+                                        float) override;
     void audioProcessorChanged(
         juce::AudioProcessor *,
-        const juce::AudioProcessorListener::ChangeDetails &d) override {
-      if (d.nonParameterStateChanged) {
-        if (listenerCapableUids && pluginUid != 0)
-          listenerCapableUids->insert(pluginUid);
-        if (onDirty)
-          onDirty();
-      }
-    }
+        const juce::AudioProcessorListener::ChangeDetails &d) override;
   };
   PluginChangeListener pluginChangeListener_;
 
@@ -351,11 +336,20 @@ struct MixerStrip {
     delayedMessages.push_back({triggerTime, msg});
   }
 
+  /// Clear all pending delayed messages (used during graceful stop).
+  void clearDelayedMessages() {
+    std::lock_guard<std::mutex> lock(midiMutex);
+    delayedMessages.clear();
+  }
+
   /// Send All Notes Off + All Sound Off + Reset All Controllers to the plugin.
   /// Also clears pending delayed messages to prevent stale notes from firing.
   void allNotesOff() {
     {
       std::lock_guard<std::mutex> lock(midiMutex);
+      // Completely clear all pending messages. We rely on CC 120 (All Sound Off)
+      // and CC 123 (All Notes Off) to silence the plugin. Forwarding pending
+      // Note Offs after a panic causes the plugin to play release samples.
       delayedMessages.clear();
     }
     heldKeyswitchNotes.clear();

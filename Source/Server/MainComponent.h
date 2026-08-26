@@ -112,9 +112,23 @@ private:
   StateManager stateManager_;
   LuaPluginCatalog luaCatalog_;
 
+  std::atomic<bool> isTransportStarted_{false};
+
   /// Global harmonic analysis service (joint key/chord HMM).
   /// Owned here; MixerModel holds a raw ptr.
   HarmonicAnalysisService harmonicService_;
+
+  double getDelayedTriggerTimeMs() {
+    // If transport is stopped, trigger immediately (no delay)
+    // so any flushed NoteOffs or CCs trigger immediately instead of ghosting.
+    if (!isTransportStarted_.load(std::memory_order_relaxed)) {
+      return 0.0;
+    }
+    const double nowMs = juce::Time::getMillisecondCounterHiRes();
+    const double compensatedDelayMs =
+        juce::jmax(0.0, static_cast<double>(mixer_.getPlaybackDelayMs()) - 40.0);
+    return nowMs + compensatedDelayMs;
+  }
 
   /// Live BPM from FiddleNative ProcessContext (arrives via TempoEvent).
   /// Default 120.0 before first TempoEvent is received.

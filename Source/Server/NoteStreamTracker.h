@@ -55,7 +55,9 @@ public:
   void resetSessionStartTime() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     sessionStartTime = -1.0;
-    activeNotes.clear();
+    // DO NOT clear activeNotes here!
+    // Each VST instance detects START independently. Clearing here allows a
+    // later START to erase NoteOns already delivered by an earlier instance.
     if (uiLogger)
       uiLogger("<b>[Tracker]</b> Session reset via Transport Start");
   }
@@ -98,17 +100,18 @@ public:
       if (callbacks.onMidiEvent)
         callbacks.onMidiEvent(event, absoluteSamples, -1);
     } else if (event.has_cc()) {
-      uint32_t chan = event.channel();
+      const uint32_t channel = event.channel();
       uint32_t ccNum = event.cc().controller_number();
       uint8_t newVal = (uint8_t)event.cc().controller_value();
 
-      if (chan < 16) {
-        uint8_t oldVal = currentCCs[chan][ccNum % 128];
-        currentCCs[chan][ccNum % 128] = newVal;
+      if (const int channelIndex = toChannelIndex(channel);
+          channelIndex >= 0) {
+        uint8_t oldVal = currentCCs[(size_t)channelIndex][ccNum % 128];
+        currentCCs[(size_t)channelIndex][ccNum % 128] = newVal;
 
         if (oldVal != newVal) {
           if (uiLogger) {
-            uiLogger("<b>[CC]</b> Ch " + juce::String(chan + 1) + " | CC " +
+            uiLogger("<b>[CC]</b> Ch " + juce::String(channel) + " | CC " +
                      juce::String(ccNum) + " -> " + juce::String(newVal));
           }
 
@@ -119,7 +122,7 @@ public:
             uint64_t currentSamples =
                 sessionTimestamp + event.timestamp_samples();
             for (auto &note : activeNotes) {
-              if (note.port() == event.port() && note.channel() == chan) {
+              if (note.port() == event.port() && note.channel() == channel) {
                 auto &lane = (*note.mutable_cc_automation())[ccNum];
                 auto *pt = lane.add_points();
                 uint64_t offset = (currentSamples > note.start_sample())
@@ -138,7 +141,7 @@ public:
                 sessionTimestamp + event.timestamp_samples();
             for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
               auto &note = activeNotes[i];
-              if (note.port() == event.port() && note.channel() == chan) {
+              if (note.port() == event.port() && note.channel() == channel) {
                 uint64_t age = (currentSamples > note.start_sample())
                                    ? (currentSamples - note.start_sample())
                                    : 0;
@@ -166,6 +169,10 @@ public:
           callbacks.onMidiEvent(event, 0, -1);
       } else if (event.transport().type() ==
                  fiddle::MidiEvent_TransportEvent_Type_STOP) {
+        // DO NOT clear notes inside NoteStreamTracker.
+        // NoteOffs will be sent out naturally by Dorico, and the VST
+        // panics are now handled gracefully by the Mixer/MainComponent.
+        // Killing notes here causes races across multiple tracks.
         if (callbacks.onMidiEvent)
           callbacks.onMidiEvent(event, absoluteSamples, -1);
       }
@@ -190,7 +197,24 @@ public:
     return (uint64_t)((now - sessionStartTime) * 44.1);
   }
 
+  /// Get the current value of a CC on a given channel.
+  /// @param channel  Dorico-convention channel (1-based for real instruments).
+  /// @param ccNum    CC number (0–127).
+  uint8_t getCC(int channel, int ccNum) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const int channelIndex = toChannelIndex((uint32_t)channel);
+    if (channelIndex >= 0 && ccNum >= 0 && ccNum < 128)
+      return currentCCs[(size_t)channelIndex][(size_t)ccNum];
+    return 0;
+  }
+
 private:
+  /// Convert the protobuf/JUCE MIDI convention (channels 1-16) to an array
+  /// index. Transport messages use channel 0 and therefore return -1.
+  static int toChannelIndex(uint32_t channel) {
+    return channel >= 1 && channel <= 16 ? (int)channel - 1 : -1;
+  }
+
   mutable double sessionStartTime = -1.0;
   mutable std::recursive_mutex mutex;
   Callbacks callbacks;
@@ -240,27 +264,29 @@ private:
 
   void handleNoteOn(const fiddle::MidiEvent &event, uint64_t absoluteSamples) {
     const auto &noteOn = event.note_on();
-    uint32_t chan = event.channel();
+    const uint32_t channel = event.channel();
+    const int channelIndex = toChannelIndex(channel);
 
     fiddle::Note note;
     note.set_id(nextNoteId++);
     note.set_note_number(noteOn.note_number());
-    note.set_channel(chan);
+    note.set_channel(channel);
     note.set_port(event.port());
     note.set_start_velocity(noteOn.velocity());
     note.set_start_sample(absoluteSamples);
 
     // Enrich note with notation dimensions from ExpressionMap
-    if (expMap != nullptr && chan < 16) {
+    if (expMap != nullptr && channelIndex >= 0) {
       for (const auto &dim : expMap->getDimensions()) {
         if (dim.ccNumber >= 0 && dim.ccNumber < 128) {
-          uint8_t val = currentCCs[chan][dim.ccNumber % 128];
+          uint8_t val =
+              currentCCs[(size_t)channelIndex][dim.ccNumber % 128];
           enrichNoteWithCC(note, dim.ccNumber, val);
         }
       }
 
       // Set dynamics mode based on current CC102 (base switch) value
-      uint8_t cc102Val = currentCCs[chan][102];
+      uint8_t cc102Val = currentCCs[(size_t)channelIndex][102];
       if (expMap->dynamicsUsesCC1((int)cc102Val)) {
         note.set_dynamics_mode(fiddle::Note::CC);
       } else {
@@ -269,9 +295,9 @@ private:
     }
 
     // Seed all CC automation lanes with current values at offset 0
-    if (chan < 16) {
+    if (channelIndex >= 0) {
       for (int cc = 0; cc < 128; ++cc) {
-        uint8_t val = currentCCs[chan][cc];
+        uint8_t val = currentCCs[(size_t)channelIndex][(size_t)cc];
         if (val != 0) { // Only seed non-zero CCs to keep notes compact
           auto &lane = (*note.mutable_cc_automation())[cc];
           auto *pt = lane.add_points();
@@ -322,9 +348,9 @@ private:
         uint64_t endSample = absoluteSamples;
         if (endSample < it->start_sample()) {
           noteOffLog(
-              "[NoteOff] SKIPPED: endSample=" + std::to_string(endSample) +
+              "[NoteOff] ADJUSTED: endSample=" + std::to_string(endSample) +
               " < startSample=" + std::to_string(it->start_sample()));
-          continue;
+          endSample = it->start_sample();
         }
 
         it->set_duration_samples(endSample - it->start_sample());

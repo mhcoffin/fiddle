@@ -12,7 +12,7 @@ include(FetchContent)
 FetchContent_Declare(
     JUCE
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG master # Use master for the latest version
+    GIT_TAG 8.0.12
 )
 FetchContent_MakeAvailable(JUCE)
 
@@ -117,6 +117,7 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/MainComponent.cpp
+    Source/Server/MixerStrip.cpp
     Source/Server/MainComponent.h
     Source/Server/WebViewBridge.cpp
     Source/Server/WebViewBridge.h
@@ -413,6 +414,27 @@ target_include_directories(HarmonicAnalyzerTest PRIVATE
 )
 
 target_compile_features(HarmonicAnalyzerTest PRIVATE cxx_std_20)
+
+# ==============================================================================
+# TransportTest — transport lifecycle and MIDI channel-state regression tests
+# ==============================================================================
+add_executable(TransportTest
+    Source/Server/tests/TransportTest.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+
+target_include_directories(TransportTest PRIVATE
+    Source/Server
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
+target_link_libraries(TransportTest PRIVATE
+    juce::juce_core
+    juce::juce_events
+    libprotobuf
+)
+
+target_compile_features(TransportTest PRIVATE cxx_std_17)
 
 # ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico

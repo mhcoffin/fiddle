@@ -526,6 +526,99 @@ public:
     }
   }
 
+  /// Gracefully stop all sounding notes on transport stop.
+  ///
+  /// 1. Clears pending delayed messages (prevents stale note-ons from firing).
+  /// 2. Releases latched keyswitches immediately.
+  /// 3. Ramps CC1 (expression) from current value → 0 over @p releaseMs.
+  /// 4. Sends note-OFF for each active note after the ramp completes.
+  /// 5. Schedules All Sound Off (CC 120) shortly after to hard-kill any
+  ///    lingering release tails.
+  ///
+  /// @param channelCC1  Map from Dorico channel (1-based) → current CC1 value.
+  ///                    Channels not in the map default to 127.
+  void gracefulStop(const std::vector<fiddle::Note> &activeNotes,
+                    double releaseMs,
+                    const std::map<int, uint8_t> &channelCC1 = {}) {
+    auto *graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph)
+      return;
+
+    releaseMs = juce::jmax(0.0, releaseMs);
+    const double now = juce::Time::getMillisecondCounterHiRes();
+
+    // 1. Clear all pending delayed messages
+    for (auto *strip : graph->strips) {
+      strip->clearDelayedMessages();
+    }
+
+    // 2. Release latched keyswitches immediately
+    for (auto *strip : graph->strips) {
+      for (const auto &ks : strip->heldKeyswitchNotes) {
+        strip->addDelayedMessage(
+            0.0, juce::MidiMessage::noteOff(ks.channel, ks.noteNumber,
+                                            (juce::uint8)64));
+      }
+      strip->heldKeyswitchNotes.clear();
+    }
+
+    // 3. Ramp CC1 (expression) down to 0 over the release window.
+    //    Notes stay sounding so the ramp audibly fades them out.
+    constexpr int kRampSteps = 10;
+    const double stepMs = releaseMs / kRampSteps;
+
+    // Collect unique (port, channel_0based) pairs from active notes
+    std::set<std::pair<int, int>> activeChannels;
+    for (const auto &note : activeNotes) {
+      activeChannels.insert({(int)note.port(), (int)note.channel() - 1});
+    }
+
+    for (const auto &[port, ch0] : activeChannels) {
+      int ch1 = ch0 + 1; // 1-based for MIDI messages and CC lookup
+      auto it = channelCC1.find(ch1);
+      int startVal = (it != channelCC1.end()) ? (int)it->second : 127;
+      if (startVal <= 0) continue;
+
+      for (int i = 1; i <= kRampSteps; ++i) {
+        const int val = startVal - (startVal * i / kRampSteps);
+        const double t = now + (stepMs * i);
+        for (auto *strip : graph->strips) {
+          if (strip->inputPort == port && strip->inputChannel == ch0) {
+            strip->addDelayedMessage(
+                t, juce::MidiMessage::controllerEvent(ch1, 1, val));
+          }
+        }
+      }
+    }
+
+    // 4. Send note-OFF for each active note after ramp completes
+    const double noteOffTime = now + releaseMs;
+    for (const auto &note : activeNotes) {
+      int port = (int)note.port();
+      int channel = (int)note.channel() - 1; // Dorico 1-based → 0-based
+      for (auto *strip : graph->strips) {
+        if (strip->inputPort == port && strip->inputChannel == channel) {
+          strip->addDelayedMessage(
+              noteOffTime,
+              juce::MidiMessage::noteOff((int)note.channel(),
+                                         (int)note.note_number(),
+                                         (juce::uint8)64));
+        }
+      }
+    }
+
+    // 5. Schedule All Sound Off + Reset Controllers shortly after note-offs
+    const double killTime = noteOffTime + 50.0;
+    for (auto *strip : graph->strips) {
+      for (int ch = 1; ch <= 16; ++ch) {
+        strip->addDelayedMessage(killTime,
+                                 juce::MidiMessage::allSoundOff(ch));
+        strip->addDelayedMessage(killTime,
+                                 juce::MidiMessage::allControllersOff(ch));
+      }
+    }
+  }
+
   /// Route a CC event through matching strip annotators.
   /// If the annotator's onCC returns false, the CC is not forwarded.
   void routeAnnotatedCC(int port, int channel, const fiddle::MidiEvent &event,
@@ -591,6 +684,19 @@ public:
 
     for (auto *strip : graph->strips) {
       strip->allNotesOff();
+    }
+  }
+
+  /// Panic: send All Notes Off only to strips matching port and channel.
+  void panicStrips(int port, int channel) {
+    auto *graph = activeGraph_.load(std::memory_order_acquire);
+    if (!graph)
+      return;
+
+    for (auto *strip : graph->strips) {
+      if (strip->inputPort == port && strip->inputChannel == channel) {
+        strip->allNotesOff();
+      }
     }
   }
 
