@@ -726,6 +726,7 @@ void MainComponent::initMidiServer() {
                 strip->library = rs.library;
                 strip->family = rs.family;
                 strip->isSolo = rs.isSolo;
+                strip->active = rs.active;
                 strip->inputPort = rs.inputPort;
                 strip->inputChannel = rs.inputChannel;
                 strip->pluginUid = rs.pluginUid;

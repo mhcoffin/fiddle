@@ -2,6 +2,7 @@
 #include "AudioConsumer.h"
 #include "FiddleCIDs.h"
 #include "FiddleController.h"
+#include "ProgramStateReplay.h"
 
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ustring.h"
@@ -503,14 +504,8 @@ void FiddleProcessor::replayProgramState() {
   // Replay all stored program states on connection
   for (int ch = 0; ch < kTotalChannels; ++ch) {
     if (channelStates_[ch].program.load(std::memory_order_relaxed) >= 0) {
-      MidiEvent protoEvent;
-      protoEvent.set_timestamp_samples(0);
-      protoEvent.set_port(ch / 16 + 1);    // 1-based port
-      protoEvent.set_channel(ch % 16 + 1); // 1-based channel within port
-
-      auto *pc = protoEvent.mutable_program_change();
-      pc->set_program_number(channelStates_[ch].program.load(std::memory_order_relaxed));
-
+      auto protoEvent = makeProgramStateReplayEvent(
+          ch, channelStates_[ch].program.load(std::memory_order_relaxed));
       tcpRelay_->pushMessage(protoEvent);
     }
   }

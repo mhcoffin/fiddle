@@ -4,6 +4,7 @@
 #include "FiddleDatabase.h"
 #include "MixerModel.h"
 #include "PluginScanner.h"
+#include "StateBlobTypes.h"
 #include "VersionStore.h"
 #include <atomic>
 #include <juce_core/juce_core.h>
@@ -24,8 +25,8 @@ namespace fiddle {
 class StateManager {
 public:
   // Magic bytes at the start of every state blob
-  static constexpr uint32_t kBlobMagic = 0x46444C53; // "FDLS"
-  static constexpr uint32_t kBlobVersion = 3;
+  static constexpr uint32_t kBlobMagic = kStateBlobMagic;
+  static constexpr uint32_t kBlobVersion = kStateBlobVersion;
 
   StateManager();
   ~StateManager();
@@ -93,30 +94,14 @@ public:
   void scheduleRebuild(std::function<juce::MemoryBlock()> buildFn);
 
   // ── Restore (from Dorico setStateInformation) ───────────────────────
-  struct RestoredStrip {
-    juce::String id, library, family;
-    bool isSolo = true;
-    bool active = true;
-    int inputPort = -1, inputChannel = -1;
-    int pluginUid = 0;
-    float gainDb = 0.0f;
-    std::string expressionMapEntityID;
-    juce::MemoryBlock pluginState;
-    std::vector<std::string> luaPluginFileNames; // ordered plugin filenames
-  };
-
-  struct RestoredState {
-    juce::String configName;
-    juce::String configVersion;
-    bool dirty = false;
-    std::string stateHash;
-    std::vector<std::string> ancestorHashes;
-    std::vector<RestoredStrip> strips;
-  };
+  using RestoredStrip = RestoredStripState;
+  using RestoredState = RestoredProjectState;
 
   /// Deserialize a blob received from Dorico into structured data.
   static std::optional<RestoredState> deserializeBlob(const void *data,
-                                                      size_t size);
+                                                      size_t size) {
+    return deserializeStateBlob(data, size);
+  }
 
 private:
   std::atomic<bool> dirty_{false};
