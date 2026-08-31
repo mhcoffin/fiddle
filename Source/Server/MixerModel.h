@@ -3,6 +3,7 @@
 #include "MasterInstrumentList.h"
 #include "MixerStrip.h"
 #include "HarmonicAnalysisService.h"
+#include "../RealtimeReadGuard.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
@@ -28,18 +29,26 @@ struct StripSnapshot {
 /// Manages an ordered list of MixerStrips. Owns a shared
 /// AudioPluginFormatManager for plugin instantiation.
 class MixerModel : public juce::Timer {
+  struct ActiveAudioGraph {
+    std::vector<MixerStrip *> strips;
+  };
+
+  using GraphReadScope = RealtimeReadGuard<ActiveAudioGraph>;
+
 public:
   MixerModel() { 
-    formatManager_.addFormat(new juce::VST3PluginFormat()); 
+    formatManager_.addFormat(std::make_unique<juce::VST3PluginFormat>());
     commitAudioGraph();
     startTimer(100);
   }
 
-  ~MixerModel() override { 
+  ~MixerModel() override {
     stopTimer();
-    clear(); 
+    clear();
     auto* currentGraph = activeGraph_.exchange(nullptr);
-    if (currentGraph) delete currentGraph;
+    jassert(graphReaders_.load(std::memory_order_acquire) == 0);
+    delete currentGraph;
+    timerCallback();
   }
 
   void clear() {
@@ -54,7 +63,7 @@ public:
     std::lock_guard<std::mutex> lock(trashMutex_);
     for (auto& s : localStrips) {
       s->unloadPlugin();
-      trashStrips_.emplace_back(std::move(s), juce::Time::getMillisecondCounter());
+      trashStrips_.emplace_back(std::move(s));
     }
   }
 
@@ -90,7 +99,7 @@ public:
     if (removedStrip) {
       removedStrip->unloadPlugin();
       std::lock_guard<std::mutex> lock(trashMutex_);
-      trashStrips_.emplace_back(std::move(removedStrip), juce::Time::getMillisecondCounter());
+      trashStrips_.emplace_back(std::move(removedStrip));
       return true;
     }
     return false;
@@ -171,8 +180,11 @@ public:
     auto &source = *it;
     auto strip = std::make_unique<MixerStrip>();
     strip->id = juce::Uuid().toString();
-    strip->inputPort = source->inputPort;
-    strip->inputChannel = source->inputChannel;
+    strip->inputPort.store(source->inputPort.load(std::memory_order_relaxed),
+                           std::memory_order_relaxed);
+    strip->inputChannel.store(
+        source->inputChannel.load(std::memory_order_relaxed),
+        std::memory_order_relaxed);
     strip->family = source->family;
     strip->isSolo = source->isSolo;
     strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
@@ -225,7 +237,8 @@ public:
   }
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     // Pre-compute whether any strip is soloed
@@ -254,7 +267,8 @@ public:
   /// Route incoming MIDI note event to matching strips (raw, no annotation).
   void routeNoteEvent(int port, int channel, const juce::MidiMessage &msg,
                       double triggerTime) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -266,7 +280,8 @@ public:
 
   /// Route incoming CC event to matching strips (immediate, no delay).
   void routeCCEvent(int port, int channel, const juce::MidiMessage &msg) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     double now = juce::Time::getMillisecondCounterHiRes();
@@ -341,7 +356,8 @@ public:
           keyCtx, static_cast<int>(note.note_number()));
     }
 
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -448,7 +464,8 @@ public:
     // HarmonicAnalysisService (via onNoteEvent called from MainComponent).
     // No action needed here.
 
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -509,7 +526,8 @@ public:
 
   /// Release all latched keyswitches on every strip (called on transport stop).
   void releaseAllKeyswitches(double triggerTimeMs) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -540,7 +558,8 @@ public:
   void gracefulStop(const std::vector<fiddle::Note> &activeNotes,
                     double releaseMs,
                     const std::map<int, uint8_t> &channelCC1 = {}) {
-    auto *graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph)
       return;
 
@@ -623,7 +642,8 @@ public:
   /// If the annotator's onCC returns false, the CC is not forwarded.
   void routeAnnotatedCC(int port, int channel, const fiddle::MidiEvent &event,
                         const juce::MidiMessage &msg, double triggerTimeMs) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -650,7 +670,8 @@ public:
   void recordIncomingMidi(int port, int channel,
                           CapturedMidiEvent::Type type, int p1, int p2,
                           double timeMs) {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -679,7 +700,8 @@ public:
 
   /// Panic: send All Notes Off to every strip.
   void allNotesOff() {
-    auto* graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph) return;
 
     for (auto *strip : graph->strips) {
@@ -689,7 +711,8 @@ public:
 
   /// Panic: send All Notes Off only to strips matching port and channel.
   void panicStrips(int port, int channel) {
-    auto *graph = activeGraph_.load(std::memory_order_acquire);
+    GraphReadScope graphRead(activeGraph_, graphReaders_);
+    auto *graph = graphRead.get();
     if (!graph)
       return;
 
@@ -761,13 +784,16 @@ public:
       }
     }
 
-    std::lock_guard<std::mutex> lock(stripsMutex_);
+    std::unique_lock<std::mutex> lock(stripsMutex_);
+    std::vector<std::unique_ptr<MixerStrip>> removedStrips;
 
     // Remove strips whose port/channel is no longer in the expected set
     for (auto it = strips_.begin(); it != strips_.end();) {
-      auto key = std::make_pair((*it)->inputPort, (*it)->inputChannel);
+      auto key = std::make_pair(
+          (*it)->inputPort.load(std::memory_order_relaxed),
+          (*it)->inputChannel.load(std::memory_order_relaxed));
       if (expectedSet.find(key) == expectedSet.end()) {
-        (*it)->unloadPlugin();
+        removedStrips.push_back(std::move(*it));
         it = strips_.erase(it);
       } else {
         ++it;
@@ -781,7 +807,8 @@ public:
     // Update family/name on existing strips and build existing set
     std::set<std::pair<int, int>> existingSet;
     for (auto &s : strips_) {
-      auto key = std::make_pair(s->inputPort, s->inputChannel);
+      auto key = std::make_pair(s->inputPort.load(std::memory_order_relaxed),
+                                s->inputChannel.load(std::memory_order_relaxed));
       existingSet.insert(key);
       auto it2 = expectedMap.find(key);
       if (it2 != expectedMap.end()) {
@@ -806,6 +833,15 @@ public:
       }
     }
     commitAudioGraph();
+    lock.unlock();
+
+    if (!removedStrips.empty()) {
+      for (auto &strip : removedStrips)
+        strip->unloadPlugin();
+      std::lock_guard<std::mutex> trashLock(trashMutex_);
+      for (auto &strip : removedStrips)
+        trashStrips_.push_back(std::move(strip));
+    }
   }
 
   /// Set the harmonic analysis service (owned by MainComponent, not MixerModel).
@@ -818,55 +854,44 @@ private:
   mutable std::mutex stripsMutex_;
   std::vector<std::unique_ptr<MixerStrip>> strips_;
 
-  struct ActiveAudioGraph {
-    std::vector<MixerStrip*> strips;
-  };
   std::atomic<ActiveAudioGraph*> activeGraph_{nullptr};
+  std::atomic<uint32_t> graphReaders_{0};
 
   // Garbage bin emptied by timer
   mutable std::mutex trashMutex_;
-  std::vector<std::pair<ActiveAudioGraph*, uint32_t>> trashGraphs_;
-  std::vector<std::pair<std::unique_ptr<MixerStrip>, uint32_t>> trashStrips_;
+  std::vector<std::unique_ptr<ActiveAudioGraph>> trashGraphs_;
+  std::vector<std::unique_ptr<MixerStrip>> trashStrips_;
 
   void commitAudioGraph() {
     auto* current = new ActiveAudioGraph();
     for (auto& s : strips_) {
       current->strips.push_back(s.get());
     }
+    std::lock_guard<std::mutex> lock(trashMutex_);
     auto* old = activeGraph_.exchange(current, std::memory_order_acq_rel);
-    if (old) {
-      std::lock_guard<std::mutex> lock(trashMutex_);
-      trashGraphs_.emplace_back(old, juce::Time::getMillisecondCounter());
-    }
+    if (old)
+      trashGraphs_.emplace_back(old);
   }
 
   void timerCallback() override {
-    std::vector<ActiveAudioGraph*> graphsToDelete;
+    std::vector<std::unique_ptr<ActiveAudioGraph>> graphsToDelete;
     std::vector<std::unique_ptr<MixerStrip>> stripsToDelete;
-    uint32_t now = juce::Time::getMillisecondCounter();
 
     {
       std::lock_guard<std::mutex> lock(trashMutex_);
-      
-      auto it1 = trashGraphs_.begin();
-      while (it1 != trashGraphs_.end()) {
-        if (now - it1->second > 500) { // 500ms safety window
-          graphsToDelete.push_back(it1->first);
-          it1 = trashGraphs_.erase(it1);
-        } else ++it1;
-      }
-      
-      auto it2 = trashStrips_.begin();
-      while (it2 != trashStrips_.end()) {
-        if (now - it2->second > 500) {
-          stripsToDelete.push_back(std::move(it2->first));
-          it2 = trashStrips_.erase(it2);
-        } else ++it2;
+      if (graphReaders_.load(std::memory_order_acquire) == 0) {
+        graphsToDelete.swap(trashGraphs_);
+        stripsToDelete.swap(trashStrips_);
       }
     }
 
-    // Deallocation on main thread outside of the lock
-    for (auto* g : graphsToDelete) delete g;
+    // Reclamation always happens on the message thread, never in processBlock.
+    {
+      std::lock_guard<std::mutex> lock(stripsMutex_);
+      for (auto &strip : strips_)
+        strip->reclaimRetiredPluginRuntimes();
+    }
+    graphsToDelete.clear();
     stripsToDelete.clear();
   }
   juce::AudioPluginFormatManager formatManager_;

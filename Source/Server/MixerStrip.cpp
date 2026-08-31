@@ -5,6 +5,11 @@ namespace fiddle {
 MixerStrip::~MixerStrip() {
   if (lifetimeToken_)
     *lifetimeToken_ = false;
+
+  editorWindow.reset();
+  publishPluginRuntime(nullptr);
+  jassert(pluginReaders_.load(std::memory_order_acquire) == 0);
+  reclaimRetiredPluginRuntimes();
 }
 
 void MixerStrip::PluginChangeListener::audioProcessorParameterChanged(

@@ -2471,7 +2471,8 @@ void MainComponent::setupJsHandlers() {
                         ? strip->library + " (" + strip->family + ")"
                         : strip->id);
         obj->setProperty("port", strip->inputPort + 1); // 1-based for Dorico
-        obj->setProperty("channel", strip->inputChannel);
+        obj->setProperty(
+            "channel", strip->inputChannel.load(std::memory_order_relaxed));
         arr.add(juce::var(obj));
       }
       broadcastMessage("setCaptureStripList", juce::var(arr));

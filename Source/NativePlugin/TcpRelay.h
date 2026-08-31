@@ -1,9 +1,13 @@
 #pragma once
 
+#include "../RealtimeSpscQueue.h"
+#include "RealtimeMidiEvent.h"
 #include "midi_event.pb.h"
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -17,14 +21,8 @@ namespace fiddle {
  * Protocol: each message is sent as a 4-byte big-endian length prefix
  * followed by the serialized protobuf bytes.
  *
- * Thread safety:
- * - pushMessage() acquires a mutex briefly to enqueue. This is called from
- *   the audio thread. Since this plugin outputs silence (no audio synthesis),
- *   brief mutex contention won't cause audible artifacts. For a plugin that
- *   synthesizes audio, a lock-free queue would be preferable.
- * - setConnectionCallback() acquires the same mutex.
- * - The relay thread drains the queue under the same mutex.
- * - connected_ and running_ are std::atomic for lock-free status checks.
+ * Audio-thread events use a bounded SPSC queue and are serialized by the
+ * relay thread. Non-real-time callers may use pushMessage().
  */
 class TcpRelay {
 public:
@@ -34,6 +32,15 @@ public:
 
   /// Start the relay thread. Call after setConnectionCallback().
   void start();
+
+  /// Allow the already-running relay thread to connect. Audio-thread safe.
+  void activate() noexcept {
+    activated_.store(true, std::memory_order_release);
+  }
+
+  /// Enqueue a fixed-size event without allocation or locking.
+  [[nodiscard]] bool
+  pushRealtimeEvent(const RealtimeMidiEvent &event) noexcept;
 
   /// Push a message to the send queue. Acquires mutex briefly.
   void pushMessage(const MidiEvent &event);
@@ -72,6 +79,18 @@ public:
   using ConnectionCallback = std::function<void(bool connected)>;
   void setConnectionCallback(ConnectionCallback cb);
 
+  using ControlUpdateCallback = std::function<void()>;
+  void setControlUpdateCallback(ControlUpdateCallback cb);
+
+  /// Ask the relay thread to schedule a non-real-time controller update.
+  void requestControlUpdate() noexcept {
+    controlUpdateRequested_.store(true, std::memory_order_release);
+  }
+
+  [[nodiscard]] uint64_t droppedRealtimeEventCount() const noexcept {
+    return droppedRealtimeEvents_.load(std::memory_order_relaxed);
+  }
+
 private:
   void relayThread();
   void receiveMessages();
@@ -85,6 +104,7 @@ private:
 
   std::atomic<bool> connected_{false};
   std::atomic<bool> running_{true};
+  std::atomic<bool> activated_{false};
   std::atomic<int> delayMs_;
   std::atomic<bool> latencyChanged_{false};
   std::atomic<bool> configChanged_{false};
@@ -92,12 +112,16 @@ private:
   mutable std::mutex mutex_;
   std::condition_variable cv_;
   std::deque<std::string> queue_;
+  RealtimeSpscQueue<RealtimeMidiEvent, 8193> realtimeQueue_;
+  std::atomic<uint64_t> droppedRealtimeEvents_{0};
+  std::atomic<bool> controlUpdateRequested_{false};
   std::string configName_;
   std::string configVersion_;
 
   std::thread thread_;
 
   ConnectionCallback connectionCallback_;
+  ControlUpdateCallback controlUpdateCallback_;
 };
 
 } // namespace fiddle

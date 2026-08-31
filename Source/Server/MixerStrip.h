@@ -10,6 +10,11 @@
 #include "LuaPlugin.h"
 #include "MidiCaptureLog.h"
 #include "PluginEditorWindow.h"
+#include "../RealtimeMpscQueue.h"
+#include "../RealtimeReadGuard.h"
+#include "RealtimeMidiMessage.h"
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <deque>
 #include <filesystem>
@@ -60,19 +65,26 @@ struct MixerStrip {
   bool isSolo = true;   // true = solo player, false = section
 
   // Library activation state (per-version)
-  bool active = true;
+  std::atomic<bool> active{true};
 
   // Mute/Solo state (standard mixer behavior)
-  bool muted = false;
-  bool soloed = false;
+  std::atomic<bool> muted{false};
+  std::atomic<bool> soloed{false};
 
   // Input assignment (-1 = unassigned)
-  int inputPort = -1;
-  int inputChannel = -1;
+  std::atomic<int> inputPort{-1};
+  std::atomic<int> inputChannel{-1};
 
   // Plugin
   int pluginUid = 0; // scanned plugin uniqueId (0 = none)
-  std::unique_ptr<juce::AudioPluginInstance> pluginInstance;
+  struct PluginRuntime {
+    std::unique_ptr<juce::AudioPluginInstance> instance;
+    juce::AudioBuffer<float> tempBuffer;
+  };
+
+  /// Message-thread alias for the currently published runtime's plugin.
+  /// Ownership remains in PluginRuntime and reclamation waits for audio readers.
+  juce::AudioPluginInstance *pluginInstance = nullptr;
   std::unique_ptr<PluginEditorWindow> editorWindow;
 
   /// Cached serialized plugin state. Updated on load, restore, and change
@@ -299,12 +311,16 @@ struct MixerStrip {
     return juce::JSON::toString(juce::var(arr), true);
   }
 
-
-  std::mutex processMutex;
-  std::mutex midiMutex;
-  std::vector<std::pair<double, juce::MidiMessage>> delayedMessages;
-  double currentSampleRate = 44100.0;
-  int currentBlockSize = 512;
+  static constexpr size_t kMidiQueueCapacity = 8192;
+  RealtimeMpscQueue<RealtimeMidiMessage, kMidiQueueCapacity> incomingMidi_;
+  std::array<RealtimeMidiMessage, kMidiQueueCapacity> pendingMidi_{};
+  size_t pendingMidiCount_ = 0; // audio thread only
+  std::atomic<uint64_t> droppedMidiMessages_{0};
+  std::atomic<bool> clearMidiRequested_{false};
+  std::atomic<bool> panicRequested_{false};
+  juce::MidiBuffer processMidiBuffer_; // audio thread only, preallocated
+  std::atomic<double> currentSampleRate{44100.0};
+  std::atomic<int> currentBlockSize{512};
 
   /// Fader gain in dB. Atomic for lock-free audio thread reads.
   /// Range: +6 dB to -120 dB. Values <= -120 treated as silence.
@@ -316,96 +332,119 @@ struct MixerStrip {
   /// Peak-hold level in dB. Decays slowly (~5 dB/sec) for visual indicator.
   std::atomic<float> peakHoldDb{-120.0f};
 
-  juce::AudioBuffer<float> tempBuffer;
+  std::atomic<PluginRuntime *> activePluginRuntime_{nullptr};
+  std::atomic<uint32_t> pluginReaders_{0};
+  std::mutex retiredPluginMutex_;
+  std::vector<std::unique_ptr<PluginRuntime>> retiredPluginRuntimes_;
 
   void prepareToPlay(double sampleRate, int blockSize) {
-    std::lock_guard<std::mutex> lock(processMutex);
-    currentSampleRate = sampleRate;
-    currentBlockSize = blockSize;
-    if (pluginInstance) {
+    currentSampleRate.store(sampleRate, std::memory_order_relaxed);
+    currentBlockSize.store(blockSize, std::memory_order_relaxed);
+    processMidiBuffer_.ensureSize(128 * 1024);
+    if (auto *runtime = activePluginRuntime_.load(std::memory_order_acquire)) {
       int maxChannels =
-          juce::jmax(pluginInstance->getTotalNumInputChannels(),
-                     pluginInstance->getTotalNumOutputChannels(), 2);
-      tempBuffer.setSize(maxChannels, blockSize);
-      pluginInstance->prepareToPlay(sampleRate, blockSize);
+          juce::jmax(runtime->instance->getTotalNumInputChannels(),
+                     runtime->instance->getTotalNumOutputChannels(), 2);
+      runtime->tempBuffer.setSize(maxChannels, blockSize);
+      runtime->instance->prepareToPlay(sampleRate, blockSize);
     }
   }
 
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg) {
-    std::lock_guard<std::mutex> lock(midiMutex);
-    delayedMessages.push_back({triggerTime, msg});
+    const auto size = msg.getRawDataSize();
+    if (size <= 0 || size > 3) {
+      droppedMidiMessages_.fetch_add(1, std::memory_order_relaxed);
+      return;
+    }
+
+    RealtimeMidiMessage queued;
+    queued.triggerTimeMs = triggerTime;
+    queued.size = static_cast<uint8_t>(size);
+    std::copy_n(msg.getRawData(), size, queued.data);
+    if (!incomingMidi_.tryPush(queued))
+      droppedMidiMessages_.fetch_add(1, std::memory_order_relaxed);
   }
 
   /// Clear all pending delayed messages (used during graceful stop).
   void clearDelayedMessages() {
-    std::lock_guard<std::mutex> lock(midiMutex);
-    delayedMessages.clear();
+    clearMidiRequested_.store(true, std::memory_order_release);
   }
 
   /// Send All Notes Off + All Sound Off + Reset All Controllers to the plugin.
   /// Also clears pending delayed messages to prevent stale notes from firing.
   void allNotesOff() {
-    {
-      std::lock_guard<std::mutex> lock(midiMutex);
-      // Completely clear all pending messages. We rely on CC 120 (All Sound Off)
-      // and CC 123 (All Notes Off) to silence the plugin. Forwarding pending
-      // Note Offs after a panic causes the plugin to play release samples.
-      delayedMessages.clear();
-    }
     heldKeyswitchNotes.clear();
-    std::lock_guard<std::mutex> lock(processMutex);
-    if (!pluginInstance)
-      return;
-    juce::MidiBuffer panic;
-    for (int ch = 1; ch <= 16; ++ch) {
-      panic.addEvent(juce::MidiMessage::allSoundOff(ch), 0);
-      panic.addEvent(juce::MidiMessage::allNotesOff(ch), 0);
-      panic.addEvent(juce::MidiMessage::allControllersOff(ch), 0);
-    }
-    juce::AudioBuffer<float> dummy(tempBuffer.getNumChannels(),
-                                   currentBlockSize);
-    dummy.clear();
-    pluginInstance->processBlock(dummy, panic);
+    panicRequested_.store(true, std::memory_order_release);
   }
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
                     bool anySoloed = false) {
     // Effective audibility: active AND not muted AND (no solos active OR
     // this strip soloed)
-    bool audible = active && !muted && (!anySoloed || soloed);
-    juce::MidiBuffer midiBuffer;
-    {
-      std::lock_guard<std::mutex> lock(midiMutex);
-      for (auto it = delayedMessages.begin(); it != delayedMessages.end();) {
-        if (currentTime >= it->first) {
-          // std::cerr << "[MixerStrip " << id << "] Popped delayed event: len="
-          //           << it->second.getRawDataSize()
-          //           << ", timeDiff=" << (currentTime - it->first) << "ms"
-          //           << std::endl;
-          midiBuffer.addEvent(it->second,
-                              0); // Event fires effectively at sample 0
-          it = delayedMessages.erase(it);
-        } else {
-          ++it;
-        }
+    const bool audible = active.load(std::memory_order_relaxed) &&
+                         !muted.load(std::memory_order_relaxed) &&
+                         (!anySoloed || soloed.load(std::memory_order_relaxed));
+    processMidiBuffer_.clear();
+
+    RealtimeMidiMessage queued;
+    while (incomingMidi_.tryPop(queued)) {
+      if (pendingMidiCount_ < pendingMidi_.size()) {
+        pendingMidi_[pendingMidiCount_++] = queued;
+      } else {
+        droppedMidiMessages_.fetch_add(1, std::memory_order_relaxed);
       }
     }
 
-    std::lock_guard<std::mutex> lock(processMutex);
-    if (pluginInstance) {
+    const bool panicRequested =
+        panicRequested_.exchange(false, std::memory_order_acquire);
+    const bool clearRequested =
+        clearMidiRequested_.exchange(false, std::memory_order_acquire);
+    if (panicRequested || clearRequested)
+      pendingMidiCount_ = 0;
+
+    if (panicRequested) {
+      for (int channel = 1; channel <= 16; ++channel) {
+        processMidiBuffer_.addEvent(juce::MidiMessage::allSoundOff(channel), 0);
+        processMidiBuffer_.addEvent(juce::MidiMessage::allNotesOff(channel), 0);
+        processMidiBuffer_.addEvent(
+            juce::MidiMessage::allControllersOff(channel), 0);
+      }
+    }
+
+    const int numSamples = audioBuffer.getNumSamples();
+    const double sampleRate = currentSampleRate.load(std::memory_order_relaxed);
+    const double blockEnd = currentTime + (1000.0 * numSamples / sampleRate);
+    size_t retained = 0;
+    for (size_t i = 0; i < pendingMidiCount_; ++i) {
+      const auto &event = pendingMidi_[i];
+      if (event.triggerTimeMs <= blockEnd) {
+        const auto offset = static_cast<int>(
+            std::clamp((event.triggerTimeMs - currentTime) * sampleRate / 1000.0,
+                       0.0, static_cast<double>(juce::jmax(0, numSamples - 1))));
+        processMidiBuffer_.addEvent(event.data, event.size, offset);
+      } else {
+        pendingMidi_[retained++] = event;
+      }
+    }
+    pendingMidiCount_ = retained;
+
+    RealtimeReadGuard<PluginRuntime> runtimeRead(activePluginRuntime_,
+                                                 pluginReaders_);
+    auto *runtime = runtimeRead.get();
+    if (runtime) {
       int numSamples = audioBuffer.getNumSamples();
 
       // Safety check just in case tempBuffer isn't sized
-      if (tempBuffer.getNumChannels() > 0 &&
-          tempBuffer.getNumSamples() >= numSamples) {
-        tempBuffer.clear();
+      if (runtime->tempBuffer.getNumChannels() > 0 &&
+          runtime->tempBuffer.getNumSamples() >= numSamples) {
+        runtime->tempBuffer.clear();
         // Always process plugin (MIDI stays in sync even when muted)
-        pluginInstance->processBlock(tempBuffer, midiBuffer);
+        runtime->instance->processBlock(runtime->tempBuffer, processMidiBuffer_);
 
         if (!audible) {
           // Strip is muted/solo-suppressed: decay meters, don't sum audio
-          float decay = 20.0f * numSamples / (float)currentSampleRate;
-          float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
+          float decay = 20.0f * numSamples / (float)sampleRate;
+          float holdDecay = 3.0f * numSamples / (float)sampleRate;
           float prev = peakDb.load(std::memory_order_relaxed);
           peakDb.store(juce::jmax(-120.0f, prev - decay),
                        std::memory_order_relaxed);
@@ -417,8 +456,8 @@ struct MixerStrip {
           float db = gainDb.load(std::memory_order_relaxed);
           if (db <= -120.0f) {
             // Fader at silence — decay peak
-            float decay = 20.0f * numSamples / (float)currentSampleRate;
-            float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
+            float decay = 20.0f * numSamples / (float)sampleRate;
+            float holdDecay = 3.0f * numSamples / (float)sampleRate;
             float prev = peakDb.load(std::memory_order_relaxed);
             peakDb.store(juce::jmax(-120.0f, prev - decay),
                          std::memory_order_relaxed);
@@ -428,22 +467,24 @@ struct MixerStrip {
           } else {
             float gain = juce::Decibels::decibelsToGain(db, -120.0f);
             int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
-                                           tempBuffer.getNumChannels());
+                                           runtime->tempBuffer.getNumChannels());
             // Measure peak of the gained signal
             float blockPeak = 0.0f;
             for (int i = 0; i < channelsToSum; ++i) {
-              audioBuffer.addFrom(i, 0, tempBuffer, i, 0, numSamples, gain);
-              float chPeak = tempBuffer.getMagnitude(i, 0, numSamples) * gain;
+              audioBuffer.addFrom(i, 0, runtime->tempBuffer, i, 0, numSamples,
+                                  gain);
+              float chPeak =
+                  runtime->tempBuffer.getMagnitude(i, 0, numSamples) * gain;
               blockPeak = juce::jmax(blockPeak, chPeak);
             }
             float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
             // Bar decay: ~20 dB/sec
-            float decay = 20.0f * numSamples / (float)currentSampleRate;
+            float decay = 20.0f * numSamples / (float)sampleRate;
             float prev = peakDb.load(std::memory_order_relaxed);
             peakDb.store(juce::jmax(blockDb, prev - decay),
                          std::memory_order_relaxed);
             // Hold decay: ~5 dB/sec (slow)
-            float holdDecay = 3.0f * numSamples / (float)currentSampleRate;
+            float holdDecay = 3.0f * numSamples / (float)sampleRate;
             float prevHold = peakHoldDb.load(std::memory_order_relaxed);
             peakHoldDb.store(juce::jmax(blockDb, prevHold - holdDecay),
                              std::memory_order_relaxed);
@@ -460,7 +501,8 @@ struct MixerStrip {
 
     std::weak_ptr<bool> weakToken = lifetimeToken_;
     formatManager.createPluginInstanceAsync(
-        desc, currentSampleRate, currentBlockSize,
+        desc, currentSampleRate.load(std::memory_order_relaxed),
+        currentBlockSize.load(std::memory_order_relaxed),
         [this, desc, onComplete,
          weakToken](std::unique_ptr<juce::AudioPluginInstance> instance,
                     const juce::String &error) {
@@ -485,35 +527,29 @@ struct MixerStrip {
               juce::jmax(instance->getTotalNumInputChannels(),
                          instance->getTotalNumOutputChannels(), 2);
 
-          instance->prepareToPlay(currentSampleRate, currentBlockSize);
+          const auto sampleRate =
+              currentSampleRate.load(std::memory_order_relaxed);
+          const auto blockSize =
+              currentBlockSize.load(std::memory_order_relaxed);
+          instance->prepareToPlay(sampleRate, blockSize);
 
-          // We must safely swap the pointer inside the audio lock, but we
-          // DO NOT want to destroy the old plugin inside the lock.
-          std::unique_ptr<juce::AudioPluginInstance> oldPlugin;
-          {
-            std::lock_guard<std::mutex> lock(processMutex);
-            tempBuffer.setSize(maxChannels, currentBlockSize);
+          auto runtime = std::make_unique<PluginRuntime>();
+          runtime->tempBuffer.setSize(maxChannels, blockSize);
+          runtime->instance = std::move(instance);
 
-            // Remove listener from old plugin before swapping
-            if (pluginInstance)
-              pluginInstance->removeListener(&pluginChangeListener_);
-
-            oldPlugin = std::move(pluginInstance);
-            pluginInstance = std::move(instance);
-            pluginUid = desc.uniqueId;
-          }
-
-          // Register change listener on the new plugin
+          // Register the listener before publication so every visible plugin
+          // has a fully initialized runtime.
           pluginChangeListener_.stripId = id;
-          pluginChangeListener_.pluginUid = pluginUid;
-          pluginInstance->addListener(&pluginChangeListener_);
+          pluginChangeListener_.pluginUid = desc.uniqueId;
+          runtime->instance->addListener(&pluginChangeListener_);
+
+          pluginInstance = runtime->instance.get();
+          pluginUid = desc.uniqueId;
+          publishPluginRuntime(runtime.release());
 
           // Populate initial cache (may be overwritten by setStateInformation
           // in the caller's onComplete callback)
           refreshPluginStateCache();
-
-          // oldPlugin is safely destroyed here, off the audio thread lock.
-          // Editor is NOT opened here — user opens it via showEditor().
 
           // std::cerr << "[MixerStrip " << id << "] Loaded (Async): " << desc.name
           //           << std::endl;
@@ -525,15 +561,30 @@ struct MixerStrip {
   /// Unload the plugin and close editor.
   void unloadPlugin() {
     editorWindow.reset();
-
-    std::lock_guard<std::mutex> lock(processMutex);
-    if (pluginInstance) {
-      pluginInstance->removeListener(&pluginChangeListener_);
-      pluginInstance->releaseResources();
-      pluginInstance.reset();
-    }
+    pluginInstance = nullptr;
+    publishPluginRuntime(nullptr);
     pluginUid = 0;
     cachedPluginState_.reset();
+  }
+
+  /// Destroy unpublished plugin runtimes once no audio callback can reference
+  /// them. Call periodically from the message thread.
+  void reclaimRetiredPluginRuntimes() {
+    std::vector<std::unique_ptr<PluginRuntime>> reclaimable;
+    {
+      std::lock_guard<std::mutex> lock(retiredPluginMutex_);
+      if (pluginReaders_.load(std::memory_order_acquire) != 0)
+        return;
+      reclaimable.swap(retiredPluginRuntimes_);
+    }
+    for (auto &runtime : reclaimable) {
+      runtime->instance->removeListener(&pluginChangeListener_);
+      runtime->instance->releaseResources();
+    }
+  }
+
+  [[nodiscard]] uint64_t droppedMidiMessageCount() const noexcept {
+    return droppedMidiMessages_.load(std::memory_order_relaxed);
   }
 
   /// Show the editor window (create if needed).
@@ -555,11 +606,12 @@ struct MixerStrip {
     obj->setProperty("library", library);
     obj->setProperty("family", family);
     obj->setProperty("isSolo", isSolo);
-    obj->setProperty("active", active);
-    obj->setProperty("muted", muted);
-    obj->setProperty("soloed", soloed);
-    obj->setProperty("inputPort", inputPort);
-    obj->setProperty("inputChannel", inputChannel);
+    obj->setProperty("active", active.load(std::memory_order_relaxed));
+    obj->setProperty("muted", muted.load(std::memory_order_relaxed));
+    obj->setProperty("soloed", soloed.load(std::memory_order_relaxed));
+    obj->setProperty("inputPort", inputPort.load(std::memory_order_relaxed));
+    obj->setProperty("inputChannel",
+                     inputChannel.load(std::memory_order_relaxed));
     obj->setProperty("pluginUid", pluginUid);
     obj->setProperty("hasPlugin", pluginInstance != nullptr);
     obj->setProperty("gainDb", (double)gainDb.load(std::memory_order_relaxed));
@@ -603,6 +655,15 @@ struct MixerStrip {
     }
 
     return juce::var(obj);
+  }
+
+private:
+  void publishPluginRuntime(PluginRuntime *runtime) {
+    std::lock_guard<std::mutex> lock(retiredPluginMutex_);
+    auto *old =
+        activePluginRuntime_.exchange(runtime, std::memory_order_acq_rel);
+    if (old)
+      retiredPluginRuntimes_.emplace_back(old);
   }
 };
 

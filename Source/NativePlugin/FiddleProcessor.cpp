@@ -14,6 +14,10 @@
 #include <iostream>
 #include <mutex>
 
+#ifdef __APPLE__
+#include <dispatch/dispatch.h>
+#endif
+
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 
@@ -72,15 +76,17 @@ tresult PLUGIN_API FiddleProcessor::setBusArrangements(
 }
 
 tresult PLUGIN_API FiddleProcessor::setupProcessing(ProcessSetup &setup) {
-  cachedSampleRate_ = setup.sampleRate;
+  cachedSampleRate_.store(setup.sampleRate, std::memory_order_relaxed);
 
   // Initial latency uses default; TCP will push the real value once connected
-  latencySamples_ =
-      static_cast<uint32>(cachedSampleRate_ * lastKnownDelayMs_ / 1000.0);
+  latencySamples_.store(static_cast<uint32>(
+      setup.sampleRate * lastKnownDelayMs_.load(std::memory_order_relaxed) /
+      1000.0), std::memory_order_relaxed);
   pluginLog("[Latency] setupProcessing: delayMs=" +
-            std::to_string(lastKnownDelayMs_) +
-            " samples=" + std::to_string(latencySamples_) +
-            " sampleRate=" + std::to_string(cachedSampleRate_));
+            std::to_string(lastKnownDelayMs_.load(std::memory_order_relaxed)) +
+            " samples=" +
+            std::to_string(latencySamples_.load(std::memory_order_relaxed)) +
+            " sampleRate=" + std::to_string(setup.sampleRate));
 
   return AudioEffect::setupProcessing(setup);
 }
@@ -90,33 +96,36 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     // Create TCP relay on activation.
     // VST3 guarantees setActive is not called concurrently with process(),
     // so this is safe without additional synchronization.
-    tcpRelay_ = std::make_unique<TcpRelay>("127.0.0.1", 5252, lastKnownDelayMs_);
+    tcpRelay_ = std::make_unique<TcpRelay>(
+        "127.0.0.1", 5252,
+        lastKnownDelayMs_.load(std::memory_order_relaxed));
+
+    tcpRelay_->setControlUpdateCallback(
+        [this]() { scheduleControlFlush(); });
 
     // Set up connection callback for state replay and UI notification.
     // The callback is invoked from the relay thread.
     tcpRelay_->setConnectionCallback([this](bool connected) {
       if (connected) {
         replayProgramState();
-        announceConfigToServer();
-        // Remap shared memory to pick up server's new mmap file
-        audioConsumer_.remap();
       }
 
-      // Defer all sendMessage() calls to process() — calling them from
-      // the relay thread during setActive() deadlocks with the host.
+      // Marshal all host/controller work to the main queue. Calling
+      // sendMessage() directly from the relay thread can deadlock the host.
       lastConnected_.store(connected, std::memory_order_relaxed);
       connectionChanged_.store(true, std::memory_order_release);
       programStatesDirty_.store(true, std::memory_order_relaxed);
+      resetTempoRequested_.store(connected, std::memory_order_release);
+      scheduleControlFlush();
 
       pluginLog("[Connection] " +
                 std::string(connected ? "connected" : "disconnected") +
-                " (deferred to process)");
+                " (deferred to main queue)");
     });
 
-    // DON'T start the relay thread here — Dorico creates multiple
-    // processor instances during startup, but only one gets process()
-    // called. Starting the relay in the first process() call ensures
-    // only the active instance connects to the server.
+    // Start the worker here, outside the audio callback. It remains dormant
+    // until process() marks this as the instance the host is actually using.
+    tcpRelay_->start();
     relayStarted_ = false;
 
     // Reset transport tracking
@@ -130,16 +139,14 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
 
 //----------------------------------------------------------------------
 tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
-  // AUDIO THREAD — no blocking operations (no file I/O, no allocation,
-  // no unbounded locks). pushMessage() uses a short mutex lock to enqueue.
+  // AUDIO THREAD — only bounded work and fixed-size lock-free handoff.
 
-  // Start the relay thread on first process() call.
+  // Activate the already-running relay on the first process() call.
   // This ensures only the active processor instance (the one Dorico
   // actually calls process() on) connects to the server.
   if (tcpRelay_ && !relayStarted_) {
     relayStarted_ = true;
-    tcpRelay_->start();
-    pluginLog("[process] started relay thread (first process call)");
+    tcpRelay_->activate();
   }
 
   // Pull audio from FiddleServer via shared memory
@@ -149,59 +156,8 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     data.outputs[0].silenceFlags = 0;
   }
 
-  // Handle deferred connection status (set by relay thread callback).
-  // We must send IMessages from process(), not from the relay thread,
-  // because calling sendMessage() from the relay thread during setActive()
-  // can deadlock with the host.
-  if (connectionChanged_.exchange(false, std::memory_order_acquire)) {
-    bool connected = lastConnected_.load(std::memory_order_relaxed);
-    sendConnectionStatus(connected);
-    sendConfigToController();
-    pluginLog("[process] deferred connection status: " +
-              std::string(connected ? "connected" : "disconnected"));
-
-    // Reset lastKnownBpm_ so we force-send a TempoEvent on the next
-    // audio block after a new connection. When FiddleServer is restarted
-    // the plugin's lastKnownBpm_ still holds its old value, so without
-    // this reset the server would never learn the current tempo.
-    if (connected)
-      lastKnownBpm_ = -1.0;
-  }
-
-  // Check for delay changes pushed via TCP (lock-free atomic read).
-  // When the delay actually changes, we send LatencyChanged to the controller
-  // which calls restartComponent(kLatencyChanged) on the main thread.
-  // The restart loop is broken because setActive() creates the new TcpRelay
-  // with lastKnownDelayMs_, so when the server pushes the same value after
-  // reconnection, oldDelay == newDelay → no latencyChanged_ flag → no restart.
-  if (tcpRelay_ && tcpRelay_->consumeLatencyChanged()) {
-    int newDelay = tcpRelay_->getDelayMs();
-    pluginLog("[Latency] delay changed via TCP: " +
-              std::to_string(lastKnownDelayMs_) + " -> " +
-              std::to_string(newDelay) + "ms");
-    lastKnownDelayMs_ = newDelay;
-    latencySamples_ =
-        static_cast<uint32>(cachedSampleRate_ * newDelay / 1000.0);
-    // Notify controller so it can call restartComponent(kLatencyChanged)
-    if (auto *msg = allocateMessage()) {
-      msg->setMessageID("LatencyChanged");
-      sendMessage(msg);
-      msg->release();
-      pluginLog("[Latency] Sent LatencyChanged message to controller");
-    }
-  }
-
-  // Check for config status changes pushed via TCP (async from server)
-  if (tcpRelay_ && tcpRelay_->consumeConfigChanged()) {
-    std::string name = tcpRelay_->getConfigName();
-    std::string version = tcpRelay_->getConfigVersion();
-    pluginLog("[Config] changed via TCP: name=" + name + " version=" + version);
-    if (!name.empty())
-      configPath_ = name;
-    if (!version.empty())
-      configVersion_ = version;
-    sendConfigToController();
-  }
+  if (resetTempoRequested_.exchange(false, std::memory_order_acquire))
+    lastKnownBpm_ = -1.0;
 
   // Get host position (needed by both parameter changes and event processing)
   int64 hostSamples = 0;
@@ -229,19 +185,18 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
       double bpm = data.processContext->tempo;
       if (bpm > 0.0 && std::abs(bpm - lastKnownBpm_) > 0.01) {
         lastKnownBpm_ = bpm;
-        MidiEvent tempoEvent;
-        tempoEvent.set_host_sample_position((uint64)hostSamples);
-        auto *t = tempoEvent.mutable_tempo();
-        t->set_bpm(bpm);
+        RealtimeMidiEvent tempoEvent;
+        tempoEvent.type = RealtimeMidiEventType::Tempo;
+        tempoEvent.hostSamplePosition = static_cast<uint64_t>(hostSamples);
+        tempoEvent.tempo = bpm;
         if (data.processContext->state & ProcessContext::kTimeSigValid) {
-          t->set_time_sig_numerator(data.processContext->timeSigNumerator);
-          // VST3 timeSigDenominator is the literal value (e.g., 4 for 4/4)
-          t->set_time_sig_denominator(data.processContext->timeSigDenominator);
+          tempoEvent.data1 = data.processContext->timeSigNumerator;
+          tempoEvent.data2 = data.processContext->timeSigDenominator;
         } else {
-          t->set_time_sig_numerator(4);
-          t->set_time_sig_denominator(4);
+          tempoEvent.data1 = 4;
+          tempoEvent.data2 = 4;
         }
-        tcpRelay_->pushMessage(tempoEvent);
+        (void)tcpRelay_->pushRealtimeEvent(tempoEvent);
       }
     }
   }
@@ -279,18 +234,15 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         programStatesDirty_.store(true, std::memory_order_relaxed);
 
         if (tcpRelay_) {
-          MidiEvent protoEvent;
-          protoEvent.set_timestamp_samples(sampleOffset);
-          protoEvent.set_host_sample_position(
-              static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_port(logicalCh / 16); // 0-based port
-          protoEvent.set_channel(logicalCh % 16 +
-                                 1); // 1-based channel within port
-
-          auto *pc = protoEvent.mutable_program_change();
-          pc->set_program_number(program);
-
-          tcpRelay_->pushMessage(protoEvent);
+          RealtimeMidiEvent event;
+          event.type = RealtimeMidiEventType::ProgramChange;
+          event.timestampSamples = sampleOffset;
+          event.hostSamplePosition =
+              static_cast<uint64_t>(hostSamples + sampleOffset);
+          event.port = logicalCh / 16;
+          event.channel = logicalCh % 16 + 1;
+          event.data1 = program;
+          (void)tcpRelay_->pushRealtimeEvent(event);
         }
       }
       // CC params: kCCParamBase + ccIndex * kNumChannels + logicalCh
@@ -313,51 +265,35 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         }
 
         if (tcpRelay_) {
-          MidiEvent protoEvent;
-          protoEvent.set_timestamp_samples(sampleOffset);
-          protoEvent.set_host_sample_position(
-              static_cast<uint64_t>(hostSamples + sampleOffset));
-          protoEvent.set_port(logicalCh / 16);        // 0-based port
-          protoEvent.set_channel(logicalCh % 16 + 1); // 1-based channel
-
-          auto *ccMsg = protoEvent.mutable_cc();
-          ccMsg->set_controller_number(ccNum);
-          ccMsg->set_controller_value(ccVal);
-
-          tcpRelay_->pushMessage(protoEvent);
+          RealtimeMidiEvent event;
+          event.type = RealtimeMidiEventType::ControlChange;
+          event.timestampSamples = sampleOffset;
+          event.hostSamplePosition =
+              static_cast<uint64_t>(hostSamples + sampleOffset);
+          event.port = logicalCh / 16;
+          event.channel = logicalCh % 16 + 1;
+          event.data1 = ccNum;
+          event.data2 = ccVal;
+          (void)tcpRelay_->pushRealtimeEvent(event);
         }
-      } else {
-        // Log unrecognized parameter IDs so we can discover new params
-        pluginLog("Unhandled paramID=" + std::to_string(paramId) +
-                  " value=" + std::to_string(value));
       }
     }
   }
 
   // Detect transport start
   if (isPlaying && !wasPlaying_ && tcpRelay_) {
-    MidiEvent transportEvent;
-    transportEvent.set_timestamp_samples(0);
-    transportEvent.set_host_sample_position(static_cast<uint64_t>(hostSamples));
-
-    auto *transport = transportEvent.mutable_transport();
-    transport->set_type(MidiEvent_TransportEvent_Type_START);
-    transport->set_host_sample_position(static_cast<uint64_t>(hostSamples));
-
-    tcpRelay_->pushMessage(transportEvent);
+    RealtimeMidiEvent event;
+    event.type = RealtimeMidiEventType::TransportStart;
+    event.hostSamplePosition = static_cast<uint64_t>(hostSamples);
+    (void)tcpRelay_->pushRealtimeEvent(event);
   }
 
   // Detect transport stop
   if (!isPlaying && wasPlaying_ && tcpRelay_) {
-    MidiEvent transportEvent;
-    transportEvent.set_timestamp_samples(0);
-    transportEvent.set_host_sample_position(static_cast<uint64_t>(hostSamples));
-
-    auto *transport = transportEvent.mutable_transport();
-    transport->set_type(MidiEvent_TransportEvent_Type_STOP);
-    transport->set_host_sample_position(static_cast<uint64_t>(hostSamples));
-
-    tcpRelay_->pushMessage(transportEvent);
+    RealtimeMidiEvent event;
+    event.type = RealtimeMidiEventType::TransportStop;
+    event.hostSamplePosition = static_cast<uint64_t>(hostSamples);
+    (void)tcpRelay_->pushRealtimeEvent(event);
   }
   wasPlaying_ = isPlaying;
 
@@ -365,11 +301,8 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
   if (data.inputEvents)
     processEvents(data.inputEvents, hostSamples);
 
-  // If program state changed this buffer, push to controller for UI.
-  // This calls allocateMessage/sendMessage which allocate, but since this
-  // plugin outputs silence (no audio synthesis), the overhead is acceptable.
-  if (programStatesDirty_.exchange(false, std::memory_order_relaxed))
-    sendProgramStatesToController();
+  if (programStatesDirty_.load(std::memory_order_relaxed) && tcpRelay_)
+    tcpRelay_->requestControlUpdate();
 
   return kResultOk;
 }
@@ -380,76 +313,60 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     return;
 
   int32 count = events->getEventCount();
-  if (count > 0) {
-    pluginLog("processEvents: " + std::to_string(count) + " events");
-  }
   for (int32 i = 0; i < count; ++i) {
     Event event{};
     if (events->getEvent(i, event) != kResultOk)
       continue;
 
-    pluginLog("Event type=" + std::to_string(event.type) +
-              " bus=" + std::to_string(event.busIndex) + " ch=" +
-              std::to_string(
-                  event.type == Event::kNoteOnEvent    ? event.noteOn.channel
-                  : event.type == Event::kNoteOffEvent ? event.noteOff.channel
-                                                       : -1));
-
-    MidiEvent protoEvent;
-    protoEvent.set_timestamp_samples(event.sampleOffset);
-    protoEvent.set_host_sample_position(
-        static_cast<uint64_t>(hostSamples + event.sampleOffset));
+    RealtimeMidiEvent outgoing;
+    outgoing.timestampSamples = event.sampleOffset;
+    outgoing.hostSamplePosition =
+        static_cast<uint64_t>(hostSamples + event.sampleOffset);
 
     // Compute logical channel from busIndex + per-event channel.
     // busIndex identifies the port (0-based), event channel is 0-15.
     int eventBus = event.busIndex;
     if (eventBus < 0 || eventBus >= kNumPorts)
       eventBus = 0;
+    outgoing.port = eventBus;
 
     switch (event.type) {
     case Event::kNoteOnEvent: {
-      protoEvent.set_port(eventBus); // 0-based port
-      protoEvent.set_channel(event.noteOn.channel +
-                             1); // 1-based channel within port
-      auto *noteOn = protoEvent.mutable_note_on();
-      noteOn->set_note_number(event.noteOn.pitch);
-      // VST3 velocity is 0-1 float, convert to 0-127
-      noteOn->set_velocity(
-          static_cast<uint32_t>(event.noteOn.velocity * 127.0f));
+      outgoing.type = RealtimeMidiEventType::NoteOn;
+      outgoing.channel = event.noteOn.channel + 1;
+      outgoing.data1 = event.noteOn.pitch;
+      outgoing.data2 =
+          static_cast<int32_t>(event.noteOn.velocity * 127.0f);
       break;
     }
 
     case Event::kNoteOffEvent: {
-      protoEvent.set_port(eventBus);
-      protoEvent.set_channel(event.noteOff.channel + 1);
-      auto *noteOff = protoEvent.mutable_note_off();
-      noteOff->set_note_number(event.noteOff.pitch);
-      noteOff->set_velocity(
-          static_cast<uint32_t>(event.noteOff.velocity * 127.0f));
+      outgoing.type = RealtimeMidiEventType::NoteOff;
+      outgoing.channel = event.noteOff.channel + 1;
+      outgoing.data1 = event.noteOff.pitch;
+      outgoing.data2 =
+          static_cast<int32_t>(event.noteOff.velocity * 127.0f);
       break;
     }
 
     case Event::kPolyPressureEvent: {
-      protoEvent.set_port(eventBus);
-      protoEvent.set_channel(event.polyPressure.channel + 1);
-      auto *at = protoEvent.mutable_aftertouch();
-      at->set_note_number(event.polyPressure.pitch);
-      at->set_value(
-          static_cast<uint32_t>(event.polyPressure.pressure * 127.0f));
+      outgoing.type = RealtimeMidiEventType::PolyPressure;
+      outgoing.channel = event.polyPressure.channel + 1;
+      outgoing.data1 = event.polyPressure.pitch;
+      outgoing.data2 =
+          static_cast<int32_t>(event.polyPressure.pressure * 127.0f);
       break;
     }
 
     case Event::kLegacyMIDICCOutEvent: {
       // This is how VST3 delivers CC, program change, pitch bend, etc.
       auto &cc = event.midiCCOut;
-      protoEvent.set_port(eventBus);
-      protoEvent.set_channel(cc.channel + 1);
+      outgoing.channel = cc.channel + 1;
 
       if (cc.controlNumber <= 127) {
-        // Standard CC
-        auto *ccMsg = protoEvent.mutable_cc();
-        ccMsg->set_controller_number(cc.controlNumber);
-        ccMsg->set_controller_value(cc.value);
+        outgoing.type = RealtimeMidiEventType::ControlChange;
+        outgoing.data1 = cc.controlNumber;
+        outgoing.data2 = cc.value;
 
         // Track Bank Select
         int logicalCh = eventBus * 16 + cc.channel;
@@ -460,18 +377,14 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
             channelStates_[logicalCh].bankLSB.store(cc.value, std::memory_order_relaxed);
         }
       } else if (cc.controlNumber == 129) {
-        // kPitchBend
-        auto *pb = protoEvent.mutable_pitch_bend();
-        // VST3 pitch bend: value + value2*128 gives a 14-bit value
-        pb->set_value(cc.value | (cc.value2 << 7));
+        outgoing.type = RealtimeMidiEventType::PitchBend;
+        outgoing.data1 = cc.value | (cc.value2 << 7);
       } else if (cc.controlNumber == 128) {
-        // kAfterTouch (channel pressure)
-        auto *cp = protoEvent.mutable_channel_pressure();
-        cp->set_value(cc.value);
+        outgoing.type = RealtimeMidiEventType::ChannelPressure;
+        outgoing.data1 = cc.value;
       } else if (cc.controlNumber == 130) {
-        // kCtrlProgramChange — legacy MIDI program change
-        auto *pc = protoEvent.mutable_program_change();
-        pc->set_program_number(cc.value);
+        outgoing.type = RealtimeMidiEventType::ProgramChange;
+        outgoing.data1 = cc.value;
 
         int logicalCh = eventBus * 16 + cc.channel;
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
@@ -482,13 +395,12 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
     }
 
     default:
-      // Other event types — send as "other"
-      auto *other = protoEvent.mutable_other();
-      other->set_description("VST3 Event type=" + std::to_string(event.type));
+      outgoing.type = RealtimeMidiEventType::Other;
+      outgoing.data1 = event.type;
       break;
     }
 
-    tcpRelay_->pushMessage(protoEvent);
+    (void)tcpRelay_->pushRealtimeEvent(outgoing);
   }
 }
 
@@ -496,8 +408,8 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
 void FiddleProcessor::replayProgramState() {
   // Called from the relay thread when the TCP connection is established.
   // Reads channelStates_ which may be concurrently written by the audio
-  // thread. However, the values are plain ints and a torn read would at
-  // worst send a stale program number — not cause UB or a crash.
+  // thread. Atomic state avoids a data race; at worst the relay sends a stale
+  // value which will be superseded by the next program change.
   if (!tcpRelay_)
     return;
 
@@ -592,9 +504,7 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
   // primary mechanism. However, we keep it as a fallback for any hosts
   // that might use the IMessage path.
   //
-  // Thread safety note: this writes channelStates_ from the message thread
-  // while process() reads/writes it from the audio thread. For plain int
-  // fields the worst case is a torn read/write of a value — no crash risk.
+  // Channel state is atomic because this fallback can race the audio path.
   if (!message)
     return kInvalidArgument;
 
@@ -613,15 +523,8 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
 
         // Send to TCP relay
         if (tcpRelay_) {
-          MidiEvent protoEvent;
-          protoEvent.set_timestamp_samples(0);
-          protoEvent.set_port(ch / 16 + 1);    // 1-based port
-          protoEvent.set_channel(ch % 16 + 1); // 1-based channel within port
-
-          auto *pc = protoEvent.mutable_program_change();
-          pc->set_program_number(static_cast<uint32_t>(program));
-
-          tcpRelay_->pushMessage(protoEvent);
+          tcpRelay_->pushMessage(
+              makeProgramStateReplayEvent(ch, static_cast<int>(program)));
         }
       }
     }
@@ -632,9 +535,67 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
 }
 
 //----------------------------------------------------------------------
+void FiddleProcessor::scheduleControlFlush() {
+  if (controlFlushScheduled_.exchange(true, std::memory_order_acq_rel))
+    return;
+
+#ifdef __APPLE__
+  addRef();
+  dispatch_async_f(dispatch_get_main_queue(), this, [](void *context) {
+    auto *processor = static_cast<FiddleProcessor *>(context);
+    processor->flushControlUpdates();
+    processor->release();
+  });
+#else
+  flushControlUpdates();
+#endif
+}
+
+void FiddleProcessor::flushControlUpdates() {
+  controlFlushScheduled_.store(false, std::memory_order_release);
+
+  if (connectionChanged_.exchange(false, std::memory_order_acquire)) {
+    const bool connected = lastConnected_.load(std::memory_order_relaxed);
+    sendConnectionStatus(connected);
+    if (connected) {
+      audioConsumer_.remap();
+      announceConfigToServer();
+    }
+    sendConfigToController();
+  }
+
+  if (tcpRelay_ && tcpRelay_->consumeLatencyChanged()) {
+    const int newDelay = tcpRelay_->getDelayMs();
+    lastKnownDelayMs_.store(newDelay, std::memory_order_relaxed);
+    latencySamples_.store(
+        static_cast<uint32>(cachedSampleRate_.load(std::memory_order_relaxed) *
+                            newDelay / 1000.0),
+        std::memory_order_relaxed);
+    if (auto *msg = allocateMessage()) {
+      msg->setMessageID("LatencyChanged");
+      sendMessage(msg);
+      msg->release();
+    }
+  }
+
+  if (tcpRelay_ && tcpRelay_->consumeConfigChanged()) {
+    auto name = tcpRelay_->getConfigName();
+    auto version = tcpRelay_->getConfigVersion();
+    if (!name.empty())
+      configPath_ = std::move(name);
+    if (!version.empty())
+      configVersion_ = std::move(version);
+    sendConfigToController();
+  }
+
+  if (programStatesDirty_.exchange(false, std::memory_order_acq_rel))
+    sendProgramStatesToController();
+}
+
+//----------------------------------------------------------------------
 void FiddleProcessor::sendConnectionStatus(bool connected) {
   // Send connection status to the controller for UI display.
-  // This is called from the relay thread when connection state changes.
+  // This is called on the main queue after connection state changes.
   if (auto msg = owned(allocateMessage())) {
     msg->setMessageID("ConnectionStatus");
     msg->getAttributes()->setInt("Connected", connected ? 1 : 0);
@@ -645,8 +606,7 @@ void FiddleProcessor::sendConnectionStatus(bool connected) {
 //----------------------------------------------------------------------
 void FiddleProcessor::sendProgramStatesToController() {
   // Send all channel program assignments to the controller for UI display.
-  // Called from relay thread (connection callback) and main thread
-  // (setState).
+  // Called on the main thread.
   if (auto msg = owned(allocateMessage())) {
     msg->setMessageID("ProgramStates");
     auto *attrs = msg->getAttributes();

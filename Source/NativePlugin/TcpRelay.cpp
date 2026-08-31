@@ -16,6 +16,13 @@ TcpRelay::TcpRelay(const std::string &host, int port, int initialDelayMs)
 
 void TcpRelay::start() { thread_ = std::thread(&TcpRelay::relayThread, this); }
 
+bool TcpRelay::pushRealtimeEvent(const RealtimeMidiEvent &event) noexcept {
+  if (realtimeQueue_.tryPush(event))
+    return true;
+  droppedRealtimeEvents_.fetch_add(1, std::memory_order_relaxed);
+  return false;
+}
+
 TcpRelay::~TcpRelay() {
   running_ = false;
   // Close the socket first to unblock any blocking recv() in the relay thread.
@@ -46,8 +53,22 @@ void TcpRelay::setConnectionCallback(ConnectionCallback cb) {
   connectionCallback_ = std::move(cb);
 }
 
+void TcpRelay::setControlUpdateCallback(ControlUpdateCallback cb) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  controlUpdateCallback_ = std::move(cb);
+}
+
 void TcpRelay::relayThread() {
+  bool preferRealtime = true;
   while (running_) {
+    if (!activated_.load(std::memory_order_acquire)) {
+      std::unique_lock<std::mutex> lock(mutex_);
+      cv_.wait_for(lock, std::chrono::milliseconds(10), [this] {
+        return !running_.load() || activated_.load(std::memory_order_acquire);
+      });
+      continue;
+    }
+
     // Try to connect if not connected
     if (!connected_) {
       if (tryConnect()) {
@@ -70,11 +91,35 @@ void TcpRelay::relayThread() {
       }
     }
 
-    // Drain the queue
+    // Alternate queue priority so sustained MIDI cannot starve controller
+    // messages, and controller traffic cannot starve MIDI. Protobuf creation
+    // and serialization deliberately happen here, never in the audio callback.
     std::string msg;
-    {
+    auto popRealtime = [this, &msg] {
+      RealtimeMidiEvent realtimeEvent;
+      if (!realtimeQueue_.tryPop(realtimeEvent))
+        return false;
+      auto event = toMidiEvent(realtimeEvent);
+      return event.SerializeToString(&msg);
+    };
+    auto popControl = [this, &msg] {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (queue_.empty())
+        return false;
+      msg = std::move(queue_.front());
+      queue_.pop_front();
+      return true;
+    };
+
+    bool haveMessage = preferRealtime ? popRealtime() : popControl();
+    if (!haveMessage)
+      haveMessage = preferRealtime ? popControl() : popRealtime();
+    if (haveMessage)
+      preferRealtime = !preferRealtime;
+
+    if (!haveMessage) {
       std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait_for(lock, std::chrono::milliseconds(100),
+      cv_.wait_for(lock, std::chrono::milliseconds(1),
                    [this] { return !queue_.empty() || !running_.load(); });
 
       if (!running_)
@@ -83,6 +128,7 @@ void TcpRelay::relayThread() {
       if (!queue_.empty()) {
         msg = std::move(queue_.front());
         queue_.pop_front();
+        haveMessage = true;
       }
     }
 
@@ -93,7 +139,17 @@ void TcpRelay::relayThread() {
       receiveMessages();
     }
 
-    if (msg.empty())
+    if (controlUpdateRequested_.exchange(false, std::memory_order_acquire)) {
+      ControlUpdateCallback cb;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cb = controlUpdateCallback_;
+      }
+      if (cb)
+        cb();
+    }
+
+    if (!haveMessage)
       continue;
 
     if (!sendMessage(msg)) {
@@ -279,6 +335,7 @@ void TcpRelay::receiveMessages() {
           configVersion_ = cs.config_version();
         }
         configChanged_.store(true, std::memory_order_relaxed);
+        requestControlUpdate();
       }
     }
   }

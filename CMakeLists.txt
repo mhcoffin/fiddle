@@ -498,6 +498,21 @@ set_tests_properties(state_restore PROPERTIES
 )
 
 # ==============================================================================
+# RealtimeQueueTest — bounded SPSC/MPSC handoff and concurrent delivery
+# ==============================================================================
+add_executable(RealtimeQueueTest
+    Source/tests/RealtimeQueueTest.cpp
+)
+
+target_include_directories(RealtimeQueueTest PRIVATE Source)
+target_compile_features(RealtimeQueueTest PRIVATE cxx_std_17)
+
+add_test(NAME realtime_queues COMMAND RealtimeQueueTest)
+set_tests_properties(realtime_queues PROPERTIES
+    LABELS "realtime;regression;stable"
+)
+
+# ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico
 # ==============================================================================
 add_executable(FiddleMock

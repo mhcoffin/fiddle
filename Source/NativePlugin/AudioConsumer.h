@@ -1,15 +1,19 @@
 #pragma once
 
+#include "../RealtimeReadGuard.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <fcntl.h>
 #include <pwd.h>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <vector>
 
 namespace fiddle {
 
@@ -38,19 +42,32 @@ public:
     float audioData[kBufferCapacity * kNumChannels];
   };
 
-  AudioConsumer() { openMapping(); }
+  AudioConsumer() { activeMapping_.store(openMapping()); }
 
-  ~AudioConsumer() { closeMapping(); }
+  ~AudioConsumer() {
+    delete activeMapping_.exchange(nullptr, std::memory_order_acq_rel);
+    retiredMappings_.clear();
+  }
 
   /// Re-open the memory-mapped file (e.g. after server restart).
   void remap() {
-    closeMapping();
-    openMapping();
+    auto *replacement = openMapping();
+    {
+      std::lock_guard<std::mutex> lock(retiredMutex_);
+      auto *old =
+          activeMapping_.exchange(replacement, std::memory_order_acq_rel);
+      if (old)
+        retiredMappings_.emplace_back(old);
+    }
+    resetBuffering_.store(true, std::memory_order_release);
+    reclaimMappings();
   }
 
   bool isReady() const {
-    return state_ != nullptr &&
-           state_->magic.load(std::memory_order_acquire) == kMagic;
+    RealtimeReadGuard<Mapping> mappingRead(activeMapping_, readers_);
+    auto *mapping = mappingRead.get();
+    return mapping && mapping->state &&
+           mapping->state->magic.load(std::memory_order_acquire) == kMagic;
   }
 
   bool buffering_ = true;
@@ -60,7 +77,10 @@ public:
   /// numSamples = number of sample frames (not total floats).
   /// output must hold at least numSamples * kNumChannels floats.
   void pullAudio(float **outputChannels, int numChannels, int numSamples) {
-    if (!isReady()) {
+    RealtimeReadGuard<Mapping> mappingRead(activeMapping_, readers_);
+    auto *mapping = mappingRead.get();
+    auto *state = mapping ? mapping->state : nullptr;
+    if (!state || state->magic.load(std::memory_order_acquire) != kMagic) {
       // Output silence
       for (int c = 0; c < numChannels; ++c)
         if (outputChannels[c])
@@ -68,12 +88,15 @@ public:
       return;
     }
 
-    uint64_t writePos = state_->writeIndex.load(std::memory_order_acquire);
-    uint64_t readPos = state_->readIndex.load(std::memory_order_relaxed);
+    if (resetBuffering_.exchange(false, std::memory_order_acquire))
+      buffering_ = true;
+
+    uint64_t writePos = state->writeIndex.load(std::memory_order_acquire);
+    uint64_t readPos = state->readIndex.load(std::memory_order_relaxed);
     uint64_t available = writePos - readPos;
 
     uint64_t targetBuffer = static_cast<uint64_t>(
-        state_->sampleRate.load(std::memory_order_relaxed) * (jitterMs_ / 1000.0));
+        state->sampleRate.load(std::memory_order_relaxed) * (jitterMs_ / 1000.0));
     if (targetBuffer == 0) targetBuffer = 1764; // Fallback ~40ms at 44.1kHz
 
     if (buffering_) {
@@ -107,51 +130,61 @@ public:
     for (int i = 0; i < samplesToRead; ++i) {
       size_t index = (readPos + i) % kBufferCapacity;
       for (int c = 0; c < outCh; ++c) {
-        outputChannels[c][i] = state_->audioData[index * kNumChannels + c];
+        outputChannels[c][i] = state->audioData[index * kNumChannels + c];
       }
     }
 
-    state_->readIndex.store(readPos + samplesToRead, std::memory_order_release);
+    state->readIndex.store(readPos + samplesToRead, std::memory_order_release);
   }
 
 private:
-  SharedState *state_ = nullptr;
-  void *mappedMem_ = nullptr;
-  size_t mappedSize_ = 0;
-  int fd_ = -1;
+  struct Mapping {
+    SharedState *state = nullptr;
+    void *memory = nullptr;
+    size_t size = 0;
+    int fd = -1;
 
-  void openMapping() {
+    ~Mapping() {
+      if (memory && memory != MAP_FAILED)
+        ::munmap(memory, size);
+      if (fd >= 0)
+        ::close(fd);
+    }
+  };
+
+  std::atomic<Mapping *> activeMapping_{nullptr};
+  mutable std::atomic<uint32_t> readers_{0};
+  std::atomic<bool> resetBuffering_{false};
+  std::mutex retiredMutex_;
+  std::vector<std::unique_ptr<Mapping>> retiredMappings_;
+
+  Mapping *openMapping() {
+    auto mapping = std::make_unique<Mapping>();
     std::string path =
         getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio.mmap";
 
-    fd_ = ::open(path.c_str(), O_RDWR);
-    if (fd_ < 0)
-      return;
+    mapping->fd = ::open(path.c_str(), O_RDWR);
+    if (mapping->fd < 0)
+      return nullptr;
 
-    mappedSize_ = sizeof(SharedState);
+    mapping->size = sizeof(SharedState);
 
-    mappedMem_ = ::mmap(nullptr, mappedSize_, PROT_READ | PROT_WRITE,
-                        MAP_SHARED, fd_, 0);
-    if (mappedMem_ == MAP_FAILED) {
-      mappedMem_ = nullptr;
-      ::close(fd_);
-      fd_ = -1;
-      return;
+    mapping->memory = ::mmap(nullptr, mapping->size, PROT_READ | PROT_WRITE,
+                             MAP_SHARED, mapping->fd, 0);
+    if (mapping->memory == MAP_FAILED) {
+      mapping->memory = nullptr;
+      return nullptr;
     }
 
-    state_ = reinterpret_cast<SharedState *>(mappedMem_);
+    mapping->state = reinterpret_cast<SharedState *>(mapping->memory);
+    return mapping.release();
   }
 
-  void closeMapping() {
-    state_ = nullptr;
-    if (mappedMem_ && mappedMem_ != MAP_FAILED) {
-      ::munmap(mappedMem_, mappedSize_);
-      mappedMem_ = nullptr;
-    }
-    if (fd_ >= 0) {
-      ::close(fd_);
-      fd_ = -1;
-    }
+  void reclaimMappings() {
+    std::lock_guard<std::mutex> lock(retiredMutex_);
+    if (readers_.load(std::memory_order_acquire) != 0)
+      return;
+    retiredMappings_.clear();
   }
 
   static std::string getHomeDir() {

@@ -127,9 +127,11 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     obj->setProperty("library", strip->library);
     obj->setProperty("family", strip->family);
     obj->setProperty("isSolo", strip->isSolo);
-    obj->setProperty("active", strip->active);
-    obj->setProperty("inputPort", strip->inputPort);
-    obj->setProperty("inputChannel", strip->inputChannel);
+    obj->setProperty("active", strip->active.load(std::memory_order_relaxed));
+    obj->setProperty("inputPort",
+                     strip->inputPort.load(std::memory_order_relaxed));
+    obj->setProperty("inputChannel",
+                     strip->inputChannel.load(std::memory_order_relaxed));
     obj->setProperty("pluginUid", strip->pluginUid);
     obj->setProperty("gainDb",
                      (double)strip->gainDb.load(std::memory_order_relaxed));

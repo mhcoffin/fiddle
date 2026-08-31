@@ -255,8 +255,11 @@ public:
       strip->id = createdId_;
       // Copy source properties
       if (auto *src = mixer_.getStrip(sourceStripId_)) {
-        strip->inputPort = src->inputPort;
-        strip->inputChannel = src->inputChannel;
+        strip->inputPort.store(src->inputPort.load(std::memory_order_relaxed),
+                               std::memory_order_relaxed);
+        strip->inputChannel.store(
+            src->inputChannel.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
         strip->family = src->family;
         strip->isSolo = src->isSolo;
       }

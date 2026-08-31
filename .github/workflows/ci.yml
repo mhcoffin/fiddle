@@ -26,6 +26,7 @@ jobs:
           TransportTest
           ProgramStateReplayTest
           StateRestoreTest
+          RealtimeQueueTest
 
       - name: Run stable tests
         run: ctest --test-dir build-ci -C Release --output-on-failure -L stable

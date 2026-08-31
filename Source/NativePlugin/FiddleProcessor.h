@@ -39,7 +39,7 @@ public:
   setupProcessing(Steinberg::Vst::ProcessSetup &setup) override;
 
   Steinberg::uint32 PLUGIN_API getLatencySamples() override {
-    return latencySamples_;
+    return latencySamples_.load(std::memory_order_relaxed);
   }
 
   Steinberg::tresult PLUGIN_API setActive(Steinberg::TBool state) override;
@@ -73,6 +73,8 @@ private:
   void sendProgramStatesToController();
   void sendConfigToController();
   void announceConfigToServer();
+  void scheduleControlFlush();
+  void flushControlUpdates();
 
   /// Returns the current config version.
   std::string getConfigVersion() const { return configVersion_; }
@@ -90,15 +92,17 @@ private:
   bool wasPlaying_ = false;
   bool relayStarted_ = false;
 
-  // Set by process() when a program change is received, cleared after
-  // sending update to controller. Checked by connection callback timer.
+  // Set by process() when a program change is received, cleared by the
+  // coalesced main-thread controller update.
   std::atomic<bool> programStatesDirty_{false};
 
   // Deferred messaging flags — set from the relay thread's connection
-  // callback, consumed from process(). We must not call sendMessage()
-  // from the relay thread because it can deadlock with the host.
+  // callback and consumed on the main queue. We must not call sendMessage()
+  // from either the relay or audio thread.
   std::atomic<bool> connectionChanged_{false};
   std::atomic<bool> lastConnected_{false};
+  std::atomic<bool> resetTempoRequested_{false};
+  std::atomic<bool> controlFlushScheduled_{false};
 
   // Config path and version (saved/restored with Dorico project state)
   std::string configPath_;
@@ -108,9 +112,9 @@ private:
   AudioConsumer audioConsumer_;
 
   // Delay and latency reporting (delay pushed via TCP from server)
-  double cachedSampleRate_ = 44100.0;
-  int lastKnownDelayMs_ = 1000;
-  Steinberg::uint32 latencySamples_ = 0;
+  std::atomic<double> cachedSampleRate_{44100.0};
+  std::atomic<int> lastKnownDelayMs_{1000};
+  std::atomic<Steinberg::uint32> latencySamples_{0};
 
   // Last known BPM — used to detect tempo changes in process() so we only
   // send a TempoEvent when the tempo actually changes (>0.01 BPM threshold).

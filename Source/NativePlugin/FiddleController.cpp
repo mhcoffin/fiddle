@@ -334,11 +334,9 @@ tresult PLUGIN_API FiddleController::notify(IMessage *message) {
   }
 
   if (msgId && strcmp(msgId, "LatencyChanged") == 0) {
-    // Defer restartComponent to the main thread.  notify() may be called
-    // from the message dispatch triggered by process() on the audio thread.
-    // Calling restartComponent synchronously from here deadlocks because
-    // Dorico tries to deactivate the plugin while the audio thread is still
-    // inside process().
+    // Keep restartComponent asynchronous. Some hosts dispatch component
+    // messages while holding internal lifecycle locks, so restarting inline
+    // can deadlock during deactivation.
     if (componentHandler) {
       // prevent the handler from being released before the block runs
       auto *handler = componentHandler.get();
