@@ -30,6 +30,8 @@
 
 namespace fiddle {
 
+class ExpressionMapCommandService;
+class ExpressionMapJsHandlers;
 class MixerCommandService;
 class MixerJsHandlers;
 class PluginCommandService;
@@ -117,6 +119,8 @@ private:
   FiddleDatabase db_;
   std::unique_ptr<PluginCommandService> pluginCommandService_;
   std::unique_ptr<PluginJsHandlers> pluginJsHandlers_;
+  std::unique_ptr<ExpressionMapCommandService> expressionMapCommandService_;
+  std::unique_ptr<ExpressionMapJsHandlers> expressionMapJsHandlers_;
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
   LuaPluginCatalog luaCatalog_;

@@ -120,6 +120,11 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ApplicationRestart.cpp
     Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
+    Source/Server/ExpressionMapCommandService.cpp
+    Source/Server/ExpressionMapCommandService.h
+    Source/Server/ExpressionMapCommands.h
+    Source/Server/ExpressionMapJsHandlers.cpp
+    Source/Server/ExpressionMapJsHandlers.h
     Source/Server/MixerCommandService.cpp
     Source/Server/MixerCommandService.h
     Source/Server/MixerCommands.h
@@ -487,6 +492,26 @@ target_compile_features(ApplicationRestartTest PRIVATE cxx_std_17)
 add_test(NAME application_restart COMMAND ApplicationRestartTest)
 set_tests_properties(application_restart PROPERTIES
     LABELS "application;regression;stable"
+)
+
+# ==============================================================================
+# ExpressionMapJsHandlersTest — map catalog, assignment, and file routing
+# ==============================================================================
+add_executable(ExpressionMapJsHandlersTest
+    Source/Server/tests/ExpressionMapJsHandlersTest.cpp
+    Source/Server/ExpressionMapJsHandlers.cpp
+)
+
+target_include_directories(ExpressionMapJsHandlersTest PRIVATE
+    Source/Server
+)
+
+target_link_libraries(ExpressionMapJsHandlersTest PRIVATE juce::juce_core)
+target_compile_features(ExpressionMapJsHandlersTest PRIVATE cxx_std_17)
+
+add_test(NAME expression_map_js_handlers COMMAND ExpressionMapJsHandlersTest)
+set_tests_properties(expression_map_js_handlers PROPERTIES
+    LABELS "expression-map;regression;stable"
 )
 
 find_program(NODE_EXECUTABLE node)

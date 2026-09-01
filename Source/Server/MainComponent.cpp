@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "DoricoConfigGenerator.h"
-#include "ExpressionMapParser.h"
+#include "ExpressionMapCommandService.h"
+#include "ExpressionMapJsHandlers.h"
 #include "FiddleConfig.h"
 #include "MixerCommandService.h"
 #include "MixerJsHandlers.h"
@@ -1872,6 +1873,41 @@ void MainComponent::setupJsHandlers() {
           }});
   pluginJsHandlers_->registerHandlers();
 
+  expressionMapCommandService_ = std::make_unique<ExpressionMapCommandService>(
+      mixer_, xmapLibrary_, undoManager_);
+  expressionMapJsHandlers_ = std::make_unique<ExpressionMapJsHandlers>(
+      jsRouter_, *expressionMapCommandService_,
+      ExpressionMapJsHandlers::Callbacks{
+          [this](ExpressionMapJsHandlers::Task task) {
+            safeCallAsync(std::move(task));
+          },
+          [safeThis](ExpressionMapJsHandlers::FileSelection selection) {
+            if (safeThis == nullptr)
+              return;
+            auto chooser = std::make_shared<juce::FileChooser>(
+                "Load Expression Map", juce::File{}, "*.doricolib");
+            chooser->launchAsync(
+                juce::FileBrowserComponent::openMode |
+                    juce::FileBrowserComponent::canSelectFiles,
+                [safeThis, chooser,
+                 selection = std::move(selection)](const juce::FileChooser &fc) {
+                  if (safeThis == nullptr)
+                    return;
+                  const auto results = fc.getResults();
+                  if (!results.isEmpty())
+                    selection(results[0]);
+                });
+          },
+          [safeThis](const juce::var &catalog) {
+            if (safeThis != nullptr)
+              safeThis->broadcastMessage("setExpressionMaps", catalog);
+          },
+          [safeThis] {
+            if (safeThis != nullptr)
+              safeThis->pushMixerState();
+          }});
+  expressionMapJsHandlers_->registerHandlers();
+
   jsRouter_.registerHandler("signalReady", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2398,93 +2434,6 @@ void MainComponent::setupJsHandlers() {
     broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
     return;
   });
-  jsRouter_.registerHandler("loadExpressionMap", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    std::string entityID = args[1].toString().toStdString();
-
-    auto data = xmapLibrary_.load(entityID);
-    if (!data) {
-      return;
-    }
-
-    safeCallAsync([this, stripId, entityID, data]() {
-      std::string oldEntityID;
-      if (auto *s = mixer_.getStrip(stripId)) {
-        if (s->expressionMap)
-          oldEntityID = s->expressionMap->entityID;
-      }
-      auto action = std::make_unique<SetExpressionMapAction>(
-          mixer_, xmapLibrary_, stripId, oldEntityID, entityID, data);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("clearExpressionMap", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    safeCallAsync([this, stripId]() {
-      std::string oldEntityID;
-      if (auto *s = mixer_.getStrip(stripId)) {
-        if (s->expressionMap)
-          oldEntityID = s->expressionMap->entityID;
-      }
-      if (oldEntityID.empty())
-        return; // already clear
-      auto action = std::make_unique<SetExpressionMapAction>(
-          mixer_, xmapLibrary_, stripId, oldEntityID, "", nullptr);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("loadExpressionMapFromFile", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-
-    auto chooser = std::make_shared<juce::FileChooser>(
-        "Load Expression Map", juce::File{}, "*.doricolib");
-
-    chooser->launchAsync(juce::FileBrowserComponent::openMode |
-                             juce::FileBrowserComponent::canSelectFiles,
-                         [this, stripId, chooser](const juce::FileChooser &fc) {
-                           auto results = fc.getResults();
-                           if (results.isEmpty())
-                             return;
-
-                           auto file = results[0];
-                           auto data = std::make_shared<ExpressionMapData>();
-                           if (!parseExpressionMap(file, *data))
-                             return;
-
-                           if (auto *s = mixer_.getStrip(stripId)) {
-                             s->setExpressionMap(data);
-                             s->expressionMapPath = file.getFullPathName();
-                           }
-
-                           safeCallAsync([this]() { pushMixerState(); });
-                         });
-    return;
-  });
   jsRouter_.registerHandler("requestLibraries", [this](const juce::var& payload) {
     safeCallAsync([this]() {
       auto libs = db_.listLibraries();
@@ -2990,17 +2939,6 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
-  jsRouter_.registerHandler("requestExpressionMaps", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    safeCallAsync([this]() {
-      juce::String json = xmapLibrary_.toJson();
-      broadcastMessage("setExpressionMaps", juce::JSON::parse(json));
-    });
-    return;
-  });
   jsRouter_.registerHandler("undo", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -3078,46 +3016,6 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       int ms = mixer_.getPlaybackDelayMs();
       broadcastMessage("setPlaybackDelay", juce::var(ms));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setGroupExpressionMap", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    std::string entityID = args[1].toString().toStdString();
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    auto data = entityID.empty() ? nullptr : xmapLibrary_.load(entityID);
-    if (!entityID.empty() && !data) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar, entityID, data]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (auto *s = mixer_.getStrip(sid)) {
-          std::string oldID;
-          if (s->expressionMap)
-            oldID = s->expressionMap->entityID;
-          subs.push_back(std::make_unique<SetExpressionMapAction>(
-              mixer_, xmapLibrary_, sid, oldID, entityID, data));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group set expression map", std::move(subs)));
-        pushMixerState();
-      }
     });
     return;
   });
