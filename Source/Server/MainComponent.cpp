@@ -2,6 +2,8 @@
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapParser.h"
 #include "FiddleConfig.h"
+#include "MixerCommandService.h"
+#include "MixerJsHandlers.h"
 
 #include "midi_event.pb.h"
 #include <chrono>
@@ -1829,6 +1831,18 @@ void MainComponent::broadcastMessage(const juce::String &type,
 }
 
 void MainComponent::setupJsHandlers() {
+  mixerCommandService_ =
+      std::make_unique<MixerCommandService>(mixer_, undoManager_);
+  mixerJsHandlers_ = std::make_unique<MixerJsHandlers>(
+      jsRouter_, *mixerCommandService_,
+      MixerJsHandlers::Callbacks{
+          [this](MixerJsHandlers::Task task) {
+            safeCallAsync(std::move(task));
+          },
+          [this] { pushMixerState(); },
+          [this] { saveAllStripsToDB(); }});
+  mixerJsHandlers_->registerHandlers();
+
   jsRouter_.registerHandler("signalReady", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2158,179 +2172,6 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
-  jsRouter_.registerHandler("addMixerStrip", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    safeCallAsync([this]() {
-      auto action = std::make_unique<AddStripAction>(mixer_);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("duplicateStripInput", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    safeCallAsync([this, stripId]() {
-      auto action = std::make_unique<DuplicateStripAction>(mixer_, stripId);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("removeMixerStrip", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    safeCallAsync([this, stripId]() {
-      auto action = std::make_unique<RemoveStripAction>(mixer_, stripId);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripLibrary", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    juce::String lib = args[1].toString();
-    safeCallAsync([this, stripId, lib]() {
-      juce::String oldLib;
-      if (auto *s = mixer_.getStrip(stripId))
-        oldLib = s->library;
-      auto action =
-          std::make_unique<SetLibraryAction>(mixer_, stripId, oldLib, lib);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripInput", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 3) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    int port = (int)args[1];
-    int channel = (int)args[2];
-    safeCallAsync([this, stripId, port, channel]() {
-      int oldPort = -1, oldCh = -1;
-      if (auto *s = mixer_.getStrip(stripId)) {
-        const auto state = s->realtimeState();
-        oldPort = state.inputPort;
-        oldCh = state.inputChannel;
-      }
-      auto action = std::make_unique<SetInputAction>(mixer_, stripId, oldPort,
-                                                     oldCh, port, channel);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripGain", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    float gainDb = static_cast<float>((double)args[1]);
-    gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
-    safeCallAsync([this, stripId, gainDb]() {
-      float oldGain = 0.0f;
-      if (auto *s = mixer_.getStrip(stripId))
-        oldGain = s->gainDb();
-      auto action =
-          std::make_unique<SetGainAction>(mixer_, stripId, oldGain, gainDb);
-      undoManager_.perform(std::move(action));
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripMute", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    bool mute = (bool)args[1];
-    safeCallAsync([this, stripId, mute]() {
-      mixer_.setStripMute(stripId, mute);
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripSolo", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    bool solo = (bool)args[1];
-    safeCallAsync([this, stripId, solo]() {
-      mixer_.setStripSolo(stripId, solo);
-      pushMixerState();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("toggleLibraryActive", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1)
-      return;
-    juce::String libraryName = args[0].toString();
-    safeCallAsync([this, libraryName]() {
-      // Determine current state: active if ALL strips with this library are
-      // active
-      bool allActive = true;
-      auto strips = mixer_.getAllStrips();
-      for (auto *s : strips) {
-        if (s->library == libraryName && !s->isActive()) {
-          allActive = false;
-          break;
-        }
-      }
-      // Toggle: if all active, deactivate; if any inactive, activate all
-      bool newState = !allActive;
-      auto action = std::make_unique<ToggleLibraryActiveAction>(
-          mixer_, libraryName, newState);
-      undoManager_.perform(std::move(action));
-      saveAllStripsToDB();
-      pushMixerState();
-    });
-    return;
-  });
   jsRouter_.registerHandler("getAnnotationRecords", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2598,23 +2439,6 @@ void MainComponent::setupJsHandlers() {
           mixer_, pluginScanner_, stripId, oldUid, pluginUid,
           [this]() { pushMixerState(); });
       undoManager_.perform(std::move(action));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setStripProgram", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-    if (args.size() < 2)
-      return;
-    juce::String stripId = args[0].toString();
-    int progIndex = (int)args[1];
-    safeCallAsync([this, stripId, progIndex]() {
-      if (auto *strip = mixer_.getStrip(stripId)) {
-        if (strip->setPluginProgram(progIndex)) {
-          pushMixerState();
-        }
-      }
     });
     return;
   });
@@ -3387,74 +3211,6 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
-  jsRouter_.registerHandler("setGroupGainDelta", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    // args[0] = JSON array of strip IDs, args[1] = delta dB
-    if (args.size() < 2) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    float delta = static_cast<float>((double)args[1]);
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar, delta]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (auto *s = mixer_.getStrip(sid)) {
-          float old = s->gainDb();
-          float nw = juce::jlimit(-120.0f, 6.0f, old + delta);
-          subs.push_back(std::make_unique<SetGainAction>(mixer_, sid, old, nw));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group gain delta", std::move(subs), "group-gain"));
-        pushMixerState();
-      }
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setGroupGainAbsolute", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    float gainDb =
-        juce::jlimit(-120.0f, 6.0f, static_cast<float>((double)args[1]));
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar, gainDb]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (auto *s = mixer_.getStrip(sid)) {
-          float old = s->gainDb();
-          subs.push_back(
-              std::make_unique<SetGainAction>(mixer_, sid, old, gainDb));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group gain absolute", std::move(subs)));
-        pushMixerState();
-      }
-    });
-    return;
-  });
   jsRouter_.registerHandler("setGroupPlugin", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -3484,38 +3240,6 @@ void MainComponent::setupJsHandlers() {
       if (!subs.empty()) {
         undoManager_.perform(std::make_unique<CompoundAction>(
             "Group set plugin", std::move(subs)));
-      }
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setGroupLibrary", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    juce::String lib = args[1].toString();
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar, lib]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (auto *s = mixer_.getStrip(sid)) {
-          subs.push_back(
-              std::make_unique<SetLibraryAction>(mixer_, sid, s->library, lib));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group set library", std::move(subs)));
-        pushMixerState();
       }
     });
     return;
@@ -3555,36 +3279,6 @@ void MainComponent::setupJsHandlers() {
       if (!subs.empty()) {
         undoManager_.perform(std::make_unique<CompoundAction>(
             "Group set expression map", std::move(subs)));
-        pushMixerState();
-      }
-    });
-    return;
-  });
-  jsRouter_.registerHandler("removeGroupStrips", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (mixer_.getStrip(sid)) {
-          subs.push_back(std::make_unique<RemoveStripAction>(mixer_, sid));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group remove strips", std::move(subs)));
         pushMixerState();
       }
     });

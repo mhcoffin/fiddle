@@ -118,6 +118,11 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/MainComponent.cpp
+    Source/Server/MixerCommandService.cpp
+    Source/Server/MixerCommandService.h
+    Source/Server/MixerCommands.h
+    Source/Server/MixerJsHandlers.cpp
+    Source/Server/MixerJsHandlers.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/RealtimeMidiScheduler.cpp
@@ -416,6 +421,26 @@ target_include_directories(GainMathTest PRIVATE
 target_compile_features(GainMathTest PRIVATE cxx_std_17)
 add_test(NAME gain_math COMMAND GainMathTest)
 set_tests_properties(gain_math PROPERTIES LABELS stable)
+
+# ==============================================================================
+# MixerJsHandlersTest — typed mixer command routing and payload validation
+# ==============================================================================
+add_executable(MixerJsHandlersTest
+    Source/Server/tests/MixerJsHandlersTest.cpp
+    Source/Server/MixerJsHandlers.cpp
+)
+
+target_include_directories(MixerJsHandlersTest PRIVATE
+    Source/Server
+)
+
+target_link_libraries(MixerJsHandlersTest PRIVATE juce::juce_core)
+target_compile_features(MixerJsHandlersTest PRIVATE cxx_std_17)
+
+add_test(NAME mixer_js_handlers COMMAND MixerJsHandlersTest)
+set_tests_properties(mixer_js_handlers PROPERTIES
+    LABELS "mixer;regression;stable"
+)
 
 # ==============================================================================
 # HarmonicAnalyzerTest — test executable for HMM harmonic analysis engine

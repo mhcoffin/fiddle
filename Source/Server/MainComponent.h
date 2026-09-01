@@ -30,6 +30,9 @@
 
 namespace fiddle {
 
+class MixerCommandService;
+class MixerJsHandlers;
+
 class MainComponent : public juce::Component,
                       private juce::Timer,
                       public juce::AudioIODeviceCallback {
@@ -107,6 +110,8 @@ private:
   MixerModel mixer_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
+  std::unique_ptr<MixerCommandService> mixerCommandService_;
+  std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
   FiddleDatabase db_;
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
