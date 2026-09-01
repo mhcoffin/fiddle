@@ -118,7 +118,11 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/MainComponent.cpp
+    Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
+    Source/Server/RealtimeMidiScheduler.cpp
+    Source/Server/RealtimeMidiScheduler.h
+    Source/RealtimeObjectPublisher.h
     Source/Server/MainComponent.h
     Source/Server/WebViewBridge.cpp
     Source/Server/WebViewBridge.h
@@ -509,6 +513,26 @@ target_compile_features(RealtimeQueueTest PRIVATE cxx_std_17)
 
 add_test(NAME realtime_queues COMMAND RealtimeQueueTest)
 set_tests_properties(realtime_queues PROPERTIES
+    LABELS "realtime;regression;stable"
+)
+
+# ==============================================================================
+# RealtimeMidiSchedulerTest — block timing, clear, and panic semantics
+# ==============================================================================
+add_executable(RealtimeMidiSchedulerTest
+    Source/Server/tests/RealtimeMidiSchedulerTest.cpp
+    Source/Server/RealtimeMidiScheduler.cpp
+)
+
+target_include_directories(RealtimeMidiSchedulerTest PRIVATE
+    Source
+    Source/Server
+)
+target_link_libraries(RealtimeMidiSchedulerTest PRIVATE juce::juce_audio_basics)
+target_compile_features(RealtimeMidiSchedulerTest PRIVATE cxx_std_17)
+
+add_test(NAME realtime_midi_scheduler COMMAND RealtimeMidiSchedulerTest)
+set_tests_properties(realtime_midi_scheduler PROPERTIES
     LABELS "realtime;regression;stable"
 )
 

@@ -56,21 +56,22 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   // Strip identity = (inputPort, inputChannel, libraryId).
   // libraryId defaults to kDefaultLibraryId until MixerStrip carries it.
   for (auto *strip : strips) {
+    const auto realtime = strip->realtimeState();
     versioning::StripBlob sb;
     sb.libraryId = versioning::kDefaultLibraryId;
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
-    sb.active = strip->active;
-    sb.inputPort = strip->inputPort;
-    sb.inputChannel = strip->inputChannel;
+    sb.active = realtime.active;
+    sb.inputPort = realtime.inputPort;
+    sb.inputChannel = realtime.inputChannel;
     sb.pluginUid = strip->pluginUid;
-    sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
+    sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
-    const auto &cached = strip->cachedPluginState_;
+    const auto &cached = strip->cachedPluginState();
     if (cached.getSize() > 0) {
       const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
       sb.pluginState.assign(data, data + cached.getSize());
@@ -121,20 +122,18 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   blob.append(&stripCount, 4);
 
   for (auto *strip : strips) {
+    const auto realtime = strip->realtimeState();
     // Build strip JSON
     auto *obj = new juce::DynamicObject();
     obj->setProperty("id", strip->id);
     obj->setProperty("library", strip->library);
     obj->setProperty("family", strip->family);
     obj->setProperty("isSolo", strip->isSolo);
-    obj->setProperty("active", strip->active.load(std::memory_order_relaxed));
-    obj->setProperty("inputPort",
-                     strip->inputPort.load(std::memory_order_relaxed));
-    obj->setProperty("inputChannel",
-                     strip->inputChannel.load(std::memory_order_relaxed));
+    obj->setProperty("active", realtime.active);
+    obj->setProperty("inputPort", realtime.inputPort);
+    obj->setProperty("inputChannel", realtime.inputChannel);
     obj->setProperty("pluginUid", strip->pluginUid);
-    obj->setProperty("gainDb",
-                     (double)strip->gainDb.load(std::memory_order_relaxed));
+    obj->setProperty("gainDb", (double)realtime.gainDb);
     obj->setProperty("expressionMap",
                      strip->expressionMap
                          ? juce::String(strip->expressionMap->entityID)
@@ -153,7 +152,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     blob.append(jsonUtf8.data(), jsonLen);
 
     // Plugin BLOB — use cached state (updated on load/change detection)
-    const auto &cached = strip->cachedPluginState_;
+    const auto &cached = strip->cachedPluginState();
     uint32_t blobSize = (uint32_t)cached.getSize();
     blob.append(&blobSize, 4);
     if (blobSize > 0)
@@ -181,21 +180,22 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
   auto strips = mixer.getAllStrips();
 
   for (auto *strip : strips) {
+    const auto realtime = strip->realtimeState();
     versioning::StripBlob sb;
     sb.libraryId = versioning::kDefaultLibraryId;
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
-    sb.active = strip->active;
-    sb.inputPort = strip->inputPort;
-    sb.inputChannel = strip->inputChannel;
+    sb.active = realtime.active;
+    sb.inputPort = realtime.inputPort;
+    sb.inputChannel = realtime.inputChannel;
     sb.pluginUid = strip->pluginUid;
-    sb.gainDb = strip->gainDb.load(std::memory_order_relaxed);
+    sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
-    const auto &cached = strip->cachedPluginState_;
+    const auto &cached = strip->cachedPluginState();
     if (cached.getSize() > 0) {
       const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
       sb.pluginState.assign(data, data + cached.getSize());

@@ -1,10 +1,12 @@
 #include "RealtimeMpscQueue.h"
+#include "RealtimeObjectPublisher.h"
 #include "RealtimeReadGuard.h"
 #include "RealtimeSpscQueue.h"
 
 #include <atomic>
 #include <cstdint>
 #include <iostream>
+#include <memory>
 #include <thread>
 #include <vector>
 
@@ -19,8 +21,8 @@ int failed = 0;
       ++passed;                                                                \
     else {                                                                     \
       ++failed;                                                                \
-      std::cerr << "FAIL [" << __FILE__ << ':' << __LINE__ << "]: "          \
-                << #condition << std::endl;                                    \
+      std::cerr << "FAIL [" << __FILE__ << ':' << __LINE__                     \
+                << "]: " << #condition << std::endl;                           \
     }                                                                          \
   } while (false)
 
@@ -77,6 +79,65 @@ void testPublishedPointerReaderLifetime() {
   CHECK(nextRead.get() == &newValue);
 }
 
+struct MockRuntime {
+  explicit MockRuntime(int runtimeId) : id(runtimeId) {}
+  ~MockRuntime() { ++destroyed; }
+
+  int id = 0;
+  static inline int destroyed = 0;
+};
+
+void testRuntimeReplacementWaitsForReaders() {
+  MockRuntime::destroyed = 0;
+  fiddle::RealtimeObjectPublisher<MockRuntime> publisher;
+  publisher.publish(std::make_unique<MockRuntime>(1));
+
+  {
+    auto reader = publisher.read();
+    CHECK(reader.get() != nullptr && reader.get()->id == 1);
+    publisher.publish(std::make_unique<MockRuntime>(2));
+    CHECK(!publisher.reclaimRetired());
+    CHECK(MockRuntime::destroyed == 0);
+    CHECK(reader.get()->id == 1);
+  }
+
+  CHECK(publisher.reclaimRetired());
+  CHECK(MockRuntime::destroyed == 1);
+  auto nextReader = publisher.read();
+  CHECK(nextReader.get() != nullptr && nextReader.get()->id == 2);
+}
+
+void testGraphReclamationIncludesDependentProcessors() {
+  struct MockGraph {
+    int generation = 0;
+  };
+
+  MockRuntime::destroyed = 0;
+  fiddle::RealtimeObjectPublisher<MockGraph> graphs;
+  std::vector<std::unique_ptr<MockRuntime>> retiredProcessors;
+  graphs.publish(std::make_unique<MockGraph>(MockGraph{1}));
+
+  {
+    auto audioRead = graphs.read();
+    CHECK(audioRead.get() != nullptr && audioRead.get()->generation == 1);
+    graphs.publish(std::make_unique<MockGraph>(MockGraph{2}));
+    retiredProcessors.push_back(std::make_unique<MockRuntime>(10));
+
+    std::vector<std::unique_ptr<MockRuntime>> reclaimable;
+    CHECK(!graphs.reclaimRetiredWith(
+        [&] { reclaimable.swap(retiredProcessors); }, [](MockGraph &) {}));
+    CHECK(reclaimable.empty());
+    CHECK(MockRuntime::destroyed == 0);
+  }
+
+  std::vector<std::unique_ptr<MockRuntime>> reclaimable;
+  CHECK(graphs.reclaimRetiredWith([&] { reclaimable.swap(retiredProcessors); },
+                                  [](MockGraph &) {}));
+  CHECK(reclaimable.size() == 1);
+  reclaimable.clear();
+  CHECK(MockRuntime::destroyed == 1);
+}
+
 void testConcurrentMpscDelivery() {
   constexpr int producerCount = 4;
   constexpr int valuesPerProducer = 20000;
@@ -87,8 +148,8 @@ void testConcurrentMpscDelivery() {
   for (int producer = 0; producer < producerCount; ++producer) {
     producers.emplace_back([producer, &queue, &producersFinished] {
       for (int sequence = 0; sequence < valuesPerProducer; ++sequence) {
-        const uint32_t value = static_cast<uint32_t>(
-            producer * valuesPerProducer + sequence);
+        const uint32_t value =
+            static_cast<uint32_t>(producer * valuesPerProducer + sequence);
         while (!queue.tryPush(value))
           std::this_thread::yield();
       }
@@ -126,6 +187,8 @@ int main() {
   testSpscCapacityAndOrder();
   testMpscCapacityAndOrder();
   testPublishedPointerReaderLifetime();
+  testRuntimeReplacementWaitsForReaders();
+  testGraphReclamationIncludesDependentProcessors();
   testConcurrentMpscDelivery();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';

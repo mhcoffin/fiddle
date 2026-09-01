@@ -15,12 +15,15 @@ public:
   RealtimeReadGuard(const std::atomic<T *> &published,
                     std::atomic<uint32_t> &readers) noexcept
       : readers_(readers) {
-    readers_.fetch_add(1, std::memory_order_acquire);
-    value_ = published.load(std::memory_order_acquire);
+    // These operations participate in one global order with publication and
+    // reclamation. If a writer observes zero readers, any reader that starts
+    // later must observe the newly published pointer rather than a retired one.
+    readers_.fetch_add(1, std::memory_order_seq_cst);
+    value_ = published.load(std::memory_order_seq_cst);
   }
 
   ~RealtimeReadGuard() {
-    readers_.fetch_sub(1, std::memory_order_release);
+    readers_.fetch_sub(1, std::memory_order_seq_cst);
   }
 
   RealtimeReadGuard(const RealtimeReadGuard &) = delete;

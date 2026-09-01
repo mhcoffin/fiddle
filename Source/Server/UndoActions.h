@@ -45,14 +45,12 @@ public:
 
   void execute() override {
     if (auto *s = mixer_.getStrip(stripId_)) {
-      s->inputPort = newPort_;
-      s->inputChannel = newCh_;
+      s->setInputAssignment(newPort_, newCh_);
     }
   }
   void undo() override {
     if (auto *s = mixer_.getStrip(stripId_)) {
-      s->inputPort = oldPort_;
-      s->inputChannel = oldCh_;
+      s->setInputAssignment(oldPort_, oldCh_);
     }
   }
   juce::String getDescription() const override {
@@ -76,11 +74,11 @@ public:
 
   void execute() override {
     if (auto *s = mixer_.getStrip(stripId_))
-      s->gainDb.store(newGain_, std::memory_order_relaxed);
+      s->setGainDb(newGain_);
   }
   void undo() override {
     if (auto *s = mixer_.getStrip(stripId_))
-      s->gainDb.store(oldGain_, std::memory_order_relaxed);
+      s->setGainDb(oldGain_);
   }
   juce::String getDescription() const override {
     return "Set gain to " + juce::String(newGain_, 1) + " dB";
@@ -255,11 +253,9 @@ public:
       strip->id = createdId_;
       // Copy source properties
       if (auto *src = mixer_.getStrip(sourceStripId_)) {
-        strip->inputPort.store(src->inputPort.load(std::memory_order_relaxed),
-                               std::memory_order_relaxed);
-        strip->inputChannel.store(
-            src->inputChannel.load(std::memory_order_relaxed),
-            std::memory_order_relaxed);
+        const auto sourceState = src->realtimeState();
+        strip->setInputAssignment(sourceState.inputPort,
+                                  sourceState.inputChannel);
         strip->family = src->family;
         strip->isSolo = src->isSolo;
       }
@@ -286,20 +282,20 @@ public:
     // Capture old active state for every strip in this library
     for (auto *s : mixer_.getAllStrips()) {
       if (s->library == libraryName_)
-        oldStates_.push_back({s->id, s->active});
+        oldStates_.push_back({s->id, s->isActive()});
     }
   }
 
   void execute() override {
     for (auto *s : mixer_.getAllStrips()) {
       if (s->library == libraryName_)
-        s->active = newState_;
+        s->setActive(newState_);
     }
   }
   void undo() override {
     for (const auto &[id, was] : oldStates_) {
       if (auto *s = mixer_.getStrip(id))
-        s->active = was;
+        s->setActive(was);
     }
   }
   juce::String getDescription() const override {

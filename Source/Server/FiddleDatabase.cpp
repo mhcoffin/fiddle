@@ -529,6 +529,8 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
   if (!stmtSaveStrip_)
     return;
 
+  const auto realtime = strip.realtimeState();
+
   sqlite3_reset(stmtSaveStrip_);
   sqlite3_bind_text(stmtSaveStrip_, 1, strip.id.toRawUTF8(), -1,
                     SQLITE_TRANSIENT);
@@ -538,15 +540,14 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
   sqlite3_bind_text(stmtSaveStrip_, 4, strip.family.toRawUTF8(), -1,
                     SQLITE_TRANSIENT);
   sqlite3_bind_int(stmtSaveStrip_, 5, strip.isSolo ? 1 : 0);
-  sqlite3_bind_int(stmtSaveStrip_, 6, strip.inputPort);
-  sqlite3_bind_int(stmtSaveStrip_, 7, strip.inputChannel);
+  sqlite3_bind_int(stmtSaveStrip_, 6, realtime.inputPort);
+  sqlite3_bind_int(stmtSaveStrip_, 7, realtime.inputChannel);
   sqlite3_bind_int(stmtSaveStrip_, 8, strip.pluginUid);
-  sqlite3_bind_double(stmtSaveStrip_, 9,
-                      strip.gainDb.load(std::memory_order_relaxed));
+  sqlite3_bind_double(stmtSaveStrip_, 9, realtime.gainDb);
 
   std::string xmapId = strip.expressionMap ? strip.expressionMap->entityID : "";
   sqlite3_bind_text(stmtSaveStrip_, 10, xmapId.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmtSaveStrip_, 11, strip.active ? 1 : 0);
+  sqlite3_bind_int(stmtSaveStrip_, 11, realtime.active ? 1 : 0);
 
   // Serialize Lua plugin filenames as comma-separated list
   auto luaNames = strip.getLuaPluginFileNames();
@@ -1519,4 +1520,3 @@ std::vector<LibraryInstrumentRow> FiddleDatabase::loadAllLibraryInstruments() {
 }
 
 } // namespace fiddle
-

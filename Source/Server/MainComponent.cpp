@@ -726,11 +726,10 @@ void MainComponent::initMidiServer() {
                 strip->library = rs.library;
                 strip->family = rs.family;
                 strip->isSolo = rs.isSolo;
-                strip->active = rs.active;
-                strip->inputPort = rs.inputPort;
-                strip->inputChannel = rs.inputChannel;
+                strip->setActive(rs.active);
+                strip->setInputAssignment(rs.inputPort, rs.inputChannel);
                 strip->pluginUid = rs.pluginUid;
-                strip->gainDb.store(rs.gainDb, std::memory_order_relaxed);
+                strip->setGainDb(rs.gainDb);
                 setupStripListener(*strip);
 
                 // Restore expression map
@@ -749,13 +748,10 @@ void MainComponent::initMidiServer() {
                       strip->loadPlugin(
                           d, mixer_.getFormatManager(),
                           [strip, stateBlock](bool success) {
-                            if (success && stateBlock.getSize() > 0 &&
-                                strip->pluginInstance) {
-                              strip->pluginInstance->setStateInformation(
+                            if (success)
+                              strip->applyPluginState(
                                   stateBlock.getData(),
                                   (int)stateBlock.getSize());
-                              strip->refreshPluginStateCache();
-                            }
                           });
                       break;
                     }
@@ -1155,9 +1151,8 @@ void MainComponent::saveAllStripsToDB() {
   for (int i = 0; i < (int)strips.size(); ++i) {
     db_.saveStrip(*strips[i], i);
     // Also save plugin BLOB if loaded
-    if (strips[i]->pluginInstance) {
-      juce::MemoryBlock block;
-      strips[i]->pluginInstance->getStateInformation(block);
+    juce::MemoryBlock block;
+    if (strips[i]->capturePluginState(block)) {
       if (block.getSize() > 0) {
         db_.savePluginBlob(strips[i]->id, block);
       }
@@ -1222,7 +1217,7 @@ void MainComponent::setupStripListener(MixerStrip &strip) {
 void MainComponent::pollPluginStateChanges() {
   auto strips = mixer_.getAllStrips();
   for (auto *strip : strips) {
-    if (!strip->pluginInstance)
+    if (!strip->hasPlugin())
       continue;
 
     // Skip plugins known to fire listener callbacks
@@ -1232,7 +1227,7 @@ void MainComponent::pollPluginStateChanges() {
 
     // Hash the plugin's serialized state (FNV-1a)
     juce::MemoryBlock block;
-    strip->pluginInstance->getStateInformation(block);
+    strip->capturePluginState(block);
     uint64_t hash = 14695981039346656037ULL; // FNV offset basis
     auto *data = static_cast<const uint8_t *>(block.getData());
     for (size_t i = 0; i < block.getSize(); ++i) {
@@ -1299,10 +1294,9 @@ void MainComponent::loadStripsFromDB() {
       strip->library = row.library;
       strip->family = row.family;
       strip->isSolo = row.isSolo;
-      strip->active = row.active;
-      strip->inputPort = row.inputPort;
-      strip->inputChannel = row.inputChannel;
-      strip->gainDb.store(row.gainDb, std::memory_order_relaxed);
+      strip->setActive(row.active);
+      strip->setInputAssignment(row.inputPort, row.inputChannel);
+      strip->setGainDb(row.gainDb);
 
       // Wire up plugin change listener for dirty detection
       setupStripListener(*strip);
@@ -1324,13 +1318,10 @@ void MainComponent::loadStripsFromDB() {
             auto stateBlock = row.pluginState;
             strip->loadPlugin(d, mixer_.getFormatManager(),
                               [strip, stateBlock](bool success) {
-                                if (success && stateBlock.getSize() > 0 &&
-                                    strip->pluginInstance) {
-                                  strip->pluginInstance->setStateInformation(
+                                if (success)
+                                  strip->applyPluginState(
                                       stateBlock.getData(),
                                       (int)stateBlock.getSize());
-                                  strip->refreshPluginStateCache();
-                                }
                               });
             break;
           }
@@ -2246,8 +2237,9 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this, stripId, port, channel]() {
       int oldPort = -1, oldCh = -1;
       if (auto *s = mixer_.getStrip(stripId)) {
-        oldPort = s->inputPort;
-        oldCh = s->inputChannel;
+        const auto state = s->realtimeState();
+        oldPort = state.inputPort;
+        oldCh = state.inputChannel;
       }
       auto action = std::make_unique<SetInputAction>(mixer_, stripId, oldPort,
                                                      oldCh, port, channel);
@@ -2270,7 +2262,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this, stripId, gainDb]() {
       float oldGain = 0.0f;
       if (auto *s = mixer_.getStrip(stripId))
-        oldGain = s->gainDb.load(std::memory_order_relaxed);
+        oldGain = s->gainDb();
       auto action =
           std::make_unique<SetGainAction>(mixer_, stripId, oldGain, gainDb);
       undoManager_.perform(std::move(action));
@@ -2324,7 +2316,7 @@ void MainComponent::setupJsHandlers() {
       bool allActive = true;
       auto strips = mixer_.getAllStrips();
       for (auto *s : strips) {
-        if (s->library == libraryName && !s->active) {
+        if (s->library == libraryName && !s->isActive()) {
           allActive = false;
           break;
         }
@@ -2470,9 +2462,9 @@ void MainComponent::setupJsHandlers() {
             "name", strip->library.isNotEmpty()
                         ? strip->library + " (" + strip->family + ")"
                         : strip->id);
-        obj->setProperty("port", strip->inputPort + 1); // 1-based for Dorico
-        obj->setProperty(
-            "channel", strip->inputChannel.load(std::memory_order_relaxed));
+        const auto state = strip->realtimeState();
+        obj->setProperty("port", state.inputPort + 1); // 1-based for Dorico
+        obj->setProperty("channel", state.inputChannel);
         arr.add(juce::var(obj));
       }
       broadcastMessage("setCaptureStripList", juce::var(arr));
@@ -2619,9 +2611,7 @@ void MainComponent::setupJsHandlers() {
     int progIndex = (int)args[1];
     safeCallAsync([this, stripId, progIndex]() {
       if (auto *strip = mixer_.getStrip(stripId)) {
-        if (strip->pluginInstance != nullptr) {
-          strip->pluginInstance->setCurrentProgram(progIndex);
-          strip->refreshPluginStateCache();
+        if (strip->setPluginProgram(progIndex)) {
           pushMixerState();
         }
       }
@@ -2658,7 +2648,7 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this, stripId, libraryId, entityId, instanceNum]() {
       auto *strip = mixer_.getStrip(stripId);
-      if (!strip || !strip->pluginInstance) {
+      if (!strip || !strip->hasPlugin()) {
         std::cerr << "[restoreLibraryPluginState] No strip/plugin for "
                   << stripId << std::endl;
         return;
@@ -2676,10 +2666,9 @@ void MainComponent::setupJsHandlers() {
           std::cerr << "[restoreLibraryPluginState] Found entity+instance, blobSize="
                     << inst.pluginState.getSize() << std::endl;
           if (inst.pluginState.getSize() > 0) {
-            strip->pluginInstance->setStateInformation(
+            strip->applyPluginState(
                 inst.pluginState.getData(),
                 static_cast<int>(inst.pluginState.getSize()));
-            strip->refreshPluginStateCache();
             std::cerr << "[restoreLibraryPluginState] Restored "
                       << inst.pluginState.getSize() << " bytes for strip "
                       << stripId << std::endl;
@@ -2854,7 +2843,7 @@ void MainComponent::setupJsHandlers() {
             if (auto *strip = mixer_.getStrip(stripId)) {
               inst.pluginUid = strip->pluginUid;
               strip->refreshPluginStateCache();
-              inst.pluginState = strip->cachedPluginState_;
+              inst.pluginState = strip->cachedPluginState();
             }
           }
           // Ensure pluginUid is populated from the vstPlugin string
@@ -3105,7 +3094,7 @@ void MainComponent::setupJsHandlers() {
       //    "previously active" and should remain active after rebuild.
       std::set<juce::String> previouslyActiveLibs;
       for (auto *s : mixer_.getAllStrips()) {
-        if (s->active && s->library.isNotEmpty())
+        if (s->isActive() && s->library.isNotEmpty())
           previouslyActiveLibs.insert(s->library);
       }
 
@@ -3132,7 +3121,7 @@ void MainComponent::setupJsHandlers() {
             auto *baseStrip = [&]() -> MixerStrip * {
               auto strips = mixer_.getAllStrips();
               for (auto *s : strips) {
-                if (s->inputPort == port && s->inputChannel == ch &&
+                if (s->matchesInput(port, ch) &&
                     s->library.isEmpty())
                   return s;
               }
@@ -3157,7 +3146,8 @@ void MainComponent::setupJsHandlers() {
               strip->library = libNames[libId];
               // Preserve activation for previously-active libraries;
               // new libraries default to inactive.
-              strip->active = previouslyActiveLibs.count(libNames[libId]) > 0;
+              strip->setActive(previouslyActiveLibs.count(libNames[libId]) >
+                               0);
 
               if (inst.exprMap.isNotEmpty()) {
                 auto xmapData = xmapLibrary_.load(
@@ -3182,13 +3172,10 @@ void MainComponent::setupJsHandlers() {
                     strip->loadPlugin(
                         d, mixer_.getFormatManager(),
                         [strip, stateBlock](bool success) {
-                          if (success && stateBlock.getSize() > 0 &&
-                              strip->pluginInstance) {
-                            strip->pluginInstance->setStateInformation(
+                          if (success)
+                            strip->applyPluginState(
                                 stateBlock.getData(),
                                 (int)stateBlock.getSize());
-                            strip->refreshPluginStateCache();
-                          }
                         });
                     break;
                   }
@@ -3222,8 +3209,7 @@ void MainComponent::setupJsHandlers() {
                 // the same input
                 auto newStrip = std::make_unique<MixerStrip>();
                 newStrip->id = juce::Uuid().toString();
-                newStrip->inputPort = port;
-                newStrip->inputChannel = ch;
+                newStrip->setInputAssignment(port, ch);
                 newStrip->family = baseStrip ? baseStrip->family : "";
                 newStrip->isSolo = isSolo;
                 auto *rawPtr = newStrip.get();
@@ -3422,7 +3408,7 @@ void MainComponent::setupJsHandlers() {
       for (auto &idVar : *arr) {
         juce::String sid = idVar.toString();
         if (auto *s = mixer_.getStrip(sid)) {
-          float old = s->gainDb.load(std::memory_order_relaxed);
+          float old = s->gainDb();
           float nw = juce::jlimit(-120.0f, 6.0f, old + delta);
           subs.push_back(std::make_unique<SetGainAction>(mixer_, sid, old, nw));
         }
@@ -3456,7 +3442,7 @@ void MainComponent::setupJsHandlers() {
       for (auto &idVar : *arr) {
         juce::String sid = idVar.toString();
         if (auto *s = mixer_.getStrip(sid)) {
-          float old = s->gainDb.load(std::memory_order_relaxed);
+          float old = s->gainDb();
           subs.push_back(
               std::make_unique<SetGainAction>(mixer_, sid, old, gainDb));
         }
@@ -3693,11 +3679,10 @@ void MainComponent::setupJsHandlers() {
                     strip->library = blobOpt->library;
                     strip->family = blobOpt->family;
                     strip->isSolo = blobOpt->isSolo;
-                    strip->inputPort = blobOpt->inputPort;
-                    strip->inputChannel = blobOpt->inputChannel;
+                    strip->setInputAssignment(blobOpt->inputPort,
+                                              blobOpt->inputChannel);
                     strip->pluginUid = blobOpt->pluginUid;
-                    strip->gainDb.store(blobOpt->gainDb,
-                                        std::memory_order_relaxed);
+                    strip->setGainDb(blobOpt->gainDb);
                     setupStripListener(*strip);
                     if (!blobOpt->expressionMapEntityId.empty()) {
                       auto xd =
@@ -3714,10 +3699,9 @@ void MainComponent::setupJsHandlers() {
                           strip->loadPlugin(
                               d, mixer_.getFormatManager(),
                               [strip, sb](bool ok) {
-                                if (ok && sb.getSize() > 0 &&
-                                    strip->pluginInstance)
-                                  strip->pluginInstance->setStateInformation(
-                                      sb.getData(), (int)sb.getSize());
+                                if (ok)
+                                  strip->applyPluginState(sb.getData(),
+                                                          (int)sb.getSize());
                               });
                           break;
                         }
@@ -3771,11 +3755,10 @@ void MainComponent::setupJsHandlers() {
                     strip->library = blobOpt->library;
                     strip->family = blobOpt->family;
                     strip->isSolo = blobOpt->isSolo;
-                    strip->inputPort = blobOpt->inputPort;
-                    strip->inputChannel = blobOpt->inputChannel;
+                    strip->setInputAssignment(blobOpt->inputPort,
+                                              blobOpt->inputChannel);
                     strip->pluginUid = blobOpt->pluginUid;
-                    strip->gainDb.store(blobOpt->gainDb,
-                                        std::memory_order_relaxed);
+                    strip->setGainDb(blobOpt->gainDb);
 
                     std::cerr << "[checkoutBranch] Loaded strip " << strip->id
                               << " gainDb=" << blobOpt->gainDb << " db"
@@ -3800,13 +3783,10 @@ void MainComponent::setupJsHandlers() {
                           strip->loadPlugin(
                               d, mixer_.getFormatManager(),
                               [strip, stateBlock](bool success) {
-                                if (success && stateBlock.getSize() > 0 &&
-                                    strip->pluginInstance) {
-                                  strip->pluginInstance->setStateInformation(
+                                if (success)
+                                  strip->applyPluginState(
                                       stateBlock.getData(),
                                       (int)stateBlock.getSize());
-                                  strip->refreshPluginStateCache();
-                                }
                               });
                           break;
                         }
@@ -3894,11 +3874,11 @@ void MainComponent::setupJsHandlers() {
               strip->library = blobOpt->library;
               strip->family = blobOpt->family;
               strip->isSolo = blobOpt->isSolo;
-              strip->active = blobOpt->active;
-              strip->inputPort = blobOpt->inputPort;
-              strip->inputChannel = blobOpt->inputChannel;
+              strip->setActive(blobOpt->active);
+              strip->setInputAssignment(blobOpt->inputPort,
+                                        blobOpt->inputChannel);
               strip->pluginUid = blobOpt->pluginUid;
-              strip->gainDb.store(blobOpt->gainDb, std::memory_order_relaxed);
+              strip->setGainDb(blobOpt->gainDb);
               setupStripListener(*strip);
               if (!blobOpt->expressionMapEntityId.empty()) {
                 auto xd = xmapLibrary_.load(blobOpt->expressionMapEntityId);
@@ -3913,9 +3893,9 @@ void MainComponent::setupJsHandlers() {
                                          blobOpt->pluginState.size());
                     strip->loadPlugin(
                         d, mixer_.getFormatManager(), [strip, sb](bool ok) {
-                          if (ok && sb.getSize() > 0 && strip->pluginInstance)
-                            strip->pluginInstance->setStateInformation(
-                                sb.getData(), (int)sb.getSize());
+                          if (ok)
+                            strip->applyPluginState(sb.getData(),
+                                                    (int)sb.getSize());
                         });
                     break;
                   }
@@ -3974,11 +3954,10 @@ void MainComponent::setupJsHandlers() {
                       strip->library = blobOpt->library;
                       strip->family = blobOpt->family;
                       strip->isSolo = blobOpt->isSolo;
-                      strip->inputPort = blobOpt->inputPort;
-                      strip->inputChannel = blobOpt->inputChannel;
+                      strip->setInputAssignment(blobOpt->inputPort,
+                                                blobOpt->inputChannel);
                       strip->pluginUid = blobOpt->pluginUid;
-                      strip->gainDb.store(blobOpt->gainDb,
-                                          std::memory_order_relaxed);
+                      strip->setGainDb(blobOpt->gainDb);
                       setupStripListener(*strip);
                       if (!blobOpt->expressionMapEntityId.empty()) {
                         auto xd =
@@ -3995,9 +3974,8 @@ void MainComponent::setupJsHandlers() {
                             strip->loadPlugin(
                                 d, mixer_.getFormatManager(),
                                 [strip, sb](bool ok) {
-                                  if (ok && sb.getSize() > 0 &&
-                                      strip->pluginInstance)
-                                    strip->pluginInstance->setStateInformation(
+                                  if (ok)
+                                    strip->applyPluginState(
                                         sb.getData(), (int)sb.getSize());
                                 });
                             break;
