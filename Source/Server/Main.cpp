@@ -1,3 +1,4 @@
+#include "ApplicationRestart.h"
 #include "MainComponent.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
@@ -8,6 +9,9 @@ namespace fiddle {
 class FiddleServerApplication : public juce::JUCEApplication,
                                 public juce::MenuBarModel {
 public:
+  static constexpr int kSaveMenuItemId = 3;
+  static constexpr int kRestartMenuItemId = 20;
+
   FiddleServerApplication() {}
 
   const juce::String getApplicationName() override { return "FiddleServer"; }
@@ -74,7 +78,8 @@ public:
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
 
 #if JUCE_MAC
-    juce::MenuBarModel::setMacMainMenu(this);
+    applicationMenu_.addItem(kRestartMenuItemId, "Restart FiddleServer");
+    juce::MenuBarModel::setMacMainMenu(this, &applicationMenu_);
 #endif
   }
 
@@ -97,7 +102,7 @@ public:
                                   const juce::String &menuName) override {
     juce::PopupMenu menu;
     if (menuIndex == 0) {
-      menu.addItem(3, "Save  (Cmd+S)");
+      menu.addItem(kSaveMenuItemId, "Save  (Cmd+S)");
     } else if (menuIndex == 1) {
       // View menu
       bool debugVisible = false;
@@ -122,8 +127,10 @@ public:
   }
 
   void menuItemSelected(int menuItemID, int topLevelMenuIndex) override {
-    if (menuItemID == 3) {
+    if (menuItemID == kSaveMenuItemId) {
       saveCurrentState();
+    } else if (menuItemID == kRestartMenuItemId) {
+      restartApplication();
     } else if (menuItemID == 10) {
       // Toggle debug window
       if (mainWindow) {
@@ -161,8 +168,27 @@ public:
     }
   }
 
+  void restartApplication() {
+    if (restartPending_)
+      return;
+
+    const auto executable = juce::File::getSpecialLocation(
+        juce::File::currentExecutableFile);
+    if (!application_restart::schedule(executable)) {
+      juce::AlertWindow::showMessageBoxAsync(
+          juce::MessageBoxIconType::WarningIcon, "Unable to Restart",
+          "FiddleServer could not schedule its replacement process.");
+      return;
+    }
+
+    restartPending_ = true;
+    quit();
+  }
+
 private:
+  juce::PopupMenu applicationMenu_;
   std::unique_ptr<MainWindow> mainWindow;
+  bool restartPending_ = false;
 };
 
 } // namespace fiddle

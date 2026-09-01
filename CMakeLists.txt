@@ -117,6 +117,8 @@ juce_add_gui_app(FiddleServer
 
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
+    Source/Server/ApplicationRestart.cpp
+    Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
     Source/Server/MixerCommandService.cpp
     Source/Server/MixerCommandService.h
@@ -465,6 +467,26 @@ target_compile_features(PluginJsHandlersTest PRIVATE cxx_std_17)
 add_test(NAME plugin_js_handlers COMMAND PluginJsHandlersTest)
 set_tests_properties(plugin_js_handlers PROPERTIES
     LABELS "plugin;regression;stable"
+)
+
+# ==============================================================================
+# ApplicationRestartTest — app-bundle discovery and safe helper invocation
+# ==============================================================================
+add_executable(ApplicationRestartTest
+    Source/Server/tests/ApplicationRestartTest.cpp
+    Source/Server/ApplicationRestart.cpp
+)
+
+target_include_directories(ApplicationRestartTest PRIVATE
+    Source/Server
+)
+
+target_link_libraries(ApplicationRestartTest PRIVATE juce::juce_core)
+target_compile_features(ApplicationRestartTest PRIVATE cxx_std_17)
+
+add_test(NAME application_restart COMMAND ApplicationRestartTest)
+set_tests_properties(application_restart PROPERTIES
+    LABELS "application;regression;stable"
 )
 
 find_program(NODE_EXECUTABLE node)
