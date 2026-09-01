@@ -123,6 +123,11 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MixerCommands.h
     Source/Server/MixerJsHandlers.cpp
     Source/Server/MixerJsHandlers.h
+    Source/Server/PluginCommandService.cpp
+    Source/Server/PluginCommandService.h
+    Source/Server/PluginCommands.h
+    Source/Server/PluginJsHandlers.cpp
+    Source/Server/PluginJsHandlers.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/RealtimeMidiScheduler.cpp
@@ -441,6 +446,37 @@ add_test(NAME mixer_js_handlers COMMAND MixerJsHandlersTest)
 set_tests_properties(mixer_js_handlers PROPERTIES
     LABELS "mixer;regression;stable"
 )
+
+# ==============================================================================
+# PluginJsHandlersTest — plugin catalog, assignment, and payload routing
+# ==============================================================================
+add_executable(PluginJsHandlersTest
+    Source/Server/tests/PluginJsHandlersTest.cpp
+    Source/Server/PluginJsHandlers.cpp
+)
+
+target_include_directories(PluginJsHandlersTest PRIVATE
+    Source/Server
+)
+
+target_link_libraries(PluginJsHandlersTest PRIVATE juce::juce_core)
+target_compile_features(PluginJsHandlersTest PRIVATE cxx_std_17)
+
+add_test(NAME plugin_js_handlers COMMAND PluginJsHandlersTest)
+set_tests_properties(plugin_js_handlers PROPERTIES
+    LABELS "plugin;regression;stable"
+)
+
+find_program(NODE_EXECUTABLE node)
+if(NODE_EXECUTABLE)
+    add_test(NAME mixer_ui_selection
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/mixerSelection.test.js"
+    )
+    set_tests_properties(mixer_ui_selection PROPERTIES
+        LABELS "mixer;ui;regression;stable"
+    )
+endif()
 
 # ==============================================================================
 # HarmonicAnalyzerTest — test executable for HMM harmonic analysis engine

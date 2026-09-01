@@ -4,6 +4,8 @@
 #include "FiddleConfig.h"
 #include "MixerCommandService.h"
 #include "MixerJsHandlers.h"
+#include "PluginCommandService.h"
+#include "PluginJsHandlers.h"
 
 #include "midi_event.pb.h"
 #include <chrono>
@@ -1843,6 +1845,33 @@ void MainComponent::setupJsHandlers() {
           [this] { saveAllStripsToDB(); }});
   mixerJsHandlers_->registerHandlers();
 
+  pluginCommandService_ = std::make_unique<PluginCommandService>(
+      mixer_, pluginScanner_, undoManager_, db_);
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  pluginJsHandlers_ = std::make_unique<PluginJsHandlers>(
+      jsRouter_, *pluginCommandService_,
+      PluginJsHandlers::Callbacks{
+          [this](PluginJsHandlers::Task task) {
+            safeCallAsync(std::move(task));
+          },
+          [safeThis](const juce::String &message) {
+            if (safeThis != nullptr)
+              safeThis->pushLogMessage(message);
+          },
+          [safeThis](bool scanning) {
+            if (safeThis != nullptr)
+              safeThis->broadcastMessage("isScanningPlugins", scanning);
+          },
+          [safeThis](const juce::var &plugins) {
+            if (safeThis != nullptr)
+              safeThis->broadcastMessage("setPluginList", plugins);
+          },
+          [safeThis] {
+            if (safeThis != nullptr)
+              safeThis->pushMixerState();
+          }});
+  pluginJsHandlers_->registerHandlers();
+
   jsRouter_.registerHandler("signalReady", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2135,43 +2164,6 @@ void MainComponent::setupJsHandlers() {
     }
     return;
   });
-  jsRouter_.registerHandler("scanPlugins", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (pluginScanner_.isScanning()) {
-      return;
-    }
-    pushLogMessage("<b>[Plugins]</b> Scanning for VST3 plugins "
-                   "(incremental)...");
-    pluginScanner_.scanIncrementalAsync(db_, [this]() {
-      int count = pluginScanner_.getPluginCount();
-      pushLogMessage("<b>[Plugins]</b> Scan complete: " + juce::String(count) +
-                     " plugins found");
-      juce::String json = pluginScanner_.getPluginListAsJson();
-      broadcastMessage("setPluginList", juce::JSON::fromString(json));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("rescanPlugins", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (pluginScanner_.isScanning()) {
-      return;
-    }
-    pushLogMessage("<b>[Plugins]</b> Full rescan of VST3 plugins...");
-    pluginScanner_.rescanAsync(db_, [this]() {
-      int count = pluginScanner_.getPluginCount();
-      pushLogMessage("<b>[Plugins]</b> Rescan complete: " +
-                     juce::String(count) + " plugins found");
-      juce::String json = pluginScanner_.getPluginListAsJson();
-      broadcastMessage("setPluginList", juce::JSON::fromString(json));
-    });
-    return;
-  });
   jsRouter_.registerHandler("getAnnotationRecords", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -2404,111 +2396,6 @@ void MainComponent::setupJsHandlers() {
       pluginArr.add(juce::var(obj));
     }
     broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
-    return;
-  });
-  jsRouter_.registerHandler("setStripPlugin", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    int pluginUid = (int)args[1];
-
-    // Verify plugin exists in scanner
-    if (pluginUid != 0) {
-      bool found = false;
-      for (const auto &d : pluginScanner_.getKnownPluginList().getTypes()) {
-        if (d.uniqueId == pluginUid) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        return;
-      }
-    }
-
-    safeCallAsync([this, stripId, pluginUid]() {
-      int oldUid = 0;
-      if (auto *s = mixer_.getStrip(stripId))
-        oldUid = s->pluginUid;
-      auto action = std::make_unique<SetPluginAction>(
-          mixer_, pluginScanner_, stripId, oldUid, pluginUid,
-          [this]() { pushMixerState(); });
-      undoManager_.perform(std::move(action));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("showStripEditor", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 1) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    safeCallAsync([this, stripId]() {
-      if (auto *s = mixer_.getStrip(stripId))
-        s->showEditor();
-    });
-    return;
-  });
-  jsRouter_.registerHandler("restoreLibraryPluginState", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 4) {
-      return;
-    }
-    juce::String stripId = args[0].toString();
-    juce::String libraryId = args[1].toString();
-    juce::String entityId = args[2].toString();
-    int instanceNum = (int)args[3];
-
-    safeCallAsync([this, stripId, libraryId, entityId, instanceNum]() {
-      auto *strip = mixer_.getStrip(stripId);
-      if (!strip || !strip->hasPlugin()) {
-        std::cerr << "[restoreLibraryPluginState] No strip/plugin for "
-                  << stripId << std::endl;
-        return;
-      }
-
-      // Load saved instruments from DB and find the matching one
-      auto instruments = db_.loadLibraryInstruments(libraryId);
-      std::cerr << "[restoreLibraryPluginState] libraryId=" << libraryId
-                << " entityId=" << entityId
-                << " instanceNum=" << instanceNum
-                << " instruments=" << instruments.size() << std::endl;
-      bool found = false;
-      for (const auto &inst : instruments) {
-        if (inst.entityId == entityId && inst.hasInstance(instanceNum)) {
-          std::cerr << "[restoreLibraryPluginState] Found entity+instance, blobSize="
-                    << inst.pluginState.getSize() << std::endl;
-          if (inst.pluginState.getSize() > 0) {
-            strip->applyPluginState(
-                inst.pluginState.getData(),
-                static_cast<int>(inst.pluginState.getSize()));
-            std::cerr << "[restoreLibraryPluginState] Restored "
-                      << inst.pluginState.getSize() << " bytes for strip "
-                      << stripId << std::endl;
-          } else {
-            std::cerr << "[restoreLibraryPluginState] No blob stored for "
-                      << entityId << " #" << instanceNum << std::endl;
-          }
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        std::cerr << "[restoreLibraryPluginState] Entity+instance not found in library"
-                  << std::endl;
-      }
-    });
     return;
   });
   jsRouter_.registerHandler("loadExpressionMap", [this](const juce::var& payload) {
@@ -3148,23 +3035,6 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
-  jsRouter_.registerHandler("requestPluginsState", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    safeCallAsync([this]() {
-      // Always reply with the current scanning state so the UI can show the
-      // spinner (or hide it) regardless of whether plugins are loaded yet.
-      broadcastMessage("isScanningPlugins", pluginScanner_.isScanning());
-      if (pluginScanner_.getPluginCount() > 0) {
-        juce::String json = pluginScanner_.getPluginListAsJson();
-        // Use broadcastMessage so all windows (main, debug, history) get it
-        broadcastMessage("setPluginList", juce::JSON::fromString(json));
-      }
-    });
-    return;
-  });
   jsRouter_.registerHandler("requestMixerState", [this](const juce::var& payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -3208,39 +3078,6 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       int ms = mixer_.getPlaybackDelayMs();
       broadcastMessage("setPlaybackDelay", juce::var(ms));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("setGroupPlugin", [this](const juce::var& payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-
-    if (args.size() < 2) {
-      return;
-    }
-    auto idsVar = juce::JSON::parse(args[0].toString());
-    int pluginUid = (int)args[1];
-    if (!idsVar.isArray()) {
-      return;
-    }
-
-    safeCallAsync([this, idsVar, pluginUid]() {
-      auto *arr = idsVar.getArray();
-      std::vector<std::unique_ptr<UndoableAction>> subs;
-      for (auto &idVar : *arr) {
-        juce::String sid = idVar.toString();
-        if (auto *s = mixer_.getStrip(sid)) {
-          int oldUid = s->pluginUid;
-          subs.push_back(std::make_unique<SetPluginAction>(
-              mixer_, pluginScanner_, sid, oldUid, pluginUid,
-              [this]() { pushMixerState(); }));
-        }
-      }
-      if (!subs.empty()) {
-        undoManager_.perform(std::make_unique<CompoundAction>(
-            "Group set plugin", std::move(subs)));
-      }
     });
     return;
   });

@@ -4,6 +4,10 @@
     import BranchSelector from "./BranchSelector.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
+        addStripRange,
+        flattenVisualStripOrder,
+    } from "./mixerSelection.js";
+    import {
         FAMILY_ORDER,
         canonicalFamily,
         instrumentScoreOrder,
@@ -165,7 +169,6 @@
         window.removeEventListener('mouseup', onResizeMouseUp);
     };
     let isMultiSelected = $derived(selectedIds.size > 1);
-    let flatStripOrder = $derived(strips.map((s) => s.id));
 
     const handleStripClick = (stripId, e) => {
         if (e.metaKey && e.shiftKey) {
@@ -173,14 +176,12 @@
             selectedIds = new Set(flatStripOrder);
         } else if (e.shiftKey && lastClickedId) {
             // Shift+Click: range select
-            const a = flatStripOrder.indexOf(lastClickedId);
-            const b = flatStripOrder.indexOf(stripId);
-            if (a >= 0 && b >= 0) {
-                const lo = Math.min(a, b);
-                const hi = Math.max(a, b);
-                const rangeIds = flatStripOrder.slice(lo, hi + 1);
-                selectedIds = new Set([...selectedIds, ...rangeIds]);
-            }
+            selectedIds = addStripRange(
+                selectedIds,
+                flatStripOrder,
+                lastClickedId,
+                stripId,
+            );
         } else if (e.metaKey) {
             // Cmd+Click: toggle
             const next = new Set(selectedIds);
@@ -846,6 +847,7 @@
         }
         return groups;
     });
+    let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips));
 
 </script>
 
@@ -1285,7 +1287,7 @@
                                                                         e.target
                                                                     ).value,
                                                                 );
-                                                                if (uid) setPlugin(strip.id, uid);
+                                                                setPlugin(strip.id, uid);
                                                             }}
                                                         >
                                                             <option value="0">—</option>

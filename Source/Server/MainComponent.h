@@ -32,6 +32,8 @@ namespace fiddle {
 
 class MixerCommandService;
 class MixerJsHandlers;
+class PluginCommandService;
+class PluginJsHandlers;
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
@@ -113,6 +115,8 @@ private:
   std::unique_ptr<MixerCommandService> mixerCommandService_;
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
   FiddleDatabase db_;
+  std::unique_ptr<PluginCommandService> pluginCommandService_;
+  std::unique_ptr<PluginJsHandlers> pluginJsHandlers_;
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
   LuaPluginCatalog luaCatalog_;
