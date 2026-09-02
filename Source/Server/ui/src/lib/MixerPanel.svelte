@@ -2,6 +2,7 @@
     import { onMount, onDestroy, untrack } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
+    import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
         addStripRange,
@@ -1297,61 +1298,16 @@
                                                 </div>
 
                                                 <!-- Expression Map -->
-                                                <div class="ch-xmap">
-                                                    <div
-                                                        class="ch-xmap-picker"
-                                                        title={strip.expressionMapName ||
-                                                            "Choose an expression map"}
-                                                    >
-                                                        <span
-                                                            class="ch-xmap-value"
-                                                            class:ch-xmap-placeholder={!strip.expressionMapName}
-                                                            aria-hidden="true"
-                                                        ><span>{strip.expressionMapName || "— xmap —"}</span></span>
-                                                        <span class="ch-xmap-arrow" aria-hidden="true"></span>
-                                                        <select
-                                                            class="ch-select ch-xmap-select"
-                                                            aria-label="Expression map"
-                                                            title={strip.expressionMapName || "Choose an expression map"}
-                                                            value={strip.expressionMapName
-                                                                ? "__loaded__"
-                                                                : ""}
-                                                            onchange={(e) => {
-                                                                const val =
-                                                                    /** @type {HTMLSelectElement} */ (
-                                                                        e.target
-                                                                    ).value;
-                                                                if (val === "__file__") {
-                                                                    loadExpressionMapFromFile(strip.id);
-                                                                    /** @type {HTMLSelectElement} */ (
-                                                                        e.target
-                                                                    ).value = strip.expressionMapName
-                                                                        ? "__loaded__"
-                                                                        : "";
-                                                                } else if (val === "") {
-                                                                    clearExpressionMap(strip.id);
-                                                                } else if (val !== "__loaded__") {
-                                                                    loadExpressionMap(strip.id, val);
-                                                                }
-                                                            }}
-                                                        >
-                                                            <option value="">— xmap —</option>
-                                                            {#if strip.expressionMapName}
-                                                                <option value="__loaded__" selected
-                                                                    >{strip.expressionMapName}</option
-                                                                >
-                                                            {/if}
-                                                            {#each availableXmaps as xmap}
-                                                                <option value={xmap.entityID}
-                                                                    >{xmap.name}</option
-                                                                >
-                                                            {/each}
-                                                            <option value="__file__"
-                                                                >Load from file…</option
-                                                            >
-                                                        </select>
-                                                    </div>
-                                                </div>
+                                                <ExpressionMapPicker
+                                                    maps={availableXmaps}
+                                                    selectedId={strip.expressionMapEntityID || ""}
+                                                    selectedName={strip.expressionMapName || ""}
+                                                    onselect={(entityID) =>
+                                                        loadExpressionMap(strip.id, entityID)}
+                                                    onclear={() => clearExpressionMap(strip.id)}
+                                                    onloadfile={() =>
+                                                        loadExpressionMapFromFile(strip.id)}
+                                                />
 
 
                                                 <!-- Plugin -->
@@ -2323,62 +2279,6 @@
         white-space: nowrap;
     }
 
-    .ch-xmap {
-        margin-bottom: 2px;
-    }
-    .ch-xmap-picker {
-        position: relative;
-        min-height: 30px;
-        overflow: hidden;
-        border: 1px solid #334155;
-        border-radius: 3px;
-        background: #0f172a;
-        color: #cbd5e1;
-        cursor: pointer;
-    }
-    .ch-xmap-picker:focus-within {
-        border-color: #3b82f6;
-    }
-    .ch-xmap-value {
-        position: absolute;
-        inset: 0 24px 0 6px;
-        display: block;
-        overflow: hidden;
-        color: #cbd5e1;
-        font-size: 0.75rem;
-        line-height: 28px;
-        white-space: nowrap;
-        text-align: left;
-        text-overflow: ellipsis;
-        direction: rtl;
-    }
-    .ch-xmap-value > span {
-        direction: ltr;
-        unicode-bidi: isolate;
-    }
-    .ch-xmap-placeholder {
-        color: #94a3b8;
-        direction: ltr;
-    }
-    .ch-xmap-arrow {
-        position: absolute;
-        top: 50%;
-        right: 8px;
-        width: 0;
-        height: 0;
-        border-right: 4px solid transparent;
-        border-left: 4px solid transparent;
-        border-top: 5px solid #94a3b8;
-        transform: translateY(-25%);
-        pointer-events: none;
-    }
-    .ch-xmap-select {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        opacity: 0;
-    }
     .ch-control-heading {
         display: flex;
         align-items: center;

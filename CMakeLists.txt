@@ -542,6 +542,14 @@ if(NODE_EXECUTABLE)
     set_tests_properties(note_inspection_ui PROPERTIES
         LABELS "ui;inspection;regression;stable"
     )
+
+    add_test(NAME expression_map_picker_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/expressionMapCatalog.test.js"
+    )
+    set_tests_properties(expression_map_picker_ui PROPERTIES
+        LABELS "ui;expression-map;regression;stable"
+    )
 endif()
 
 # ==============================================================================
