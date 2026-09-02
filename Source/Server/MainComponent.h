@@ -245,8 +245,16 @@ private:
   /// Skips plugins whose pluginUid is in listenerCapableUids_.
   void pollPluginStateChanges();
 
-  /// Wire up a strip's PluginChangeListener to point at our shared state.
-  void setupStripListener(MixerStrip &strip);
+  /// Consume allocation-free AudioProcessorListener flags on the message
+  /// thread and update dirty state/state caches.
+  void processPluginChangeNotifications();
+
+  /// Refresh the stable hosted-slot ID after assigning/restoring strip.id.
+  void setupStripPluginSlot(MixerStrip &strip);
+
+  /// Restore an instrument or retain an explicit missing-slot placeholder.
+  void restoreStripPlugin(MixerStrip &strip, int pluginUid,
+                          const juce::MemoryBlock &state);
 
   /// Counter for throttling plugin state polls (20ms timer × 100 = 2s).
   int pluginPollCounter_ = 0;
@@ -257,9 +265,6 @@ private:
   /// Plugin UIDs that fire AudioProcessorListener callbacks.
   /// Populated by listeners, read by polling to skip those plugins.
   std::set<int> listenerCapableUids_;
-
-  /// Atomic flag for debouncing listener callbacks (fire from any thread).
-  std::atomic<bool> listenerDirtyPending_{false};
 
   /// Fingerprint of library instruments when the template was last installed.
   /// Used to determine if "Install Playback Template" should be enabled.

@@ -3,41 +3,13 @@
 #include "ExpressionMapAnnotator.h"
 #include "LuaAnnotator.h"
 #include "LuaPlugin.h"
-#include "PluginEditorWindow.h"
 #include <filesystem>
 
 namespace fiddle {
 
 MixerStrip::MixerStrip() { rebuildAnnotatorChain(); }
 
-MixerStrip::~MixerStrip() {
-  if (lifetimeToken_)
-    *lifetimeToken_ = false;
-
-  editorWindow_.reset();
-  publishPluginRuntime(nullptr);
-  jassert(pluginRuntime_.readerCount() == 0);
-  reclaimRetiredPluginRuntimes();
-}
-
-void MixerStrip::PluginChangeListener::audioProcessorParameterChanged(
-    juce::AudioProcessor *, int, float) {
-  if (listenerCapableUids && pluginUid != 0)
-    listenerCapableUids->insert(pluginUid);
-  if (onDirty)
-    onDirty();
-}
-
-void MixerStrip::PluginChangeListener::audioProcessorChanged(
-    juce::AudioProcessor *,
-    const juce::AudioProcessorListener::ChangeDetails &d) {
-  if (d.nonParameterStateChanged) {
-    if (listenerCapableUids && pluginUid != 0)
-      listenerCapableUids->insert(pluginUid);
-    if (onDirty)
-      onDirty();
-  }
-}
+MixerStrip::~MixerStrip() = default;
 
 MixerStrip::RealtimeState MixerStrip::realtimeState() const noexcept {
   const auto assignment = inputAssignment_.load(std::memory_order_relaxed);
@@ -113,44 +85,51 @@ float MixerStrip::peakHoldDb() const noexcept {
 }
 
 juce::MemoryBlock MixerStrip::cachedPluginState() const {
-  return cachedPluginState_;
+  return instrumentSlot_.cachedState();
 }
 
 bool MixerStrip::hasPlugin() const noexcept {
-  return pluginInstance_ != nullptr;
+  return instrumentSlot_.hasProcessor();
 }
 
 bool MixerStrip::capturePluginState(juce::MemoryBlock &destination) const {
-  destination.reset();
-  if (!pluginInstance_)
-    return false;
-  pluginInstance_->getStateInformation(destination);
-  return true;
+  return instrumentSlot_.captureState(destination);
 }
 
 bool MixerStrip::applyPluginState(const void *data, int sizeInBytes) {
-  if (!pluginInstance_ || data == nullptr || sizeInBytes <= 0)
-    return false;
-  pluginInstance_->setStateInformation(data, sizeInBytes);
-  refreshPluginStateCache();
-  return true;
+  return instrumentSlot_.applyState(data, sizeInBytes);
 }
 
 bool MixerStrip::setPluginProgram(int programIndex) {
-  if (!pluginInstance_)
-    return false;
-  pluginInstance_->setCurrentProgram(programIndex);
-  refreshPluginStateCache();
-  return true;
+  return instrumentSlot_.setProgram(programIndex);
+}
+
+void MixerStrip::setPluginBypassed(bool bypassed) noexcept {
+  instrumentSlot_.setBypassed(bypassed);
+}
+
+bool MixerStrip::isPluginBypassed() const noexcept {
+  return instrumentSlot_.isBypassed();
+}
+
+HostedPluginStatus MixerStrip::pluginStatus() const noexcept {
+  return instrumentSlot_.status();
+}
+
+const PluginCompatibility &MixerStrip::pluginCompatibility() const noexcept {
+  return instrumentSlot_.compatibility();
+}
+
+void MixerStrip::updatePluginSlotId() {
+  instrumentSlot_.setId(PluginSlotId::instrumentFor(id));
+}
+
+bool MixerStrip::consumePluginChangeNotification() noexcept {
+  return instrumentSlot_.consumeChangeNotification();
 }
 
 void MixerStrip::refreshPluginStateCache() {
-  if (pluginInstance_) {
-    cachedPluginState_.reset();
-    pluginInstance_->getStateInformation(cachedPluginState_);
-  } else {
-    cachedPluginState_.reset();
-  }
+  instrumentSlot_.refreshStateCache();
 }
 
 void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
@@ -332,13 +311,7 @@ void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
   currentSampleRate_.store(sampleRate, std::memory_order_relaxed);
   currentBlockSize_.store(blockSize, std::memory_order_relaxed);
   processMidiBuffer_.ensureSize(128 * 1024);
-  if (auto *runtime = pluginRuntime_.activeForWriter()) {
-    int maxChannels =
-        juce::jmax(runtime->instance->getTotalNumInputChannels(),
-                   runtime->instance->getTotalNumOutputChannels(), 2);
-    runtime->tempBuffer.setSize(maxChannels, blockSize);
-    runtime->instance->prepareToPlay(sampleRate, blockSize);
-  }
+  instrumentSlot_.prepareToPlay(sampleRate, blockSize);
 }
 
 void MixerStrip::addDelayedMessage(double triggerTime,
@@ -367,17 +340,23 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
   midiScheduler_.renderBlock(currentTime, sampleRate, numSamples,
                              processMidiBuffer_);
 
-  auto runtimeRead = pluginRuntime_.read();
+  auto runtimeRead = instrumentSlot_.readRuntime();
   auto *runtime = runtimeRead.get();
   if (runtime) {
     int numSamples = audioBuffer.getNumSamples();
 
     // Safety check just in case tempBuffer isn't sized
-    if (runtime->tempBuffer.getNumChannels() > 0 &&
-        runtime->tempBuffer.getNumSamples() >= numSamples) {
-      runtime->tempBuffer.clear();
+    if (runtime->scratchBuffer.getNumChannels() > 0 &&
+        runtime->scratchBuffer.getNumSamples() >= numSamples) {
+      runtime->scratchBuffer.clear();
       // Always process plugin (MIDI stays in sync even when muted)
-      runtime->instance->processBlock(runtime->tempBuffer, processMidiBuffer_);
+      if (instrumentSlot_.isBypassed()) {
+        // Bypassing an instrument means silence, while consuming scheduled
+        // MIDI so stale events are not replayed when it is enabled again.
+      } else {
+        runtime->processor->processBlock(runtime->scratchBuffer,
+                                         processMidiBuffer_);
+      }
 
       if (!audible) {
         // Strip is muted/solo-suppressed: decay meters, don't sum audio
@@ -405,14 +384,14 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
         } else {
           float gain = juce::Decibels::decibelsToGain(db, -120.0f);
           int channelsToSum = juce::jmin((int)audioBuffer.getNumChannels(),
-                                         runtime->tempBuffer.getNumChannels());
+                                         runtime->scratchBuffer.getNumChannels());
           // Measure peak of the gained signal
           float blockPeak = 0.0f;
           for (int i = 0; i < channelsToSum; ++i) {
-            audioBuffer.addFrom(i, 0, runtime->tempBuffer, i, 0, numSamples,
+            audioBuffer.addFrom(i, 0, runtime->scratchBuffer, i, 0, numSamples,
                                 gain);
             float chPeak =
-                runtime->tempBuffer.getMagnitude(i, 0, numSamples) * gain;
+                runtime->scratchBuffer.getMagnitude(i, 0, numSamples) * gain;
             blockPeak = juce::jmax(blockPeak, chPeak);
           }
           float blockDb = juce::Decibels::gainToDecibels(blockPeak, -120.0f);
@@ -435,79 +414,38 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
 void MixerStrip::loadPlugin(const juce::PluginDescription &desc,
                             juce::AudioPluginFormatManager &formatManager,
                             std::function<void(bool)> onComplete) {
-
-  std::weak_ptr<bool> weakToken = lifetimeToken_;
-  formatManager.createPluginInstanceAsync(
-      desc, currentSampleRate_.load(std::memory_order_relaxed),
+  instrumentSlot_.loadPlugin(
+      desc, formatManager, currentSampleRate_.load(std::memory_order_relaxed),
       currentBlockSize_.load(std::memory_order_relaxed),
-      [this, desc, onComplete,
-       weakToken](std::unique_ptr<juce::AudioPluginInstance> instance,
-                  const juce::String &error) {
-        // Guard against use-after-free: if the strip was destroyed while
-        // the async load was in flight, abort silently.
-        auto token = weakToken.lock();
-        if (!token || !*token)
-          return;
-
-        if (!instance) {
-          // std::cerr << "[MixerStrip " << id << "] Failed to load "
-          //           << desc.name << ": " << error << std::endl;
-          if (onComplete)
-            onComplete(false);
-          return;
-        }
-
-        // Unload the old UI if valid
-        editorWindow_.reset();
-
-        int maxChannels = juce::jmax(instance->getTotalNumInputChannels(),
-                                     instance->getTotalNumOutputChannels(), 2);
-
-        const auto sampleRate =
-            currentSampleRate_.load(std::memory_order_relaxed);
-        const auto blockSize =
-            currentBlockSize_.load(std::memory_order_relaxed);
-        instance->prepareToPlay(sampleRate, blockSize);
-
-        auto runtime = std::make_unique<PluginRuntime>();
-        runtime->tempBuffer.setSize(maxChannels, blockSize);
-        runtime->instance = std::move(instance);
-
-        // Register the listener before publication so every visible plugin
-        // has a fully initialized runtime.
-        pluginChangeListener_.stripId = id;
-        pluginChangeListener_.pluginUid = desc.uniqueId;
-        runtime->instance->addListener(&pluginChangeListener_);
-
-        pluginInstance_ = runtime->instance.get();
-        pluginUid = desc.uniqueId;
-        publishPluginRuntime(std::move(runtime));
-
-        // Populate initial cache (may be overwritten by setStateInformation
-        // in the caller's onComplete callback)
-        refreshPluginStateCache();
-
-        // std::cerr << "[MixerStrip " << id << "] Loaded (Async): " <<
-        // desc.name
-        //           << std::endl;
+      [this, desc, onComplete = std::move(onComplete)](
+          bool success, const juce::String &) {
+        if (success)
+          pluginUid = desc.uniqueId;
+        else if (instrumentSlot_.status() == HostedPluginStatus::missing)
+          pluginUid = instrumentSlot_.pluginUid();
         if (onComplete)
-          onComplete(true);
+          onComplete(success);
       });
 }
 
+void MixerStrip::markPluginMissing(int uid, const juce::MemoryBlock &state,
+                                   const juce::String &error) {
+  juce::PluginDescription description;
+  description.name = "Missing plug-in " + juce::String(uid);
+  description.pluginFormatName = "VST3";
+  description.uniqueId = uid;
+  description.isInstrument = true;
+  instrumentSlot_.markMissing(description, state, error);
+  pluginUid = uid;
+}
+
 void MixerStrip::unloadPlugin() {
-  editorWindow_.reset();
-  pluginInstance_ = nullptr;
-  publishPluginRuntime(nullptr);
+  instrumentSlot_.unload();
   pluginUid = 0;
-  cachedPluginState_.reset();
 }
 
 void MixerStrip::reclaimRetiredPluginRuntimes() {
-  pluginRuntime_.reclaimRetired([this](PluginRuntime &runtime) {
-    runtime.instance->removeListener(&pluginChangeListener_);
-    runtime.instance->releaseResources();
-  });
+  instrumentSlot_.reclaimRetiredRuntimes();
 }
 
 uint64_t MixerStrip::droppedMidiMessageCount() const noexcept {
@@ -515,14 +453,10 @@ uint64_t MixerStrip::droppedMidiMessageCount() const noexcept {
 }
 
 void MixerStrip::showEditor() {
-  if (!pluginInstance_)
-    return;
-  if (editorWindow_) {
-    editorWindow_->setVisible(true);
-    editorWindow_->toFront(true);
-  } else if (auto *editor = pluginInstance_->createEditorAndMakeActive()) {
-    editorWindow_ = std::make_unique<PluginEditorWindow>(library, editor);
-  }
+  const auto title = library.isNotEmpty()
+                         ? library
+                         : instrumentSlot_.description().name;
+  instrumentSlot_.showEditor(title);
 }
 
 juce::var MixerStrip::toJson() const {
@@ -539,6 +473,12 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("inputChannel", state.inputChannel);
   obj->setProperty("pluginUid", pluginUid);
   obj->setProperty("hasPlugin", hasPlugin());
+  obj->setProperty("pluginSlotId", instrumentSlot_.id().value);
+  obj->setProperty("pluginStatus",
+                   HostedPluginSlot::statusName(instrumentSlot_.status()));
+  obj->setProperty("pluginBypassed", instrumentSlot_.isBypassed());
+  obj->setProperty("pluginCompatibility",
+                   instrumentSlot_.compatibility().toJson());
   obj->setProperty("gainDb", (double)state.gainDb);
   obj->setProperty("peakDb", (double)state.peakDb);
   obj->setProperty("peakHoldDb", (double)state.peakHoldDb);
@@ -547,10 +487,10 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("expressionMapEntityID",
                    expressionMap ? juce::String(expressionMap->entityID) : "");
 
-  if (pluginInstance_) {
-    int prog = pluginInstance_->getCurrentProgram();
-    int numProgs = pluginInstance_->getNumPrograms();
-    juce::String progName = pluginInstance_->getProgramName(prog);
+  if (auto *processor = instrumentSlot_.activeProcessor()) {
+    int prog = processor->getCurrentProgram();
+    int numProgs = processor->getNumPrograms();
+    juce::String progName = processor->getProgramName(prog);
     obj->setProperty("programIndex", prog);
     obj->setProperty("programName", progName);
     obj->setProperty("numPrograms", numProgs);
@@ -558,7 +498,7 @@ juce::var MixerStrip::toJson() const {
     // Emit all program names so the UI can show a dropdown.
     juce::Array<juce::var> names;
     for (int i = 0; i < numProgs; ++i)
-      names.add(pluginInstance_->getProgramName(i));
+      names.add(processor->getProgramName(i));
     obj->setProperty("programNames", names);
   }
 
@@ -578,10 +518,6 @@ juce::var MixerStrip::toJson() const {
   }
 
   return juce::var(obj);
-}
-
-void MixerStrip::publishPluginRuntime(std::unique_ptr<PluginRuntime> runtime) {
-  pluginRuntime_.publish(std::move(runtime));
 }
 
 } // namespace fiddle

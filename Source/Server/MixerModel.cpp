@@ -39,6 +39,7 @@ void MixerModel::clear() {
 juce::String MixerModel::addStrip() {
   auto strip = std::make_unique<MixerStrip>();
   strip->id = juce::Uuid().toString();
+  strip->updatePluginSlotId();
   strip->library = "";
 
   juce::String newId = strip->id;
@@ -88,6 +89,7 @@ MixerModel::removeStripKeepAlive(const juce::String &id) {
 
 void MixerModel::insertStripAt(std::unique_ptr<MixerStrip> strip, int index) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
+  strip->updatePluginSlotId();
   strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
   int idx = juce::jlimit(0, (int)strips_.size(), index);
   strips_.insert(strips_.begin() + idx, std::move(strip));
@@ -142,6 +144,7 @@ juce::String MixerModel::duplicateStripAfter(const juce::String &afterId) {
   auto &source = *it;
   auto strip = std::make_unique<MixerStrip>();
   strip->id = juce::Uuid().toString();
+  strip->updatePluginSlotId();
   const auto sourceState = source->realtimeState();
   strip->setInputAssignment(sourceState.inputPort, sourceState.inputChannel);
   strip->family = source->family;
@@ -756,6 +759,7 @@ void MixerModel::syncStripsToInstruments(
     if (existingSet.find(key) == existingSet.end()) {
       auto strip = std::make_unique<MixerStrip>();
       strip->id = juce::Uuid().toString();
+      strip->updatePluginSlotId();
       strip->library = "";
       strip->family = entry.family;
       strip->isSolo = entry.isSolo;

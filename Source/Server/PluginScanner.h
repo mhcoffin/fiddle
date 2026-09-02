@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FiddleDatabase.h"
+#include "HostedPluginSlot.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace fiddle {
@@ -62,6 +63,27 @@ public:
       obj->setProperty("uid", desc.uniqueId);
       obj->setProperty("numInputChannels", desc.numInputChannels);
       obj->setProperty("numOutputChannels", desc.numOutputChannels);
+      const auto instrumentCompatibility =
+          PluginCompatibility::fromDescription(desc,
+                                               PluginSlotRole::instrument);
+      const auto effectCompatibility = PluginCompatibility::fromDescription(
+          desc, PluginSlotRole::effect);
+      obj->setProperty("isInstrument", desc.isInstrument);
+      obj->setProperty("hasStereoInput",
+                       instrumentCompatibility.hasStereoInput);
+      obj->setProperty("hasStereoOutput",
+                       instrumentCompatibility.hasStereoOutput);
+      obj->setProperty("compatibleAsInstrument",
+                       instrumentCompatibility.compatible);
+      obj->setProperty("instrumentRequiresRuntimeValidation",
+                       instrumentCompatibility.requiresRuntimeValidation);
+      obj->setProperty("instrumentCompatibilityReason",
+                       instrumentCompatibility.reason);
+      obj->setProperty("compatibleAsEffect", effectCompatibility.compatible);
+      obj->setProperty("effectRequiresRuntimeValidation",
+                       effectCompatibility.requiresRuntimeValidation);
+      obj->setProperty("effectCompatibilityReason",
+                       effectCompatibility.reason);
 
       // Check if this plugin is marked invalid in our cache
       bool valid = true;
@@ -181,6 +203,7 @@ private:
           desc.uniqueId = it->second.uid;
           desc.numInputChannels = it->second.numInputs;
           desc.numOutputChannels = it->second.numOutputs;
+          desc.isInstrument = it->second.isInstrument;
           desc.fileOrIdentifier = juce::String(path);
           owner_.knownPlugins_.addType(desc);
           owner_.validityMap_[desc.uniqueId] = it->second.valid;
@@ -224,6 +247,7 @@ private:
             row.uid = desc->uniqueId;
             row.numInputs = desc->numInputChannels;
             row.numOutputs = desc->numOutputChannels;
+            row.isInstrument = desc->isInstrument;
             row.valid = true;
             db_->savePluginCacheEntry(row);
           }

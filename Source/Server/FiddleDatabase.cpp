@@ -132,9 +132,21 @@ void FiddleDatabase::createSchema() {
       uid          INTEGER NOT NULL DEFAULT 0,
       num_inputs   INTEGER NOT NULL DEFAULT 0,
       num_outputs  INTEGER NOT NULL DEFAULT 0,
+      is_instrument INTEGER NOT NULL DEFAULT 0,
       valid        INTEGER NOT NULL DEFAULT 1
     )
   )");
+
+  // Harmless cache-schema upgrade for databases created before audio effects.
+  const auto pluginCacheUpgrade = sqlite3_exec(
+      db_,
+      "ALTER TABLE plugin_cache ADD COLUMN is_instrument INTEGER NOT NULL "
+      "DEFAULT 0",
+      nullptr, nullptr, nullptr);
+  if (pluginCacheUpgrade == SQLITE_OK) {
+    exec("UPDATE plugin_cache SET is_instrument = 1 "
+         "WHERE category LIKE '%Instrument%' OR category LIKE '%Synth%'");
+  }
 
   exec(R"(
     CREATE TABLE IF NOT EXISTS ensemble_slots (
@@ -382,13 +394,13 @@ void FiddleDatabase::prepareStatements() {
   prep(R"(
     INSERT OR REPLACE INTO plugin_cache
       (path, mod_time, name, manufacturer, category, format,
-       uid, num_inputs, num_outputs, valid)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       uid, num_inputs, num_outputs, is_instrument, valid)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
        stmtSavePluginCache_);
 
   prep("SELECT path, mod_time, name, manufacturer, category, format, "
-       "uid, num_inputs, num_outputs, valid FROM plugin_cache",
+       "uid, num_inputs, num_outputs, is_instrument, valid FROM plugin_cache",
        stmtLoadPluginCache_);
 
   prep("DELETE FROM plugin_cache WHERE path = ?", stmtRemovePluginCache_);
@@ -1091,7 +1103,8 @@ void FiddleDatabase::savePluginCacheEntry(const PluginCacheRow &row) {
   sqlite3_bind_int(stmtSavePluginCache_, 7, row.uid);
   sqlite3_bind_int(stmtSavePluginCache_, 8, row.numInputs);
   sqlite3_bind_int(stmtSavePluginCache_, 9, row.numOutputs);
-  sqlite3_bind_int(stmtSavePluginCache_, 10, row.valid ? 1 : 0);
+  sqlite3_bind_int(stmtSavePluginCache_, 10, row.isInstrument ? 1 : 0);
+  sqlite3_bind_int(stmtSavePluginCache_, 11, row.valid ? 1 : 0);
 
   if (sqlite3_step(stmtSavePluginCache_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] savePluginCacheEntry failed: "
@@ -1118,7 +1131,8 @@ std::vector<PluginCacheRow> FiddleDatabase::loadPluginCache() {
     row.uid = sqlite3_column_int(stmtLoadPluginCache_, 6);
     row.numInputs = sqlite3_column_int(stmtLoadPluginCache_, 7);
     row.numOutputs = sqlite3_column_int(stmtLoadPluginCache_, 8);
-    row.valid = sqlite3_column_int(stmtLoadPluginCache_, 9) != 0;
+    row.isInstrument = sqlite3_column_int(stmtLoadPluginCache_, 9) != 0;
+    row.valid = sqlite3_column_int(stmtLoadPluginCache_, 10) != 0;
     rows.push_back(std::move(row));
   }
 

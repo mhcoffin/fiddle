@@ -49,6 +49,7 @@ struct PluginCacheRow {
   juce::String name, manufacturer, category, format;
   int uid = 0;
   int numInputs = 0, numOutputs = 0;
+  bool isInstrument = false;
   bool valid = true;
 };
 

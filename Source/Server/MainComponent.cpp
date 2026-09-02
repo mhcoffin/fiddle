@@ -735,7 +735,7 @@ void MainComponent::initMidiServer() {
                 strip->setInputAssignment(rs.inputPort, rs.inputChannel);
                 strip->pluginUid = rs.pluginUid;
                 strip->setGainDb(rs.gainDb);
-                setupStripListener(*strip);
+                setupStripPluginSlot(*strip);
 
                 // Restore expression map
                 if (!rs.expressionMapEntityID.empty()) {
@@ -744,24 +744,7 @@ void MainComponent::initMidiServer() {
                     strip->setExpressionMap(xmapData);
                 }
 
-                // Load plugin
-                if (strip->pluginUid != 0) {
-                  for (const auto &d :
-                       pluginScanner_.getKnownPluginList().getTypes()) {
-                    if (d.uniqueId == strip->pluginUid) {
-                      auto stateBlock = rs.pluginState;
-                      strip->loadPlugin(
-                          d, mixer_.getFormatManager(),
-                          [strip, stateBlock](bool success) {
-                            if (success)
-                              strip->applyPluginState(
-                                  stateBlock.getData(),
-                                  (int)stateBlock.getSize());
-                          });
-                      break;
-                    }
-                  }
-                }
+                restoreStripPlugin(*strip, rs.pluginUid, rs.pluginState);
 
                 // Restore Lua plugins
                 for (const auto &fileName : rs.luaPluginFileNames) {
@@ -1003,9 +986,6 @@ void MainComponent::initDatabase() {
       }
     }
 
-    // Auto-scan for plugins on startup (incremental — uses plugin_cache).
-    std::cerr << "[Startup] Auto-scanning for VST3 plugins..." << std::endl;
-
     // Now that the DB is open, restore main window geometry.
     {
       auto bounds = restoreMainWindowGeometry();
@@ -1021,16 +1001,6 @@ void MainComponent::initDatabase() {
       pushLogMessage("<b>[Setup]</b> Loaded " +
                      juce::String(masterList_.size()) + " saved instruments");
     }
-
-    // Auto-scan for plugins on startup (incremental — uses plugin_cache).
-    std::cerr << "[Startup] Auto-scanning for VST3 plugins..." << std::endl;
-    pluginScanner_.scanIncrementalAsync(db_, [this]() {
-      int count = pluginScanner_.getPluginCount();
-      std::cerr << "[Startup] Plugin scan complete: " << count
-                << " plugins found" << std::endl;
-      juce::String json = pluginScanner_.getPluginListAsJson();
-      broadcastMessage("setPluginList", juce::JSON::fromString(json));
-    });
 
     // Initialize shadow state manager (creates shared memory file)
     stateManager_.initialize();
@@ -1072,6 +1042,18 @@ void MainComponent::initPluginsAndStrips() {
 
     // Normal load from SQLite
     loadStripsFromDB();
+
+    // Refresh the catalog only after the cached catalog has been restored and
+    // used to start strip restoration.  Running these concurrently made both
+    // paths mutate KnownPluginList at once during startup.
+    std::cerr << "[Startup] Auto-scanning for VST3 plugins..." << std::endl;
+    pluginScanner_.scanIncrementalAsync(db_, [this]() {
+      int count = pluginScanner_.getPluginCount();
+      std::cerr << "[Startup] Plugin scan complete: " << count
+                << " plugins found" << std::endl;
+      juce::String json = pluginScanner_.getPluginListAsJson();
+      broadcastMessage("setPluginList", juce::JSON::fromString(json));
+    });
 
     // Ensure mixer strips exist for all ensemble instruments
     mixer_.syncStripsToInstruments(masterList_);
@@ -1197,26 +1179,60 @@ void MainComponent::scheduleStateRebuild() {
   });
 }
 
-void MainComponent::setupStripListener(MixerStrip &strip) {
-  strip.pluginChangeListener_.listenerCapableUids = &listenerCapableUids_;
-  strip.pluginChangeListener_.onDirty = [this, &strip]() {
-    // Debounce: listener fires from any thread (often audio thread)
-    if (!listenerDirtyPending_.exchange(true, std::memory_order_acq_rel)) {
-      int uid = strip.pluginUid;
-      safeCallAsync([this, uid, &strip]() {
-        listenerDirtyPending_.store(false, std::memory_order_release);
-        stateManager_.markDirty();
-        pushConfigStatus();
-        broadcastMessage("setDirtyState", true);
-        // Refresh cache for the changed strip
-        strip.refreshPluginStateCache();
-        scheduleStateRebuild();
-        // Persist this UID as listener-capable (idempotent)
-        if (uid != 0)
-          db_.savePluginCapability(uid);
-      });
-    }
-  };
+void MainComponent::setupStripPluginSlot(MixerStrip &strip) {
+  strip.updatePluginSlotId();
+}
+
+void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
+                                       const juce::MemoryBlock &state) {
+  if (pluginUid == 0)
+    return;
+
+  strip.pluginUid = pluginUid;
+  for (const auto &description :
+       pluginScanner_.getKnownPluginList().getTypes()) {
+    if (description.uniqueId != pluginUid)
+      continue;
+
+    strip.loadPlugin(
+        description, mixer_.getFormatManager(),
+        [&strip, pluginUid, state](bool success) {
+          if (success) {
+            if (!state.isEmpty())
+              strip.applyPluginState(state.getData(),
+                                     static_cast<int>(state.getSize()));
+          } else {
+            strip.markPluginMissing(pluginUid, state,
+                                     "Plug-in could not be instantiated");
+          }
+        });
+    return;
+  }
+
+  strip.markPluginMissing(pluginUid, state,
+                          "Plug-in is not present in the scanned catalog");
+}
+
+void MainComponent::processPluginChangeNotifications() {
+  bool changed = false;
+  for (auto *strip : mixer_.getAllStrips()) {
+    if (!strip->consumePluginChangeNotification())
+      continue;
+
+    changed = true;
+    strip->refreshPluginStateCache();
+    if (strip->pluginUid != 0 &&
+        listenerCapableUids_.insert(strip->pluginUid).second)
+      db_.savePluginCapability(strip->pluginUid);
+  }
+
+  if (!changed)
+    return;
+
+  stateManager_.markDirty();
+  pushConfigStatus();
+  broadcastMessage("setDirtyState", true);
+  scheduleStateRebuild();
 }
 
 void MainComponent::pollPluginStateChanges() {
@@ -1272,6 +1288,7 @@ void MainComponent::loadStripsFromDB() {
       desc.uniqueId = row.uid;
       desc.numInputChannels = row.numInputs;
       desc.numOutputChannels = row.numOutputs;
+      desc.isInstrument = row.isInstrument;
       desc.fileOrIdentifier = row.path;
       pluginScanner_.getKnownPluginListMutable().addType(desc);
     }
@@ -1304,7 +1321,7 @@ void MainComponent::loadStripsFromDB() {
       strip->setGainDb(row.gainDb);
 
       // Wire up plugin change listener for dirty detection
-      setupStripListener(*strip);
+      setupStripPluginSlot(*strip);
 
       // Restore expression map
       if (!row.expressionMapEntityID.empty()) {
@@ -1316,22 +1333,7 @@ void MainComponent::loadStripsFromDB() {
         }
       }
 
-      // Restore plugin
-      if (row.pluginUid != 0) {
-        for (const auto &d : pluginScanner_.getKnownPluginList().getTypes()) {
-          if (d.uniqueId == row.pluginUid) {
-            auto stateBlock = row.pluginState;
-            strip->loadPlugin(d, mixer_.getFormatManager(),
-                              [strip, stateBlock](bool success) {
-                                if (success)
-                                  strip->applyPluginState(
-                                      stateBlock.getData(),
-                                      (int)stateBlock.getSize());
-                              });
-            break;
-          }
-        }
-      }
+      restoreStripPlugin(*strip, row.pluginUid, row.pluginState);
 
       // Restore Lua plugins
       for (const auto &fileName : row.luaPluginFileNames) {
@@ -1656,6 +1658,7 @@ void MainComponent::timerCallback() {
   // Many VST3 plugins (e.g. Vienna Synchron Player) don't fire
   // AudioProcessorListener callbacks, so we hash getStateInformation()
   // to detect changes.
+  processPluginChangeNotifications();
   if (++pluginPollCounter_ % 100 == 0) {
     pollPluginStateChanges();
   }
@@ -2823,24 +2826,7 @@ void MainComponent::setupJsHandlers() {
               if (effectiveUid == 0 && inst.vstPlugin.isNotEmpty())
                 effectiveUid = inst.vstPlugin.getIntValue();
 
-              if (effectiveUid != 0) {
-                strip->pluginUid = effectiveUid;
-                for (const auto &d :
-                     pluginScanner_.getKnownPluginList().getTypes()) {
-                  if (d.uniqueId == effectiveUid) {
-                    auto stateBlock = inst.pluginState;
-                    strip->loadPlugin(
-                        d, mixer_.getFormatManager(),
-                        [strip, stateBlock](bool success) {
-                          if (success)
-                            strip->applyPluginState(
-                                stateBlock.getData(),
-                                (int)stateBlock.getSize());
-                        });
-                    break;
-                  }
-                }
-              }
+              restoreStripPlugin(*strip, effectiveUid, inst.pluginState);
             };
 
             // Create one strip per library for this channel
@@ -3112,30 +3098,17 @@ void MainComponent::setupJsHandlers() {
                                               blobOpt->inputChannel);
                     strip->pluginUid = blobOpt->pluginUid;
                     strip->setGainDb(blobOpt->gainDb);
-                    setupStripListener(*strip);
+                    setupStripPluginSlot(*strip);
                     if (!blobOpt->expressionMapEntityId.empty()) {
                       auto xd =
                           xmapLibrary_.load(blobOpt->expressionMapEntityId);
                       if (xd)
                         strip->setExpressionMap(xd);
                     }
-                    if (strip->pluginUid != 0) {
-                      for (const auto &d :
-                           pluginScanner_.getKnownPluginList().getTypes()) {
-                        if (d.uniqueId == strip->pluginUid) {
-                          juce::MemoryBlock sb(blobOpt->pluginState.data(),
-                                               blobOpt->pluginState.size());
-                          strip->loadPlugin(
-                              d, mixer_.getFormatManager(),
-                              [strip, sb](bool ok) {
-                                if (ok)
-                                  strip->applyPluginState(sb.getData(),
-                                                          (int)sb.getSize());
-                              });
-                          break;
-                        }
-                      }
-                    }
+                    juce::MemoryBlock pluginState(blobOpt->pluginState.data(),
+                                                  blobOpt->pluginState.size());
+                    restoreStripPlugin(*strip, blobOpt->pluginUid,
+                                       pluginState);
                   }
                 }
               }
@@ -3193,7 +3166,7 @@ void MainComponent::setupJsHandlers() {
                               << " gainDb=" << blobOpt->gainDb << " db"
                               << std::endl;
 
-                    setupStripListener(*strip);
+                    setupStripPluginSlot(*strip);
 
                     if (!blobOpt->expressionMapEntityId.empty()) {
                       auto xmapData =
@@ -3202,25 +3175,10 @@ void MainComponent::setupJsHandlers() {
                         strip->setExpressionMap(xmapData);
                     }
 
-                    if (strip->pluginUid != 0) {
-                      for (const auto &d :
-                           pluginScanner_.getKnownPluginList().getTypes()) {
-                        if (d.uniqueId == strip->pluginUid) {
-                          juce::MemoryBlock stateBlock(
-                              blobOpt->pluginState.data(),
-                              blobOpt->pluginState.size());
-                          strip->loadPlugin(
-                              d, mixer_.getFormatManager(),
-                              [strip, stateBlock](bool success) {
-                                if (success)
-                                  strip->applyPluginState(
-                                      stateBlock.getData(),
-                                      (int)stateBlock.getSize());
-                              });
-                          break;
-                        }
-                      }
-                    }
+                    juce::MemoryBlock pluginState(blobOpt->pluginState.data(),
+                                                  blobOpt->pluginState.size());
+                    restoreStripPlugin(*strip, blobOpt->pluginUid,
+                                       pluginState);
                   }
                 }
               }
@@ -3308,28 +3266,15 @@ void MainComponent::setupJsHandlers() {
                                         blobOpt->inputChannel);
               strip->pluginUid = blobOpt->pluginUid;
               strip->setGainDb(blobOpt->gainDb);
-              setupStripListener(*strip);
+              setupStripPluginSlot(*strip);
               if (!blobOpt->expressionMapEntityId.empty()) {
                 auto xd = xmapLibrary_.load(blobOpt->expressionMapEntityId);
                 if (xd)
                   strip->setExpressionMap(xd);
               }
-              if (strip->pluginUid != 0) {
-                for (const auto &d :
-                     pluginScanner_.getKnownPluginList().getTypes()) {
-                  if (d.uniqueId == strip->pluginUid) {
-                    juce::MemoryBlock sb(blobOpt->pluginState.data(),
-                                         blobOpt->pluginState.size());
-                    strip->loadPlugin(
-                        d, mixer_.getFormatManager(), [strip, sb](bool ok) {
-                          if (ok)
-                            strip->applyPluginState(sb.getData(),
-                                                    (int)sb.getSize());
-                        });
-                    break;
-                  }
-                }
-              }
+              juce::MemoryBlock pluginState(blobOpt->pluginState.data(),
+                                            blobOpt->pluginState.size());
+              restoreStripPlugin(*strip, blobOpt->pluginUid, pluginState);
             }
           }
         }
@@ -3387,30 +3332,18 @@ void MainComponent::setupJsHandlers() {
                                                 blobOpt->inputChannel);
                       strip->pluginUid = blobOpt->pluginUid;
                       strip->setGainDb(blobOpt->gainDb);
-                      setupStripListener(*strip);
+                      setupStripPluginSlot(*strip);
                       if (!blobOpt->expressionMapEntityId.empty()) {
                         auto xd =
                             xmapLibrary_.load(blobOpt->expressionMapEntityId);
                         if (xd)
                           strip->setExpressionMap(xd);
                       }
-                      if (strip->pluginUid != 0) {
-                        for (const auto &d :
-                             pluginScanner_.getKnownPluginList().getTypes()) {
-                          if (d.uniqueId == strip->pluginUid) {
-                            juce::MemoryBlock sb(blobOpt->pluginState.data(),
-                                                 blobOpt->pluginState.size());
-                            strip->loadPlugin(
-                                d, mixer_.getFormatManager(),
-                                [strip, sb](bool ok) {
-                                  if (ok)
-                                    strip->applyPluginState(
-                                        sb.getData(), (int)sb.getSize());
-                                });
-                            break;
-                          }
-                        }
-                      }
+                      juce::MemoryBlock pluginState(
+                          blobOpt->pluginState.data(),
+                          blobOpt->pluginState.size());
+                      restoreStripPlugin(*strip, blobOpt->pluginUid,
+                                         pluginState);
                     }
                   }
                 }

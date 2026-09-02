@@ -132,6 +132,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MixerJsHandlers.h
     Source/Server/PluginCommandService.cpp
     Source/Server/PluginCommandService.h
+    Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostedPluginSlot.h
     Source/Server/PluginCommands.h
     Source/Server/PluginJsHandlers.cpp
     Source/Server/PluginJsHandlers.h
@@ -687,6 +689,27 @@ target_compile_features(AudioGraphSpikeTest PRIVATE cxx_std_17)
 add_test(NAME audio_graph_spike COMMAND AudioGraphSpikeTest)
 set_tests_properties(audio_graph_spike PROPERTIES
     LABELS "audio;realtime;regression;stable"
+)
+
+# ==============================================================================
+# HostedPluginSlotTest — reusable host lifecycle, compatibility, and ownership
+# ==============================================================================
+add_executable(HostedPluginSlotTest
+    Source/Server/tests/HostedPluginSlotTest.cpp
+    Source/Server/HostedPluginSlot.cpp
+)
+
+target_include_directories(HostedPluginSlotTest PRIVATE Source/Server Source)
+target_link_libraries(HostedPluginSlotTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_gui_basics
+)
+target_compile_definitions(HostedPluginSlotTest PRIVATE JUCE_PLUGINHOST_VST3=1)
+target_compile_features(HostedPluginSlotTest PRIVATE cxx_std_17)
+
+add_test(NAME hosted_plugin_slot COMMAND HostedPluginSlotTest)
+set_tests_properties(hosted_plugin_slot PROPERTIES
+    LABELS "audio;plugin;regression;stable"
 )
 
 # ==============================================================================

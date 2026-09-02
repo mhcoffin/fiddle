@@ -1,9 +1,9 @@
 #pragma once
 
-#include "../RealtimeObjectPublisher.h"
 #include "AnnotationRecord.h"
 #include "AnnotatorChain.h"
 #include "ExpressionMapData.h"
+#include "HostedPluginSlot.h"
 #include "IncomingSwitchTracker.h"
 #include "MidiCaptureLog.h"
 #include "RealtimeMidiScheduler.h"
@@ -18,41 +18,13 @@
 namespace fiddle {
 
 class LuaPlugin;
-class PluginEditorWindow;
-
-/// A single mixer channel strip. Owns a plugin instance + optional editor
-/// window. Identified by a unique string ID.
+/// A single mixer channel strip. Instrument plug-in lifecycle is delegated to
+/// a reusable HostedPluginSlot. Identified by a unique string ID.
 struct MixerStrip {
 
   MixerStrip();
 
-  /// Lifetime sentinel: shared_ptr set to false when the strip is destroyed.
-  /// The async loadPlugin callback captures a weak_ptr to this and checks
-  /// liveness before touching any member — prevents use-after-free when a
-  /// strip is removed from the mixer while a plugin load is still in flight.
-  std::shared_ptr<bool> lifetimeToken_ = std::make_shared<bool>(true);
-
   ~MixerStrip();
-
-  /// Listener that detects plugin parameter changes via the standard VST3
-  /// notification path. When it fires, we mark the strip dirty and record
-  /// the pluginUid as "listener-capable" so polling can skip it.
-  struct PluginChangeListener : juce::AudioProcessorListener {
-    juce::String stripId;
-    int pluginUid = 0;
-    /// Shared set of pluginUids known to fire listener callbacks.
-    /// Populated by the listener, read by the polling timer.
-    std::set<int> *listenerCapableUids = nullptr;
-    /// Callback to mark Fiddle dirty (set by MainComponent).
-    std::function<void()> onDirty;
-
-    void audioProcessorParameterChanged(juce::AudioProcessor *, int,
-                                        float) override;
-    void audioProcessorChanged(
-        juce::AudioProcessor *,
-        const juce::AudioProcessorListener::ChangeDetails &d) override;
-  };
-  PluginChangeListener pluginChangeListener_;
 
   juce::String id;
   juce::String library; // User-supplied VST library label (e.g. "SSP")
@@ -99,6 +71,16 @@ struct MixerStrip {
   bool capturePluginState(juce::MemoryBlock &destination) const;
   bool applyPluginState(const void *data, int sizeInBytes);
   bool setPluginProgram(int programIndex);
+  void setPluginBypassed(bool bypassed) noexcept;
+  [[nodiscard]] bool isPluginBypassed() const noexcept;
+  [[nodiscard]] HostedPluginStatus pluginStatus() const noexcept;
+  [[nodiscard]] const PluginCompatibility &pluginCompatibility() const noexcept;
+
+  /// Update the stable instrument-slot ID after assigning/restoring strip.id.
+  void updatePluginSlotId();
+
+  /// Consume a listener notification on the message thread.
+  [[nodiscard]] bool consumePluginChangeNotification() noexcept;
 
   /// Re-serialize the live plugin state into cachedPluginState_.
   void refreshPluginStateCache();
@@ -192,6 +174,10 @@ struct MixerStrip {
                   juce::AudioPluginFormatManager &formatManager,
                   std::function<void(bool)> onComplete = nullptr);
 
+  /// Preserve an unavailable instrument's identity and serialized state.
+  void markPluginMissing(int uid, const juce::MemoryBlock &state,
+                         const juce::String &error);
+
   /// Unload the plugin and close editor.
   void unloadPlugin();
 
@@ -208,11 +194,6 @@ struct MixerStrip {
   juce::var toJson() const;
 
 private:
-  struct PluginRuntime {
-    std::unique_ptr<juce::AudioPluginInstance> instance;
-    juce::AudioBuffer<float> tempBuffer;
-  };
-
   static constexpr uint64_t packInputAssignment(int port,
                                                 int channel) noexcept {
     return (static_cast<uint64_t>(static_cast<uint32_t>(port)) << 32) |
@@ -224,12 +205,7 @@ private:
   std::atomic<bool> soloed_{false};
   std::atomic<uint64_t> inputAssignment_{packInputAssignment(-1, -1)};
 
-  /// Message-thread alias for the currently published runtime's plugin.
-  /// Ownership remains in PluginRuntime and reclamation waits for audio
-  /// readers.
-  juce::AudioPluginInstance *pluginInstance_ = nullptr;
-  std::unique_ptr<PluginEditorWindow> editorWindow_;
-  juce::MemoryBlock cachedPluginState_;
+  HostedPluginSlot instrumentSlot_{PluginSlotRole::instrument};
 
   RealtimeMidiScheduler midiScheduler_;
   juce::MidiBuffer processMidiBuffer_; // audio thread only, preallocated
@@ -240,9 +216,6 @@ private:
   std::atomic<float> peakDb_{-120.0f};
   std::atomic<float> peakHoldDb_{-120.0f};
 
-  RealtimeObjectPublisher<PluginRuntime> pluginRuntime_;
-
-  void publishPluginRuntime(std::unique_ptr<PluginRuntime> runtime);
 };
 
 } // namespace fiddle

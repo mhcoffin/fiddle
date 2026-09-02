@@ -1067,7 +1067,7 @@ Result: the spike met its acceptance criterion. Its conclusions, limitations,
 and the retained regression coverage are recorded in
 [`audio-graph-spike-results.md`](audio-graph-spike-results.md).
 
-### Phase 2: hosted plug-in abstraction and catalog
+### Phase 2: hosted plug-in abstraction and catalog (complete)
 
 - Extract reusable hosted plug-in slots from `MixerStrip`.
 - Cache and publish `isInstrument` and compatibility metadata.
@@ -1078,6 +1078,10 @@ and the retained regression coverage are recorded in
 Acceptance criterion: instrument selection still works, and one real VST3 audio
 effect can be instantiated, edited, bypassed, and state-restored in an isolated
 test host.
+
+Implementation result: the reusable host, real-effect acceptance test, and
+existing Fiddle instrument workflow all pass. See
+[`hosted-plugin-slot-results.md`](hosted-plugin-slot-results.md).
 
 ### Phase 3: Master effect rack vertical slice
 
