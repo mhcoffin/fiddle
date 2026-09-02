@@ -520,7 +520,7 @@ void MixerStrip::showEditor() {
   if (editorWindow_) {
     editorWindow_->setVisible(true);
     editorWindow_->toFront(true);
-  } else if (auto *editor = pluginInstance_->createEditor()) {
+  } else if (auto *editor = pluginInstance_->createEditorAndMakeActive()) {
     editorWindow_ = std::make_unique<PluginEditorWindow>(library, editor);
   }
 }
