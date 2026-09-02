@@ -1,5 +1,6 @@
 #include "../ExpressionMapAnnotator.h"
 #include "../ExpressionMapData.h"
+#include "../NoteInspection.h"
 #include "midi_event.pb.h"
 
 #include <iostream>
@@ -1237,6 +1238,51 @@ static void testAnnotationRecordDuration() {
   A_CHECK(std::abs(actual - expected) < 0.1);
 }
 
+static void testIncomingRecordWithoutExpressionMap() {
+  std::cout << "--- testIncomingRecordWithoutExpressionMap ---" << std::endl;
+
+  fiddle::Note note;
+  note.set_note_number(64);
+  note.set_channel(3);
+  note.set_start_velocity(91);
+  (*note.mutable_notation_techniques())["articulation"] = "Staccato";
+  (*note.mutable_notation_techniques())["secondary"] = "Natural";
+  (*note.mutable_notation_is_default())["secondary"] = true;
+  (*note.mutable_notation_dimensions())["dorico_length_category"] = 2.0f;
+  (*note.mutable_notation_dimensions())["custom_amount"] = 0.75f;
+
+  const auto input = makeIncomingNoteRecord(note, 48000.0, false);
+  A_CHECK_EQ(input.noteNumber, 64);
+  A_CHECK_EQ(input.inputChannel, 3);
+  A_CHECK_EQ(input.velocityBefore, 91);
+  A_CHECK_EQ(input.velocityAfter, 91);
+  A_CHECK(input.lengthCategory == LengthCategory::Medium);
+  A_CHECK(!input.expressionMapAssigned);
+  A_CHECK(input.inputTechniques.count("pt.staccato"));
+  A_CHECK(!input.inputTechniques.count("pt.natural"));
+  A_CHECK_EQ(input.receivedTechniques.at("secondary"),
+             std::string("Natural"));
+  A_CHECK(input.defaultTechniqueDimensions.count("secondary"));
+  A_CHECK(input.receivedDimensions.count("custom_amount"));
+
+  auto mappedInput = input;
+  mappedInput.expressionMapAssigned = true;
+  AnnotationRecord decision;
+  decision.noteNumber = 76;
+  decision.velocityBefore = 80;
+  decision.velocityAfter = 42;
+  decision.baseSwitchName = "Staccato Short";
+  const auto merged = mergeNoteInspection(mappedInput, &decision);
+  A_CHECK(merged.expressionMapAssigned);
+  A_CHECK_EQ(merged.noteNumber, 64);
+  A_CHECK_EQ(merged.inputChannel, 3);
+  A_CHECK_EQ(merged.velocityBefore, 91);
+  A_CHECK_EQ(merged.velocityAfter, 42);
+  A_CHECK_EQ(merged.baseSwitchName, std::string("Staccato Short"));
+  A_CHECK_EQ(merged.receivedTechniques.at("articulation"),
+             std::string("Staccato"));
+}
+
 
 // ---------------------------------------------------------------------------
 // Forward declarations for IncomingSwitchTracker tests
@@ -1282,6 +1328,7 @@ void runAnnotatorTests() {
   testAnnotationRecordConditionFallback();
   testAnnotationRecordModifiers();
   testAnnotationRecordDuration();
+  testIncomingRecordWithoutExpressionMap();
 
   // IncomingSwitchTracker tests
   testIncomingSwitchTrackerBasic();

@@ -225,6 +225,8 @@ juce::var MixerStrip::annotationRecordToVar(const AnnotationRecord &r) {
   auto *obj = new juce::DynamicObject();
 
   obj->setProperty("noteNumber", r.noteNumber);
+  obj->setProperty("inputChannel", r.inputChannel);
+  obj->setProperty("expressionMapAssigned", r.expressionMapAssigned);
 
   // Input techniques
   {
@@ -232,6 +234,24 @@ juce::var MixerStrip::annotationRecordToVar(const AnnotationRecord &r) {
     for (const auto &t : r.inputTechniques)
       arr.add(juce::String(t));
     obj->setProperty("inputTechniques", juce::var(arr));
+  }
+  {
+    auto *techniques = new juce::DynamicObject();
+    for (const auto &[dimension, display] : r.receivedTechniques)
+      techniques->setProperty(juce::String(dimension), juce::String(display));
+    obj->setProperty("receivedTechniques", juce::var(techniques));
+  }
+  {
+    auto *dimensions = new juce::DynamicObject();
+    for (const auto &[dimension, value] : r.receivedDimensions)
+      dimensions->setProperty(juce::String(dimension), value);
+    obj->setProperty("receivedDimensions", juce::var(dimensions));
+  }
+  {
+    juce::Array<juce::var> arr;
+    for (const auto &dimension : r.defaultTechniqueDimensions)
+      arr.add(juce::String(dimension));
+    obj->setProperty("defaultTechniqueDimensions", juce::var(arr));
   }
 
   // Match resolution

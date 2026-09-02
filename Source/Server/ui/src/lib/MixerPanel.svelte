@@ -13,8 +13,18 @@
         instrumentScoreOrder,
         populateScoreOrder,
     } from "./orchestralOrder.js";
+    import {
+        STRIP_SIZE_PRESETS,
+        readStripSize,
+        writeStripSize,
+    } from "./uiPreferences.js";
 
-
+    let {
+        uiZoom = 1,
+        onZoomIn = () => {},
+        onZoomOut = () => {},
+        onResetZoom = () => {},
+    } = $props();
 
     let strips = $state([]);
     let availableInputs = $state([]);
@@ -23,6 +33,12 @@
     let luaPluginCatalog = $state([]);
     let branches = $state([]);
     let currentBranch = $state("default");
+    let stripSize = $state(readStripSize(window.localStorage));
+    let stripWidth = $derived(STRIP_SIZE_PRESETS[stripSize].width);
+
+    const updateStripSize = (value) => {
+        stripSize = writeStripSize(window.localStorage, value);
+    };
 
     let playbackDelay = $state(1000);
     let editingDelay = $state(false);
@@ -247,6 +263,10 @@
         }
         dispatchCpp("setStripPlugin", stripId, pluginUid);
     };
+    const getPluginName = (strip) =>
+        scannedPlugins.find(
+            (plugin) => Number(plugin.uid) === Number(strip.pluginUid),
+        )?.name || "";
     const showEditor = (stripId) => {
         dispatchCpp("showStripEditor", stripId);
     };
@@ -851,7 +871,10 @@
 
 </script>
 
-<div class="mixer-container">
+<div
+    class="mixer-container"
+    style="--strip-width: {stripWidth}px;"
+>
     <div class="mixer-toolbar">
         <div class="toolbar-left">
 
@@ -880,9 +903,44 @@
             </button>
         </div>
         <div class="toolbar-right">
+            <div class="display-controls" aria-label="Display settings">
+                <label class="display-control-label" for="strip-size-select">Strip size</label>
+                <select
+                    id="strip-size-select"
+                    class="toolbar-select"
+                    value={stripSize}
+                    onchange={(e) => updateStripSize(e.currentTarget.value)}
+                    title="Choose the width of mixer strips"
+                >
+                    {#each Object.entries(STRIP_SIZE_PRESETS) as [value, preset]}
+                        <option {value}>{preset.label}</option>
+                    {/each}
+                </select>
+            </div>
+            <div class="zoom-control" aria-label="Interface zoom">
+                <button
+                    class="zoom-btn"
+                    onclick={onZoomOut}
+                    aria-label="Zoom out"
+                    title="Zoom out (Command-minus)"
+                >−</button>
+                <button
+                    class="zoom-value"
+                    onclick={onResetZoom}
+                    aria-label="Reset zoom"
+                    title="Reset zoom (Command-0)"
+                >{Math.round(uiZoom * 100)}%</button>
+                <button
+                    class="zoom-btn"
+                    onclick={onZoomIn}
+                    aria-label="Zoom in"
+                    title="Zoom in (Command-plus)"
+                >+</button>
+            </div>
             <div class="delay-control">
-                <label class="delay-label">Delay</label>
+                <label class="delay-label" for="delay-slider">Delay</label>
                 <input
+                    id="delay-slider"
                     class="delay-slider"
                     type="range"
                     min="0"
@@ -912,10 +970,18 @@
                 {:else}
                     <span
                         class="delay-value"
+                        role="button"
+                        tabindex="0"
                         ondblclick={() => {
                             editingDelay = true;
                         }}
-                        title="Double-click to type">{playbackDelay}ms</span
+                        onkeydown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                editingDelay = true;
+                            }
+                        }}
+                        title="Double-click or press Enter to type">{playbackDelay}ms</span
                     >
                 {/if}
             </div>
@@ -1102,6 +1168,15 @@
                                                     }}
                                                 ></div>
 
+                                                <div class="ch-inspect-midi-slot">
+                                                    <button
+                                                        class="ch-inspect-midi-btn"
+                                                        class:active={inspectorStripId === strip.id}
+                                                        title="Open the incoming MIDI note inspector"
+                                                        onclick={() => toggleInspector(strip.id)}
+                                                    >Inspect MIDI</button>
+                                                </div>
+
                                                 <!-- Lua Plugins (top of strip = first in signal chain) -->
                                                 <div class="ch-lua">
                                                     {#if strip.luaPlugins && strip.luaPlugins.length > 0}
@@ -1223,9 +1298,13 @@
 
                                                 <!-- Expression Map -->
                                                 <div class="ch-xmap">
+                                                    <div class="ch-control-heading">
+                                                        <span>Expression map</span>
+                                                    </div>
                                                     <div class="ch-xmap-row">
                                                         <select
                                                             class="ch-select ch-xmap-select"
+                                                            title={strip.expressionMapName || "Choose an expression map"}
                                                             value={strip.expressionMapName
                                                                 ? "__loaded__"
                                                                 : ""}
@@ -1263,23 +1342,26 @@
                                                                 >Load from file…</option
                                                             >
                                                         </select>
-                                                        {#if strip.expressionMapName}
-                                                            <button
-                                                                class="ch-inspect-btn"
-                                                                class:active={inspectorStripId === strip.id}
-                                                                title="Note Inspector"
-                                                                onclick={() => toggleInspector(strip.id)}
-                                                            >🔍</button>
-                                                        {/if}
                                                     </div>
                                                 </div>
 
 
                                                 <!-- Plugin -->
                                                 <div class="ch-plugin">
+                                                    <div class="ch-control-heading">
+                                                        <span>VSTi</span>
+                                                        {#if strip.hasPlugin}
+                                                            <button
+                                                                class="ch-action-btn"
+                                                                onclick={() => showEditor(strip.id)}
+                                                                title="Open the VST instrument editor"
+                                                            >Edit</button>
+                                                        {/if}
+                                                    </div>
                                                     <div class="ch-plugin-row">
                                                         <select
                                                             class="ch-select"
+                                                            title={getPluginName(strip) || "Choose a VST instrument"}
                                                             value={strip.pluginUid || 0}
                                                             onchange={(e) => {
                                                                 const uid = Number(
@@ -1297,13 +1379,6 @@
                                                                 >
                                                             {/each}
                                                         </select>
-                                                        {#if strip.hasPlugin}
-                                                            <button
-                                                                class="ch-edit-btn"
-                                                                onclick={() => showEditor(strip.id)}
-                                                                title="Open editor">e</button
-                                                            >
-                                                        {/if}
                                                     </div>
                                                 </div>
 
@@ -1504,9 +1579,11 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 12px;
         padding: 6px 16px;
         flex-shrink: 0;
         border-bottom: 1px solid #1e293b;
+        overflow-x: auto;
     }
     .toolbar-center {
         display: flex;
@@ -1550,6 +1627,65 @@
         display: flex;
         align-items: center;
         gap: 12px;
+        flex-shrink: 0;
+    }
+
+    .display-controls,
+    .zoom-control {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .display-control-label {
+        color: #cbd5e1;
+        font-size: 0.75rem;
+        font-weight: 500;
+        white-space: nowrap;
+    }
+    .toolbar-select {
+        height: 30px;
+        padding: 3px 8px;
+        border: 1px solid #475569;
+        border-radius: 4px;
+        background: #0f172a;
+        color: #e2e8f0;
+        font-size: 0.75rem;
+        cursor: pointer;
+    }
+    .zoom-control {
+        gap: 0;
+    }
+    .zoom-btn,
+    .zoom-value {
+        height: 30px;
+        border: 1px solid #475569;
+        background: #0f172a;
+        color: #e2e8f0;
+        cursor: pointer;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+    .zoom-btn {
+        width: 30px;
+        padding: 0;
+        font-size: 1rem;
+    }
+    .zoom-btn:first-child {
+        border-radius: 4px 0 0 4px;
+    }
+    .zoom-btn:last-child {
+        border-radius: 0 4px 4px 0;
+    }
+    .zoom-value {
+        min-width: 52px;
+        padding: 0 6px;
+        border-left: 0;
+        border-right: 0;
+    }
+    .zoom-btn:hover,
+    .zoom-value:hover {
+        background: #1e293b;
+        border-color: #64748b;
     }
 
     .toolbar-btn {
@@ -1751,13 +1887,13 @@
         position: relative;
         display: flex;
         flex-direction: column;
-        width: 80px;
-        min-width: 80px;
+        width: var(--strip-width, 120px);
+        min-width: var(--strip-width, 120px);
         align-self: stretch;
         background: #111827;
         border-right: 1px solid #0f172a;
-        padding: 6px 4px 12px;
-        gap: 4px;
+        padding: 6px 8px 12px;
+        gap: 6px;
         overflow: hidden;
     }
     .channel-strip:hover {
@@ -1777,32 +1913,32 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
-        width: 38px;
-        min-width: 38px;
+        gap: 6px;
+        width: 46px;
+        min-width: 46px;
         height: 100%;
         flex-shrink: 0;
         background: #090f1c;
         border-right: 1px solid rgba(51, 65, 85, 0.9); /* softer than other separators */
         /* Same vertical padding as .channel-strip so spacers compute correctly */
-        padding: 6px 2px;
+        padding: 6px 4px;
         overflow: hidden;
     }
     /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
     .master-strip-top-spacer {
         flex-shrink: 0;
-        /* select-bar (6px) + ch-lua fixed area (90px) + gap (4px) */
-        height: 100px;
+        /* selection bar + MIDI inspector slot + Lua area and gaps */
+        height: 134px;
     }
-    /* Mirrors bottom controls (ch-mute-solo + ch-xmap + ch-plugin + measured correction) */
+    /* Mirrors the enlarged controls below each channel fader. */
     .master-strip-bot-spacer {
         flex-shrink: 0;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: flex-start;
-        height: 128px;
-        gap: 4px;
+        height: 264px;
+        gap: 6px;
     }
 
     .master-track {
@@ -1812,7 +1948,7 @@
         accent-color: #d4a017;
     }
     .master-db {
-        font-size: 0.62rem;
+        font-size: 0.75rem;
         font-weight: 600;
         color: #cbd5e1;
         text-align: center;
@@ -1824,8 +1960,10 @@
         border: 1px solid #334155;
         border-radius: 4px;
         cursor: pointer;
-        font-size: 0.65rem;
-        padding: 2px 3px;
+        min-width: 30px;
+        min-height: 28px;
+        font-size: 0.8rem;
+        padding: 3px;
         color: #94a3b8;
         transition: border-color 0.15s, color 0.15s, background 0.15s;
         flex-shrink: 0;
@@ -1843,16 +1981,16 @@
 
     .select-bar {
         flex-shrink: 0;
-        height: 6px;
+        height: 8px;
         cursor: pointer;
         transition: filter 0.15s;
     }
     .select-bar-bottom {
         position: absolute;
         bottom: 0;
-        left: 4px;  /* match channel-strip horizontal padding so it aligns with select-bar-top */
-        right: 4px;
-        height: 6px;
+        left: 8px;  /* match channel-strip horizontal padding so it aligns with select-bar-top */
+        right: 8px;
+        height: 8px;
     }
     .select-bar:hover {
         filter: brightness(1.4);
@@ -1861,8 +1999,37 @@
         filter: brightness(1.6);
     }
 
+    .ch-inspect-midi-slot {
+        height: 24px;
+        flex-shrink: 0;
+    }
+    .ch-inspect-midi-btn {
+        width: 100%;
+        height: 24px;
+        padding: 1px 6px;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        background: #0f172a;
+        color: #cbd5e1;
+        cursor: pointer;
+        font-size: 0.7rem;
+        font-weight: 600;
+        line-height: 1;
+        transition: all 0.15s;
+    }
+    .ch-inspect-midi-btn:hover {
+        background: #1e3a5f;
+        color: #bfdbfe;
+        border-color: #3b82f6;
+    }
+    .ch-inspect-midi-btn.active {
+        background: #1e3a5f;
+        color: #38bdf8;
+        border-color: #38bdf8;
+    }
+
     .ch-name-area {
-        min-height: 18px;
+        min-height: 22px;
     }
     /* Instrument group bridge header */
     .inst-group {
@@ -1872,23 +2039,23 @@
     .bridge-header {
         display: flex;
         align-items: center;
-        gap: 3px;
-        padding: 2px 4px;
+        gap: 5px;
+        padding: 4px 6px;
         border-bottom: 2px solid var(--accent, #3b82f6);
         background: rgba(0,0,0,0.25);
-        min-height: 18px;
+        min-height: 22px;
         overflow: hidden;
     }
     .bridge-header.bridge-multi {
         background: rgba(59,130,246,0.08);
     }
     .bridge-icon {
-        font-size: 0.55rem;
+        font-size: 0.75rem;
         flex-shrink: 0;
         opacity: 0.7;
     }
     .bridge-label {
-        font-size: 0.6rem;
+        font-size: 0.75rem;
         font-weight: 600;
         color: #e2e8f0;
         white-space: nowrap;
@@ -1897,12 +2064,12 @@
         flex: 1;
     }
     .bridge-port {
-        font-size: 0.5rem;
+        font-size: 0.65rem;
         color: #94a3b8;
         flex-shrink: 0;
     }
     .ch-lib-name {
-        font-size: 0.55rem;
+        font-size: 0.75rem;
         color: #cbd5e1;
         text-align: center;
         cursor: default;
@@ -1914,12 +2081,12 @@
     }
     .ch-name-input {
         width: 100%;
-        padding: 1px 2px;
+        padding: 3px 5px;
         border: 1px solid #3b82f6;
         border-radius: 2px;
         background: #0f172a;
         color: #f1f5f9;
-        font-size: 0.65rem;
+        font-size: 0.75rem;
         font-weight: 600;
         text-align: center;
         box-sizing: border-box;
@@ -1940,7 +2107,7 @@
     }
 
     .fader-tick {
-        font-size: 0.5rem;
+        font-size: 0.65rem;
         color: #cbd5e1;
         line-height: 1;
         flex-shrink: 0;
@@ -1964,7 +2131,7 @@
     }
 
     .meter-track {
-        width: 4px;
+        width: 6px;
         flex-shrink: 0;
         background: #0f172a;
         border-radius: 2px;
@@ -1998,7 +2165,7 @@
     .fader-slider {
         writing-mode: vertical-lr;
         direction: rtl; /* top = max (+6), bottom = min (-120) */
-        width: 18px;
+        width: 24px;
         height: 100%;
         cursor: pointer;
         accent-color: #3b82f6;
@@ -2009,12 +2176,13 @@
 
     .fader-value {
         width: 100%;
-        padding: 1px 2px;
+        min-height: 28px;
+        padding: 3px 5px;
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
         color: #cbd5e1;
-        font-size: 0.55rem;
+        font-size: 0.75rem;
         text-align: center;
         flex-shrink: 0;
         -moz-appearance: textfield;
@@ -2032,19 +2200,19 @@
     /* Mute / Solo buttons */
     .ch-mute-solo {
         display: flex;
-        gap: 4px;
+        gap: 8px;
         justify-content: center;
         padding: 4px 0;
     }
 
     .ms-btn {
-        width: 22px;
-        height: 18px;
+        width: 32px;
+        height: 28px;
         border: 1px solid #555;
         border-radius: 3px;
         background: #2a2a2a;
         color: #aaa;
-        font-size: 0.6rem;
+        font-size: 0.8rem;
         font-weight: 700;
         cursor: pointer;
         padding: 0;
@@ -2150,6 +2318,7 @@
     .ch-xmap {
         display: flex;
         flex-direction: column;
+        gap: 4px;
         margin-bottom: 2px;
     }
     .ch-xmap-row {
@@ -2158,38 +2327,44 @@
         gap: 2px;
     }
     .ch-xmap-select {
-        font-size: 0.6rem;
         max-width: 100%;
         flex: 1;
         min-width: 0;
     }
-    .ch-inspect-btn {
-        background: transparent;
-        border: 1px solid #334155;
-        border-radius: 3px;
-        cursor: pointer;
-        font-size: 0.55rem;
-        padding: 1px 3px;
+    .ch-control-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 28px;
+        gap: 6px;
+        color: #94a3b8;
+        font-size: 0.7rem;
+        font-weight: 600;
         line-height: 1;
-        color: #64748b;
+    }
+    .ch-action-btn {
+        min-width: 52px;
+        min-height: 28px;
+        padding: 3px 8px;
+        background: #0f172a;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #cbd5e1;
         transition: all 0.15s;
         flex-shrink: 0;
     }
-    .ch-inspect-btn:hover {
-        background: #1e293b;
-        color: #94a3b8;
-        border-color: #475569;
-    }
-    .ch-inspect-btn.active {
+    .ch-action-btn:hover {
         background: #1e3a5f;
-        color: #38bdf8;
-        border-color: #38bdf8;
+        color: #bfdbfe;
+        border-color: #3b82f6;
     }
-
     .ch-plugin {
         display: flex;
         flex-direction: column;
-        gap: 2px;
+        gap: 4px;
     }
     .ch-program {
         display: flex;
@@ -2220,7 +2395,7 @@
         border-radius: 3px;
         background: #1e293b;
         border: 1px solid #475569;
-        font-size: 0.5rem;
+        font-size: 0.7rem;
         color: #e2e8f0;
         line-height: 1.2;
         transition: border-color 0.15s;
@@ -2234,7 +2409,7 @@
     }
     .ch-lua-chip-name {
         white-space: nowrap;
-        max-width: 60px;
+        max-width: calc(var(--strip-width, 120px) - 48px);
         overflow: hidden;
         text-overflow: ellipsis;
     }
@@ -2243,15 +2418,18 @@
         border: none;
         color: #94a3b8;
         cursor: pointer;
-        font-size: 0.6rem;
-        padding: 0;
+        min-width: 22px;
+        min-height: 22px;
+        font-size: 0.8rem;
+        padding: 0 3px;
         line-height: 1;
     }
     .ch-lua-chip-x:hover {
         color: #f87171;
     }
     .ch-lua-select {
-        font-size: 0.5rem;
+        min-height: 26px;
+        font-size: 0.7rem;
         color: #94a3b8;
         background: transparent;
         border: none;
@@ -2261,7 +2439,7 @@
         color: initial;
     }
     .ch-program-select {
-        font-size: 0.5rem;
+        font-size: 0.7rem;
         color: #94a3b8;
     }
     .ch-plugin-row {
@@ -2272,12 +2450,13 @@
     .ch-select {
         flex: 1;
         min-width: 0;
-        padding: 2px 2px;
+        min-height: 30px;
+        padding: 4px 6px;
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
         color: #cbd5e1;
-        font-size: 0.55rem;
+        font-size: 0.75rem;
         cursor: pointer;
         appearance: auto;
     }
@@ -2286,39 +2465,20 @@
         border-color: #3b82f6;
     }
 
-    .ch-edit-btn {
-        padding: 1px 4px;
-        border: 1px solid #334155;
-        border-radius: 3px;
-        background: #0f172a;
-        color: #cbd5e1;
-        font-size: 0.6rem;
-        font-style: italic;
-        cursor: pointer;
-        line-height: 1;
-        flex-shrink: 0;
-    }
-    .ch-edit-btn:hover {
-        background: #1e3a5f;
-        color: #93c5fd;
-        border-color: #3b82f6;
-    }
-
-
-
     .ch-buttons {
         display: flex;
-        gap: 2px;
-        margin-top: 2px;
+        gap: 6px;
+        margin-top: 4px;
     }
     .ch-btn {
         flex: 1;
-        padding: 2px 0;
+        min-height: 28px;
+        padding: 3px 0;
         border: 1px solid #334155;
         border-radius: 3px;
         background: #0f172a;
         color: #cbd5e1;
-        font-size: 0.65rem;
+        font-size: 0.8rem;
         cursor: pointer;
         text-align: center;
         transition: all 0.12s;

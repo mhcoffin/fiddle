@@ -1,19 +1,26 @@
 #pragma once
 
 #include "ExpressionMapData.h"
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
 
 namespace fiddle {
 
-/// Structured decision record capturing the full chain of reasoning for one
-/// note processed by ExpressionMapAnnotator.  Always produced (not a debug
+/// Structured inspection record capturing an incoming note and, when present,
+/// the expression-map decision made for it. Always produced (not a debug
 /// mode), but only consumed by the Note Inspector UI.
 struct AnnotationRecord {
   // ── Input ──
   int noteNumber = -1;                    // MIDI note number (0-127)
-  std::set<std::string> inputTechniques; // pt.xxx IDs (after MEG expansion)
+  int inputChannel = 0;                   // MIDI channel (1-based)
+  std::set<std::string> inputTechniques;  // effective pt.xxx IDs
+  std::map<std::string, std::string>
+      receivedTechniques; // raw dimension → value
+  std::map<std::string, float> receivedDimensions; // raw dimension → value
+  std::set<std::string> defaultTechniqueDimensions;
+  bool expressionMapAssigned = false;
 
   // ── Match resolution ──
   LengthCategory lengthCategory = LengthCategory::VeryLong;

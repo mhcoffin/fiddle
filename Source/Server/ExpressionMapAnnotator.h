@@ -2,6 +2,7 @@
 
 #include "Annotator.h"
 #include "ExpressionMapData.h"
+#include "NoteInspection.h"
 #include <map>
 
 namespace fiddle {
@@ -50,41 +51,20 @@ public:
 
   void onNoteStart(fiddle::Note &note,
                    const AnnotatorContext &ctx) override {
-    lastRecord_.clear();
-    lastRecord_.noteNumber = note.note_number();
+    lastRecord_ = makeIncomingNoteRecord(note, ctx.sampleRate,
+                                         emData_ != nullptr);
     if (!emData_)
       return;
 
     // ── 1. Collect the note's playback techniques ──────────────────
-    auto techniqueIDs = collectTechniqueIDs(note);
+    const auto &techniqueIDs = lastRecord_.inputTechniques;
 
     // NOTE: no expandWithDefaults — the 6-tier resolver works on raw PTs.
     // MEG expansion was removed because it breaks EMs where absence of
     // a technique is semantically meaningful (e.g. VSL vibrato).
 
-    lastRecord_.inputTechniques = techniqueIDs;
-
     // ── 2. Determine note length category ──────────────────────────
-    // Prefer the length category from CC102 compound encoding
-    // (set by Dorico via the Fiddle expression map).
-    // Falls back to duration_samples if not available.
-    LengthCategory lengthCat = LengthCategory::VeryLong;
-    auto dimIt = note.notation_dimensions().find("dorico_length_category");
-    if (dimIt != note.notation_dimensions().end()) {
-      int idx = (int)dimIt->second;
-      switch (idx) {
-        case 0: lengthCat = LengthCategory::VeryShort; break;
-        case 1: lengthCat = LengthCategory::Short;     break;
-        case 2: lengthCat = LengthCategory::Medium;    break;
-        case 3: lengthCat = LengthCategory::Long;      break;
-        default: lengthCat = LengthCategory::VeryLong;  break;
-      }
-    } else if (note.duration_samples() > 0 && ctx.sampleRate > 0) {
-      double durationSec =
-          static_cast<double>(note.duration_samples()) / ctx.sampleRate;
-      lengthCat = classifyLength(durationSec);
-    }
-    lastRecord_.lengthCategory = lengthCat;
+    const auto lengthCat = lastRecord_.lengthCategory;
 
     // ── 3. Resolve match (cached by PT set + length) ──────────────
     std::vector<CandidateInfo> candidates;
@@ -198,7 +178,7 @@ public:
     if (!emData_)
       return;
 
-    auto techniqueIDs = collectTechniqueIDs(note);
+    auto techniqueIDs = collectInputTechniqueIds(note);
 
     // Recompute length category from written duration (note is now complete)
     LengthCategory lengthCat = LengthCategory::VeryLong;
@@ -264,44 +244,6 @@ private:
   // Cache key: (PT set, LengthCategory)
   using CacheKey = std::pair<std::set<std::string>, LengthCategory>;
   std::map<CacheKey, MatchResult> cache_;
-
-  /// Collect the note's playback techniques as pt.xxx IDs.
-  /// Entries flagged as notation_is_default are skipped — those are
-  /// Dorico's *global* expression map defaults.  The strip's own MEGs
-  /// will fill in the correct defaults via expandWithDefaults().
-  static std::set<std::string> collectTechniqueIDs(const fiddle::Note &note) {
-    std::set<std::string> result;
-    for (auto &[dim, display] : note.notation_techniques()) {
-      // Skip Dorico's global defaults — they'll be replaced by
-      // the strip's MEG defaults in expandWithDefaults().
-      auto it = note.notation_is_default().find(dim);
-      if (it != note.notation_is_default().end() && it->second)
-        continue;
-
-      auto id = reverseHumanize(display);
-      if (!id.empty())
-        result.insert(id);
-    }
-    return result;
-  }
-
-  /// Reverse-humanize: "Staccato" → "pt.staccato", "Legato" → "pt.legato".
-  static std::string reverseHumanize(const std::string &display) {
-    if (display.empty())
-      return {};
-    // Already a pt.xxx ID?
-    if (display.size() > 3 && display[0] == 'p' && display[1] == 't' &&
-        display[2] == '.')
-      return display;
-    // Convert "Foo Bar" → "pt.foobar"
-    std::string id = "pt.";
-    for (char c : display) {
-      if (c == ' ' || c == '-' || c == '_')
-        continue;
-      id += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    return id;
-  }
 
   /// Resolve with cache. Optionally populates candidates on cache miss.
   MatchResult resolveWithCache(const std::set<std::string> &techniques,

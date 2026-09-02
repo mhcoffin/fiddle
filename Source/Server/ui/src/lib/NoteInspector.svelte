@@ -1,6 +1,12 @@
 <script>
     import { onMount, onDestroy } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
+    import {
+        dimensionEntries,
+        formatDimensionValue,
+        resolutionState,
+        techniqueEntries,
+    } from "./noteInspection.js";
 
     /** @type {{ stripId: string }} */
     let { stripId } = $props();
@@ -102,30 +108,69 @@
         {/if}
     </div>
     {#if records.length === 0}
-        <div class="ni-empty">No notes yet — play a note to see decisions</div>
+        <div class="ni-empty">No notes yet — play a note to see its input and processing decisions</div>
     {:else}
         <div class="ni-records">
             {#each records.toReversed() as rec, i}
+                {@const rawTechniques = techniqueEntries(rec)}
+                {@const rawDimensions = dimensionEntries(rec)}
+                {@const resolution = resolutionState(rec)}
                 <div class="ni-record" class:skipped={rec.redundancySkipped}>
-                    <!-- Row 1: Note + Input → Match -->
-                    <div class="ni-row ni-match-row">
+                    <!-- Incoming structured note from Dorico -->
+                    <div class="ni-row ni-input-summary">
                         <span class="ni-note-name">{midiNoteName(rec.noteNumber)} ({rec.noteNumber})</span>
-                        <span class="ni-input-pts">
-                            {#if rec.inputTechniques.length > 0}
-                                {rec.inputTechniques.join(", ")}
-                            {:else}
-                                <em>no PTs</em>
-                            {/if}
-                        </span>
-                        <span class="ni-arrow">→</span>
-                        <span class="ni-match {rec.baseSwitchName ? 'has-match' : 'no-match'}">
-                            {#if rec.baseSwitchName}
-                                <span class="ni-len-badge {lengthClass(rec.lengthCategory)}">{lengthLabel(rec.lengthCategory)}</span>
-                                <span class="ni-base-name">{rec.baseSwitchName}</span>
-                            {:else}
-                                <span class="ni-no-match">No match</span>
-                            {/if}
-                        </span>
+                        {#if rec.inputChannel > 0}
+                            <span class="ni-input-meta">Ch {rec.inputChannel}</span>
+                        {/if}
+                        <span class="ni-input-meta">Vel {rec.velocityBefore}</span>
+                        <span class="ni-len-badge {lengthClass(rec.lengthCategory)}">{lengthLabel(rec.lengthCategory)}</span>
+                    </div>
+
+                    <div class="ni-row ni-techniques">
+                        <span class="ni-label">Techniques:</span>
+                        {#if rawTechniques.length > 0}
+                            {#each rawTechniques as [dimension, technique]}
+                                <span class="ni-raw-tag" title={dimension}>
+                                    {technique || "—"}
+                                    {#if (rec.defaultTechniqueDimensions || []).includes(dimension)}
+                                        <span class="ni-default-tag">default</span>
+                                    {/if}
+                                </span>
+                            {/each}
+                        {:else if rec.inputTechniques && rec.inputTechniques.length > 0}
+                            {#each rec.inputTechniques as technique}
+                                <span class="ni-raw-tag">{technique}</span>
+                            {/each}
+                        {:else}
+                            <span class="ni-none">none</span>
+                        {/if}
+                    </div>
+
+                    {#if rawDimensions.length > 0}
+                        <div class="ni-row ni-dimensions">
+                            <span class="ni-label">Dimensions:</span>
+                            {#each rawDimensions as [dimension, value]}
+                                <span class="ni-raw-tag" title={dimension}>
+                                    {dimension}: {formatDimensionValue(value)}
+                                </span>
+                            {/each}
+                        </div>
+                    {/if}
+
+                    <!-- Optional expression-map resolution -->
+                    <div class="ni-row ni-match-row">
+                        <span class="ni-label">Resolution:</span>
+                        {#if resolution.kind === "unmapped"}
+                            <span class="ni-no-map">{resolution.label}</span>
+                        {:else if resolution.kind === "matched"}
+                            <span class="ni-match has-match">
+                                <span class="ni-base-name">{resolution.label}</span>
+                            </span>
+                        {:else}
+                            <span class="ni-match no-match">
+                                <span class="ni-no-match">{resolution.label}</span>
+                            </span>
+                        {/if}
                     </div>
 
                     <!-- Add-ons -->
@@ -305,6 +350,13 @@
 
     .ni-match-row {
         font-weight: 500;
+        margin-top: 4px;
+        padding-top: 4px;
+        border-top: 1px solid #1e293b;
+    }
+
+    .ni-input-summary {
+        gap: 6px;
     }
 
     .ni-note-name {
@@ -315,17 +367,32 @@
         border-right: 1px solid #334155;
     }
 
-    .ni-input-pts {
+    .ni-input-meta {
+        color: #cbd5e1;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .ni-raw-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        padding: 0 4px;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #172033;
         color: #cbd5e1;
     }
 
-    .ni-input-pts em {
+    .ni-default-tag {
         color: #94a3b8;
+        font-size: 0.6rem;
+        font-style: italic;
     }
 
-    .ni-arrow {
-        color: #64748b;
-        margin: 0 2px;
+    .ni-none,
+    .ni-no-map {
+        color: #94a3b8;
+        font-style: italic;
     }
 
     .ni-match {

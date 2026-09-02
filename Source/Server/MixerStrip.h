@@ -139,7 +139,7 @@ struct MixerStrip {
   // Incoming switch tracker: reverse-matches Dorico MIDI to switch names.
   std::unique_ptr<IncomingSwitchTracker> incomingTracker;
 
-  // Ring buffer of recent annotation decision records for Note Inspector UI.
+  // Ring buffer of recent input and decision records for Note Inspector UI.
   std::deque<AnnotationRecord> recentAnnotations_;
   static constexpr size_t kMaxAnnotations = 64;
 

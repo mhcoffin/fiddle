@@ -137,6 +137,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginJsHandlers.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
+    Source/Server/NoteInspection.cpp
+    Source/Server/NoteInspection.h
     Source/Server/RealtimeMidiScheduler.cpp
     Source/Server/RealtimeMidiScheduler.h
     Source/RealtimeObjectPublisher.h
@@ -379,6 +381,7 @@ target_sources(ExpressionMapTest PRIVATE
     Source/Server/tests/ExpressionMapParserTest.cpp
     Source/Server/tests/ExpressionMapAnnotatorTest.cpp
     Source/Server/ExpressionMapParser.cpp
+    Source/Server/NoteInspection.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
 )
 
@@ -522,6 +525,22 @@ if(NODE_EXECUTABLE)
     )
     set_tests_properties(mixer_ui_selection PROPERTIES
         LABELS "mixer;ui;regression;stable"
+    )
+
+    add_test(NAME ui_preferences
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/uiPreferences.test.js"
+    )
+    set_tests_properties(ui_preferences PROPERTIES
+        LABELS "ui;accessibility;regression;stable"
+    )
+
+    add_test(NAME note_inspection_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/noteInspection.test.js"
+    )
+    set_tests_properties(note_inspection_ui PROPERTIES
+        LABELS "ui;inspection;regression;stable"
     )
 endif()
 

@@ -10,6 +10,12 @@
   import MixerPanel from "./lib/MixerPanel.svelte";
   import LibraryManager from "./lib/LibraryManager.svelte";
   import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
+  import {
+    DEFAULT_UI_ZOOM,
+    UI_ZOOM_STEP,
+    readUiZoom,
+    writeUiZoom,
+  } from "./lib/uiPreferences.js";
 
   // Determine window mode from URL parameter
   const urlParams = new URLSearchParams(window.location.search);
@@ -40,7 +46,14 @@
   let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }
   let metronomeActive = $state(false); // true when tempo is derived from click track
   let metronomeBeats = $state([]); // [{samplePosition, isDownbeat}] — actual beat positions from click track
-  let uiZoom = $state(1.0);
+  let uiZoom = $state(readUiZoom(window.localStorage));
+
+  const setUiZoom = (value) => {
+    uiZoom = writeUiZoom(window.localStorage, value);
+  };
+  const zoomIn = () => setUiZoom(uiZoom + UI_ZOOM_STEP);
+  const zoomOut = () => setUiZoom(uiZoom - UI_ZOOM_STEP);
+  const resetZoom = () => setUiZoom(DEFAULT_UI_ZOOM);
   let sessionOffset = $derived.by(() => {
     let min = Infinity;
     if (noteHistory.length > 0) {
@@ -331,17 +344,17 @@
         }
         if (e.key === "=" || e.key === "+") {
           e.preventDefault();
-          uiZoom = Math.min(uiZoom + 0.1, 3.0);
+          zoomIn();
           return;
         }
         if (e.key === "-") {
           e.preventDefault();
-          uiZoom = Math.max(uiZoom - 0.1, 0.5);
+          zoomOut();
           return;
         }
         if (e.key === "0") {
           e.preventDefault();
-          uiZoom = 1.0;
+          resetZoom();
           return;
         }
       }
@@ -514,7 +527,7 @@
     <!-- MAIN WINDOW: mixer only -->
     <main class="main-content">
       <div class="panel-mixer">
-        <MixerPanel />
+        <MixerPanel {uiZoom} onZoomIn={zoomIn} onZoomOut={zoomOut} onResetZoom={resetZoom} />
       </div>
     </main>
   {/if}

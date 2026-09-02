@@ -1,4 +1,5 @@
 #include "MixerModel.h"
+#include "NoteInspection.h"
 
 #include "HarmonicAnalysisService.h"
 #include "MasterInstrumentList.h"
@@ -313,6 +314,11 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
   if (!graph)
     return;
 
+  // Preserve Dorico's structured input before any strip-specific Lua or
+  // expression-map annotator mutates the shared Note.
+  const auto incomingRecord =
+      makeIncomingNoteRecord(note, currentSampleRate_, false);
+
   for (auto *strip : graph->strips) {
     if (!strip->matchesInput(port, channel))
       continue;
@@ -325,10 +331,12 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
     ctx.tonalContext = tonalCtx; // inject tonal context
     strip->annotator->onNoteStart(note, ctx);
 
-    // Record the annotation decision for Note Inspector UI
-    if (auto *rec = strip->annotator->lastAnnotationRecord()) {
-      strip->pushAnnotation(*rec);
-    }
+    // The inspector always receives the input note. If this strip has an
+    // expression map, enrich it with the resolver's decision and MIDI output.
+    auto stripInput = incomingRecord;
+    stripInput.expressionMapAssigned = strip->expressionMap != nullptr;
+    strip->pushAnnotation(mergeNoteInspection(
+        stripInput, strip->annotator->lastAnnotationRecord()));
 
     // ── Latching keyswitches: release old, latch new ──────────────
     // Collect the new keyswitch notes from pre_note instructions
