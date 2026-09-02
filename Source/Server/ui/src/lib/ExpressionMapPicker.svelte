@@ -81,7 +81,18 @@
             class="xmap-value"
             class:xmap-placeholder={!selectedName}
         ><span>{selectedName || "— xmap —"}</span></span>
-        <span class="xmap-arrow" aria-hidden="true"></span>
+        <svg
+            class="xmap-search-icon"
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+        >
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="m16 16 4 4"></path>
+        </svg>
     </button>
 
     {#if isOpen}
@@ -206,17 +217,19 @@
         color: #94a3b8;
         direction: ltr;
     }
-    .xmap-arrow {
+    .xmap-search-icon {
         position: absolute;
         top: 50%;
-        right: 8px;
-        width: 0;
-        height: 0;
-        border-right: 4px solid transparent;
-        border-left: 4px solid transparent;
-        border-top: 5px solid #94a3b8;
-        transform: translateY(-25%);
+        right: 6px;
+        width: 16px;
+        height: 16px;
+        color: #94a3b8;
+        transform: translateY(-50%);
         pointer-events: none;
+    }
+    .xmap-trigger:hover .xmap-search-icon,
+    .xmap-trigger:focus-visible .xmap-search-icon {
+        color: #bfdbfe;
     }
 
     .xmap-dialog {
