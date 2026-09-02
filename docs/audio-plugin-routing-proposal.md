@@ -1043,7 +1043,7 @@ Maintain a small repeatable smoke-test matrix using available plug-ins:
 - The implementation decisions are recorded in section 21.
 - Milestone acceptance criteria are recorded in the phases below.
 
-### Phase 1: audio-graph spike
+### Phase 1: audio-graph spike (complete)
 
 Build a non-UI prototype using `AudioProcessorGraph` and only deterministic test
 processors:
@@ -1062,6 +1062,10 @@ rebuilds, and no Fiddle processor allocates during steady-state rendering.
 
 Do not alter project persistence in this disposable spike unless the graph
 approach is accepted.
+
+Result: the spike met its acceptance criterion. Its conclusions, limitations,
+and the retained regression coverage are recorded in
+[`audio-graph-spike-results.md`](audio-graph-spike-results.md).
 
 ### Phase 2: hosted plug-in abstraction and catalog
 

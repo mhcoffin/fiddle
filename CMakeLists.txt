@@ -672,6 +672,24 @@ set_tests_properties(realtime_midi_scheduler PROPERTIES
 )
 
 # ==============================================================================
+# AudioGraphSpikeTest — offline JUCE graph topology, latency, and realtime tests
+# ==============================================================================
+add_executable(AudioGraphSpikeTest
+    Source/Server/tests/AudioGraphSpikeTest.cpp
+)
+
+target_link_libraries(AudioGraphSpikeTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_events
+)
+target_compile_features(AudioGraphSpikeTest PRIVATE cxx_std_17)
+
+add_test(NAME audio_graph_spike COMMAND AudioGraphSpikeTest)
+set_tests_properties(audio_graph_spike PROPERTIES
+    LABELS "audio;realtime;regression;stable"
+)
+
+# ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico
 # ==============================================================================
 add_executable(FiddleMock
