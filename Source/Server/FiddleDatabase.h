@@ -1,5 +1,6 @@
 #pragma once
 
+#include "LibraryRoutingRepository.h"
 #include "MixerModel.h"
 #include "SqliteStatement.h"
 #include "SqliteVersionStorage.h"
@@ -139,6 +140,10 @@ public:
 
   versioning::SqliteVersionStorage *getVersionStorage() const {
     return versionStorage_.get();
+  }
+
+  LibraryRoutingRepository *getLibraryRoutingRepository() const {
+    return libraryRoutingRepository_.get();
   }
 
   // ── Strip operations (message thread) ──────────────────────────────
@@ -293,6 +298,7 @@ private:
   sqlite3 *db_ = nullptr;
   mutable std::mutex mutex_;
   std::unique_ptr<versioning::SqliteVersionStorage> versionStorage_;
+  std::unique_ptr<LibraryRoutingRepository> libraryRoutingRepository_;
 
   // Prepared statements
   SqliteStatement stmtSaveStrip_;

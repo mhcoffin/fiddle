@@ -145,6 +145,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginCommands.h
     Source/Server/PluginJsHandlers.cpp
     Source/Server/PluginJsHandlers.h
+    Source/Server/LibraryRoutingRepository.cpp
+    Source/Server/LibraryRoutingRepository.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/StripAudioEngine.cpp
@@ -857,6 +859,23 @@ target_compile_features(SqliteVersionStorageTest PRIVATE cxx_std_17)
 add_test(NAME sqlite_version_storage COMMAND SqliteVersionStorageTest)
 set_tests_properties(sqlite_version_storage PROPERTIES
     LABELS "audio;persistence;regression;stable"
+)
+
+# ==============================================================================
+# LibraryRoutingRepositoryTest — patch, chair, and layer persistence
+# ==============================================================================
+add_executable(LibraryRoutingRepositoryTest
+    Source/Server/tests/LibraryRoutingRepositoryTest.cpp
+    Source/Server/LibraryRoutingRepository.cpp
+)
+
+target_include_directories(LibraryRoutingRepositoryTest PRIVATE Source/Server)
+target_link_libraries(LibraryRoutingRepositoryTest PRIVATE SQLite::SQLite3)
+target_compile_features(LibraryRoutingRepositoryTest PRIVATE cxx_std_17)
+
+add_test(NAME library_routing_repository COMMAND LibraryRoutingRepositoryTest)
+set_tests_properties(library_routing_repository PROPERTIES
+    LABELS "library;routing;persistence;regression;stable"
 )
 
 # ==============================================================================

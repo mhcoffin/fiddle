@@ -11,6 +11,9 @@ bool FiddleDatabase::open(const juce::File &dbFile) {
   std::lock_guard<std::mutex> lock(mutex_);
 
   if (db_) {
+    versionStorage_.reset();
+    libraryRoutingRepository_.reset();
+    finalizeStatements();
     sqlite3_close(db_);
     db_ = nullptr;
   }
@@ -26,11 +29,14 @@ bool FiddleDatabase::open(const juce::File &dbFile) {
   }
 
   // Enable WAL mode for performance
+  exec("PRAGMA foreign_keys=ON");
   exec("PRAGMA journal_mode=WAL");
   exec("PRAGMA synchronous=NORMAL");
 
   createSchema();
   prepareStatements();
+  libraryRoutingRepository_ =
+      std::make_unique<LibraryRoutingRepository>(db_, mutex_);
   versionStorage_ =
       std::make_unique<versioning::SqliteVersionStorage>(db_, mutex_);
 
@@ -40,6 +46,8 @@ bool FiddleDatabase::open(const juce::File &dbFile) {
 
 void FiddleDatabase::close() {
   std::lock_guard<std::mutex> lock(mutex_);
+  versionStorage_.reset();
+  libraryRoutingRepository_.reset();
   finalizeStatements();
   if (db_) {
     sqlite3_close(db_);
@@ -338,6 +346,8 @@ void FiddleDatabase::createSchema() {
   // Seed the default library on first boot
   exec("INSERT OR IGNORE INTO libraries (id, name) VALUES "
        "('00000000-0000-0000-0000-000000000000', '')");
+
+  LibraryRoutingRepository::ensureSchema(db_);
 }
 
 void FiddleDatabase::prepareStatements() {
