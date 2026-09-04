@@ -1104,14 +1104,14 @@
   .inst-row {
     display: grid;
     grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 154px;
-    gap: 8px; align-items: center;
+    gap: 8px; align-items: start;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
     transition: background .1s;
   }
   .inst-row:hover { background: rgba(149,169,255,.04); }
   .inst-row.patch-selected { background: rgba(149,169,255,.09); }
-  .ir-check { display: flex; justify-content: center; }
+  .ir-check { display: flex; justify-content: center; padding-top: 6px; }
   .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
   .action-duplicate, .action-delete {
