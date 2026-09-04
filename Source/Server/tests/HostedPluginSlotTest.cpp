@@ -63,16 +63,20 @@ public:
 
   void processBlock(juce::AudioBuffer<float> &audio,
                     juce::MidiBuffer &) override {
+    playbackCounter_.fetch_add(1, std::memory_order_relaxed);
     audio.applyGain(gain_->get());
   }
 
   void getStateInformation(juce::MemoryBlock &destination) override {
     const float value = gain_->get();
     destination.append(&value, sizeof(value));
+    const auto playbackCounter =
+        playbackCounter_.load(std::memory_order_relaxed);
+    destination.append(&playbackCounter, sizeof(playbackCounter));
   }
 
   void setStateInformation(const void *data, int sizeInBytes) override {
-    if (data == nullptr || sizeInBytes != static_cast<int>(sizeof(float)))
+    if (data == nullptr || sizeInBytes < static_cast<int>(sizeof(float)))
       return;
     float value = 0.0f;
     std::memcpy(&value, data, sizeof(value));
@@ -98,6 +102,15 @@ public:
 
   void setGain(float value) {
     gain_->setValueNotifyingHost(gain_->convertTo0to1(value));
+  }
+  void setGainWithGesture(float value) {
+    gain_->beginChangeGesture();
+    setGain(value);
+    gain_->endChangeGesture();
+  }
+  void notifyNonParameterStateChanged() {
+    updateHostDisplay(
+        ChangeDetails{}.withNonParameterStateChanged(true));
   }
   [[nodiscard]] float gain() const noexcept { return gain_->get(); }
 
@@ -125,6 +138,7 @@ private:
   Kind kind_;
   std::atomic<int> *destructionCount_ = nullptr;
   juce::AudioParameterFloat *gain_ = nullptr;
+  std::atomic<uint32_t> playbackCounter_{0};
 };
 
 juce::PluginDescription makeDescription(int uid, bool isInstrument,
@@ -199,10 +213,11 @@ void testEffectLifecycleStateBypassAndNotification() {
 
   processorPointer->setGain(0.25f);
   CHECK(slot.consumeChangeNotification());
+  CHECK(!slot.consumeExplicitEditNotification());
   CHECK(!slot.consumeChangeNotification());
   slot.refreshStateCache();
   const auto saved = slot.cachedState();
-  CHECK(saved.getSize() == sizeof(float));
+  CHECK(saved.getSize() == sizeof(float) + sizeof(uint32_t));
 
   processorPointer->setGain(1.5f);
   CHECK(slot.applyState(saved.getData(), static_cast<int>(saved.getSize())));
@@ -235,6 +250,45 @@ void testEffectLifecycleStateBypassAndNotification() {
   CHECK(slot.missingState()->state == saved);
   CHECK(slot.lastError() == "Plug-in file not found");
   slot.reclaimRetiredRuntimes();
+}
+
+void testParameterFingerprintIgnoresVolatilePlaybackState() {
+  fiddle::HostedPluginSlot slot(fiddle::PluginSlotRole::instrument);
+  auto processor = std::make_unique<StatefulTestProcessor>(
+      StatefulTestProcessor::Kind::instrument);
+  auto *processorPointer = processor.get();
+  juce::String error;
+  CHECK(slot.installProcessor(makeDescription(43, true, 0, 2),
+                              std::move(processor), 48000.0, 64, error));
+
+  const auto originalFingerprint = slot.parameterFingerprint();
+  juce::MemoryBlock stateBeforePlayback;
+  CHECK(slot.captureState(stateBeforePlayback));
+
+  juce::AudioBuffer<float> audio(2, 64);
+  juce::MidiBuffer midi;
+  audio.clear();
+  CHECK(slot.processBlock(audio, midi));
+  CHECK(slot.processBlock(audio, midi));
+
+  juce::MemoryBlock stateAfterPlayback;
+  CHECK(slot.captureState(stateAfterPlayback));
+  CHECK(stateAfterPlayback != stateBeforePlayback);
+  CHECK(slot.parameterFingerprint() == originalFingerprint);
+
+  processorPointer->setGain(0.75f);
+  CHECK(slot.parameterFingerprint() != originalFingerprint);
+
+  CHECK(slot.consumeChangeNotification());
+  CHECK(!slot.consumeExplicitEditNotification());
+  processorPointer->setGainWithGesture(0.5f);
+  CHECK(slot.consumeChangeNotification());
+  CHECK(slot.consumeExplicitEditNotification());
+
+  processorPointer->notifyNonParameterStateChanged();
+  CHECK(slot.consumeChangeNotification());
+  CHECK(!slot.consumeExplicitEditNotification());
+  CHECK(slot.consumeNonParameterStateChangeNotification());
 }
 
 void testLayoutRejectionAndDeferredReclamation() {
@@ -438,6 +492,7 @@ int main(int argc, char **argv) {
   const juce::ScopedJuceInitialiser_GUI juceInitialiser;
   testCompatibilityMetadata();
   testEffectLifecycleStateBypassAndNotification();
+  testParameterFingerprintIgnoresVolatilePlaybackState();
   testLayoutRejectionAndDeferredReclamation();
   testMultiOutputInstrumentLayoutIsPreserved();
   if (argc >= 2) {

@@ -158,13 +158,17 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   CHECK(commands.calls.back() == "gain");
   CHECK(std::abs(commands.number - 6.0f) < 0.001f);
 
+  effects.clear();
   CHECK(router.handleMessage("setStripMute", payload({"strip-a", true})));
   CHECK(commands.calls.back() == "mute");
   CHECK(commands.flag);
+  CHECK(effects == std::vector<std::string>({"persist", "changed"}));
 
+  effects.clear();
   CHECK(router.handleMessage("setStripSolo", payload({"strip-a", false})));
   CHECK(commands.calls.back() == "solo");
   CHECK(!commands.flag);
+  CHECK(effects == std::vector<std::string>({"persist", "changed"}));
 
   effects.clear();
   CHECK(router.handleMessage("toggleLibraryActive", payload({"Berlin"})));

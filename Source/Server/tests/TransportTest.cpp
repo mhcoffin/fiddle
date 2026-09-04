@@ -1,4 +1,5 @@
 #include "../NoteStreamTracker.h"
+#include "../PluginChangeSuppression.h"
 
 #include <cstdint>
 #include <iostream>
@@ -121,6 +122,31 @@ void testOutOfOrderNoteOffIsClamped() {
   CHECK(tracker.getActiveNotes().empty());
 }
 
+void testPluginPlaybackActivityIncludesNoteAuditionAndPreTransportMidi() {
+  const auto note = makeNoteOn(1, 60, 1000);
+  const auto cc = makeCC(1, 1, 72);
+  const auto transport =
+      makeTransport(fiddle::MidiEvent_TransportEvent_Type_START);
+  fiddle::MidiEvent tempo;
+  tempo.mutable_tempo()->set_bpm(120.0);
+  fiddle::MidiEvent save;
+  save.mutable_save_config_request()->set_request_id(1);
+
+  CHECK(fiddle::isPluginPerformanceActivity(note));
+  CHECK(fiddle::isPluginPerformanceActivity(cc));
+  CHECK(fiddle::isPluginPerformanceActivity(transport));
+  CHECK(!fiddle::isPluginPerformanceActivity(tempo));
+  CHECK(!fiddle::isPluginPerformanceActivity(save));
+
+  CHECK(fiddle::hasRecentPluginPerformanceActivity(1200, 1000));
+  CHECK(fiddle::hasRecentPluginPerformanceActivity(2000, 1000));
+  CHECK(!fiddle::hasRecentPluginPerformanceActivity(2001, 1000));
+  CHECK(!fiddle::hasRecentPluginPerformanceActivity(1000, 0));
+
+  // Verify the unsigned millisecond counter wrap-around case.
+  CHECK(fiddle::hasRecentPluginPerformanceActivity(20, 0xfffffff0u));
+}
+
 } // namespace
 
 int main() {
@@ -129,6 +155,7 @@ int main() {
   testCCStateUsesOneBasedChannels();
   testTransportDoesNotDiscardActiveNotes();
   testOutOfOrderNoteOffIsClamped();
+  testPluginPlaybackActivityIncludesNoteAuditionAndPreTransportMidi();
 
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;

@@ -8,6 +8,15 @@
 
 namespace fiddle::versioning {
 
+struct GarbageCollectionResult {
+  int fiddleStatesRemoved = 0;
+  int stripBlobsRemoved = 0;
+  bool compacted = false;
+  std::string error;
+
+  bool succeeded() const { return error.empty(); }
+};
+
 /**
  * SQLite-backed implementation of the version storage interface.
  * Requires an external sqlite3 handle and mutex (usually from FiddleDatabase).
@@ -63,6 +72,12 @@ public:
   std::vector<std::pair<LibraryId, std::string>> listLibraries() const override;
   bool libraryNameExists(const std::string &name) const override;
   bool renameLibrary(const LibraryId &id, const std::string &name) override;
+
+  /// Remove content-addressed objects not referenced by any version. Versions,
+  /// branches, and every object reachable from a version are retained.
+  /// If compact is true, VACUUM is run only when rows were removed.
+  GarbageCollectionResult
+  garbageCollectUnreferencedObjects(bool compact = false);
 
 private:
   void prepareStatements();

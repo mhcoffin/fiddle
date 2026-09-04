@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../RealtimeObjectPublisher.h"
+#include "MasterAudioEngine.h"
 #include "MixerStrip.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -72,6 +73,16 @@ public:
 
   /// Get the shared format manager (for plugin loading).
   juce::AudioPluginFormatManager &getFormatManager();
+
+  MasterAudioEngine &masterAudio() noexcept { return masterAudio_; }
+  const MasterAudioEngine &masterAudio() const noexcept { return masterAudio_; }
+
+  [[nodiscard]] int masterLatencySamples() const noexcept {
+    return masterAudio_.latencySamples();
+  }
+  [[nodiscard]] double masterLatencyMs() const noexcept {
+    return masterAudio_.latencyMs();
+  }
 
   /// Get all strips count.
   [[nodiscard]] int size() const;
@@ -176,6 +187,7 @@ private:
 
   void timerCallback() override;
   juce::AudioPluginFormatManager formatManager_;
+  MasterAudioEngine masterAudio_;
   double currentSampleRate_ = 44100.0;
   int currentBlockSize_ = 512;
   int playbackDelayMs_ = 1000;

@@ -1083,7 +1083,7 @@ Implementation result: the reusable host, real-effect acceptance test, and
 existing Fiddle instrument workflow all pass. See
 [`hosted-plugin-slot-results.md`](hosted-plugin-slot-results.md).
 
-### Phase 3: Master effect rack vertical slice
+### Phase 3: Master effect rack vertical slice (implementation complete)
 
 - Add permanent Master state and graph stage.
 - Add master insert commands, undo, persistence, and Channel Audio panel.
@@ -1094,6 +1094,14 @@ without yet changing strip routing.
 
 Acceptance criterion: a limiter or EQ on Master survives restart and Dorico
 project restoration, and graph latency is reflected in render timing.
+
+Implementation result: the permanent stereo graph, ordered effect rack,
+commands and undo, versioned persistence, Dorico state-blob restoration,
+latency compensation, and Master Audio panel are implemented. Automated
+coverage is recorded in
+[`master-effect-rack-results.md`](master-effect-rack-results.md); the final
+real-plug-in restart and Dorico restore checks remain part of manual release
+testing.
 
 ### Phase 4: instrument-strip inserts
 

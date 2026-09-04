@@ -117,6 +117,38 @@ VersionStore::listAllVersions() const {
   return storage_.listAllVersions();
 }
 
+std::optional<ProjectRestoreTarget> VersionStore::resolveProjectRestoreTarget(
+    const BranchId &savedBranchId, const VersionId &savedVersionId,
+    const std::string &legacyBranchName) const {
+  if (!savedVersionId.empty()) {
+    if (auto version = storage_.getVersion(savedVersionId)) {
+      if (auto branch = storage_.getBranch(version->branchId)) {
+        return ProjectRestoreTarget{savedVersionId, version->branchId,
+                                    ProjectRestoreTarget::Match::ExactVersion};
+      }
+    }
+  }
+
+  if (!savedBranchId.empty()) {
+    if (auto branch = storage_.getBranch(savedBranchId)) {
+      return ProjectRestoreTarget{branch->second, savedBranchId,
+                                  ProjectRestoreTarget::Match::BranchId};
+    }
+  }
+
+  if (!legacyBranchName.empty()) {
+    if (auto branchId = storage_.findBranchByName(legacyBranchName)) {
+      if (auto branch = storage_.getBranch(*branchId)) {
+        return ProjectRestoreTarget{
+            branch->second, *branchId,
+            ProjectRestoreTarget::Match::LegacyBranchName};
+      }
+    }
+  }
+
+  return std::nullopt;
+}
+
 bool VersionStore::isAncestor(const VersionId &candidate,
                               const VersionId &of) const {
   if (candidate == of)

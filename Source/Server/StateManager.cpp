@@ -3,6 +3,82 @@
 
 namespace fiddle {
 
+namespace {
+
+versioning::PluginSlotBlob
+makePluginSlotBlob(const MasterInsertSnapshot &snapshot) {
+  versioning::PluginSlotBlob result;
+  result.slotId = snapshot.slotId.toStdString();
+  result.formatName = snapshot.description.pluginFormatName.toStdString();
+  result.uniqueId = snapshot.description.uniqueId;
+  result.fileOrIdentifier =
+      snapshot.description.fileOrIdentifier.toStdString();
+  result.manufacturer = snapshot.description.manufacturerName.toStdString();
+  result.name = snapshot.description.name.toStdString();
+  result.category = snapshot.description.category.toStdString();
+  result.pluginVersion = snapshot.description.version.toStdString();
+  result.numInputChannels = snapshot.description.numInputChannels;
+  result.numOutputChannels = snapshot.description.numOutputChannels;
+  result.bypassed = snapshot.bypassed;
+  if (!snapshot.pluginState.isEmpty()) {
+    const auto *data =
+        static_cast<const uint8_t *>(snapshot.pluginState.getData());
+    result.pluginState.assign(data, data + snapshot.pluginState.getSize());
+  }
+  return result;
+}
+
+versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master) {
+  versioning::GlobalState result;
+  result.audioSchemaVersion = 1;
+  result.masterGainDb = master.gainDb;
+  result.masterInserts.reserve(master.inserts.size());
+  for (const auto &insert : master.inserts)
+    result.masterInserts.push_back(makePluginSlotBlob(insert));
+  return result;
+}
+
+void appendMasterState(juce::MemoryBlock &blob,
+                       const MasterAudioSnapshot &master) {
+  const uint32_t audioSchemaVersion = 1;
+  blob.append(&audioSchemaVersion, sizeof(audioSchemaVersion));
+  blob.append(&master.gainDb, sizeof(master.gainDb));
+  const uint32_t insertCount =
+      static_cast<uint32_t>(master.inserts.size());
+  blob.append(&insertCount, sizeof(insertCount));
+
+  for (const auto &insert : master.inserts) {
+    auto *object = new juce::DynamicObject();
+    object->setProperty("slotId", insert.slotId);
+    object->setProperty("formatName", insert.description.pluginFormatName);
+    object->setProperty("pluginUid", insert.description.uniqueId);
+    object->setProperty("fileOrIdentifier",
+                        insert.description.fileOrIdentifier);
+    object->setProperty("manufacturer",
+                        insert.description.manufacturerName);
+    object->setProperty("name", insert.description.name);
+    object->setProperty("category", insert.description.category);
+    object->setProperty("pluginVersion", insert.description.version);
+    object->setProperty("numInputChannels",
+                        insert.description.numInputChannels);
+    object->setProperty("numOutputChannels",
+                        insert.description.numOutputChannels);
+    object->setProperty("bypassed", insert.bypassed);
+    const auto json = juce::JSON::toString(juce::var(object), false);
+    const auto utf8 = json.toStdString();
+    const uint32_t jsonSize = static_cast<uint32_t>(utf8.size());
+    blob.append(&jsonSize, sizeof(jsonSize));
+    blob.append(utf8.data(), utf8.size());
+    const uint32_t stateSize =
+        static_cast<uint32_t>(insert.pluginState.getSize());
+    blob.append(&stateSize, sizeof(stateSize));
+    if (stateSize > 0)
+      blob.append(insert.pluginState.getData(), stateSize);
+  }
+}
+
+} // namespace
+
 StateManager::StateManager() = default;
 
 StateManager::~StateManager() = default;
@@ -21,7 +97,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
 
   // Header
   uint32_t magic = kBlobMagic;
-  uint32_t version = kBlobVersion; // kBlobVersion is now 2
+  uint32_t version = kBlobVersion;
   uint32_t totalSizePlaceholder = 0;
   blob.append(&magic, 4);
   blob.append(&version, 4);
@@ -45,10 +121,14 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   uint8_t dirtyFlag = isDirty() ? 1 : 0;
   blob.append(&dirtyFlag, 1);
 
-  // Generate State properties
-  std::vector<versioning::StripBlob> stripBlobs;
+  const auto master = mixer.masterAudio().snapshotAll();
+  appendMasterState(blob, master);
+
+  // Generate the state identity embedded in the compatibility blob. Only an
+  // actual version commit persists this state in the version object store;
+  // persisting every shadow-blob rebuild leaked thousands of transient states.
   versioning::FiddleState state;
-  state.globalState.masterGainDb = 0.0f; // TODO: implement master gain
+  state.globalState = makeGlobalState(master);
 
   auto strips = mixer.getAllStrips();
 
@@ -63,6 +143,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
     sb.active = realtime.active;
+    sb.muted = realtime.muted;
+    sb.soloed = realtime.soloed;
     sb.inputPort = realtime.inputPort;
     sb.inputChannel = realtime.inputChannel;
     sb.pluginUid = strip->pluginUid;
@@ -77,7 +159,6 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
       sb.pluginState.assign(data, data + cached.getSize());
     }
 
-    stripBlobs.push_back(sb);
     state.stripHashes.push_back(sb.computeHash());
   }
 
@@ -92,12 +173,6 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
       if (head) {
         ancestorVersionIds = versionStore_->getAncestorChain(*head);
       }
-    }
-    // Insert new uncommitted state into DB so it persists for immediate
-    // restoration
-    versionStore_->getStorage().putFiddleState(stateHash, state);
-    for (const auto &sb : stripBlobs) {
-      versionStore_->getStorage().putStripBlob(sb.computeHash(), sb);
     }
   }
 
@@ -130,6 +205,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     obj->setProperty("family", strip->family);
     obj->setProperty("isSolo", strip->isSolo);
     obj->setProperty("active", realtime.active);
+    obj->setProperty("muted", realtime.muted);
+    obj->setProperty("soloed", realtime.soloed);
     obj->setProperty("inputPort", realtime.inputPort);
     obj->setProperty("inputChannel", realtime.inputChannel);
     obj->setProperty("pluginUid", strip->pluginUid);
@@ -175,7 +252,7 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     return "";
 
   versioning::FiddleState state;
-  state.globalState.masterGainDb = 0.0f;
+  state.globalState = makeGlobalState(mixer.masterAudio().snapshotAll());
 
   auto strips = mixer.getAllStrips();
 
@@ -187,6 +264,8 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
     sb.active = realtime.active;
+    sb.muted = realtime.muted;
+    sb.soloed = realtime.soloed;
     sb.inputPort = realtime.inputPort;
     sb.inputChannel = realtime.inputChannel;
     sb.pluginUid = strip->pluginUid;

@@ -750,6 +750,83 @@ void testDeleteThenMerge() {
   CHECK((int)mergeResult.kind != (int)MergeResult::Error);
 }
 
+void testMasterAudioParticipatesInVersionIdentity() {
+  FiddleState dry = makeState({});
+  dry.globalState.masterGainDb = -2.0f;
+
+  PluginSlotBlob limiter;
+  limiter.slotId = "master-fx-1";
+  limiter.formatName = "VST3";
+  limiter.uniqueId = 42;
+  limiter.fileOrIdentifier = "/test/limiter.vst3";
+  limiter.manufacturer = "Test Maker";
+  limiter.name = "Limiter";
+  limiter.category = "Dynamics";
+  limiter.numInputChannels = 2;
+  limiter.numOutputChannels = 2;
+  limiter.pluginState = {1, 2, 3};
+
+  FiddleState processed = dry;
+  processed.globalState.masterInserts.push_back(limiter);
+  CHECK(dry.computeHash() != processed.computeHash());
+
+  limiter.bypassed = true;
+  FiddleState bypassed = dry;
+  bypassed.globalState.masterInserts.push_back(limiter);
+  CHECK(processed.computeHash() != bypassed.computeHash());
+
+  InMemoryVersionStorage storage;
+  const auto hash = processed.computeHash();
+  storage.putFiddleState(hash, processed);
+  const auto restored = storage.getFiddleState(hash);
+  CHECK(restored.has_value());
+  CHECK_EQ((int)restored->globalState.masterInserts.size(), 1);
+  CHECK_EQ(restored->globalState.masterInserts.front().slotId, "master-fx-1");
+  CHECK_EQ((int)restored->globalState.masterInserts.front().pluginState.size(),
+           3);
+}
+
+void testDoricoProjectRestoreResolution() {
+  InMemoryVersionStorage storage;
+  VersionStore store(storage);
+  const VersionId rootId = store.initializeEmpty();
+
+  const BranchId b2 = store.createBranch("B2", rootId);
+  const Hash stripHash = storeStrip(storage, makeStrip(2, 3));
+  const VersionId savedB2Version =
+      store.commitVersion(b2, makeState({stripHash}));
+
+  // Reopening a project must select its exact saved B2 version even if the
+  // server was subsequently switched to some other branch.
+  auto exact =
+      store.resolveProjectRestoreTarget(b2, savedB2Version, "stale name");
+  CHECK(exact.has_value());
+  CHECK_EQ(exact->branchId, b2);
+  CHECK_EQ(exact->versionId, savedB2Version);
+  CHECK(exact->match == ProjectRestoreTarget::Match::ExactVersion);
+
+  // If that version was pruned, the stable branch ID advances the project to
+  // the branch head.
+  const VersionId newerB2Version =
+      store.commitVersion(b2, makeState({stripHash}, -1.0f));
+  auto branchFallback =
+      store.resolveProjectRestoreTarget(b2, "missing-version", "B2");
+  CHECK(branchFallback.has_value());
+  CHECK_EQ(branchFallback->branchId, b2);
+  CHECK_EQ(branchFallback->versionId, newerB2Version);
+  CHECK(branchFallback->match == ProjectRestoreTarget::Match::BranchId);
+
+  // Old Dorico projects carry only the branch name.
+  auto legacy = store.resolveProjectRestoreTarget({}, {}, "B2");
+  CHECK(legacy.has_value());
+  CHECK_EQ(legacy->branchId, b2);
+  CHECK_EQ(legacy->versionId, newerB2Version);
+  CHECK(legacy->match == ProjectRestoreTarget::Match::LegacyBranchName);
+
+  CHECK(!store.resolveProjectRestoreTarget("missing", "missing", "missing")
+             .has_value());
+}
+
 // ===========================================================================
 // Main
 // ===========================================================================
@@ -780,6 +857,8 @@ int main() {
   RUN_TEST(testImportNoBranchConflict);
   RUN_TEST(testImportNoAncestor);
   RUN_TEST(testDeleteThenMerge);
+  RUN_TEST(testMasterAudioParticipatesInVersionIdentity);
+  RUN_TEST(testDoricoProjectRestoreResolution);
 
   std::cout << std::endl;
   std::cout << "Passed: " << gTestsPassed << std::endl;

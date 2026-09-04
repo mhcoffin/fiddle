@@ -64,6 +64,8 @@ struct StripBlob {
   std::string family;
   bool isSolo = true;
   bool active = true;
+  bool muted = false;
+  bool soloed = false;
   int inputPort = -1;
   int inputChannel = -1;
   int pluginUid = 0;
@@ -82,8 +84,8 @@ struct StripBlob {
     std::ostringstream os;
     os << inputPort << '\0' << inputChannel << '\0' << libraryId << '\0'
        << library << '\0' << family << '\0' << (isSolo ? '1' : '0') << '\0'
-       << (active ? '1' : '0') << '\0'
-       << pluginUid << '\0';
+       << (active ? '1' : '0') << '\0' << (muted ? '1' : '0') << '\0'
+       << (soloed ? '1' : '0') << '\0' << pluginUid << '\0';
     // Use fixed-precision for float to ensure deterministic hashing
     os << std::fixed << std::setprecision(6) << gainDb << '\0';
     os << expressionMapEntityId << '\0';
@@ -93,8 +95,9 @@ struct StripBlob {
     os << '\0'; // terminator for lua plugin list
     std::string header = os.str();
     // Append binary plugin state
-    header.append(reinterpret_cast<const char *>(pluginState.data()),
-                  pluginState.size());
+    if (!pluginState.empty())
+      header.append(reinterpret_cast<const char *>(pluginState.data()),
+                    pluginState.size());
     return header;
   }
 
@@ -108,14 +111,51 @@ struct StripBlob {
 // GlobalState — settings not associated with any strip
 // ---------------------------------------------------------------------------
 
-struct GlobalState {
-  float masterGainDb = 0.0f;
-  // Add more global fields here as needed.
+struct PluginSlotBlob {
+  std::string slotId;
+  std::string formatName;
+  int uniqueId = 0;
+  std::string fileOrIdentifier;
+  std::string manufacturer;
+  std::string name;
+  std::string category;
+  std::string pluginVersion;
+  int numInputChannels = 0;
+  int numOutputChannels = 0;
+  bool bypassed = false;
+  std::vector<uint8_t> pluginState;
 
   std::string serializeForHash() const {
     std::ostringstream os;
-    os << std::fixed << std::setprecision(6) << masterGainDb;
-    return os.str();
+    os << slotId << '\0' << formatName << '\0' << uniqueId << '\0'
+       << fileOrIdentifier << '\0' << manufacturer << '\0' << name << '\0'
+       << category << '\0' << pluginVersion << '\0' << numInputChannels << '\0'
+       << numOutputChannels << '\0' << (bypassed ? '1' : '0') << '\0';
+    auto data = os.str();
+    if (!pluginState.empty())
+      data.append(reinterpret_cast<const char *>(pluginState.data()),
+                  pluginState.size());
+    return data;
+  }
+};
+
+struct GlobalState {
+  int audioSchemaVersion = 1;
+  float masterGainDb = 0.0f;
+  std::vector<PluginSlotBlob> masterInserts;
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << audioSchemaVersion << '\0' << std::fixed << std::setprecision(6)
+       << masterGainDb << '\0';
+    auto data = os.str();
+    for (const auto &insert : masterInserts) {
+      const auto serialized = insert.serializeForHash();
+      data.append(std::to_string(serialized.size()));
+      data.push_back('\0');
+      data.append(serialized);
+    }
+    return data;
   }
 
   Hash computeHash() const {

@@ -2,6 +2,8 @@
 
 #include "PluginEditorWindow.h"
 
+#include <cmath>
+#include <cstring>
 #include <utility>
 
 namespace fiddle {
@@ -10,8 +12,9 @@ PluginSlotId PluginSlotId::instrumentFor(const juce::String &stripId) {
   return {stripId + ":instrument"};
 }
 
-PluginCompatibility PluginCompatibility::fromDescription(
-    const juce::PluginDescription &description, PluginSlotRole role) {
+PluginCompatibility
+PluginCompatibility::fromDescription(const juce::PluginDescription &description,
+                                     PluginSlotRole role) {
   PluginCompatibility result;
   result.isInstrument = description.isInstrument;
   result.hasStereoInput = description.numInputChannels >= 2;
@@ -20,10 +23,9 @@ PluginCompatibility PluginCompatibility::fromDescription(
   const bool outputLayoutUnknown = description.numOutputChannels == 0;
 
   if (role == PluginSlotRole::instrument) {
-    result.compatible = result.isInstrument &&
-                        (result.hasStereoOutput || outputLayoutUnknown);
-    result.requiresRuntimeValidation =
-        result.compatible && outputLayoutUnknown;
+    result.compatible =
+        result.isInstrument && (result.hasStereoOutput || outputLayoutUnknown);
+    result.requiresRuntimeValidation = result.compatible && outputLayoutUnknown;
     if (!result.isInstrument)
       result.reason = "Plug-in is not reported as an instrument";
     else if (!result.hasStereoOutput && !outputLayoutUnknown)
@@ -90,10 +92,10 @@ bool HostedPluginSlot::hasProcessor() const noexcept {
   return messageThreadProcessor_ != nullptr;
 }
 
-void HostedPluginSlot::loadPlugin(
-    const juce::PluginDescription &description,
-    juce::AudioPluginFormatManager &formatManager, double sampleRate,
-    int blockSize, LoadCompletion onComplete) {
+void HostedPluginSlot::loadPlugin(const juce::PluginDescription &description,
+                                  juce::AudioPluginFormatManager &formatManager,
+                                  double sampleRate, int blockSize,
+                                  LoadCompletion onComplete) {
   const auto generation = ++loadGeneration_;
   const std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
   status_ = HostedPluginStatus::loading;
@@ -124,9 +126,9 @@ void HostedPluginSlot::loadPlugin(
         auto actualDescription = description;
         instance->fillInPluginDescription(actualDescription);
         juce::String error;
-        const bool installed = installProcessor(
-            actualDescription, std::move(instance), sampleRate, blockSize,
-            error);
+        const bool installed =
+            installProcessor(actualDescription, std::move(instance), sampleRate,
+                             blockSize, error);
         if (onComplete)
           onComplete(installed, error);
       });
@@ -189,14 +191,16 @@ bool HostedPluginSlot::installProcessor(
   missingState_.reset();
   bypassed_.store(false, std::memory_order_relaxed);
   changeNotificationPending_.store(false, std::memory_order_relaxed);
+  explicitEditNotificationPending_.store(false, std::memory_order_relaxed);
+  nonParameterStateChangePending_.store(false, std::memory_order_relaxed);
   publishRuntime(std::move(runtime));
   refreshStateCache();
   return true;
 }
 
-void HostedPluginSlot::markMissing(
-    const juce::PluginDescription &description,
-    const juce::MemoryBlock &state, const juce::String &error) {
+void HostedPluginSlot::markMissing(const juce::PluginDescription &description,
+                                   const juce::MemoryBlock &state,
+                                   const juce::String &error) {
   ++loadGeneration_;
   closeEditor();
   listenerProcessor_.store(nullptr, std::memory_order_release);
@@ -227,6 +231,7 @@ void HostedPluginSlot::unload() {
   status_ = HostedPluginStatus::empty;
   bypassed_.store(false, std::memory_order_relaxed);
   changeNotificationPending_.store(false, std::memory_order_relaxed);
+  explicitEditNotificationPending_.store(false, std::memory_order_relaxed);
 }
 
 void HostedPluginSlot::reclaimRetiredRuntimes() {
@@ -308,6 +313,39 @@ void HostedPluginSlot::refreshStateCache() {
   }
 }
 
+uint64_t HostedPluginSlot::parameterFingerprint() const {
+  if (!messageThreadProcessor_)
+    return 0;
+
+  constexpr uint64_t offsetBasis = 14695981039346656037ULL;
+  constexpr uint64_t prime = 1099511628211ULL;
+  uint64_t hash = offsetBasis;
+  const auto appendBytes = [&](const void *data, std::size_t size) {
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    for (std::size_t index = 0; index < size; ++index) {
+      hash ^= bytes[index];
+      hash *= prime;
+    }
+  };
+
+  const int program = messageThreadProcessor_->getCurrentProgram();
+  appendBytes(&program, sizeof(program));
+  const auto &parameters = messageThreadProcessor_->getParameters();
+  for (int index = 0; index < parameters.size(); ++index) {
+    auto *parameter = parameters[index];
+    if (!parameter || !parameter->isAutomatable())
+      continue;
+    appendBytes(&index, sizeof(index));
+    float value = parameter->getValue();
+    if (!std::isfinite(value))
+      value = 0.0f;
+    uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    appendBytes(&bits, sizeof(bits));
+  }
+  return hash;
+}
+
 void HostedPluginSlot::setBypassed(bool bypassed) noexcept {
   bypassed_.store(bypassed, std::memory_order_relaxed);
 }
@@ -331,8 +369,17 @@ void HostedPluginSlot::showEditor(const juce::String &title) {
 void HostedPluginSlot::closeEditor() { editorWindow_.reset(); }
 
 bool HostedPluginSlot::consumeChangeNotification() noexcept {
-  return changeNotificationPending_.exchange(false,
-                                             std::memory_order_acq_rel);
+  return changeNotificationPending_.exchange(false, std::memory_order_acq_rel);
+}
+
+bool HostedPluginSlot::consumeExplicitEditNotification() noexcept {
+  return explicitEditNotificationPending_.exchange(false,
+                                                    std::memory_order_acq_rel);
+}
+
+bool HostedPluginSlot::consumeNonParameterStateChangeNotification() noexcept {
+  return nonParameterStateChangePending_.exchange(false,
+                                                  std::memory_order_acq_rel);
 }
 
 void HostedPluginSlot::ChangeListener::audioProcessorParameterChanged(
@@ -344,13 +391,34 @@ void HostedPluginSlot::ChangeListener::audioProcessorChanged(
     juce::AudioProcessor *processor,
     const juce::AudioProcessorListener::ChangeDetails &details) {
   if (details.nonParameterStateChanged)
-    owner_.noteProcessorChange(processor);
+    owner_.noteNonParameterStateChange(processor);
+}
+
+void HostedPluginSlot::ChangeListener::audioProcessorParameterChangeGestureEnd(
+    juce::AudioProcessor *processor, int) {
+  owner_.noteExplicitProcessorEdit(processor);
 }
 
 void HostedPluginSlot::noteProcessorChange(
     juce::AudioProcessor *processor) noexcept {
   if (processor == listenerProcessor_.load(std::memory_order_acquire))
     changeNotificationPending_.store(true, std::memory_order_release);
+}
+
+void HostedPluginSlot::noteExplicitProcessorEdit(
+    juce::AudioProcessor *processor) noexcept {
+  if (processor != listenerProcessor_.load(std::memory_order_acquire))
+    return;
+  explicitEditNotificationPending_.store(true, std::memory_order_release);
+  changeNotificationPending_.store(true, std::memory_order_release);
+}
+
+void HostedPluginSlot::noteNonParameterStateChange(
+    juce::AudioProcessor *processor) noexcept {
+  if (processor != listenerProcessor_.load(std::memory_order_acquire))
+    return;
+  nonParameterStateChangePending_.store(true, std::memory_order_release);
+  changeNotificationPending_.store(true, std::memory_order_release);
 }
 
 bool HostedPluginSlot::configureBusLayout(juce::AudioProcessor &processor,

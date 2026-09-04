@@ -1,7 +1,117 @@
 #include "SqliteVersionStorage.h"
+#include <cstring>
 #include <iostream>
 
 namespace fiddle::versioning {
+
+namespace {
+
+void appendU32(std::string &destination, uint32_t value) {
+  destination.append(reinterpret_cast<const char *>(&value), sizeof(value));
+}
+
+void appendI32(std::string &destination, int value) {
+  const int32_t stored = static_cast<int32_t>(value);
+  destination.append(reinterpret_cast<const char *>(&stored), sizeof(stored));
+}
+
+void appendString(std::string &destination, const std::string &value) {
+  appendU32(destination, static_cast<uint32_t>(value.size()));
+  destination.append(value);
+}
+
+std::string serializeMasterInserts(const std::vector<PluginSlotBlob> &inserts) {
+  std::string result;
+  appendU32(result, static_cast<uint32_t>(inserts.size()));
+  for (const auto &insert : inserts) {
+    appendString(result, insert.slotId);
+    appendString(result, insert.formatName);
+    appendI32(result, insert.uniqueId);
+    appendString(result, insert.fileOrIdentifier);
+    appendString(result, insert.manufacturer);
+    appendString(result, insert.name);
+    appendString(result, insert.category);
+    appendString(result, insert.pluginVersion);
+    appendI32(result, insert.numInputChannels);
+    appendI32(result, insert.numOutputChannels);
+    result.push_back(insert.bypassed ? '\1' : '\0');
+    appendU32(result, static_cast<uint32_t>(insert.pluginState.size()));
+    if (!insert.pluginState.empty())
+      result.append(reinterpret_cast<const char *>(insert.pluginState.data()),
+                    insert.pluginState.size());
+  }
+  return result;
+}
+
+bool readBytes(const uint8_t *&cursor, const uint8_t *end, void *destination,
+               std::size_t size) {
+  if (cursor > end || static_cast<std::size_t>(end - cursor) < size)
+    return false;
+  std::memcpy(destination, cursor, size);
+  cursor += size;
+  return true;
+}
+
+bool readU32(const uint8_t *&cursor, const uint8_t *end, uint32_t &value) {
+  return readBytes(cursor, end, &value, sizeof(value));
+}
+
+bool readI32(const uint8_t *&cursor, const uint8_t *end, int &value) {
+  int32_t stored = 0;
+  if (!readBytes(cursor, end, &stored, sizeof(stored)))
+    return false;
+  value = static_cast<int>(stored);
+  return true;
+}
+
+bool readString(const uint8_t *&cursor, const uint8_t *end,
+                std::string &value) {
+  uint32_t size = 0;
+  if (!readU32(cursor, end, size) ||
+      static_cast<std::size_t>(end - cursor) < size)
+    return false;
+  value.assign(reinterpret_cast<const char *>(cursor), size);
+  cursor += size;
+  return true;
+}
+
+std::vector<PluginSlotBlob> deserializeMasterInserts(const void *data,
+                                                     int size) {
+  std::vector<PluginSlotBlob> result;
+  if (!data || size <= 0)
+    return result;
+  const auto *cursor = static_cast<const uint8_t *>(data);
+  const auto *end = cursor + size;
+  uint32_t count = 0;
+  if (!readU32(cursor, end, count) || count > 1024)
+    return {};
+  result.reserve(count);
+  for (uint32_t index = 0; index < count; ++index) {
+    PluginSlotBlob insert;
+    if (!readString(cursor, end, insert.slotId) ||
+        !readString(cursor, end, insert.formatName) ||
+        !readI32(cursor, end, insert.uniqueId) ||
+        !readString(cursor, end, insert.fileOrIdentifier) ||
+        !readString(cursor, end, insert.manufacturer) ||
+        !readString(cursor, end, insert.name) ||
+        !readString(cursor, end, insert.category) ||
+        !readString(cursor, end, insert.pluginVersion) ||
+        !readI32(cursor, end, insert.numInputChannels) ||
+        !readI32(cursor, end, insert.numOutputChannels) || cursor >= end)
+      return {};
+    insert.bypassed = *cursor++ != 0;
+    uint32_t stateSize = 0;
+    if (!readU32(cursor, end, stateSize) ||
+        static_cast<std::size_t>(end - cursor) < stateSize)
+      return {};
+    insert.pluginState.assign(cursor, cursor + stateSize);
+    cursor += stateSize;
+    result.push_back(std::move(insert));
+  }
+  return result;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -52,6 +162,28 @@ SqliteVersionStorage::~SqliteVersionStorage() { finalizeStatements(); }
 void SqliteVersionStorage::prepareStatements() {
   // Lock is already held by FiddleDatabase during construction
 
+  // Keep the storage adapter usable with databases created before versioned
+  // strip activation, mute/solo state, and Lua chains were persisted.
+  // FiddleDatabase defines these columns for new databases; these calls
+  // upgrade existing databases and are harmless when the columns already
+  // exist.
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN active INTEGER NOT NULL "
+               "DEFAULT 1",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN lua_plugins TEXT NOT NULL "
+               "DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN muted INTEGER NOT NULL "
+               "DEFAULT 0",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN soloed INTEGER NOT NULL "
+               "DEFAULT 0",
+               nullptr, nullptr, nullptr);
+
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
     if (sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr) != SQLITE_OK) {
       std::cerr << "[SqliteVersionStorage] Failed to prepare: " << sql
@@ -62,19 +194,22 @@ void SqliteVersionStorage::prepareStatements() {
   // StripBlobs — library_id replaces uuid
   prep("INSERT OR REPLACE INTO strip_blobs (hash, library_id, library, family, "
        "is_solo, input_port, input_channel, plugin_uid, gain_db, "
-       "expression_map, plugin_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "expression_map, plugin_state, active, lua_plugins, muted, soloed) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
-       "input_channel, plugin_uid, gain_db, expression_map, plugin_state "
-       "FROM strip_blobs WHERE hash = ?",
+       "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
+       "active, lua_plugins, muted, soloed FROM strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
 
   // FiddleState
-  prep("INSERT OR REPLACE INTO fiddle_states (hash, master_gain, strip_hashes) "
-       "VALUES (?, ?, ?)",
+  prep("INSERT OR REPLACE INTO fiddle_states "
+       "(hash, master_gain, strip_hashes, audio_schema, master_state) "
+       "VALUES (?, ?, ?, ?, ?)",
        &stmtPutFiddleState_);
-  prep("SELECT master_gain, strip_hashes FROM fiddle_states WHERE hash = ?",
+  prep("SELECT master_gain, strip_hashes, audio_schema, master_state "
+       "FROM fiddle_states WHERE hash = ?",
        &stmtGetFiddleState_);
   prep("SELECT 1 FROM fiddle_states WHERE hash = ?", &stmtHasFiddleState_);
 
@@ -178,6 +313,12 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
     sqlite3_bind_blob(stmtPutStripBlob_, 11, blob.pluginState.data(),
                       (int)blob.pluginState.size(), SQLITE_TRANSIENT);
   }
+  sqlite3_bind_int(stmtPutStripBlob_, 12, blob.active ? 1 : 0);
+  const auto luaPlugins = joinStrings(blob.luaPluginFileNames);
+  sqlite3_bind_text(stmtPutStripBlob_, 13, luaPlugins.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmtPutStripBlob_, 14, blob.muted ? 1 : 0);
+  sqlite3_bind_int(stmtPutStripBlob_, 15, blob.soloed ? 1 : 0);
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -211,6 +352,13 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
         blob.pluginState.assign(data, data + size);
       }
     }
+    blob.active = sqlite3_column_int(stmtGetStripBlob_, 10) != 0;
+    if (const auto *luaPlugins =
+            reinterpret_cast<const char *>(
+                sqlite3_column_text(stmtGetStripBlob_, 11)))
+      blob.luaPluginFileNames = splitStrings(luaPlugins);
+    blob.muted = sqlite3_column_int(stmtGetStripBlob_, 12) != 0;
+    blob.soloed = sqlite3_column_int(stmtGetStripBlob_, 13) != 0;
     return blob;
   }
   return std::nullopt;
@@ -235,11 +383,17 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
   sqlite3_clear_bindings(stmtPutFiddleState_);
 
   std::string hashesStr = joinStrings(state.stripHashes);
+  const auto masterState =
+      serializeMasterInserts(state.globalState.masterInserts);
 
   sqlite3_bind_text(stmtPutFiddleState_, 1, hash.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_double(stmtPutFiddleState_, 2, state.globalState.masterGainDb);
   sqlite3_bind_text(stmtPutFiddleState_, 3, hashesStr.c_str(), -1,
                     SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmtPutFiddleState_, 4,
+                   state.globalState.audioSchemaVersion);
+  sqlite3_bind_blob(stmtPutFiddleState_, 5, masterState.data(),
+                    static_cast<int>(masterState.size()), SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutFiddleState_);
 }
@@ -262,6 +416,11 @@ SqliteVersionStorage::getFiddleState(const Hash &hash) const {
     if (hashesStr) {
       state.stripHashes = splitStrings(std::string(hashesStr));
     }
+    state.globalState.audioSchemaVersion =
+        sqlite3_column_int(stmtGetFiddleState_, 2);
+    state.globalState.masterInserts = deserializeMasterInserts(
+        sqlite3_column_blob(stmtGetFiddleState_, 3),
+        sqlite3_column_bytes(stmtGetFiddleState_, 3));
     return state;
   }
   return std::nullopt;
@@ -273,6 +432,57 @@ bool SqliteVersionStorage::hasFiddleState(const Hash &hash) const {
   sqlite3_clear_bindings(stmtHasFiddleState_);
   sqlite3_bind_text(stmtHasFiddleState_, 1, hash.c_str(), -1, SQLITE_TRANSIENT);
   return sqlite3_step(stmtHasFiddleState_) == SQLITE_ROW;
+}
+
+GarbageCollectionResult
+SqliteVersionStorage::garbageCollectUnreferencedObjects(bool compact) {
+  std::lock_guard<std::mutex> lock(dbMutex_);
+  GarbageCollectionResult result;
+
+  auto execute = [this, &result](const char *sql) {
+    char *message = nullptr;
+    const int status = sqlite3_exec(db_, sql, nullptr, nullptr, &message);
+    if (status == SQLITE_OK)
+      return true;
+    result.error = message ? message : sqlite3_errmsg(db_);
+    sqlite3_free(message);
+    return false;
+  };
+
+  if (!execute("BEGIN IMMEDIATE"))
+    return result;
+
+  if (!execute("DELETE FROM fiddle_states WHERE hash NOT IN "
+               "(SELECT DISTINCT state_hash FROM versions)")) {
+    sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+    return result;
+  }
+  result.fiddleStatesRemoved = sqlite3_changes(db_);
+
+  // strip_hashes is a comma-separated list of fixed-width hexadecimal hashes.
+  // Delimiter wrapping prevents one hash from matching a substring of another.
+  if (!execute("DELETE FROM strip_blobs WHERE NOT EXISTS ("
+               "SELECT 1 FROM fiddle_states WHERE "
+               "instr(',' || strip_hashes || ',', "
+               "',' || strip_blobs.hash || ',') > 0)")) {
+    sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+    return result;
+  }
+  result.stripBlobsRemoved = sqlite3_changes(db_);
+
+  if (!execute("COMMIT")) {
+    sqlite3_exec(db_, "ROLLBACK", nullptr, nullptr, nullptr);
+    return result;
+  }
+
+  if (compact &&
+      (result.fiddleStatesRemoved > 0 || result.stripBlobsRemoved > 0)) {
+    if (!execute("VACUUM"))
+      return result;
+    result.compacted = true;
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------

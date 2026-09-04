@@ -118,7 +118,7 @@ void MixerJsHandlers::registerHandlers() {
     const auto stripId = arguments[0].toString();
     const auto muted = static_cast<bool>(arguments[1]);
     dispatch([this, stripId, muted] {
-      notifyChanged(commands_.setMute(stripId, muted), false);
+      notifyChanged(commands_.setMute(stripId, muted), true);
     });
   });
 
@@ -129,7 +129,7 @@ void MixerJsHandlers::registerHandlers() {
     const auto stripId = arguments[0].toString();
     const auto soloed = static_cast<bool>(arguments[1]);
     dispatch([this, stripId, soloed] {
-      notifyChanged(commands_.setSolo(stripId, soloed), false);
+      notifyChanged(commands_.setSolo(stripId, soloed), true);
     });
   });
 

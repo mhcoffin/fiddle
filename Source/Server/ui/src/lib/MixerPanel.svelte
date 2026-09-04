@@ -3,6 +3,7 @@
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
     import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+    import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
         addStripRange,
@@ -32,6 +33,15 @@
     let scannedPlugins = $state([]);
     let availableXmaps = $state([]);
     let luaPluginCatalog = $state([]);
+    let masterAudio = $state({
+        id: "master",
+        name: "Master",
+        gainDb: 0,
+        peakDb: -120,
+        latencyMs: 0,
+        inserts: [],
+    });
+    let masterAudioOpen = $state(false);
     let branches = $state([]);
     let currentBranch = $state("default");
     let stripSize = $state(readStripSize(window.localStorage));
@@ -113,6 +123,9 @@
         } catch (e) {
             /* ignore */
         }
+    });
+    onFromCpp("setMasterAudioState", (data) => {
+        if (data && typeof data === "object") masterAudio = data;
     });
     onFromCpp("setExpressionMaps", (data) => {
         try {
@@ -226,12 +239,15 @@
         dispatchCpp("requestMixerState");
         dispatchCpp("getAvailableInputs");
         dispatchCpp("requestPluginsState");
+        dispatchCpp("requestMasterAudioState");
         dispatchCpp("requestExpressionMaps");
         dispatchCpp("requestCurrentBranch");
 
-        // Escape key clears selection
+        // Escape closes the focused panel before clearing mixer selection.
         const handleKeyDown = (e) => {
-            if (e.key === "Escape") clearSelection();
+            if (e.key !== "Escape") return;
+            if (masterAudioOpen) masterAudioOpen = false;
+            else clearSelection();
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
@@ -902,6 +918,14 @@
             >
                 Clear Solos
             </button>
+            <button
+                class="toolbar-ms-btn master-audio-btn"
+                onclick={() => { masterAudioOpen = true; }}
+                aria-haspopup="dialog"
+                title="Open master output and insert effects"
+            >
+                Master Audio{masterAudio.inserts?.length ? ` · ${masterAudio.inserts.length}` : ""}
+            </button>
         </div>
         <div class="toolbar-right">
             <div class="display-controls" aria-label="Display settings">
@@ -1448,12 +1472,21 @@
         </div>
     {/if}
     </div> <!-- /mixer-body -->
+
+    {#if masterAudioOpen}
+        <MasterAudioPanel
+            master={masterAudio}
+            plugins={scannedPlugins}
+            onClose={() => { masterAudioOpen = false; }}
+        />
+    {/if}
 </div>
 
 
 
 <style>
     .mixer-container {
+        position: relative;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -1543,11 +1576,16 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 12px;
         padding: 6px 16px;
         flex-shrink: 0;
         border-bottom: 1px solid #1e293b;
-        overflow-x: auto;
+        /* Menus such as the branch selector extend below this row. Keeping
+           toolbar overflow visible prevents those popovers being clipped. */
+        overflow: visible;
+        position: relative;
+        z-index: 20;
     }
     .toolbar-center {
         display: flex;
@@ -1586,6 +1624,13 @@
     .toolbar-ms-btn.solo-clear {
         border-color: rgba(34, 197, 94, 0.4);
         color: #4ade80;
+    }
+    .toolbar-ms-btn.master-audio-btn {
+        min-height: 30px;
+        padding: 4px 12px;
+        border-color: rgba(56, 189, 248, 0.55);
+        color: #bae6fd;
+        background: rgba(14, 77, 110, 0.5);
     }
     .toolbar-right {
         display: flex;

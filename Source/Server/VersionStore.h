@@ -37,6 +37,15 @@ struct BranchDeleteCheck {
   std::string error;
 };
 
+/// Version/branch selected when reopening a Dorico project.
+struct ProjectRestoreTarget {
+  enum class Match { ExactVersion, BranchId, LegacyBranchName };
+
+  VersionId versionId;
+  BranchId branchId;
+  Match match = Match::ExactVersion;
+};
+
 /// Pure-logic versioning engine. All DAG algorithms live here.
 /// No JUCE, no SQLite — operates entirely through IVersionStorage.
 class VersionStore {
@@ -71,6 +80,13 @@ public:
 
   /// Retrieve all versions in the DAG.
   std::vector<std::pair<VersionId, Version>> listAllVersions() const;
+
+  /// Resolve identity saved in a Dorico project. Prefer the exact version,
+  /// then the stable branch ID, then the legacy branch name.
+  std::optional<ProjectRestoreTarget>
+  resolveProjectRestoreTarget(const BranchId &savedBranchId,
+                              const VersionId &savedVersionId,
+                              const std::string &legacyBranchName) const;
 
   /// Check if `candidate` is an ancestor of `of` in the DAG.
   bool isAncestor(const VersionId &candidate, const VersionId &of) const;

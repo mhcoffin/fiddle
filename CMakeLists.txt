@@ -134,6 +134,14 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginCommandService.h
     Source/Server/HostedPluginSlot.cpp
     Source/Server/HostedPluginSlot.h
+    Source/Server/MasterAudioEngine.cpp
+    Source/Server/MasterAudioEngine.h
+    Source/Server/MasterAudioCommandService.cpp
+    Source/Server/MasterAudioCommandService.h
+    Source/Server/MasterAudioCommands.h
+    Source/Server/MasterAudioActions.h
+    Source/Server/MasterAudioJsHandlers.cpp
+    Source/Server/MasterAudioJsHandlers.h
     Source/Server/PluginCommands.h
     Source/Server/PluginJsHandlers.cpp
     Source/Server/PluginJsHandlers.h
@@ -552,6 +560,22 @@ if(NODE_EXECUTABLE)
     set_tests_properties(expression_map_picker_ui PROPERTIES
         LABELS "ui;expression-map;regression;stable"
     )
+
+    add_test(NAME master_audio_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/masterAudioUi.test.js"
+    )
+    set_tests_properties(master_audio_ui PROPERTIES
+        LABELS "audio;ui;regression;stable"
+    )
+
+    add_test(NAME branch_selector_layout
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/branchSelectorLayout.test.js"
+    )
+    set_tests_properties(branch_selector_layout PROPERTIES
+        LABELS "ui;versioning;regression;stable"
+    )
 endif()
 
 # ==============================================================================
@@ -618,7 +642,49 @@ set_tests_properties(program_state_replay PROPERTIES
 )
 
 # ==============================================================================
-# StateRestoreTest — verifies strip activation survives state restoration
+# ProjectIdentityStateTest — Dorico branch/version state compatibility
+# ==============================================================================
+add_executable(ProjectIdentityStateTest
+    Source/NativePlugin/tests/ProjectIdentityStateTest.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+
+target_include_directories(ProjectIdentityStateTest PRIVATE
+    Source/NativePlugin
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
+target_link_libraries(ProjectIdentityStateTest PRIVATE libprotobuf)
+target_compile_features(ProjectIdentityStateTest PRIVATE cxx_std_17)
+
+add_test(NAME project_identity_state COMMAND ProjectIdentityStateTest)
+set_tests_properties(project_identity_state PROPERTIES
+    LABELS "persistence;versioning;regression;stable"
+)
+
+# ==============================================================================
+# TcpRelaySaveTest — bounded Dorico save request/response correlation
+# ==============================================================================
+add_executable(TcpRelaySaveTest
+    Source/NativePlugin/tests/TcpRelaySaveTest.cpp
+    Source/NativePlugin/TcpRelay.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+
+target_include_directories(TcpRelaySaveTest PRIVATE
+    Source
+    Source/NativePlugin
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
+target_link_libraries(TcpRelaySaveTest PRIVATE libprotobuf)
+target_compile_features(TcpRelaySaveTest PRIVATE cxx_std_17)
+
+add_test(NAME tcp_relay_save COMMAND TcpRelaySaveTest)
+set_tests_properties(tcp_relay_save PROPERTIES
+    LABELS "persistence;versioning;regression;stable"
+)
+
+# ==============================================================================
+# StateRestoreTest — verifies per-strip state survives restoration
 # ==============================================================================
 add_executable(StateRestoreTest
     Source/Server/tests/StateRestoreTest.cpp
@@ -710,6 +776,65 @@ target_compile_features(HostedPluginSlotTest PRIVATE cxx_std_17)
 add_test(NAME hosted_plugin_slot COMMAND HostedPluginSlotTest)
 set_tests_properties(hosted_plugin_slot PROPERTIES
     LABELS "audio;plugin;regression;stable"
+)
+
+# ==============================================================================
+# MasterAudioEngineTest — ordered Master graph, bypass, gain, and latency
+# ==============================================================================
+add_executable(MasterAudioEngineTest
+    Source/Server/tests/MasterAudioEngineTest.cpp
+    Source/Server/MasterAudioEngine.cpp
+    Source/Server/HostedPluginSlot.cpp
+)
+
+target_include_directories(MasterAudioEngineTest PRIVATE Source/Server Source)
+target_link_libraries(MasterAudioEngineTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_gui_basics
+)
+target_compile_definitions(MasterAudioEngineTest PRIVATE JUCE_PLUGINHOST_VST3=1)
+target_compile_features(MasterAudioEngineTest PRIVATE cxx_std_17)
+
+add_test(NAME master_audio_engine COMMAND MasterAudioEngineTest)
+set_tests_properties(master_audio_engine PROPERTIES
+    LABELS "audio;plugin;graph;regression;stable"
+)
+
+# ==============================================================================
+# MasterAudioJsHandlersTest — master panel command and payload routing
+# ==============================================================================
+add_executable(MasterAudioJsHandlersTest
+    Source/Server/tests/MasterAudioJsHandlersTest.cpp
+    Source/Server/MasterAudioJsHandlers.cpp
+)
+
+target_include_directories(MasterAudioJsHandlersTest PRIVATE Source/Server)
+target_link_libraries(MasterAudioJsHandlersTest PRIVATE juce::juce_core)
+target_compile_features(MasterAudioJsHandlersTest PRIVATE cxx_std_17)
+
+add_test(NAME master_audio_js_handlers COMMAND MasterAudioJsHandlersTest)
+set_tests_properties(master_audio_js_handlers PROPERTIES
+    LABELS "audio;ui;regression;stable"
+)
+
+# ==============================================================================
+# SqliteVersionStorageTest — durable version-state serialization and migration
+# ==============================================================================
+add_executable(SqliteVersionStorageTest
+    Source/Server/tests/SqliteVersionStorageTest.cpp
+    Source/Server/SqliteVersionStorage.cpp
+)
+
+target_include_directories(SqliteVersionStorageTest PRIVATE
+    Source/Server
+    "${xxhash_SOURCE_DIR}"
+)
+target_link_libraries(SqliteVersionStorageTest PRIVATE SQLite::SQLite3)
+target_compile_features(SqliteVersionStorageTest PRIVATE cxx_std_17)
+
+add_test(NAME sqlite_version_storage COMMAND SqliteVersionStorageTest)
+set_tests_properties(sqlite_version_storage PROPERTIES
+    LABELS "audio;persistence;regression;stable"
 )
 
 # ==============================================================================

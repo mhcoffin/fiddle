@@ -17,6 +17,8 @@ struct StripRow {
   juce::String id, library, family;
   bool isSolo = true;
   bool active = true;
+  bool muted = false;
+  bool soloed = false;
   int position = 0;
   int inputPort = -1, inputChannel = -1;
   int pluginUid = 0;
@@ -156,6 +158,14 @@ public:
 
   /// Load all strips, ordered by position.
   std::vector<StripRow> loadAllStrips();
+
+  // ── Master audio stage ───────────────────────────────────────────
+
+  /// Replace the permanent Master gain and ordered insert rack.
+  void saveMasterAudio(const MasterAudioSnapshot &snapshot);
+
+  /// Load the permanent Master state. Defaults to 0 dB with no inserts.
+  MasterAudioSnapshot loadMasterAudio();
 
   // ── Settings ───────────────────────────────────────────────────────
 

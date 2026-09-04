@@ -122,16 +122,39 @@ The merge takes place *from* a version V *to* a branch head H, with nearest comm
 ### Normal save from Dorico
 
 When Dorico saves a project, it asks the Fiddle plugin for current state. 
-The plugin asks FiddleServer for its state.
+The plugin sends FiddleServer a correlated save request and waits for a bounded
+local response. If the current Fiddle state is dirty, FiddleServer commits it
+as a new version, advances the current branch, clears the dirty state, and
+returns the exact committed identity. If the state is already clean, the
+existing identity is returned without creating a redundant version.
+
+The plugin writes the identity from that response into Dorico's project state.
+If FiddleServer has reported dirty state but cannot confirm the save, the
+plugin reports failure to Dorico rather than silently writing the previous
+version identity.
+
 In a normal save, FiddleServer sends back the following data:
 
 - the current version ID
 - the branch ID
-- the version timestamp
+- the branch name, retained as a compatibility fallback
 
 A normal save relies on the FiddleServer database. If the user deletes a version from the database that is stored in a Dorico project, Load may give unexpected results. However, it is expected that branches will maintain a degree of continuity, and that it is likely that the user will think of changes to a branch as improvements and bug fixes, and will want to move projects to the head of the branch anyway.
 
-- [ ] Action item: currently, Fiddle maintains a large blob of all version data and sends it to Dorico. So this requires a fairly big change.
+**Persistence invariant:** without manual database alteration, reopening a
+Dorico project restores the exact Fiddle version acknowledged during that
+project's save. Version deletion is therefore a dangerous operation: the
+History UI warns that deleting a version can prevent saved Dorico projects
+from returning to their exact prior state.
+
+Versioned strip blobs include the strip activation, mute, and solo states and
+the ordered Lua plug-in chain. Databases created before these fields were
+added are migrated with the legacy defaults (active, unmuted, unsoloed, and no
+Lua plug-ins). Values omitted from an already-existing historical blob cannot
+be reconstructed, but every newly committed version preserves them.
+
+This identity is appended to the native plug-in's existing VST3 state. Projects
+saved before stable IDs were added retain their branch-name-only behavior.
 
 ### Normal Load from Dorico
 

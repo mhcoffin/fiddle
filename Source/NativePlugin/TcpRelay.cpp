@@ -30,8 +30,45 @@ TcpRelay::~TcpRelay() {
   // not threads blocked in syscalls like recv().
   disconnect();
   cv_.notify_all();
+  saveResponseCv_.notify_all();
   if (thread_.joinable())
     thread_.join();
+}
+
+TcpRelay::SaveSnapshot
+TcpRelay::requestSaveSnapshot(std::chrono::milliseconds timeout) {
+  std::lock_guard<std::mutex> callLock(saveRequestCallMutex_);
+  const auto requestId =
+      nextSaveRequestId_.fetch_add(1, std::memory_order_relaxed);
+
+  {
+    std::lock_guard<std::mutex> responseLock(saveResponseMutex_);
+    waitingSaveRequestId_ = requestId;
+    saveResponseReady_ = false;
+    saveResponse_ = {};
+  }
+
+  MidiEvent event;
+  event.set_timestamp_samples(0);
+  event.mutable_save_config_request()->set_request_id(requestId);
+  pushMessage(event);
+
+  std::unique_lock<std::mutex> responseLock(saveResponseMutex_);
+  const bool received = saveResponseCv_.wait_for(
+      responseLock, timeout, [this, requestId] {
+        return !running_.load(std::memory_order_acquire) ||
+               (saveResponseReady_ && waitingSaveRequestId_ == requestId);
+      });
+
+  SaveSnapshot result;
+  if (received && saveResponseReady_ && waitingSaveRequestId_ == requestId) {
+    result = saveResponse_;
+  } else {
+    result.error = "Timed out waiting for FiddleServer to save";
+  }
+  waitingSaveRequestId_ = 0;
+  saveResponseReady_ = false;
+  return result;
 }
 
 void TcpRelay::pushMessage(const MidiEvent &event) {
@@ -333,9 +370,27 @@ void TcpRelay::receiveMessages() {
           std::lock_guard<std::mutex> lock(mutex_);
           configName_ = cs.config_name();
           configVersion_ = cs.config_version();
+          branchId_ = cs.branch_id();
+          versionId_ = cs.version_id();
         }
+        configDirty_.store(cs.dirty(), std::memory_order_release);
         configChanged_.store(true, std::memory_order_relaxed);
         requestControlUpdate();
+      } else if (event.has_save_config_response()) {
+        const auto &response = event.save_config_response();
+        std::lock_guard<std::mutex> responseLock(saveResponseMutex_);
+        if (response.request_id() == waitingSaveRequestId_) {
+          saveResponse_.success = response.success();
+          saveResponse_.configName = response.config_name();
+          saveResponse_.configVersion = response.config_version();
+          saveResponse_.branchId = response.branch_id();
+          saveResponse_.versionId = response.version_id();
+          saveResponse_.error = response.error();
+          if (response.success())
+            configDirty_.store(false, std::memory_order_release);
+          saveResponseReady_ = true;
+          saveResponseCv_.notify_all();
+        }
       }
     }
   }

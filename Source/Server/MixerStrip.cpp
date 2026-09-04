@@ -128,6 +128,18 @@ bool MixerStrip::consumePluginChangeNotification() noexcept {
   return instrumentSlot_.consumeChangeNotification();
 }
 
+bool MixerStrip::consumePluginExplicitEditNotification() noexcept {
+  return instrumentSlot_.consumeExplicitEditNotification();
+}
+
+bool MixerStrip::consumePluginNonParameterStateChangeNotification() noexcept {
+  return instrumentSlot_.consumeNonParameterStateChangeNotification();
+}
+
+uint64_t MixerStrip::pluginParameterFingerprint() const {
+  return instrumentSlot_.parameterFingerprint();
+}
+
 void MixerStrip::refreshPluginStateCache() {
   instrumentSlot_.refreshStateCache();
 }

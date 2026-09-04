@@ -100,8 +100,7 @@ public:
   /// deterministic tests and the isolated effect host.
   bool installProcessor(const juce::PluginDescription &description,
                         std::unique_ptr<juce::AudioProcessor> processor,
-                        double sampleRate, int blockSize,
-                        juce::String &error);
+                        double sampleRate, int blockSize, juce::String &error);
 
   void markMissing(const juce::PluginDescription &description,
                    const juce::MemoryBlock &state, const juce::String &error);
@@ -122,6 +121,11 @@ public:
   bool setProgram(int programIndex);
   void refreshStateCache();
 
+  /// Stable fingerprint of user-facing parameter values. Unlike opaque
+  /// getStateInformation() data, this excludes volatile runtime data that
+  /// some plug-ins serialize while idle.
+  [[nodiscard]] uint64_t parameterFingerprint() const;
+
   void setBypassed(bool bypassed) noexcept;
   [[nodiscard]] bool isBypassed() const noexcept;
 
@@ -131,6 +135,16 @@ public:
   /// AudioProcessorListener callbacks set this flag without allocating or
   /// calling UI code. Consume it from the message thread.
   [[nodiscard]] bool consumeChangeNotification() noexcept;
+
+  /// True when the pending notification came from a parameter gesture ending
+  /// in the plug-in editor. Unlike generic state-change notifications, this
+  /// remains a reliable user edit even during playback.
+  [[nodiscard]] bool consumeExplicitEditNotification() noexcept;
+
+  /// True when the plug-in reported non-parameter persistent state changing.
+  /// Some plug-ins also emit this during playback, so callers must interpret
+  /// it using the current performance context.
+  [[nodiscard]] bool consumeNonParameterStateChangeNotification() noexcept;
 
 private:
   class ChangeListener final : public juce::AudioProcessorListener {
@@ -142,12 +156,16 @@ private:
     void audioProcessorChanged(
         juce::AudioProcessor *processor,
         const juce::AudioProcessorListener::ChangeDetails &details) override;
+    void audioProcessorParameterChangeGestureEnd(
+        juce::AudioProcessor *processor, int parameterIndex) override;
 
   private:
     HostedPluginSlot &owner_;
   };
 
   void noteProcessorChange(juce::AudioProcessor *processor) noexcept;
+  void noteExplicitProcessorEdit(juce::AudioProcessor *processor) noexcept;
+  void noteNonParameterStateChange(juce::AudioProcessor *processor) noexcept;
   bool configureBusLayout(juce::AudioProcessor &processor,
                           juce::String &error) const;
   void publishRuntime(std::unique_ptr<Runtime> runtime);
@@ -166,6 +184,8 @@ private:
       std::make_shared<std::atomic<bool>>(true);
   std::atomic<juce::AudioProcessor *> listenerProcessor_{nullptr};
   std::atomic<bool> changeNotificationPending_{false};
+  std::atomic<bool> explicitEditNotificationPending_{false};
+  std::atomic<bool> nonParameterStateChangePending_{false};
   std::atomic<bool> bypassed_{false};
   ChangeListener changeListener_{*this};
 

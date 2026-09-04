@@ -620,7 +620,9 @@
             <!-- Delete confirmation -->
             <div class="sub-prompt">
                 <div class="sub-prompt-label">
-                    Delete this version? This cannot be undone.
+                    Delete this version? Dorico projects saved against it may
+                    no longer restore their exact Fiddle state. This cannot be
+                    undone.
                 </div>
                 <div class="sub-prompt-actions">
                     <button

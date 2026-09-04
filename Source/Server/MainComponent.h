@@ -7,9 +7,9 @@
 #include "FiddleDatabase.h"
 #include "HistoryWindow.h"
 
-#include "LibraryManagerWindow.h"
 #include "InstrumentMapper.h"
 #include "JsTestBridge.h"
+#include "LibraryManagerWindow.h"
 #include "LuaPlugin.h"
 #include "MasterInstrumentList.h"
 #include "MidiTcpServer.h"
@@ -17,16 +17,17 @@
 #include "NoteStreamTracker.h"
 #include "PluginScanner.h"
 
-#include "StateManager.h"
-#include "SubnoteGenerator.h"
 #include "HarmonicAnalysisService.h"
 #include "MessageRouter.h"
-#include "WebViewBridge.h"
 #include "MetronomeTempoTracker.h"
+#include "StateManager.h"
+#include "SubnoteGenerator.h"
 #include "UndoActions.h"
+#include "WebViewBridge.h"
 #include "midi_event.pb.h"
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <optional>
 
 namespace fiddle {
 
@@ -34,6 +35,8 @@ class ExpressionMapCommandService;
 class ExpressionMapJsHandlers;
 class MixerCommandService;
 class MixerJsHandlers;
+class MasterAudioCommandService;
+class MasterAudioJsHandlers;
 class PluginCommandService;
 class PluginJsHandlers;
 
@@ -59,8 +62,6 @@ public:
   /// Check if history window is visible.
   bool isHistoryWindowVisible() const;
 
-
-
   /// Toggle library manager window visibility (called from View menu).
   void toggleLibraryManagerWindow();
 
@@ -72,8 +73,6 @@ public:
 
   /// Save debug window geometry + visibility to database.
   void saveDebugWindowGeometry();
-
-
 
   /// Save library manager window geometry + visibility to database.
   void saveLibraryManagerWindowGeometry();
@@ -116,6 +115,8 @@ private:
   UndoManager undoManager_;
   std::unique_ptr<MixerCommandService> mixerCommandService_;
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
+  std::unique_ptr<MasterAudioCommandService> masterAudioCommandService_;
+  std::unique_ptr<MasterAudioJsHandlers> masterAudioJsHandlers_;
   FiddleDatabase db_;
   std::unique_ptr<PluginCommandService> pluginCommandService_;
   std::unique_ptr<PluginJsHandlers> pluginJsHandlers_;
@@ -139,7 +140,8 @@ private:
     }
     const double nowMs = juce::Time::getMillisecondCounterHiRes();
     const double compensatedDelayMs =
-        juce::jmax(0.0, static_cast<double>(mixer_.getPlaybackDelayMs()) - 40.0);
+        juce::jmax(0.0, static_cast<double>(mixer_.getPlaybackDelayMs()) -
+                            40.0 - mixer_.masterLatencyMs());
     return nowMs + compensatedDelayMs;
   }
 
@@ -163,8 +165,6 @@ private:
   uint64_t lastSampleTime = 0;
   uint32_t lastSystemTime = 0;
 
-
-
   /// The branch ID (UUID) of the currently checked-out branch.
   /// Set when VersionStore is initialized; updated on checkoutBranch.
   std::string currentBranchId_;
@@ -177,14 +177,20 @@ private:
   /// While detached: Dorico blob updates are suppressed; Save is disabled.
   bool isDetached_ = false;
 
+  struct DoricoProjectRequest {
+    std::string legacyBranchName;
+    versioning::BranchId branchId;
+    versioning::VersionId versionId;
+  };
+  std::optional<DoricoProjectRequest> pendingDoricoProject_;
+  bool projectRestoreReady_ = false;
+
   /// Debug window (created eagerly, visibility toggled from View menu)
   std::unique_ptr<DebugWindow> debugWindow_;
 
   /// History window (lazy instantiated)
   std::unique_ptr<HistoryWindow> historyWindow_;
   bool historyWindowLoaded_ = false;
-
-
 
   /// Library Manager window (lazy instantiated)
   std::unique_ptr<LibraryManagerWindow> libraryManagerWindow_;
@@ -219,6 +225,8 @@ private:
                         const juce::var &data = juce::var());
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
+  void pushMasterAudioState();
+  void masterAudioChanged();
   void pushToDebugWindow(const juce::String &js);
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
@@ -228,12 +236,39 @@ private:
   /// Broadcast the current version ID to all ready WebViews.
   void pushCurrentVersion();
 
-
   /// Save all strips to SQLite (called after every mutation).
   void saveAllStripsToDB();
+  void saveMasterAudioToDB();
 
   /// Load strips from SQLite into the mixer.
   void loadStripsFromDB();
+  void restoreMasterAudio(const MasterAudioSnapshot &snapshot,
+                          bool publishWhenLoaded = true);
+  void restoreMasterAudio(const versioning::GlobalState &state,
+                          bool publishWhenLoaded = true);
+  void restoreMasterAudio(const RestoredProjectState &state,
+                          bool publishWhenLoaded = true);
+
+  /// Restore a versioned mixer snapshot and its plug-in state.
+  void applyVersionState(const versioning::FiddleState &state);
+
+  /// Load one stored version. Dorico may select an older version and still
+  /// associate it with its saved branch; History checkouts remain detached.
+  bool loadStoredVersion(const versioning::VersionId &versionId,
+                         const versioning::BranchId &branchId,
+                         bool selectBranchWhenDetached);
+
+  /// Select the current head of an existing branch.
+  bool checkoutBranchById(const versioning::BranchId &branchId);
+
+  /// Resolve and load branch/version identity received from a Dorico project.
+  void restoreDoricoProject(const std::string &legacyBranchName,
+                            const versioning::BranchId &branchId,
+                            const versioning::VersionId &versionId);
+
+  /// Commit dirty state requested by Dorico's VST3 getState callback and send
+  /// a correlated response containing the exact persisted identity.
+  void handleDoricoSaveRequest(uint64_t requestId);
 
   /// Save a single strip to the database by index.
   void saveStripToDB(const juce::String &stripId);
@@ -241,13 +276,25 @@ private:
   /// Schedule a background rebuild of the shadow state blob.
   void scheduleStateRebuild();
 
-  /// Poll MixerStrip plugin states for changes (called from timer).
-  /// Skips plugins whose pluginUid is in listenerCapableUids_.
+  /// Poll MixerStrip plug-in parameters for persistent changes (called from
+  /// the timer). Opaque serialized state is intentionally not compared because
+  /// some instruments include volatile playback data in it.
   void pollPluginStateChanges();
 
   /// Consume allocation-free AudioProcessorListener flags on the message
   /// thread and update dirty state/state caches.
-  void processPluginChangeNotifications();
+  void processPluginChangeNotifications(bool suppressPlaybackChanges);
+
+  /// Combine transport state, post-stop settling, and recent raw MIDI activity
+  /// (needed because Dorico note audition has no transport start/stop).
+  bool shouldSuppressPluginChanges(uint32_t now);
+
+  /// Record the current persistent plug-in parameters. Returns true only when
+  /// a previously observed instance has changed.
+  bool observeStripPluginFingerprint(MixerStrip &strip);
+
+  /// Establish clean baselines for every currently loaded strip plug-in.
+  void captureStripPluginFingerprints();
 
   /// Refresh the stable hosted-slot ID after assigning/restoring strip.id.
   void setupStripPluginSlot(MixerStrip &strip);
@@ -259,11 +306,24 @@ private:
   /// Counter for throttling plugin state polls (20ms timer × 100 = 2s).
   int pluginPollCounter_ = 0;
 
-  /// Cached state hashes for each MixerStrip's plugin instance.
-  std::map<juce::String, uint64_t> pluginStateHashes_;
+  /// MIDI-mapped VST3 parameters can continue settling briefly after Dorico
+  /// stops. Ordinary callbacks are ignored through this timestamp.
+  uint32_t pluginPlaybackSettleUntilMs_ = 0;
+  bool pluginPlaybackSettling_ = false;
+  bool pluginChangesWereSuppressed_ = false;
+  std::atomic<uint32_t> lastPluginPerformanceActivityMs_{0};
+
+  struct StripPluginFingerprint {
+    int pluginUid = 0;
+    uint64_t parameters = 0;
+  };
+
+  /// Persistent-parameter fingerprints for each hosted instrument instance.
+  std::map<juce::String, StripPluginFingerprint> pluginFingerprints_;
 
   /// Plugin UIDs that fire AudioProcessorListener callbacks.
-  /// Populated by listeners, read by polling to skip those plugins.
+  /// Retained as compatibility telemetry; polling still verifies all plug-ins
+  /// because callback behavior can vary between versions and operations.
   std::set<int> listenerCapableUids_;
 
   /// Fingerprint of library instruments when the template was last installed.

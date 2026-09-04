@@ -96,7 +96,7 @@
             {#each branches as branch}
                 <button
                     class="dropdown-item branch-item"
-                    class:active={branch.name === currentBranch}
+                    class:active={branch.id === currentBranch}
                     onclick={() => handleCheckout(branch)}
                 >
                     <span class="branch-item-name">{branch.name}</span>

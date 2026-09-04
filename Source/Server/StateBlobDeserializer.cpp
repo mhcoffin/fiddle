@@ -27,6 +27,15 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
     return bytes[offset++];
   };
 
+  auto readFloat = [&]() -> float {
+    if (offset + sizeof(float) > size)
+      return 0.0f;
+    float value = 0.0f;
+    std::memcpy(&value, bytes + offset, sizeof(value));
+    offset += sizeof(value);
+    return value;
+  };
+
   auto readString = [&](uint32_t len) -> std::string {
     if (offset + len > size)
       return {};
@@ -55,6 +64,46 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
   uint8_t dirtyFlag = readU8();
 
   RestoredProjectState state;
+
+  if (version >= 4) {
+    state.audioSchemaVersion = static_cast<int>(readU32());
+    state.masterGainDb = readFloat();
+    const uint32_t insertCount = readU32();
+    if (insertCount > 1024)
+      return std::nullopt;
+    for (uint32_t index = 0; index < insertCount; ++index) {
+      const uint32_t jsonLength = readU32();
+      const auto json = readString(jsonLength);
+      const auto parsed = juce::JSON::parse(juce::String(json));
+      auto *object = parsed.getDynamicObject();
+      if (!object)
+        return std::nullopt;
+      RestoredMasterInsertState insert;
+      insert.slotId = object->getProperty("slotId").toString();
+      insert.formatName = object->getProperty("formatName").toString();
+      insert.pluginUid = static_cast<int>(object->getProperty("pluginUid"));
+      insert.fileOrIdentifier =
+          object->getProperty("fileOrIdentifier").toString();
+      insert.manufacturer = object->getProperty("manufacturer").toString();
+      insert.name = object->getProperty("name").toString();
+      insert.category = object->getProperty("category").toString();
+      insert.pluginVersion =
+          object->getProperty("pluginVersion").toString();
+      insert.numInputChannels =
+          static_cast<int>(object->getProperty("numInputChannels"));
+      insert.numOutputChannels =
+          static_cast<int>(object->getProperty("numOutputChannels"));
+      insert.bypassed = static_cast<bool>(object->getProperty("bypassed"));
+      const uint32_t stateSize = readU32();
+      if (offset + stateSize > size)
+        return std::nullopt;
+      if (stateSize > 0) {
+        insert.pluginState.append(bytes + offset, stateSize);
+        offset += stateSize;
+      }
+      state.masterInserts.push_back(std::move(insert));
+    }
+  }
 
   if (version >= 3) {
     uint32_t shLen = readU32();
@@ -86,6 +135,10 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
       strip.isSolo = (bool)obj->getProperty("isSolo");
       if (obj->hasProperty("active"))
         strip.active = (bool)obj->getProperty("active");
+      if (obj->hasProperty("muted"))
+        strip.muted = (bool)obj->getProperty("muted");
+      if (obj->hasProperty("soloed"))
+        strip.soloed = (bool)obj->getProperty("soloed");
       strip.inputPort = (int)obj->getProperty("inputPort");
       strip.inputChannel = (int)obj->getProperty("inputChannel");
       strip.pluginUid = (int)obj->getProperty("pluginUid");

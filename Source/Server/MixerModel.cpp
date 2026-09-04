@@ -214,6 +214,8 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   for (auto *strip : graph->strips) {
     strip->processBlock(audioBuffer, currentTime, anySoloed);
   }
+
+  masterAudio_.processBlock(audioBuffer);
 }
 
 void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
@@ -223,6 +225,7 @@ void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
   for (auto &strip : strips_) {
     strip->prepareToPlay(sampleRate, blockSize);
   }
+  masterAudio_.prepareToPlay(sampleRate, blockSize);
 }
 
 void MixerModel::routeNoteEvent(int port, int channel,

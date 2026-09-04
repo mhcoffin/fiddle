@@ -3,6 +3,7 @@
 #include "FiddleCIDs.h"
 #include "FiddleController.h"
 #include "ProgramStateReplay.h"
+#include "ProjectIdentityState.h"
 
 #include "pluginterfaces/base/ibstream.h"
 #include "pluginterfaces/base/ustring.h"
@@ -79,9 +80,11 @@ tresult PLUGIN_API FiddleProcessor::setupProcessing(ProcessSetup &setup) {
   cachedSampleRate_.store(setup.sampleRate, std::memory_order_relaxed);
 
   // Initial latency uses default; TCP will push the real value once connected
-  latencySamples_.store(static_cast<uint32>(
-      setup.sampleRate * lastKnownDelayMs_.load(std::memory_order_relaxed) /
-      1000.0), std::memory_order_relaxed);
+  latencySamples_.store(
+      static_cast<uint32>(setup.sampleRate *
+                          lastKnownDelayMs_.load(std::memory_order_relaxed) /
+                          1000.0),
+      std::memory_order_relaxed);
   pluginLog("[Latency] setupProcessing: delayMs=" +
             std::to_string(lastKnownDelayMs_.load(std::memory_order_relaxed)) +
             " samples=" +
@@ -97,11 +100,9 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
     // VST3 guarantees setActive is not called concurrently with process(),
     // so this is safe without additional synchronization.
     tcpRelay_ = std::make_unique<TcpRelay>(
-        "127.0.0.1", 5252,
-        lastKnownDelayMs_.load(std::memory_order_relaxed));
+        "127.0.0.1", 5252, lastKnownDelayMs_.load(std::memory_order_relaxed));
 
-    tcpRelay_->setControlUpdateCallback(
-        [this]() { scheduleControlFlush(); });
+    tcpRelay_->setControlUpdateCallback([this]() { scheduleControlFlush(); });
 
     // Set up connection callback for state replay and UI notification.
     // The callback is invoked from the relay thread.
@@ -230,7 +231,8 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         int program = static_cast<int>(
             value * (FiddleController::kNumPrograms - 1) + 0.5);
 
-        channelStates_[logicalCh].program.store(program, std::memory_order_relaxed);
+        channelStates_[logicalCh].program.store(program,
+                                                std::memory_order_relaxed);
         programStatesDirty_.store(true, std::memory_order_relaxed);
 
         if (tcpRelay_) {
@@ -259,9 +261,11 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
         // Track Bank Select in channel state
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
           if (ccNum == 0)
-            channelStates_[logicalCh].bankMSB.store(ccVal, std::memory_order_relaxed);
+            channelStates_[logicalCh].bankMSB.store(ccVal,
+                                                    std::memory_order_relaxed);
           else if (ccNum == 32)
-            channelStates_[logicalCh].bankLSB.store(ccVal, std::memory_order_relaxed);
+            channelStates_[logicalCh].bankLSB.store(ccVal,
+                                                    std::memory_order_relaxed);
         }
 
         if (tcpRelay_) {
@@ -335,8 +339,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
       outgoing.type = RealtimeMidiEventType::NoteOn;
       outgoing.channel = event.noteOn.channel + 1;
       outgoing.data1 = event.noteOn.pitch;
-      outgoing.data2 =
-          static_cast<int32_t>(event.noteOn.velocity * 127.0f);
+      outgoing.data2 = static_cast<int32_t>(event.noteOn.velocity * 127.0f);
       break;
     }
 
@@ -344,8 +347,7 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
       outgoing.type = RealtimeMidiEventType::NoteOff;
       outgoing.channel = event.noteOff.channel + 1;
       outgoing.data1 = event.noteOff.pitch;
-      outgoing.data2 =
-          static_cast<int32_t>(event.noteOff.velocity * 127.0f);
+      outgoing.data2 = static_cast<int32_t>(event.noteOff.velocity * 127.0f);
       break;
     }
 
@@ -372,9 +374,11 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
         int logicalCh = eventBus * 16 + cc.channel;
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
           if (cc.controlNumber == 0)
-            channelStates_[logicalCh].bankMSB.store(cc.value, std::memory_order_relaxed);
+            channelStates_[logicalCh].bankMSB.store(cc.value,
+                                                    std::memory_order_relaxed);
           else if (cc.controlNumber == 32)
-            channelStates_[logicalCh].bankLSB.store(cc.value, std::memory_order_relaxed);
+            channelStates_[logicalCh].bankLSB.store(cc.value,
+                                                    std::memory_order_relaxed);
         }
       } else if (cc.controlNumber == 129) {
         outgoing.type = RealtimeMidiEventType::PitchBend;
@@ -388,7 +392,8 @@ void FiddleProcessor::processEvents(IEventList *events, int64 hostSamples) {
 
         int logicalCh = eventBus * 16 + cc.channel;
         if (logicalCh >= 0 && logicalCh < kTotalChannels) {
-          channelStates_[logicalCh].program.store(cc.value, std::memory_order_relaxed);
+          channelStates_[logicalCh].program.store(cc.value,
+                                                  std::memory_order_relaxed);
         }
       }
       break;
@@ -441,30 +446,22 @@ tresult PLUGIN_API FiddleProcessor::setState(IBStream *state) {
     channelStates_[ch].program.store(prog, std::memory_order_relaxed);
   }
 
-  // Read config path (appended after program state)
-  // Format: 4-byte length prefix + UTF-8 string
-  int32 pathLen = 0;
-  if (state->read(&pathLen, sizeof(int32)) == kResultOk && pathLen > 0 &&
-      pathLen < 4096) {
-    std::vector<char> buf(pathLen);
-    if (state->read(buf.data(), pathLen) == kResultOk) {
-      configPath_.assign(buf.data(), pathLen);
-    }
-  }
-
-  // Read config version (length-prefixed, added after config path)
-  int32 versionLen = 0;
-  if (state->read(&versionLen, sizeof(int32)) == kResultOk && versionLen > 0 &&
-      versionLen < 4096) {
-    std::vector<char> vbuf(versionLen);
-    if (state->read(vbuf.data(), versionLen) == kResultOk) {
-      configVersion_.assign(vbuf.data(), versionLen);
-    }
-  }
+  ProjectIdentityState identity;
+  readProjectIdentity(
+      [state](void *destination, std::size_t size) {
+        return state->read(destination, static_cast<int32>(size)) == kResultOk;
+      },
+      identity);
+  configPath_ = std::move(identity.branchName);
+  configVersion_ = std::move(identity.configVersion);
+  branchId_ = std::move(identity.branchId);
+  currentVersionId_ = std::move(identity.versionId);
 
   // Push updated state to controller for UI display
   sendConfigToController();
   sendProgramStatesToController();
+  if (tcpRelay_ && tcpRelay_->isConnected())
+    announceConfigToServer();
 
   return kResultOk;
 }
@@ -475,26 +472,49 @@ tresult PLUGIN_API FiddleProcessor::getState(IBStream *state) {
   if (!state)
     return kResultFalse;
 
+  // Dorico calls getState while saving the project. Ask FiddleServer to
+  // commit any dirty state first, so the identity written below names the
+  // exact version represented by this save. The request is local and bounded;
+  // it never runs on the audio thread.
+  if (tcpRelay_) {
+    const bool wasConnected = tcpRelay_->isConnected();
+    tcpRelay_->activate();
+    const auto saved = tcpRelay_->requestSaveSnapshot(
+        wasConnected ? std::chrono::milliseconds(5000)
+                     : std::chrono::milliseconds(1500));
+    if (saved.success) {
+      configPath_ = saved.configName;
+      configVersion_ = saved.configVersion;
+      branchId_ = saved.branchId;
+      currentVersionId_ = saved.versionId;
+      sendConfigToController();
+      pluginLog("Dorico save captured Fiddle version: " +
+                currentVersionId_);
+    } else {
+      pluginLog("Dorico save could not confirm Fiddle state: " + saved.error);
+      // If FiddleServer previously told us the configuration is dirty, writing
+      // the old identity would make the Dorico project silently restore the
+      // wrong state. Report failure to the host instead.
+      if (tcpRelay_->isConfigDirty())
+        return kResultFalse;
+    }
+  }
+
   for (int ch = 0; ch < kTotalChannels; ++ch) {
     int32 prog = channelStates_[ch].program.load(std::memory_order_relaxed);
     state->write(&prog, sizeof(int32));
   }
 
-  // Write config path (length-prefixed)
-  int32 pathLen = static_cast<int32>(configPath_.size());
-  state->write(&pathLen, sizeof(int32));
-  if (pathLen > 0) {
-    state->write(configPath_.data(), pathLen);
-  }
-
-  // Write config version (length-prefixed)
-  int32 versionLen = static_cast<int32>(configVersion_.size());
-  state->write(&versionLen, sizeof(int32));
-  if (versionLen > 0) {
-    state->write(configVersion_.data(), versionLen);
-  }
-
-  return kResultOk;
+  const ProjectIdentityState identity{configPath_, configVersion_, branchId_,
+                                      currentVersionId_};
+  return writeProjectIdentity(
+             [state](const void *source, std::size_t size) {
+               return state->write(const_cast<void *>(source),
+                                   static_cast<int32>(size)) == kResultOk;
+             },
+             identity)
+             ? kResultOk
+             : kResultFalse;
 }
 
 //----------------------------------------------------------------------
@@ -519,7 +539,8 @@ tresult PLUGIN_API FiddleProcessor::notify(IMessage *message) {
         attrs->getInt("Program", program) == kResultOk) {
       int ch = static_cast<int>(channel); // 0-based logical channel
       if (ch >= 0 && ch < kTotalChannels) {
-        channelStates_[ch].program.store(static_cast<int>(program), std::memory_order_relaxed);
+        channelStates_[ch].program.store(static_cast<int>(program),
+                                         std::memory_order_relaxed);
 
         // Send to TCP relay
         if (tcpRelay_) {
@@ -581,10 +602,14 @@ void FiddleProcessor::flushControlUpdates() {
   if (tcpRelay_ && tcpRelay_->consumeConfigChanged()) {
     auto name = tcpRelay_->getConfigName();
     auto version = tcpRelay_->getConfigVersion();
+    auto branchId = tcpRelay_->getBranchId();
+    auto versionId = tcpRelay_->getVersionId();
     if (!name.empty())
       configPath_ = std::move(name);
     if (!version.empty())
       configVersion_ = std::move(version);
+    branchId_ = std::move(branchId);
+    currentVersionId_ = std::move(versionId);
     sendConfigToController();
   }
 
@@ -614,7 +639,8 @@ void FiddleProcessor::sendProgramStatesToController() {
       // Attribute keys: "P0" through "P767"
       char key[16];
       snprintf(key, sizeof(key), "P%d", ch);
-      attrs->setInt(key, channelStates_[ch].program.load(std::memory_order_relaxed));
+      attrs->setInt(key,
+                    channelStates_[ch].program.load(std::memory_order_relaxed));
     }
     sendMessage(msg);
   }
@@ -645,6 +671,9 @@ void FiddleProcessor::announceConfigToServer() {
   MidiEvent hello;
   hello.set_timestamp_samples(0);
   hello.mutable_load_config()->set_config_path(configPath_);
+  hello.mutable_load_config()->set_config_version(configVersion_);
+  hello.mutable_load_config()->set_branch_id(branchId_);
+  hello.mutable_load_config()->set_version_id(currentVersionId_);
   tcpRelay_->pushMessage(hello);
 
   pluginLog("Announced config to server: " + configPath_);

@@ -4,6 +4,7 @@
 #include "RealtimeMidiEvent.h"
 #include "midi_event.pb.h"
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -26,6 +27,15 @@ namespace fiddle {
  */
 class TcpRelay {
 public:
+  struct SaveSnapshot {
+    bool success = false;
+    std::string configName;
+    std::string configVersion;
+    std::string branchId;
+    std::string versionId;
+    std::string error;
+  };
+
   TcpRelay(const std::string &host = "127.0.0.1", int port = 5252,
            int initialDelayMs = 1000);
   ~TcpRelay();
@@ -39,14 +49,25 @@ public:
   }
 
   /// Enqueue a fixed-size event without allocation or locking.
-  [[nodiscard]] bool
-  pushRealtimeEvent(const RealtimeMidiEvent &event) noexcept;
+  [[nodiscard]] bool pushRealtimeEvent(const RealtimeMidiEvent &event) noexcept;
 
   /// Push a message to the send queue. Acquires mutex briefly.
   void pushMessage(const MidiEvent &event);
 
+  /// Ask FiddleServer to commit the current dirty state and return the exact
+  /// identity Dorico must persist. This is called only from VST3 getState,
+  /// never from the audio thread, and is bounded by the supplied timeout.
+  SaveSnapshot
+  requestSaveSnapshot(std::chrono::milliseconds timeout =
+                          std::chrono::milliseconds(1500));
+
   /// Returns true if the relay is currently connected to the server.
   bool isConnected() const { return connected_.load(); }
+
+  /// Last dirty state reported by FiddleServer.
+  bool isConfigDirty() const {
+    return configDirty_.load(std::memory_order_acquire);
+  }
 
   /// Returns the current playback delay in ms (lock-free, audio-thread safe).
   int getDelayMs() const { return delayMs_.load(std::memory_order_relaxed); }
@@ -72,6 +93,16 @@ public:
   std::string getConfigVersion() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return configVersion_;
+  }
+
+  std::string getBranchId() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return branchId_;
+  }
+
+  std::string getVersionId() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return versionId_;
   }
 
   /// Set a callback for when connection state changes (called from relay
@@ -108,6 +139,8 @@ private:
   std::atomic<int> delayMs_;
   std::atomic<bool> latencyChanged_{false};
   std::atomic<bool> configChanged_{false};
+  std::atomic<bool> configDirty_{false};
+  std::atomic<uint64_t> nextSaveRequestId_{1};
 
   mutable std::mutex mutex_;
   std::condition_variable cv_;
@@ -117,6 +150,15 @@ private:
   std::atomic<bool> controlUpdateRequested_{false};
   std::string configName_;
   std::string configVersion_;
+  std::string branchId_;
+  std::string versionId_;
+
+  std::mutex saveRequestCallMutex_;
+  std::mutex saveResponseMutex_;
+  std::condition_variable saveResponseCv_;
+  uint64_t waitingSaveRequestId_ = 0;
+  bool saveResponseReady_ = false;
+  SaveSnapshot saveResponse_;
 
   std::thread thread_;
 

@@ -107,6 +107,8 @@ private:
   // Config path and version (saved/restored with Dorico project state)
   std::string configPath_;
   std::string configVersion_;
+  std::string branchId_;
+  std::string currentVersionId_;
 
   // Shared memory audio consumer (pulls audio from FiddleServer)
   AudioConsumer audioConsumer_;

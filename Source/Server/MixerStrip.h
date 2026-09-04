@@ -82,6 +82,20 @@ struct MixerStrip {
   /// Consume a listener notification on the message thread.
   [[nodiscard]] bool consumePluginChangeNotification() noexcept;
 
+  /// Consume an explicit editor/needs-save notification separately from
+  /// ordinary parameter callbacks, which may be caused by incoming MIDI.
+  [[nodiscard]] bool consumePluginExplicitEditNotification() noexcept;
+
+  /// Consume an ambiguous non-parameter state-change notification separately
+  /// so playback can suppress it without losing stopped-state edits.
+  [[nodiscard]] bool
+  consumePluginNonParameterStateChangeNotification() noexcept;
+
+  /// Stable fingerprint of the hosted instrument's persistent parameter
+  /// values. This deliberately excludes volatile runtime data that some
+  /// instruments include in getStateInformation() during playback.
+  [[nodiscard]] uint64_t pluginParameterFingerprint() const;
+
   /// Re-serialize the live plugin state into cachedPluginState_.
   void refreshPluginStateCache();
 
