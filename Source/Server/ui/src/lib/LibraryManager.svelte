@@ -1115,7 +1115,8 @@
   .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
   .action-duplicate, .action-delete {
-    min-height: 30px; padding: 5px 9px; border: 1px solid #44446c;
+    width: auto; height: 30px; padding: 0 9px; box-sizing: border-box;
+    border: 1px solid #44446c;
     border-radius: 4px; background: #1a194b; color: #d8d7ff;
     font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
@@ -1134,23 +1135,30 @@
   .ir-select {
     width: 100%; background: #131342; border: 1px solid #44446c;
     border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;
-    font-size: .68rem; padding: 5px 8px; outline: none; cursor: pointer;
+    height: 30px; box-sizing: border-box; font-size: .68rem;
+    padding: 0 8px; outline: none; cursor: pointer;
     -webkit-appearance: none; appearance: none;
   }
   .ir-select:focus { border-color: #95a9ff; color: #e5e3ff; }
   .ir-input {
     width: 100%; background: #131342; border: 1px solid #44446c;
     border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;
-    font-size: .68rem; padding: 5px 8px; outline: none;
+    height: 30px; font-size: .68rem; padding: 0 8px; outline: none;
     box-sizing: border-box;
   }
   .ir-input:focus { border-color: #95a9ff; color: #e5e3ff; }
   .ir-input::placeholder { color: #44446c; }
   .ir-vst { display: flex; align-items: center; gap: 4px; }
   .ir-vst .ir-select { flex: 1; min-width: 0; }
+  .ir-expr { margin-top: -1px; }
+  :global(.ir-expr .xmap-control) { margin-bottom: 0; }
+  :global(.ir-expr .xmap-trigger) {
+    height: 30px; min-height: 30px; box-sizing: border-box;
+  }
   .action-vst-edit {
     background: transparent; border: 1px solid #33335c; border-radius: 3px;
-    cursor: pointer; font-size: .8rem; padding: 2px 5px; color: #95a9ff;
+    width: 30px; height: 30px; box-sizing: border-box;
+    cursor: pointer; font-size: .8rem; padding: 0; color: #95a9ff;
     transition: background .15s, border-color .15s; flex-shrink: 0;
   }
   .action-vst-edit:hover { background: #2a2a5c; border-color: #95a9ff; }
