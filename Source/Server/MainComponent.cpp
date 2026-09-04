@@ -2949,9 +2949,18 @@ void MainComponent::setupJsHandlers() {
             }
           } else if ((bool)patchObj->getProperty("hasPluginState")) {
             // Loading and saving a library without opening every plug-in must
-            // not erase the catalog's stored default state.
+            // not erase the catalog's stored default state. A newly duplicated
+            // patch may explicitly inherit the source patch's saved state.
             if (auto *repository = db_.getLibraryRoutingRepository()) {
-              if (const auto existing = repository->getPatch(patch.id))
+              auto existing = repository->getPatch(patch.id);
+              if (!existing) {
+                const auto sourcePatchId =
+                    patchObj->getProperty("sourcePatchId").toString();
+                if (sourcePatchId.isNotEmpty())
+                  existing =
+                      repository->getPatch(sourcePatchId.toStdString());
+              }
+              if (existing)
                 patch.pluginState = existing->pluginState;
             }
           }

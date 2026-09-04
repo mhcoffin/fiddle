@@ -6,7 +6,7 @@
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
-  import { createLibraryPatch, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
+  import { createLibraryPatch, duplicateLibraryPatch, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -87,6 +87,7 @@
   let editorLibVariant = $state("");
   let searchQuery = $state("");
   let searchFocused = $state(false);
+  let searchInput = $state(null);
 
   // ── Editor dirty tracking ─────────────────────────────
   let editorDirty = $state(false);
@@ -109,15 +110,17 @@
       || patch.instrumentName
       || patch.entityID;
 
-  /** Filtered search results — only when search has text.
+  /** Filtered search results. Focusing the chooser without a query shows a
+   *  useful starter list; typing narrows it by name or Dorico entity ID.
    *  Sorted by name-match relevance, then XML document order as tiebreaker
    *  (instruments.xml lists the default variant first in each group). */
   let searchResults = $derived.by(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    const matches = allDoricoInstruments.filter(
-      (i) => i.name.toLowerCase().includes(q) || i.entityID.toLowerCase().includes(q)
-    );
+    const matches = q
+      ? allDoricoInstruments.filter(
+          (i) => i.name.toLowerCase().includes(q) || i.entityID.toLowerCase().includes(q)
+        )
+      : allDoricoInstruments.filter((instrument) => instrument.isDefault);
     // Relevance tier: exact name match (0) > starts-with (1) > contains (2)
     const relevance = (name) => {
       const n = name.toLowerCase();
@@ -239,6 +242,12 @@
     editorDirty = true;
   };
 
+  const beginAddPatch = () => {
+    searchQuery = "";
+    searchFocused = true;
+    requestAnimationFrame(() => searchInput?.focus());
+  };
+
   const expressionMapName = (/** @type {string} */ entityID) => {
     if (!entityID) return "";
     return expressionMapNames.get(entityID) || entityID;
@@ -279,6 +288,14 @@
     patches = patches.filter(r => r.id !== id);
     selectedPatchIds.delete(id);
     selectedPatchIds = new Set(selectedPatchIds);
+    editorDirty = true;
+  };
+
+  const duplicatePatch = (row) => {
+    const copy = duplicateLibraryPatch(row, crypto.randomUUID());
+    patches = [...patches, copy];
+    selectedPatchIds = new Set([copy.id]);
+    selectionAnchorId = copy.id;
     editorDirty = true;
   };
 
@@ -413,6 +430,7 @@
         exprMap:     patch.exprMap,
         stripId:     patch.stripId,
         hasPluginState: patch.hasPluginState,
+        sourcePatchId: patch.sourcePatchId || "",
       })),
     };
     dispatchCpp("saveLibrary", libData);
@@ -567,12 +585,14 @@
           <!-- Add patches from the Dorico instrument catalog -->
           <div class="inst-search-wrapper">
             <div class="inst-search-row">
-              <span class="inst-search-icon">🔍</span>
+              <button class="add-patch-btn" onclick={beginAddPatch}>+ Add Patch</button>
+              <span class="inst-search-icon" aria-hidden="true">🔍</span>
               <input
                 type="text"
                 class="inst-search-input"
                 placeholder="Add a patch: search instruments…"
                 bind:value={searchQuery}
+                bind:this={searchInput}
                 onfocus={() => { searchFocused = true; }}
                 onblur={() => { setTimeout(() => { searchFocused = false; }, 200); }}
               />
@@ -694,7 +714,8 @@
                   />
                 </div>
                 <div class="ir-actions">
-                  <button class="action-delete" onclick={() => removePatch(row.id)} title="Remove patch">🗑</button>
+                  <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
+                  <button class="action-delete" onclick={() => removePatch(row.id)}>Delete</button>
                 </div>
               </div>
             {/each}
@@ -702,7 +723,7 @@
             {#if patches.length === 0}
               <div class="inst-empty">
                 <p>No patches added yet.</p>
-                <p class="inst-empty-hint">Search above or use a generic quick-add set.</p>
+                <p class="inst-empty-hint">Choose Add Patch above or use a generic quick-add set.</p>
               </div>
             {/if}
           </div>
@@ -986,6 +1007,12 @@
     border-bottom: 1px solid #44446c;
   }
   .inst-search-icon { font-size: .9rem; color: #72719c; }
+  .add-patch-btn {
+    min-height: 36px; padding: 7px 14px; border: 1px solid #7877b8;
+    border-radius: 4px; background: #3938a0; color: #f1f0ff;
+    font: 700 .72rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .add-patch-btn:hover { background: #4a49b8; border-color: #a8b7ff; }
   .inst-search-input {
     flex: 1; background: transparent; border: none; outline: none;
     color: #e5e3ff; font-family: "Inter",sans-serif; font-size: .8rem;
@@ -1043,7 +1070,7 @@
   .batch-xmap { min-width: 210px; }
   .inst-table-header {
     display: grid;
-    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 70px;
+    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 154px;
     gap: 8px; padding: 10px 20px;
     background: #0e0d38; border-bottom: 1px solid #2a2a5a;
   }
@@ -1055,7 +1082,7 @@
   .inst-table-body { flex: 1; overflow-y: auto; padding-bottom: 12px; }
   .inst-row {
     display: grid;
-    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 70px;
+    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 154px;
     gap: 8px; align-items: center;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
@@ -1065,6 +1092,14 @@
   .inst-row.patch-selected { background: rgba(149,169,255,.09); }
   .ir-check { display: flex; justify-content: center; }
   .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
+  .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
+  .action-duplicate, .action-delete {
+    min-height: 30px; padding: 5px 9px; border: 1px solid #44446c;
+    border-radius: 4px; background: #1a194b; color: #d8d7ff;
+    font: 600 .64rem "Inter", sans-serif; cursor: pointer;
+  }
+  .action-duplicate:hover { border-color: #95a9ff; background: #292863; }
+  .action-delete:hover { border-color: #d96a78; background: #4b1e32; color: #ffd7dc; }
   .ir-name { display: flex; align-items: center; gap: 8px; }
   .ir-name-text { width: 100%; min-width: 0; }
   .patch-name-input { color: #e5e3ff; font-weight: 600; }
@@ -1087,12 +1122,6 @@
   }
   .ir-input:focus { border-color: #95a9ff; color: #e5e3ff; }
   .ir-input::placeholder { color: #44446c; }
-  .ir-actions { display: flex; align-items: center; justify-content: center; gap: 6px; }
-  .action-delete {
-    background: transparent; border: none; cursor: pointer;
-    font-size: .85rem; padding: 2px 4px; color: #72719c; transition: color .15s;
-  }
-  .action-delete:hover { color: #ff6e84; }
   .ir-vst { display: flex; align-items: center; gap: 4px; }
   .ir-vst .ir-select { flex: 1; min-width: 0; }
   .action-vst-edit {

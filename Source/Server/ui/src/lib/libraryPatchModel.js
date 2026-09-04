@@ -23,6 +23,16 @@ export function updateSelectedPatches(patches, selectedIds, changes) {
     );
 }
 
+export function duplicateLibraryPatch(patch, id) {
+    return {
+        ...patch,
+        id,
+        name: `${patch.name} Copy`,
+        stripId: "",
+        sourcePatchId: patch.id,
+    };
+}
+
 export function togglePatchSelection(selectedIds, patchId, additive = false) {
     const next = additive ? new Set(selectedIds) : new Set();
     if (additive && next.has(patchId)) next.delete(patchId);

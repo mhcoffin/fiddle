@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
     createLibraryPatch,
+    duplicateLibraryPatch,
     togglePatchSelection,
     updateSelectedPatches,
 } from "../src/lib/libraryPatchModel.js";
@@ -47,4 +48,26 @@ test("selection supports replacement and command-style toggling", () => {
         [...togglePatchSelection(new Set(["a", "b"]), "a", true)],
         ["b"],
     );
+});
+
+test("duplicate creates an independent row and retains its catalog defaults", () => {
+    const original = {
+        id: "patch-1",
+        name: "Violin I",
+        entityID: "instrument.strings.violin",
+        character: "section",
+        vstPlugin: 42,
+        exprMap: "xmap.violin",
+        stripId: "preview-strip",
+        hasPluginState: true,
+    };
+
+    const copy = duplicateLibraryPatch(original, "patch-2");
+    assert.equal(copy.id, "patch-2");
+    assert.equal(copy.name, "Violin I Copy");
+    assert.equal(copy.entityID, original.entityID);
+    assert.equal(copy.vstPlugin, 42);
+    assert.equal(copy.exprMap, "xmap.violin");
+    assert.equal(copy.stripId, "");
+    assert.equal(copy.sourcePatchId, "patch-1");
 });

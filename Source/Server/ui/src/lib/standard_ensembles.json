@@ -3,9 +3,10 @@
         {
             "id": "strings",
             "name": "Strings",
-            "description": "Violin, viola, cello, and bass section patches",
+            "description": "Violin I & II, viola, cello, and bass section patches",
             "instruments": [
-                { "entityID": "instrument.strings.violin", "name": "Violin Section", "family": "strings", "type": "section" },
+                { "entityID": "instrument.strings.violin", "name": "Violin I", "family": "strings", "type": "section" },
+                { "entityID": "instrument.strings.violin", "name": "Violin II", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.viola", "name": "Viola", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.violoncello", "name": "Violoncello", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.contrabass", "name": "Contrabass", "family": "strings", "type": "section" }
