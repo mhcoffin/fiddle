@@ -48,6 +48,7 @@
       }));
       selectedPatchIds = new Set();
       searchQuery = "";
+      patchChooserOpen = false;
       modalView = "editor";
       editorDirty = false;
     } catch (e) { /* ignore */ }
@@ -86,7 +87,7 @@
   let editorLibVendor = $state("");
   let editorLibVariant = $state("");
   let searchQuery = $state("");
-  let searchFocused = $state(false);
+  let patchChooserOpen = $state(false);
   let searchInput = $state(null);
 
   // ── Editor dirty tracking ─────────────────────────────
@@ -219,6 +220,7 @@
     patches = [];
     selectedPatchIds = new Set();
     searchQuery = "";
+    patchChooserOpen = false;
     modalView = "editor";
     editorDirty = false;
   };
@@ -232,6 +234,7 @@
 
   const closeEditor = () => {
     cleanupPreviewStrips();
+    patchChooserOpen = false;
     modalView = "none";
   };
 
@@ -244,8 +247,18 @@
 
   const beginAddPatch = () => {
     searchQuery = "";
-    searchFocused = true;
+    patchChooserOpen = true;
     requestAnimationFrame(() => searchInput?.focus());
+  };
+
+  const closePatchChooser = () => {
+    patchChooserOpen = false;
+    searchQuery = "";
+  };
+
+  const addPatchFromChooser = (instrument, character) => {
+    addPatch(instrument, character);
+    closePatchChooser();
   };
 
   const expressionMapName = (/** @type {string} */ entityID) => {
@@ -552,7 +565,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="modal-backdrop"
-    onkeydown={(e) => { if (e.key === "Escape") { if (searchQuery) searchQuery = ""; else closeEditor(); } }}
+    onkeydown={(e) => { if (e.key === "Escape") { if (patchChooserOpen) closePatchChooser(); else closeEditor(); } }}
   >
     <div class="editor-panel" role="dialog" aria-labelledby="editor-heading">
       <!-- Editor header -->
@@ -585,7 +598,7 @@
           <!-- Add patches from the Dorico instrument catalog -->
           <div class="inst-search-wrapper">
             <div class="inst-search-row">
-              <button class="add-patch-btn" onclick={beginAddPatch}>+ Add Patch</button>
+              <button class="add-patch-btn" class:active={patchChooserOpen} onclick={beginAddPatch}>+ Add Patch</button>
               <span class="inst-search-icon" aria-hidden="true">🔍</span>
               <input
                 type="text"
@@ -593,24 +606,28 @@
                 placeholder="Add a patch: search instruments…"
                 bind:value={searchQuery}
                 bind:this={searchInput}
-                onfocus={() => { searchFocused = true; }}
-                onblur={() => { setTimeout(() => { searchFocused = false; }, 200); }}
+                onfocus={() => { patchChooserOpen = true; }}
               />
-              {#if searchQuery}
-                <button class="inst-search-esc" onclick={() => { searchQuery = ""; }}>✕</button>
+              {#if patchChooserOpen}
+                <button class="inst-search-esc" onclick={closePatchChooser}>Close</button>
               {/if}
             </div>
-            {#if searchFocused && searchResults.length > 0}
+            {#if patchChooserOpen}
               <div class="search-dropdown">
-                {#each searchResults as instr (instr.entityID)}
-                  <div class="search-result">
-                    <span class="sr-name">{instr.name}</span>
-                    <span class="sr-entity">{instr.entityID}</span>
-                    <button class="sr-add" onclick={() => addPatch(instr, 'solo')}>Add Solo</button>
-                    <button class="sr-add" onclick={() => addPatch(instr, 'section')}>Add Section</button>
-                    <button class="sr-add" onclick={() => addPatch(instr, 'ensemble')}>Add Ensemble</button>
-                  </div>
-                {/each}
+                <div class="chooser-heading">Choose an instrument, then the kind of patch supplied by this library</div>
+                {#if searchResults.length > 0}
+                  {#each searchResults as instr (instr.entityID)}
+                    <div class="search-result">
+                      <span class="sr-name">{instr.name}</span>
+                      <span class="sr-entity">{instr.entityID}</span>
+                      <button class="sr-add" onclick={() => addPatchFromChooser(instr, 'solo')}>Add Solo</button>
+                      <button class="sr-add" onclick={() => addPatchFromChooser(instr, 'section')}>Add Section</button>
+                      <button class="sr-add" onclick={() => addPatchFromChooser(instr, 'ensemble')}>Add Ensemble</button>
+                    </div>
+                  {/each}
+                {:else}
+                  <div class="chooser-empty">No matching Dorico instruments.</div>
+                {/if}
               </div>
             {/if}
           </div>
@@ -1013,6 +1030,7 @@
     font: 700 .72rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
   }
   .add-patch-btn:hover { background: #4a49b8; border-color: #a8b7ff; }
+  .add-patch-btn.active { background: #5655c7; border-color: #c2ccff; }
   .inst-search-input {
     flex: 1; background: transparent; border: none; outline: none;
     color: #e5e3ff; font-family: "Inter",sans-serif; font-size: .8rem;
@@ -1033,6 +1051,11 @@
     background: #131342; border: 1px solid #44446c; border-top: none;
     border-radius: 0 0 4px 4px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
   }
+  .chooser-heading, .chooser-empty {
+    padding: 10px 14px; color: #9695bd; font: 600 .65rem "Inter", sans-serif;
+    border-bottom: 1px solid #2a2a5a;
+  }
+  .chooser-empty { padding: 24px 14px; text-align: center; border-bottom: 0; }
   .search-result {
     display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box;
     padding: 5px 10px 5px 14px; background: transparent;
