@@ -9,6 +9,7 @@
         onselect = () => {},
         onclear = () => {},
         onloadfile = () => {},
+        canLoadFromFile = true,
     } = $props();
 
     let dialog = $state();
@@ -132,7 +133,9 @@
 
                 <div class="xmap-actions">
                     <button type="button" disabled={!selectedName} onclick={clear}>Clear assignment</button>
-                    <button type="button" onclick={loadFromFile}>Load from file…</button>
+                    {#if canLoadFromFile}
+                        <button type="button" onclick={loadFromFile}>Load from file…</button>
+                    {/if}
                 </div>
 
                 <div class="xmap-results" aria-label="Expression maps">

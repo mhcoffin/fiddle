@@ -2,6 +2,7 @@
   /** @type {import('svelte')} */
   import { onMount } from "svelte";
   import { onFromCpp, dispatchCpp } from "./ipc.js";
+  import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
   import ensembleData from "./standard_ensembles.json";
   import { FAMILY_ORDER, canonicalFamily, populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
 
@@ -9,6 +10,9 @@
 
   // ── Expression maps from C++ ───────────────────────
   let availableXmaps = $state([]);
+  let expressionMapNames = $derived(
+    new Map(availableXmaps.map((map) => [map.entityID, map.name])),
+  );
   onFromCpp("setExpressionMaps", (data) => {
     try { availableXmaps = data; } catch (e) { /* ignore */ }
   });
@@ -274,6 +278,21 @@
       pluginUid: 0,
       hasPluginState: false,
     }];
+    editorDirty = true;
+  };
+
+  const expressionMapName = (/** @type {string} */ entityID) => {
+    if (!entityID) return "";
+    return expressionMapNames.get(entityID) || entityID;
+  };
+
+  const setInstrumentExpressionMap = (
+    /** @type {string} */ rowId,
+    /** @type {string} */ entityID,
+  ) => {
+    instruments = instruments.map((instrument) =>
+      instrument.id === rowId ? { ...instrument, exprMap: entityID } : instrument
+    );
     editorDirty = true;
   };
 
@@ -646,19 +665,15 @@
                   {/if}
                 </div>
                 <div class="ir-expr">
-                  <select class="ir-select" value={row.exprMap}
-                    onchange={(e) => {
-                      const val = /** @type {HTMLSelectElement} */ (e.target).value;
-                      instruments = instruments.map(i =>
-                        i.id === row.id ? { ...i, exprMap: val } : i
-                      );
-                      editorDirty = true;
-                    }}>
-                    <option value="">— xmap —</option>
-                    {#each availableXmaps as xmap}
-                      <option value={xmap.entityID}>{xmap.name}</option>
-                    {/each}
-                  </select>
+                  <ExpressionMapPicker
+                    maps={availableXmaps}
+                    selectedId={row.exprMap}
+                    selectedName={expressionMapName(row.exprMap)}
+                    onselect={(entityID) =>
+                      setInstrumentExpressionMap(row.id, entityID)}
+                    onclear={() => setInstrumentExpressionMap(row.id, "")}
+                    canLoadFromFile={false}
+                  />
                 </div>
                 <div class="ir-actions">
                   <button class="action-delete" onclick={() => removeInstrument(row.id)} title="Remove">🗑</button>
