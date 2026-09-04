@@ -2876,6 +2876,99 @@ void MainComponent::setupJsHandlers() {
         broadcastMessage("setLuaPluginCatalog", juce::var(pluginArr));
         return;
       });
+  jsRouter_.registerHandler("requestChairs", [this](const juce::var &) {
+    safeCallAsync([this]() {
+      pushChairState();
+      broadcastTemplateDirty();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("createChair", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+
+    ChairRow chair;
+    chair.id = juce::Uuid().toString().toStdString();
+    chair.instrumentEntityId =
+        data->getProperty("entityID").toString().toStdString();
+    chair.name = data->getProperty("name").toString().trim().toStdString();
+    chair.family = data->getProperty("family").toString().toStdString();
+    chair.role = data->getProperty("role").toString() == "section"
+                     ? DoricoRole::section
+                     : DoricoRole::solo;
+
+    safeCallAsync([this, chair = std::move(chair)]() mutable {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository || !repository->insertChairWithStableAssignment(chair)) {
+        broadcastMessage("chairOperationResult",
+                         juce::var("Could not create the chair"));
+        return;
+      }
+      pushChairState();
+      broadcastTemplateDirty();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("updateChair", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+    const auto chairId = data->getProperty("id").toString().toStdString();
+    const auto name = data->getProperty("name").toString().trim().toStdString();
+    if (chairId.empty() || name.empty())
+      return;
+
+    safeCallAsync([this, chairId, name]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      auto chair = repository ? repository->getChair(chairId) : std::nullopt;
+      if (!chair) {
+        broadcastMessage("chairOperationResult",
+                         juce::var("Could not find the chair"));
+        return;
+      }
+      chair->name = name;
+      if (!repository->upsertChair(*chair)) {
+        broadcastMessage("chairOperationResult",
+                         juce::var("Could not rename the chair"));
+        return;
+      }
+      pushChairState();
+      broadcastTemplateDirty();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("deleteChair", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto chairId = args[0].toString().toStdString();
+    safeCallAsync([this, chairId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository || !repository->deleteChairAndLayers(chairId)) {
+        broadcastMessage("chairOperationResult",
+                         juce::var("Could not delete the chair"));
+        return;
+      }
+      pushChairState();
+      broadcastTemplateDirty();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("installChairTemplate",
+                            [this](const juce::var &) {
+                              safeCallAsync(
+                                  [this]() { installChairPlaybackTemplate(); });
+                              return;
+                            });
   jsRouter_.registerHandler(
       "requestLibraries", [this](const juce::var &payload) {
         safeCallAsync([this]() {
@@ -2890,7 +2983,6 @@ void MainComponent::setupJsHandlers() {
             arr.add(juce::var(obj));
           }
           broadcastMessage("setLibraryList", juce::var(arr));
-          broadcastTemplateDirty();
         });
         return;
       });
@@ -3064,7 +3156,6 @@ void MainComponent::setupJsHandlers() {
             arr.add(juce::var(obj));
           }
           broadcastMessage("setLibraryList", juce::var(arr));
-          broadcastTemplateDirty();
         });
     return;
   });
@@ -3448,7 +3539,7 @@ void MainComponent::setupJsHandlers() {
       std::cerr << "[BuildTemplate] " << msg << std::endl;
 
       // Update fingerprint so the button disables until libraries change
-      lastInstalledFingerprint_ = computeLibraryFingerprint();
+      lastInstalledFingerprint_ = computeChairFingerprint();
       broadcastTemplateDirty();
     });
     return;
@@ -3507,7 +3598,6 @@ void MainComponent::setupJsHandlers() {
         arr.add(juce::var(obj));
       }
       broadcastMessage("setLibraryList", juce::var(arr));
-      broadcastTemplateDirty();
     });
     return;
   });
@@ -3798,33 +3888,168 @@ void MainComponent::setupJsHandlers() {
   });
 }
 
-juce::String MainComponent::computeLibraryFingerprint() {
-  // Build a deterministic string from all library instruments.
-  // Sort by libraryId + entityId + isSolo + instanceNum for stability.
-  auto instruments = db_.loadAllLibraryInstruments();
-  std::sort(instruments.begin(), instruments.end(),
-            [](const fiddle::LibraryInstrumentRow &a,
-               const fiddle::LibraryInstrumentRow &b) {
-              if (a.libraryId != b.libraryId)
-                return a.libraryId < b.libraryId;
-              if (a.entityId != b.entityId)
-                return a.entityId < b.entityId;
-              if (a.isSolo != b.isSolo)
-                return a.isSolo < b.isSolo;
-              return a.maxInstance() < b.maxInstance();
-            });
+void MainComponent::pushChairState() {
+  juce::Array<juce::var> result;
+  if (auto *repository = db_.getLibraryRoutingRepository()) {
+    for (const auto &chair : repository->listChairs()) {
+      auto *obj = new juce::DynamicObject();
+      obj->setProperty("id", juce::String(chair.id));
+      obj->setProperty("entityID", juce::String(chair.instrumentEntityId));
+      obj->setProperty("name", juce::String(chair.name));
+      obj->setProperty("family", juce::String(chair.family));
+      obj->setProperty("role",
+                       chair.role == DoricoRole::solo ? "solo" : "section");
+      obj->setProperty("ordinal", chair.ordinal);
+      obj->setProperty("displayOrder", chair.displayOrder);
+      obj->setProperty("flatIndex", chair.flatIndex);
+      obj->setProperty("port", chair.flatIndex / 16);
+      obj->setProperty("channel", chair.flatIndex % 16);
+      result.add(juce::var(obj));
+    }
+  }
+  broadcastMessage("setChairState", juce::var(result));
+}
 
+void MainComponent::installChairPlaybackTemplate() {
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto chairs = repository ? repository->listChairs()
+                                  : std::vector<ChairRow>{};
+  if (chairs.empty()) {
+    broadcastMessage("chairTemplateResult",
+                     juce::var("Add at least one chair before installing"));
+    return;
+  }
+
+  const auto &browserInstruments = instrumentBrowser_.getInstruments();
+  std::map<juce::String, const BrowsableInstrument *> browserByEntity;
+  for (const auto &instrument : browserInstruments)
+    browserByEntity[instrument.entityID] = &instrument;
+
+  std::vector<InstrumentAssignment> assignments;
+  assignments.reserve(chairs.size());
+  int program = 1;
+  int bankMSB = 0;
+  int bankLSB = 0;
+  int maxFlatIndex = 0;
+  for (const auto &chair : chairs) {
+    const auto browserIt =
+        browserByEntity.find(juce::String(chair.instrumentEntityId));
+    if (browserIt == browserByEntity.end()) {
+      broadcastMessage(
+          "chairTemplateResult",
+          juce::var("Dorico instrument data is unavailable for " +
+                    juce::String(chair.name)));
+      return;
+    }
+
+    InstrumentAssignment assignment;
+    assignment.entityID = juce::String(chair.instrumentEntityId);
+    assignment.name = juce::String(chair.name);
+    assignment.musicXMLSoundID = browserIt->second->musicXMLSoundID;
+    assignment.category = chair.family.empty()
+                              ? browserIt->second->family
+                              : juce::String(chair.family);
+    assignment.program = program;
+    assignment.bankMSB = bankMSB;
+    assignment.bankLSB = bankLSB;
+    assignment.isSolo = chair.role == DoricoRole::solo;
+    assignment.flatIndex = chair.flatIndex;
+    assignments.push_back(std::move(assignment));
+    maxFlatIndex = std::max(maxFlatIndex, chair.flatIndex);
+
+    if (++program > 128) {
+      program = 1;
+      if (++bankLSB > 127) {
+        bankLSB = 0;
+        ++bankMSB;
+      }
+    }
+  }
+
+  DoricoConfigGenerator generator;
+  const auto result = generator.generateAndInstallFiles(
+      assignments, maxFlatIndex + 1, browserInstruments);
+  if (result.failed()) {
+    broadcastMessage("chairTemplateResult",
+                     juce::var("Error: " + result.getErrorMessage()));
+    return;
+  }
+
+  // Keep the existing mixer/channel-map infrastructure synchronized while
+  // chairs replace the legacy Setup list. Layers will replace these empty
+  // base strips in the next phase.
+  std::vector<MasterInstrumentList::EnsembleSlot> slots;
+  std::map<juce::String, std::size_t> slotByEntity;
+  for (const auto &chair : chairs) {
+    const auto entityId = juce::String(chair.instrumentEntityId);
+    auto slotIt = slotByEntity.find(entityId);
+    if (slotIt == slotByEntity.end()) {
+      const auto *browserInstrument = browserByEntity[entityId];
+      MasterInstrumentList::EnsembleSlot slot;
+      slot.entityID = entityId;
+      slot.name = browserInstrument->name;
+      slot.musicXMLSoundID = browserInstrument->musicXMLSoundID;
+      slot.family = chair.family.empty() ? browserInstrument->family
+                                         : juce::String(chair.family);
+      slots.push_back(std::move(slot));
+      slotIt = slotByEntity.emplace(entityId, slots.size() - 1).first;
+    }
+    auto &slot = slots[slotIt->second];
+    if (chair.role == DoricoRole::solo)
+      ++slot.soloCount;
+    else
+      ++slot.sectionCount;
+  }
+  masterList_.setSlots(std::move(slots));
+  masterList_.saveToDB(db_);
+
+  std::vector<ChannelAssignmentRow> channelRows;
+  std::map<std::pair<juce::String, bool>, int> instanceCounts;
+  for (const auto &chair : chairs) {
+    const bool isSolo = chair.role == DoricoRole::solo;
+    const auto entityId = juce::String(chair.instrumentEntityId);
+    channelRows.push_back({chair.flatIndex, entityId, isSolo,
+                           ++instanceCounts[{entityId, isSolo}]});
+  }
+  db_.saveChannelAssignments(channelRows);
+  masterList_.reconcileAssignments(db_);
+  mixer_.syncStripsToInstruments(masterList_);
+  saveAllStripsToDB();
+
+  broadcastMessage(
+      "setInstrumentMap",
+      juce::JSON::fromString(masterList_.getChannelMapAsJson()));
+  broadcastMessage(
+      "setSelectedInstruments",
+      juce::JSON::fromString(masterList_.getSlotsAsJson()));
+  pushMixerState();
+
+  lastInstalledFingerprint_ = computeChairFingerprint();
+  broadcastTemplateDirty();
+  broadcastMessage("chairTemplateResult",
+                   juce::var("Installed playback template with " +
+                             juce::String((int)chairs.size()) + " chairs"));
+}
+
+juce::String MainComponent::computeChairFingerprint() {
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto chairs = repository ? repository->listChairs()
+                                  : std::vector<ChairRow>{};
   juce::String data;
-  for (const auto &inst : instruments) {
-    data += inst.libraryId + "|" + inst.entityId + "|" +
-            (inst.isSolo ? "S" : "T") + "|" + inst.instanceNumsToString() +
-            "|" + inst.exprMap + "|" + juce::String(inst.pluginUid) + "\n";
+  for (const auto &chair : chairs) {
+    data += juce::String(chair.id) + "|" +
+            juce::String(chair.instrumentEntityId) + "|" +
+            juce::String(chair.name) + "|" + juce::String(chair.family) +
+            "|" + (chair.role == DoricoRole::solo ? "S" : "T") + "|" +
+            juce::String(chair.ordinal) + "|" +
+            juce::String(chair.displayOrder) + "|" +
+            juce::String(chair.flatIndex) + "\n";
   }
   return juce::String(data.hashCode64());
 }
 
 void MainComponent::broadcastTemplateDirty() {
-  juce::String current = computeLibraryFingerprint();
+  juce::String current = computeChairFingerprint();
   bool dirty = current != lastInstalledFingerprint_;
   broadcastMessage("setTemplateDirty", juce::var(dirty));
 }

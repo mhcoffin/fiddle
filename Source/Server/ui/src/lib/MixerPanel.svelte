@@ -4,6 +4,7 @@
     import BranchSelector from "./BranchSelector.svelte";
     import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
+    import ChairManager from "./ChairManager.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
         addStripRange,
@@ -42,6 +43,7 @@
         inserts: [],
     });
     let masterAudioOpen = $state(false);
+    let chairManagerOpen = $state(false);
     let branches = $state([]);
     let currentBranch = $state("default");
     let stripSize = $state(readStripSize(window.localStorage));
@@ -246,7 +248,8 @@
         // Escape closes the focused panel before clearing mixer selection.
         const handleKeyDown = (e) => {
             if (e.key !== "Escape") return;
-            if (masterAudioOpen) masterAudioOpen = false;
+            if (chairManagerOpen) chairManagerOpen = false;
+            else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
         };
         window.addEventListener("keydown", handleKeyDown);
@@ -919,6 +922,14 @@
                 Clear Solos
             </button>
             <button
+                class="toolbar-ms-btn chairs-btn"
+                onclick={() => { chairManagerOpen = true; }}
+                aria-haspopup="dialog"
+                title="Create and manage Dorico chairs"
+            >
+                Manage Chairs
+            </button>
+            <button
                 class="toolbar-ms-btn master-audio-btn"
                 onclick={() => { masterAudioOpen = true; }}
                 aria-haspopup="dialog"
@@ -1480,6 +1491,9 @@
             onClose={() => { masterAudioOpen = false; }}
         />
     {/if}
+    {#if chairManagerOpen}
+        <ChairManager onClose={() => { chairManagerOpen = false; }} />
+    {/if}
 </div>
 
 
@@ -1631,6 +1645,13 @@
         border-color: rgba(56, 189, 248, 0.55);
         color: #bae6fd;
         background: rgba(14, 77, 110, 0.5);
+    }
+    .toolbar-ms-btn.chairs-btn {
+        min-height: 30px;
+        padding: 4px 12px;
+        border-color: rgba(52, 211, 153, 0.55);
+        color: #a7f3d0;
+        background: rgba(20, 83, 45, 0.45);
     }
     .toolbar-right {
         display: flex;

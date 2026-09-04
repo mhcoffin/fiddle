@@ -64,6 +64,7 @@ std::vector<InstrumentAssignment> DoricoConfigGenerator::expandSlots(
       a.program = program;
       a.bankMSB = bankMSB;
       a.bankLSB = bankLSB;
+      a.flatIndex = static_cast<int>(assignments.size());
 
       if (slot.soloCount == 1)
         a.name = slot.name + " (Solo)";
@@ -84,6 +85,7 @@ std::vector<InstrumentAssignment> DoricoConfigGenerator::expandSlots(
       a.program = program;
       a.bankMSB = bankMSB;
       a.bankLSB = bankLSB;
+      a.flatIndex = static_cast<int>(assignments.size());
 
       if (slot.sectionCount == 1)
         a.name = slot.name + " (Section)";
@@ -203,8 +205,10 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
   entries->setAttribute("array", "true");
 
   for (int i = 0; i < (int)assignments.size(); ++i) {
-    int portIndex = i / 16;   // 0-based port
-    int channelRel0 = i % 16; // 0-based channel within port
+    const int midiIndex =
+        assignments[i].flatIndex >= 0 ? assignments[i].flatIndex : i;
+    int portIndex = midiIndex / 16;   // 0-based port
+    int channelRel0 = midiIndex % 16; // 0-based channel within port
 
     auto *entry = entries->createNewChildElement("entry");
     entry->createNewChildElement("portIndex")

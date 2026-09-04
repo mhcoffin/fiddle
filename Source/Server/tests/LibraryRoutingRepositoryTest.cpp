@@ -185,6 +185,44 @@ void testChairDestinationsAndChannelsAreUnique() {
       makeChair("duplicate-channel", fiddle::DoricoRole::solo, 1, 1)));
 }
 
+void testChairAllocationIsStableAndReclaimsMatchingDestination() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+
+  auto first = makeChair("violin-section-1", fiddle::DoricoRole::section,
+                         99, 99);
+  CHECK(repository.insertChairWithStableAssignment(first));
+  CHECK(first.ordinal == 1);
+  CHECK(first.displayOrder == 0);
+  CHECK(first.flatIndex == 1);
+
+  auto second = makeChair("violin-section-2", fiddle::DoricoRole::section,
+                          99, 99);
+  second.name = "Violin II";
+  CHECK(repository.insertChairWithStableAssignment(second));
+  CHECK(second.ordinal == 2);
+  CHECK(second.flatIndex == 2);
+
+  CHECK(repository.deleteChairAndLayers(first.id));
+
+  auto cello = first;
+  cello.id = "cello-section-1";
+  cello.instrumentEntityId = "instrument.strings.cello";
+  cello.name = "Cello";
+  CHECK(repository.insertChairWithStableAssignment(cello));
+  CHECK(cello.flatIndex == 3);
+
+  auto replacement = first;
+  replacement.id = "violin-section-replacement";
+  CHECK(repository.insertChairWithStableAssignment(replacement));
+  CHECK(replacement.ordinal == 1);
+  CHECK(replacement.flatIndex == 1);
+  const auto persistedSecond = repository.getChair(second.id);
+  CHECK(persistedSecond.has_value());
+  CHECK(persistedSecond && persistedSecond->ordinal == 2);
+  CHECK(persistedSecond && persistedSecond->flatIndex == 2);
+}
+
 } // namespace
 
 int main() {
@@ -194,6 +232,7 @@ int main() {
   testReferencedPatchDeletionIsBlocked();
   testDeletingChairExplicitlyDeletesItsLayersOnly();
   testChairDestinationsAndChannelsAreUnique();
+  testChairAllocationIsStableAndReclaimsMatchingDestination();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

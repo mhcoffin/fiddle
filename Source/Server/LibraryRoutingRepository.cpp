@@ -159,6 +159,16 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
     ON chairs(display_order)
   )") &&
          execute(database, R"(
+    CREATE TABLE IF NOT EXISTS chair_midi_graveyard (
+      instrument_entity_id TEXT NOT NULL,
+      dorico_role          INTEGER NOT NULL CHECK (dorico_role IN (0, 1)),
+      ordinal              INTEGER NOT NULL CHECK (ordinal > 0),
+      flat_index           INTEGER NOT NULL UNIQUE CHECK (flat_index > 0),
+      deleted_at           INTEGER NOT NULL DEFAULT (unixepoch()),
+      PRIMARY KEY (instrument_entity_id, dorico_role, flat_index)
+    )
+  )") &&
+         execute(database, R"(
     CREATE TABLE IF NOT EXISTS layers (
       id                TEXT PRIMARY KEY,
       chair_id          TEXT NOT NULL,
@@ -284,6 +294,120 @@ LibraryRoutingRepository::deletePatch(const std::string &patchId) {
                                          : PatchDeleteResult::deleted;
 }
 
+bool LibraryRoutingRepository::insertChairWithStableAssignment(
+    ChairRow &chair) {
+  if (chair.id.empty() || chair.instrumentEntityId.empty() ||
+      chair.name.empty())
+    return false;
+
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  if (!execute(database_, "BEGIN IMMEDIATE"))
+    return false;
+
+  const int role = chair.role == DoricoRole::solo ? 0 : 1;
+  Statement ordinal(database_, R"(
+    SELECT COALESCE(MAX(ordinal), 0) + 1
+    FROM chairs WHERE instrument_entity_id = ? AND dorico_role = ?
+  )");
+  Statement displayOrder(database_,
+                         "SELECT COALESCE(MAX(display_order), -1) + 1 "
+                         "FROM chairs");
+  Statement reclaimed(database_, R"(
+    SELECT ordinal, flat_index FROM chair_midi_graveyard
+    WHERE instrument_entity_id = ? AND dorico_role = ?
+    ORDER BY flat_index LIMIT 1
+  )");
+  Statement nextIndex(database_, R"(
+    SELECT COALESCE(MAX(flat_index), 0) + 1 FROM (
+      SELECT flat_index FROM chairs
+      UNION ALL
+      SELECT flat_index FROM chair_midi_graveyard
+    )
+  )");
+  if (!ordinal || !displayOrder || !reclaimed || !nextIndex) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+
+  bindText(ordinal.get(), 1, chair.instrumentEntityId);
+  sqlite3_bind_int(ordinal.get(), 2, role);
+  bindText(reclaimed.get(), 1, chair.instrumentEntityId);
+  sqlite3_bind_int(reclaimed.get(), 2, role);
+  if (sqlite3_step(ordinal.get()) != SQLITE_ROW ||
+      sqlite3_step(displayOrder.get()) != SQLITE_ROW) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  chair.displayOrder = sqlite3_column_int(displayOrder.get(), 0);
+
+  const bool isReclaimed = sqlite3_step(reclaimed.get()) == SQLITE_ROW;
+  if (isReclaimed) {
+    chair.ordinal = sqlite3_column_int(reclaimed.get(), 0);
+    chair.flatIndex = sqlite3_column_int(reclaimed.get(), 1);
+  } else {
+    chair.ordinal = sqlite3_column_int(ordinal.get(), 0);
+    if (sqlite3_step(nextIndex.get()) != SQLITE_ROW) {
+      execute(database_, "ROLLBACK");
+      return false;
+    }
+    chair.flatIndex = sqlite3_column_int(nextIndex.get(), 0);
+  }
+
+  // Port 0/channel 1 is reserved for the metronome. Keep the established
+  // 240-slot ceiling used by MasterInstrumentList's stable assignments.
+  if (chair.flatIndex <= 0 || chair.flatIndex >= 240) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+
+  Statement insert(database_, R"(
+    INSERT INTO chairs
+      (id, instrument_entity_id, name, family, dorico_role, ordinal,
+       display_order, flat_index)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  )");
+  if (!insert) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  bindText(insert.get(), 1, chair.id);
+  bindText(insert.get(), 2, chair.instrumentEntityId);
+  bindText(insert.get(), 3, chair.name);
+  bindText(insert.get(), 4, chair.family);
+  sqlite3_bind_int(insert.get(), 5, role);
+  sqlite3_bind_int(insert.get(), 6, chair.ordinal);
+  sqlite3_bind_int(insert.get(), 7, chair.displayOrder);
+  sqlite3_bind_int(insert.get(), 8, chair.flatIndex);
+  if (sqlite3_step(insert.get()) != SQLITE_DONE) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+
+  if (isReclaimed) {
+    Statement removeGraveyard(database_, R"(
+      DELETE FROM chair_midi_graveyard
+      WHERE instrument_entity_id = ? AND dorico_role = ? AND flat_index = ?
+    )");
+    if (!removeGraveyard) {
+      execute(database_, "ROLLBACK");
+      return false;
+    }
+    bindText(removeGraveyard.get(), 1, chair.instrumentEntityId);
+    sqlite3_bind_int(removeGraveyard.get(), 2, role);
+    sqlite3_bind_int(removeGraveyard.get(), 3, chair.flatIndex);
+    if (sqlite3_step(removeGraveyard.get()) != SQLITE_DONE) {
+      execute(database_, "ROLLBACK");
+      return false;
+    }
+  }
+
+  if (!execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  return true;
+}
+
 bool LibraryRoutingRepository::upsertChair(const ChairRow &chair) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   Statement statement(database_, R"(
@@ -347,17 +471,46 @@ bool LibraryRoutingRepository::deleteChairAndLayers(
   if (!execute(database_, "BEGIN IMMEDIATE"))
     return false;
 
-  Statement deleteLayers(database_, "DELETE FROM layers WHERE chair_id = ?");
-  Statement deleteChair(database_, "DELETE FROM chairs WHERE id = ?");
-  if (!deleteLayers || !deleteChair) {
+  Statement findChair(database_, R"(
+    SELECT instrument_entity_id, dorico_role, ordinal, flat_index
+    FROM chairs WHERE id = ?
+  )");
+  if (!findChair) {
     execute(database_, "ROLLBACK");
     return false;
   }
+  bindText(findChair.get(), 1, chairId);
+  if (sqlite3_step(findChair.get()) != SQLITE_ROW) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  const auto entityId = columnText(findChair.get(), 0);
+  const int role = sqlite3_column_int(findChair.get(), 1);
+  const int chairOrdinal = sqlite3_column_int(findChair.get(), 2);
+  const int flatIndex = sqlite3_column_int(findChair.get(), 3);
+
+  Statement rememberAssignment(database_, R"(
+    INSERT OR REPLACE INTO chair_midi_graveyard
+      (instrument_entity_id, dorico_role, ordinal, flat_index, deleted_at)
+    VALUES (?, ?, ?, ?, unixepoch())
+  )");
+  Statement deleteLayers(database_, "DELETE FROM layers WHERE chair_id = ?");
+  Statement deleteChair(database_, "DELETE FROM chairs WHERE id = ?");
+  if (!rememberAssignment || !deleteLayers || !deleteChair) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  bindText(rememberAssignment.get(), 1, entityId);
+  sqlite3_bind_int(rememberAssignment.get(), 2, role);
+  sqlite3_bind_int(rememberAssignment.get(), 3, chairOrdinal);
+  sqlite3_bind_int(rememberAssignment.get(), 4, flatIndex);
   bindText(deleteLayers.get(), 1, chairId);
   bindText(deleteChair.get(), 1, chairId);
-  const bool succeeded = sqlite3_step(deleteLayers.get()) == SQLITE_DONE &&
-                         sqlite3_step(deleteChair.get()) == SQLITE_DONE &&
-                         sqlite3_changes(database_) > 0;
+  const bool succeeded =
+      sqlite3_step(rememberAssignment.get()) == SQLITE_DONE &&
+      sqlite3_step(deleteLayers.get()) == SQLITE_DONE &&
+      sqlite3_step(deleteChair.get()) == SQLITE_DONE &&
+      sqlite3_changes(database_) > 0;
   if (!succeeded || !execute(database_, "COMMIT")) {
     execute(database_, "ROLLBACK");
     return false;

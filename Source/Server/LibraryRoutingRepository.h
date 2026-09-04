@@ -71,6 +71,11 @@ public:
   int patchUsageCount(const std::string &patchId) const;
   PatchDeleteResult deletePatch(const std::string &patchId);
 
+  /// Insert a new chair and allocate its ordinal, display order, and stable
+  /// MIDI destination. A previously deleted matching destination is reclaimed
+  /// before a new flat index is allocated. The assigned values are returned in
+  /// chair.
+  bool insertChairWithStableAssignment(ChairRow &chair);
   bool upsertChair(const ChairRow &chair);
   std::optional<ChairRow> getChair(const std::string &chairId) const;
   std::vector<ChairRow> listChairs() const;

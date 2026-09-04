@@ -181,33 +181,13 @@
   };
   const closeCreate = () => { modalView = "none"; };
 
-  // ── Build Playback Template ──────────────────────────
-  let buildingTemplate = $state(false);
+  // ── Operation feedback ───────────────────────────────
   let buildResult = $state("");
-  let templateDirty = $state(false);
-
-  onFromCpp("setTemplateDirty", (data) => {
-    templateDirty = !!data;
-  });
-
-  onFromCpp("buildPlaybackTemplateResult", (data) => {
-    buildingTemplate = false;
-    buildResult = typeof data === "string" ? data : JSON.stringify(data);
-    // Clear the result after a few seconds
-    setTimeout(() => { buildResult = ""; }, 5000);
-  });
 
   onFromCpp("setLibraryDeleteResult", (data) => {
     buildResult = typeof data === "string" ? data : "Could not delete the library";
     setTimeout(() => { buildResult = ""; }, 5000);
   });
-
-  const handleBuildTemplate = () => {
-    if (buildingTemplate) return;
-    buildingTemplate = true;
-    buildResult = "";
-    dispatchCpp("buildPlaybackTemplate", []);
-  };
 
   const handleInitialize = () => {
     if (!canSubmit) return;
@@ -503,9 +483,6 @@
     <div class="lm-toolbar">
       <h2 class="lm-section-title">My Libraries</h2>
       <div class="lm-toolbar-actions">
-        <button class="lm-build-btn" onclick={handleBuildTemplate} disabled={buildingTemplate || !templateDirty}>
-          {buildingTemplate ? "Installing…" : "⚙ Install Playback Template"}
-        </button>
         <button class="lm-create-btn" onclick={openCreate}>+ Add Library</button>
       </div>
     </div>
@@ -840,15 +817,6 @@
   .lm-toolbar-actions {
     display: flex; gap: 10px; align-items: center;
   }
-  .lm-build-btn {
-    background: linear-gradient(135deg, #3b5bdb, #5f3dc4);
-    border: none; color: #e5e3ff; font-family: "Inter",sans-serif;
-    font-size: .82rem; font-weight: 600; padding: 7px 18px;
-    border-radius: 4px; cursor: pointer;
-    transition: opacity .15s, transform .1s;
-  }
-  .lm-build-btn:hover:not(:disabled) { opacity: .85; transform: scale(1.02); }
-  .lm-build-btn:disabled { opacity: .4; cursor: not-allowed; }
   .lm-build-result {
     font-family: "Inter",sans-serif; font-size: .8rem;
     padding: 8px 14px; border-radius: 4px; margin-bottom: 16px;

@@ -226,6 +226,8 @@ private:
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
   void pushMasterAudioState();
+  void pushChairState();
+  void installChairPlaybackTemplate();
   void masterAudioChanged();
   void pushToDebugWindow(const juce::String &js);
 
@@ -326,12 +328,12 @@ private:
   /// because callback behavior can vary between versions and operations.
   std::set<int> listenerCapableUids_;
 
-  /// Fingerprint of library instruments when the template was last installed.
+  /// Fingerprint of chairs when the template was last installed.
   /// Used to determine if "Install Playback Template" should be enabled.
   juce::String lastInstalledFingerprint_;
 
-  /// Compute a fingerprint from all library instruments in the DB.
-  juce::String computeLibraryFingerprint();
+  /// Compute a fingerprint from the explicit Dorico chairs in the DB.
+  juce::String computeChairFingerprint();
 
   /// Broadcast whether the playback template is out-of-date to all UIs.
   void broadcastTemplateDirty();

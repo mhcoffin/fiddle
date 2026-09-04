@@ -21,6 +21,7 @@ struct InstrumentAssignment {
   int bankMSB = 0;       // Bank Select MSB (CC0)
   int bankLSB = 0;       // Bank Select LSB (CC32)
   bool isSolo;           // true = solo player, false = section player
+  int flatIndex = -1;    // Stable MIDI slot; sequential when unspecified
 };
 
 /**
