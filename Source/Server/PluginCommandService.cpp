@@ -137,4 +137,19 @@ bool PluginCommandService::restoreLibraryState(
   return false;
 }
 
+bool PluginCommandService::restoreLibraryPatchState(
+    const juce::String &stripId, const juce::String &patchId) {
+  auto *strip = mixer_.getStrip(stripId);
+  auto *repository = database_.getLibraryRoutingRepository();
+  if (strip == nullptr || !strip->hasPlugin() || repository == nullptr)
+    return false;
+
+  const auto patch = repository->getPatch(patchId.toStdString());
+  if (!patch || patch->pluginState.empty())
+    return false;
+
+  return strip->applyPluginState(
+      patch->pluginState.data(), static_cast<int>(patch->pluginState.size()));
+}
+
 } // namespace fiddle

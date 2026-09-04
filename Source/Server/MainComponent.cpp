@@ -2912,7 +2912,72 @@ void MainComponent::setupJsHandlers() {
     lib.variant = data->getProperty("variant").toString();
 
     std::vector<fiddle::LibraryInstrumentRow> instruments;
-    if (auto *instArr = data->getProperty("instruments").getArray()) {
+    std::vector<fiddle::LibraryPatchRow> patches;
+    bool usesPatchModel = false;
+    if (auto *patchArr = data->getProperty("patches").getArray()) {
+      usesPatchModel = true;
+      int sortOrder = 0;
+      for (const auto &item : *patchArr) {
+        if (auto *patchObj = item.getDynamicObject()) {
+          fiddle::LibraryPatchRow patch;
+          patch.id = patchObj->getProperty("id").toString().toStdString();
+          patch.libraryId = lib.id.toStdString();
+          patch.position = sortOrder++;
+          patch.name = patchObj->getProperty("name").toString().toStdString();
+          patch.instrumentEntityId =
+              patchObj->getProperty("entityID").toString().toStdString();
+          patch.family =
+              patchObj->getProperty("family").toString().toStdString();
+          patch.character =
+              patchObj->getProperty("character").toString().toStdString();
+          patch.pluginUid = (int)patchObj->getProperty("vstPlugin");
+          patch.expressionMapId =
+              patchObj->getProperty("exprMap").toString().toStdString();
+
+          // A live preview instance owns the most recent configured state.
+          const auto stripId = patchObj->getProperty("stripId").toString();
+          if (stripId.isNotEmpty()) {
+            if (auto *strip = mixer_.getStrip(stripId)) {
+              patch.pluginUid = strip->pluginUid;
+              strip->refreshPluginStateCache();
+              const auto state = strip->cachedPluginState();
+              if (!state.isEmpty()) {
+                const auto *bytes = static_cast<const std::uint8_t *>(
+                    state.getData());
+                patch.pluginState.assign(bytes, bytes + state.getSize());
+              }
+            }
+          } else if ((bool)patchObj->getProperty("hasPluginState")) {
+            // Loading and saving a library without opening every plug-in must
+            // not erase the catalog's stored default state.
+            if (auto *repository = db_.getLibraryRoutingRepository()) {
+              if (const auto existing = repository->getPatch(patch.id))
+                patch.pluginState = existing->pluginState;
+            }
+          }
+
+          // Transitional shadow data keeps the old template builder usable
+          // until chairs become its sole input in the next phase.
+          fiddle::LibraryInstrumentRow legacy;
+          legacy.libraryId = lib.id;
+          legacy.sortOrder = patch.position;
+          legacy.entityId = patch.instrumentEntityId;
+          legacy.name = patch.name;
+          legacy.family = patch.family;
+          legacy.isSolo = patch.character != "section";
+          legacy.vstPlugin = juce::String(patch.pluginUid);
+          legacy.exprMap = patch.expressionMapId;
+          legacy.pluginUid = patch.pluginUid;
+          if (!patch.pluginState.empty())
+            legacy.pluginState.append(patch.pluginState.data(),
+                                      patch.pluginState.size());
+          legacy.instanceNums = {1};
+          instruments.push_back(std::move(legacy));
+          patches.push_back(std::move(patch));
+        }
+      }
+    } else if (auto *instArr =
+                   data->getProperty("instruments").getArray()) {
       int sortOrder = 0;
       for (const auto &item : *instArr) {
         if (auto *instObj = item.getDynamicObject()) {
@@ -2959,8 +3024,24 @@ void MainComponent::setupJsHandlers() {
     }
 
     safeCallAsync(
-        [this, lib = std::move(lib), instruments = std::move(instruments)]() {
+        [this, lib = std::move(lib), instruments = std::move(instruments),
+         patches = std::move(patches), usesPatchModel]() {
           db_.saveLibrary(lib, instruments);
+
+          if (usesPatchModel) {
+            if (auto *repository = db_.getLibraryRoutingRepository()) {
+              std::set<std::string> retainedIds;
+              for (const auto &patch : patches) {
+                if (repository->upsertPatch(patch))
+                  retainedIds.insert(patch.id);
+              }
+              for (const auto &oldPatch :
+                   repository->listPatches(lib.id.toStdString())) {
+                if (retainedIds.count(oldPatch.id) == 0)
+                  repository->deletePatch(oldPatch.id);
+              }
+            }
+          }
 
           // Broadcast updated library list
           auto libs = db_.listLibraries();
@@ -3001,6 +3082,9 @@ void MainComponent::setupJsHandlers() {
         return;
 
       auto instruments = db_.loadLibraryInstruments(libraryId);
+      std::vector<fiddle::LibraryPatchRow> patches;
+      if (auto *repository = db_.getLibraryRoutingRepository())
+        patches = repository->listPatches(libraryId.toStdString());
 
       auto *result = new juce::DynamicObject();
       result->setProperty("id", foundLib.id);
@@ -3008,26 +3092,43 @@ void MainComponent::setupJsHandlers() {
       result->setProperty("vendor", foundLib.vendor);
       result->setProperty("variant", foundLib.variant);
 
-      juce::Array<juce::var> instArr;
-      for (const auto &inst : instruments) {
-        auto *instObj = new juce::DynamicObject();
-        instObj->setProperty("entityID", inst.entityId);
-        instObj->setProperty("name", inst.name);
-        instObj->setProperty("family", inst.family);
-        instObj->setProperty("category", inst.category);
-        instObj->setProperty("vstPlugin", inst.vstPlugin);
-        instObj->setProperty("exprMap", inst.exprMap);
-        instObj->setProperty("pluginUid", inst.pluginUid);
-        instObj->setProperty("hasPluginState", inst.pluginState.getSize() > 0);
-        juce::Array<juce::var> iNums;
-        for (int n : inst.instanceNums)
-          iNums.add(n);
-        instObj->setProperty("instanceNums", juce::var(iNums));
-        instObj->setProperty("isSolo", inst.isSolo);
-        instObj->setProperty("note", inst.note);
-        instArr.add(juce::var(instObj));
+      juce::Array<juce::var> patchArr;
+      if (!patches.empty()) {
+        for (const auto &patch : patches) {
+          auto *patchObj = new juce::DynamicObject();
+          patchObj->setProperty("id", juce::String(patch.id));
+          patchObj->setProperty("entityID",
+                                juce::String(patch.instrumentEntityId));
+          patchObj->setProperty("name", juce::String(patch.name));
+          patchObj->setProperty("family", juce::String(patch.family));
+          patchObj->setProperty("character", juce::String(patch.character));
+          patchObj->setProperty("vstPlugin", patch.pluginUid);
+          patchObj->setProperty("exprMap",
+                                juce::String(patch.expressionMapId));
+          patchObj->setProperty("pluginUid", patch.pluginUid);
+          patchObj->setProperty("hasPluginState", !patch.pluginState.empty());
+          patchArr.add(juce::var(patchObj));
+        }
+      } else {
+        // A best-effort one-time view of pre-redesign library rows. Saving the
+        // library assigns stable patch UUIDs and writes the new catalog.
+        for (const auto &inst : instruments) {
+          auto *patchObj = new juce::DynamicObject();
+          patchObj->setProperty("id", juce::Uuid().toString());
+          patchObj->setProperty("entityID", inst.entityId);
+          patchObj->setProperty("name", inst.name);
+          patchObj->setProperty("family", inst.family);
+          patchObj->setProperty("character",
+                                inst.isSolo ? "solo" : "section");
+          patchObj->setProperty("vstPlugin", inst.pluginUid);
+          patchObj->setProperty("exprMap", inst.exprMap);
+          patchObj->setProperty("pluginUid", inst.pluginUid);
+          patchObj->setProperty("hasPluginState",
+                                inst.pluginState.getSize() > 0);
+          patchArr.add(juce::var(patchObj));
+        }
       }
-      result->setProperty("instruments", juce::var(instArr));
+      result->setProperty("patches", juce::var(patchArr));
 
       broadcastMessage("setLibraryData", juce::var(result));
     });
@@ -3352,6 +3453,38 @@ void MainComponent::setupJsHandlers() {
 
     juce::String libraryId = args[0].toString();
     safeCallAsync([this, libraryId]() {
+      if (auto *repository = db_.getLibraryRoutingRepository()) {
+        const auto patches =
+            repository->listPatches(libraryId.toStdString());
+        int referencedPatchCount = 0;
+        int layerReferenceCount = 0;
+        for (const auto &patch : patches) {
+          const int usageCount = repository->patchUsageCount(patch.id);
+          if (usageCount > 0) {
+            ++referencedPatchCount;
+            layerReferenceCount += usageCount;
+          }
+        }
+        if (referencedPatchCount > 0) {
+          broadcastMessage(
+              "setLibraryDeleteResult",
+              juce::var("Cannot delete this library: " +
+                        juce::String(referencedPatchCount) +
+                        (referencedPatchCount == 1 ? " patch is" :
+                                                     " patches are") +
+                        " used by " + juce::String(layerReferenceCount) +
+                        (layerReferenceCount == 1 ? " layer" : " layers")));
+          return;
+        }
+        for (const auto &patch : patches) {
+          if (repository->deletePatch(patch.id) !=
+              fiddle::PatchDeleteResult::deleted) {
+            broadcastMessage("setLibraryDeleteResult",
+                             juce::var("Could not delete the library"));
+            return;
+          }
+        }
+      }
       db_.deleteLibrary(libraryId);
 
       auto libs = db_.listLibraries();

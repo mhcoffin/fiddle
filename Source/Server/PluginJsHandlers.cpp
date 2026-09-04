@@ -112,6 +112,18 @@ void PluginJsHandlers::registerHandlers() {
     });
   });
 
+  router_.registerHandler("restoreLibraryPatchState",
+                          [this](const juce::var &payload) {
+    const auto arguments = payloadArguments(payload);
+    if (arguments.size() < 2)
+      return;
+    const auto stripId = arguments[0].toString();
+    const auto patchId = arguments[1].toString();
+    dispatch([this, stripId, patchId] {
+      commands_.restoreLibraryPatchState(stripId, patchId);
+    });
+  });
+
   router_.registerHandler("requestPluginsState",
                           [this](const juce::var &) {
     dispatch([this] {

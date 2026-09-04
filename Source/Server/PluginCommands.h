@@ -34,6 +34,8 @@ public:
                                    const juce::String &libraryId,
                                    const juce::String &entityId,
                                    int instanceNumber) = 0;
+  virtual bool restoreLibraryPatchState(const juce::String &stripId,
+                                        const juce::String &patchId) = 0;
 };
 
 } // namespace fiddle

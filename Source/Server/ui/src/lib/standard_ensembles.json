@@ -3,10 +3,9 @@
         {
             "id": "strings",
             "name": "Strings",
-            "description": "Violin I & II sections, viola section, cello section, bass section",
+            "description": "Violin, viola, cello, and bass section patches",
             "instruments": [
-                { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "section" },
-                { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "section" },
+                { "entityID": "instrument.strings.violin", "name": "Violin Section", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.viola", "name": "Viola", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.violoncello", "name": "Violoncello", "family": "strings", "type": "section" },
                 { "entityID": "instrument.strings.contrabass", "name": "Contrabass", "family": "strings", "type": "section" }
@@ -17,7 +16,6 @@
             "name": "Solo Strings",
             "description": "Solo violin, viola, cello, bass",
             "instruments": [
-                { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "solo" },
                 { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "solo" },
                 { "entityID": "instrument.strings.viola", "name": "Viola", "family": "strings", "type": "solo" },
                 { "entityID": "instrument.strings.violoncello", "name": "Violoncello", "family": "strings", "type": "solo" },
@@ -32,15 +30,11 @@
             "instruments": [
                 { "entityID": "instrument.wind.piccolo", "name": "Piccolo", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.flute", "name": "Flute", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.flute", "name": "Flute", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.flute.alto", "name": "Alto Flute", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.oboe", "name": "Oboe", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.oboe", "name": "Oboe", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.coranglais", "name": "English Horn", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.clarinet.bflat", "name": "Clarinet", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.clarinet.bflat", "name": "Clarinet", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.clarinet.bass.bflat", "name": "Bass Clarinet", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.bassoon", "name": "Bassoon", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.bassoon", "name": "Bassoon", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.contrabassoon", "name": "Contrabassoon", "family": "wind", "type": "solo" },
                 { "entityID": "instrument.wind.flute", "name": "Flute", "family": "wind", "type": "section" },
@@ -55,10 +49,7 @@
             "description": "Full brass complement with solos and sections",
             "instruments": [
                 { "entityID": "instrument.brass.trumpet.c", "name": "Trumpet in C", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.trumpet.c", "name": "Trumpet in C", "family": "brass", "type": "solo" },
                 { "entityID": "instrument.brass.horn.f", "name": "Horn in F", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.horn.f", "name": "Horn in F", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.trombone", "name": "Trombone", "family": "brass", "type": "solo" },
                 { "entityID": "instrument.brass.trombone", "name": "Trombone", "family": "brass", "type": "solo" },
                 { "entityID": "instrument.brass.trombone.bass", "name": "Bass Trombone", "family": "brass", "type": "solo" },
                 { "entityID": "instrument.brass.cimbasso", "name": "Cimbasso", "family": "brass", "type": "solo" },
@@ -125,28 +116,6 @@
                 { "entityID": "instrument.voice.alto", "name": "Alto", "family": "voice", "type": "solo" },
                 { "entityID": "instrument.voice.tenor", "name": "Tenor", "family": "voice", "type": "solo" },
                 { "entityID": "instrument.voice.bass", "name": "Bass", "family": "voice", "type": "solo" }
-            ]
-        },
-        {
-            "id": "special-edition-1",
-            "name": "Special Edition Vol. 1",
-            "description": "Starter orchestral bundle: string & woodwind sections, brass ensemble, basic percussion",
-            "instruments": [
-                { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "section" },
-                { "entityID": "instrument.strings.violin", "name": "Violin", "family": "strings", "type": "section" },
-                { "entityID": "instrument.strings.viola", "name": "Viola", "family": "strings", "type": "section" },
-                { "entityID": "instrument.strings.violoncello", "name": "Violoncello", "family": "strings", "type": "section" },
-                { "entityID": "instrument.strings.contrabass", "name": "Contrabass", "family": "strings", "type": "section" },
-                { "entityID": "instrument.wind.flute", "name": "Flute", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.oboe", "name": "Oboe", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.clarinet.bflat", "name": "Clarinet", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.wind.bassoon", "name": "Bassoon", "family": "wind", "type": "solo" },
-                { "entityID": "instrument.brass.horn.f", "name": "Horn in F", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.trumpet.c", "name": "Trumpet in C", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.trombone", "name": "Trombone", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.brass.tuba", "name": "Tuba", "family": "brass", "type": "solo" },
-                { "entityID": "instrument.pitchedpercussion.timpani", "name": "Timpani", "family": "pitched-percussion", "type": "solo" },
-                { "entityID": "instrument.pitchedpercussion.harp", "name": "Harp", "family": "pitched-percussion", "type": "solo" }
             ]
         }
     ]

@@ -28,6 +28,8 @@ public:
                            const juce::String &libraryId,
                            const juce::String &entityId,
                            int instanceNumber) override;
+  bool restoreLibraryPatchState(const juce::String &stripId,
+                                const juce::String &patchId) override;
 
 private:
   MixerModel &mixer_;

@@ -4,7 +4,9 @@
   import { onFromCpp, dispatchCpp } from "./ipc.js";
   import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
   import ensembleData from "./standard_ensembles.json";
-  import { FAMILY_ORDER, canonicalFamily, populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
+  import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
+  import { addStripRange } from "./mixerSelection.js";
+  import { createLibraryPatch, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -31,23 +33,20 @@
       editorLibName = data.name;
       editorLibVendor = data.vendor ?? "";
       editorLibVariant = data.variant ?? "";
-      instruments = (data.instruments || []).map((inst, i) => ({
-        id:        `inst-${i}`,
-        entityID:  inst.entityID || "",
-        name:      inst.name || "",
-        family:    inst.family || "",
-        category:  inst.category || "",
-        size:      (inst.isSolo !== undefined && !inst.isSolo) ? "section" : "solo",
-        instanceNums: Array.isArray(inst.instanceNums) ? [...inst.instanceNums] : [inst.instanceNum || 1],
-        vstPlugin: Number(inst.vstPlugin) || inst.pluginUid || 0,
-        exprMap:   inst.exprMap || "",
-        note:      inst.note || "",
-        committed: true,
+      patches = (data.patches || []).map((patch) => ({
+        id:        patch.id || crypto.randomUUID(),
+        entityID:  patch.entityID || "",
+        instrumentName: patch.instrumentName || patch.name || "",
+        name:      patch.name || "",
+        family:    patch.family || "",
+        character: patch.character || "",
+        vstPlugin: Number(patch.vstPlugin) || patch.pluginUid || 0,
+        exprMap:   patch.exprMap || "",
         stripId:   "",
-        pluginUid: inst.pluginUid || 0,
-        hasPluginState: inst.hasPluginState || false,
+        pluginUid: patch.pluginUid || 0,
+        hasPluginState: patch.hasPluginState || false,
       }));
-      nextId = instruments.length;
+      selectedPatchIds = new Set();
       searchQuery = "";
       modalView = "editor";
       editorDirty = false;
@@ -60,38 +59,13 @@
     try { scannedPlugins = data; } catch (e) { /* ignore */ }
   });
 
-  /**
-   * Preview a plugin: create a temporary mixer strip, load the
-   * chosen VST, and immediately open the editor window.
-   * Uses a one-shot setMixerState listener to discover the new strip ID.
-   */
+  // Temporary mixer strips host patch editors until the dedicated preview
+  // host lands. They are tracked rigorously and removed with the dialog.
   let _knownStripIds = new Set();
   onFromCpp("setMixerState", (data) => {
     // Keep a running set of known strip IDs so we can detect new ones.
     _knownStripIds = new Set(data.map((s) => s.id));
   });
-
-  const previewPlugin = (pluginUid, instrumentId) => {
-    // Snapshot current strip IDs
-    const before = new Set(_knownStripIds);
-    // One-shot listener: detect the newly-added strip
-    const unsub = onFromCpp("setMixerState", (data) => {
-      unsub();  // remove this one-shot listener
-      const newStrip = data.find((s) => !before.has(s.id));
-      if (newStrip) {
-        // Link this strip to the instrument row so saveLibrary can capture state
-        if (instrumentId) {
-          instruments = instruments.map(inst =>
-            inst.id === instrumentId ? { ...inst, stripId: newStrip.id } : inst
-          );
-        }
-        dispatchCpp("setStripPlugin", newStrip.id, pluginUid);
-        // Small delay so plugin has time to instantiate before showing editor
-        setTimeout(() => dispatchCpp("showStripEditor", newStrip.id), 300);
-      }
-    });
-    dispatchCpp("addMixerStrip");
-  };
 
   // ── Dashboard state ───────────────────────────────────
   const libraryIcons = ["𝄞", "♩", "𝅘𝅥𝅮", "⏚", "♫", "♬", "🎹", "🎵"];
@@ -116,6 +90,10 @@
 
   // ── Editor dirty tracking ─────────────────────────────
   let editorDirty = $state(false);
+  let selectedPatchIds = $state(new Set());
+  let selectionAnchorId = $state("");
+  let batchPluginUid = $state(0);
+  let previewStripIds = $state(new Set());
 
   // ── Dorico instrument database ─────────────────────────
   let allDoricoInstruments = $state([]);
@@ -126,8 +104,12 @@
     console.log(`[LibMgr] Received ${arr.length} Dorico instruments`);
   });
 
+  const instrumentDisplayName = (patch) =>
+    allDoricoInstruments.find((instrument) => instrument.entityID === patch.entityID)?.name
+      || patch.instrumentName
+      || patch.entityID;
+
   /** Filtered search results — only when search has text.
-   *  Each instrument produces two entries: solo (👤) and section (👥).
    *  Sorted by name-match relevance, then XML document order as tiebreaker
    *  (instruments.xml lists the default variant first in each group). */
   let searchResults = $derived.by(() => {
@@ -156,26 +138,22 @@
   });
 
   /**
-   * @typedef {Object} LibInstrument
+   * @typedef {Object} LibraryPatch
    * @property {string}  id
    * @property {string}  entityID
+   * @property {string}  instrumentName
    * @property {string}  name
    * @property {string}  family
-   * @property {string}  category
-   * @property {string}  size
-   * @property {number[]} instanceNums
+   * @property {string}  character
    * @property {number}  vstPlugin
    * @property {string}  exprMap
-   * @property {string}  note
-   * @property {boolean} committed
    * @property {string}  stripId
    * @property {number}  pluginUid
    * @property {boolean} hasPluginState
    */
 
-  /** @type {LibInstrument[]} */
-  let instruments = $state([]);
-  let nextId = 0;
+  /** @type {LibraryPatch[]} */
+  let patches = $state([]);
   /** @type {string} */ let pendingDeleteId = $state("");
 
   // ── Portal container for modals ───────────────────────
@@ -217,6 +195,11 @@
     setTimeout(() => { buildResult = ""; }, 5000);
   });
 
+  onFromCpp("setLibraryDeleteResult", (data) => {
+    buildResult = typeof data === "string" ? data : "Could not delete the library";
+    setTimeout(() => { buildResult = ""; }, 5000);
+  });
+
   const handleBuildTemplate = () => {
     if (buildingTemplate) return;
     buildingTemplate = true;
@@ -230,54 +213,29 @@
     editorLibName = newLibName.trim();
     editorLibVendor = newLibVendor.trim();
     editorLibVariant = newLibVariant.trim();
-    instruments = [];
-    nextId = 0;
+    patches = [];
+    selectedPatchIds = new Set();
     searchQuery = "";
     modalView = "editor";
     editorDirty = false;
   };
 
   // ── Actions: editor modal ─────────────────────────────
-  const closeEditor = () => { modalView = "none"; };
-
-  const familyToCategory = (/** @type {string} */ family) => {
-    const map = {
-      strings:            "LIBRARIES/SYMPHONIC/STRINGS",
-      wind:               "LIBRARIES/WOODWINDS/PRO",
-      brass:              "LIBRARIES/BRASS/LOW_END",
-      keyboard:           "LIBRARIES/KEYS/STUDIO",
-      "pitched-percussion":"LIBRARIES/PERCUSSION/ORCH",
-      percussion:         "LIBRARIES/PERCUSSION/ORCH",
-    };
-    return map[family] || "LIBRARIES/GENERAL";
+  const cleanupPreviewStrips = () => {
+    for (const stripId of previewStripIds)
+      dispatchCpp("removeMixerStrip", stripId);
+    previewStripIds = new Set();
   };
 
-  const addInstrument = (/** @type {{ entityID: string, name: string, family: string }} */ inst, /** @type {string} */ type = "solo") => {
-    // Compute the lowest unused instance number for this entityID+size
-    const usedNums = new Set(
-      instruments
-        .filter(i => i.entityID === inst.entityID && i.size === type)
-        .map(i => i.instanceNums[0])
-    );
-    let num = 1;
-    while (usedNums.has(num)) num++;
+  const closeEditor = () => {
+    cleanupPreviewStrips();
+    modalView = "none";
+  };
 
-    instruments = [...instruments, {
-      id:        `inst-${nextId++}`,
-      entityID:  inst.entityID,
-      name:      inst.name,
-      family:    inst.family || "",
-      category:  familyToCategory(inst.family),
-      size:      type,
-      instanceNums: [num],
-      vstPlugin: 0,
-      exprMap:   "",
-      note:      "",
-      committed: false,
-      stripId:   "",
-      pluginUid: 0,
-      hasPluginState: false,
-    }];
+  const addPatch = (/** @type {{ entityID: string, name: string, family: string }} */ inst, /** @type {string} */ character = "") => {
+    const defaults = { vstPlugin: batchPluginUid };
+    patches = [...patches,
+      createLibraryPatch(inst, character, crypto.randomUUID(), defaults)];
     editorDirty = true;
   };
 
@@ -290,72 +248,44 @@
     /** @type {string} */ rowId,
     /** @type {string} */ entityID,
   ) => {
-    instruments = instruments.map((instrument) =>
-      instrument.id === rowId ? { ...instrument, exprMap: entityID } : instrument
+    patches = patches.map((patch) =>
+      patch.id === rowId ? { ...patch, exprMap: entityID } : patch
     );
     editorDirty = true;
   };
 
-  /** Convert a small integer to a Roman numeral */
-  const toRoman = (/** @type {number} */ n) => {
-    const numerals = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X',
-                      'XI', 'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX'];
-    return numerals[n] || String(n);
-  };
-
-  /**
-   * Instruments sorted in orchestral score order.
-   * Sort: score order → solo before section → instance number.
-   * Display: "Violin 1", "Violin 2" for solo; "Violin I", "Violin II" for section.
-   */
-  let sortedInstruments = $derived.by(() => {
-    const sorted = [...instruments].sort((a, b) => {
+  let sortedPatches = $derived.by(() => {
+    return [...patches].sort((a, b) => {
       const ordA = instrumentScoreOrder(a.entityID);
       const ordB = instrumentScoreOrder(b.entityID);
       if (ordA !== ordB) return ordA - ordB;
-      if (a.size !== b.size) return a.size === 'solo' ? -1 : 1;
-      return a.instanceNums[0] - b.instanceNums[0];
-    });
-    return sorted.map(inst => {
-      const num = inst.instanceNums[0];
-      const suffix = inst.size === 'section' ? ` ${toRoman(num)}` : ` ${num}`;
-      return { ...inst, displayName: inst.name + suffix };
+      return a.name.localeCompare(b.name);
     });
   });
 
-  /** Increment the chair number for a single-instance row */
-  const incrementInstance = (/** @type {string} */ rowId) => {
-    instruments = instruments.map(inst =>
-      inst.id === rowId ? { ...inst, instanceNums: [inst.instanceNums[0] + 1] } : inst
-    );
-    editorDirty = true;
-  };
-
-  /** Decrement the chair number (min 1) */
-  const decrementInstance = (/** @type {string} */ rowId) => {
-    instruments = instruments.map(inst =>
-      inst.id === rowId && inst.instanceNums[0] > 1
-        ? { ...inst, instanceNums: [inst.instanceNums[0] - 1] }
-        : inst
-    );
-    editorDirty = true;
-  };
-
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
     for (const inst of ens.instruments) {
-      addInstrument(inst, inst.type || "solo");
+      addPatch(inst, inst.type || "");
     }
   };
 
-  const removeInstrument = (/** @type {string} */ id) => {
-    instruments = instruments.filter(r => r.id !== id);
+  const removePatch = (/** @type {string} */ id) => {
+    const patch = patches.find((candidate) => candidate.id === id);
+    if (patch?.stripId) {
+      dispatchCpp("removeMixerStrip", patch.stripId);
+      previewStripIds.delete(patch.stripId);
+      previewStripIds = new Set(previewStripIds);
+    }
+    patches = patches.filter(r => r.id !== id);
+    selectedPatchIds.delete(id);
+    selectedPatchIds = new Set(selectedPatchIds);
     editorDirty = true;
   };
 
-  /** Open the VST editor for an instrument row.
-   *  If a live strip exists (previewPlugin was used this session), show its editor.
+  /** Open the VST editor for a catalog patch.
+   *  If a live preview strip exists, show its editor.
    *  Otherwise, create a strip, load the plugin, restore saved state, and show editor. */
-  const openVstEditor = (/** @type {typeof instruments[0]} */ row) => {
+  const openVstEditor = (/** @type {typeof patches[0]} */ row) => {
     if (row.stripId) {
       // Live strip exists — just show its editor
       dispatchCpp("showStripEditor", row.stripId);
@@ -372,9 +302,11 @@
       if (!newStrip) return;
 
       const stripId = newStrip.id;
-      instruments = instruments.map(inst =>
-        inst.id === row.id ? { ...inst, stripId } : inst
+      patches = patches.map(patch =>
+        patch.id === row.id ? { ...patch, stripId } : patch
       );
+      previewStripIds.add(stripId);
+      previewStripIds = new Set(previewStripIds);
 
       // Phase 2: load plugin, then wait for it to be ready
       // Listen for the next setMixerState where this strip has a pluginUid
@@ -384,9 +316,8 @@
         unsub2();
         // Plugin is loaded — always attempt to restore saved state from library DB
         if (editorLibId) {
-          console.log("[openVstEditor] Plugin loaded, restoring state for", row.entityID,
-                      "hasPluginState=", row.hasPluginState, "libraryId=", editorLibId);
-          dispatchCpp("restoreLibraryPluginState", stripId, editorLibId, row.entityID, row.instanceNums[0]);
+          console.log("[openVstEditor] Plugin loaded, restoring patch state for", row.id);
+          dispatchCpp("restoreLibraryPatchState", stripId, row.id);
           // Delay editor open to let state restore complete
           setTimeout(() => dispatchCpp("showStripEditor", stripId), 500);
         } else {
@@ -400,13 +331,70 @@
 
     dispatchCpp("addMixerStrip");
   };
+  const selectPatch = (id, event) => {
+    const orderedIds = sortedPatches.map((patch) => patch.id);
+    if (event.shiftKey && selectionAnchorId) {
+      selectedPatchIds = addStripRange(
+        selectedPatchIds,
+        orderedIds,
+        selectionAnchorId,
+        id,
+      );
+    } else {
+      const isCheckbox = event.currentTarget instanceof HTMLInputElement;
+      selectedPatchIds = togglePatchSelection(
+        selectedPatchIds,
+        id,
+        isCheckbox || event.metaKey || event.ctrlKey,
+      );
+    }
+    selectionAnchorId = id;
+  };
 
+  const selectAllPatches = () => {
+    selectedPatchIds = selectedPatchIds.size === patches.length
+      ? new Set()
+      : new Set(patches.map((patch) => patch.id));
+  };
 
+  const applyPluginToSelection = () => {
+    if (selectedPatchIds.size === 0) return;
+    for (const patch of patches) {
+      if (selectedPatchIds.has(patch.id) && patch.stripId) {
+        dispatchCpp("removeMixerStrip", patch.stripId);
+        previewStripIds.delete(patch.stripId);
+      }
+    }
+    previewStripIds = new Set(previewStripIds);
+    patches = updateSelectedPatches(patches, selectedPatchIds, {
+      vstPlugin: Number(batchPluginUid),
+      pluginUid: Number(batchPluginUid),
+      stripId: "",
+      hasPluginState: false,
+    });
+    editorDirty = true;
+  };
 
-  const commitRow = (/** @type {string} */ id) => {
-    instruments = instruments.map(r =>
-      r.id === id ? { ...r, committed: true } : r
+  const setPatchPlugin = (row, uid) => {
+    if (row.stripId) {
+      dispatchCpp("removeMixerStrip", row.stripId);
+      previewStripIds.delete(row.stripId);
+      previewStripIds = new Set(previewStripIds);
+    }
+    patches = patches.map((patch) =>
+      patch.id === row.id
+        ? { ...patch, vstPlugin: uid, pluginUid: uid, stripId: "", hasPluginState: false }
+        : patch
     );
+    editorDirty = true;
+  };
+
+  const applyExpressionMapToSelection = (entityID) => {
+    if (selectedPatchIds.size === 0) return;
+    patches = updateSelectedPatches(patches, selectedPatchIds, {
+      exprMap: entityID,
+    });
+    editorDirty = true;
   };
 
   const commitToLibrary = () => {
@@ -415,20 +403,20 @@
       name: editorLibName,
       vendor: editorLibVendor,
       variant: editorLibVariant,
-      instruments: instruments.map(inst => ({
-        entityID:    inst.entityID,
-        name:        inst.name,
-        family:      inst.family,
-        category:    inst.category,
-        instanceNums: inst.instanceNums,
-        size:        inst.size,
-        vstPlugin:   inst.vstPlugin,
-        exprMap:     inst.exprMap,
-        note:        inst.note,
-        stripId:     inst.stripId,
+      patches: patches.map(patch => ({
+        id:          patch.id,
+        entityID:    patch.entityID,
+        name:        patch.name,
+        family:      patch.family,
+        character:   patch.character,
+        vstPlugin:   patch.vstPlugin,
+        exprMap:     patch.exprMap,
+        stripId:     patch.stripId,
+        hasPluginState: patch.hasPluginState,
       })),
     };
     dispatchCpp("saveLibrary", libData);
+    cleanupPreviewStrips();
     editorDirty = false;
     modalView = "none";
   };
@@ -560,10 +548,10 @@
 
       <!-- Editor body: sidebar + content -->
       <div class="editor-body">
-        <!-- Left: ensembles sidebar -->
+        <!-- Left: optional generic patch sets -->
         <aside class="ens-sidebar">
-          <h3 class="ens-heading">SAMPLE LIBRARY PACKAGES</h3>
-          <p class="ens-sub">BATCH INSERTION</p>
+          <h3 class="ens-heading">QUICK-ADD PATCH SETS</h3>
+          <p class="ens-sub">OPTIONAL STARTING POINTS</p>
           <div class="ens-grid">
             {#each standardEnsembles as ens}
               <button class="ens-card" onclick={() => addEnsemble(ens)}>
@@ -574,16 +562,16 @@
           </div>
         </aside>
 
-        <!-- Right: instrument table -->
+        <!-- Right: patch catalog -->
         <div class="inst-content">
-          <!-- Search Dorico Instruments -->
+          <!-- Add patches from the Dorico instrument catalog -->
           <div class="inst-search-wrapper">
             <div class="inst-search-row">
               <span class="inst-search-icon">🔍</span>
               <input
                 type="text"
                 class="inst-search-input"
-                placeholder="Search Dorico instruments…"
+                placeholder="Add a patch: search instruments…"
                 bind:value={searchQuery}
                 onfocus={() => { searchFocused = true; }}
                 onblur={() => { setTimeout(() => { searchFocused = false; }, 200); }}
@@ -598,61 +586,91 @@
                   <div class="search-result">
                     <span class="sr-name">{instr.name}</span>
                     <span class="sr-entity">{instr.entityID}</span>
-                    <button class="sr-add" title="Add solo" onclick={() => { addInstrument(instr, 'solo'); }}>+👤</button>
-                    <button class="sr-add" title="Add section" onclick={() => { addInstrument(instr, 'section'); }}>+👥</button>
+                    <button class="sr-add" onclick={() => addPatch(instr, 'solo')}>Add Solo</button>
+                    <button class="sr-add" onclick={() => addPatch(instr, 'section')}>Add Section</button>
+                    <button class="sr-add" onclick={() => addPatch(instr, 'ensemble')}>Add Ensemble</button>
                   </div>
                 {/each}
               </div>
             {/if}
           </div>
 
+          <div class="batch-toolbar">
+            <button class="select-all-btn" onclick={selectAllPatches}>
+              {selectedPatchIds.size === patches.length && patches.length > 0 ? "Clear selection" : "Select all"}
+            </button>
+            <span class="batch-count">{selectedPatchIds.size} selected</span>
+            <select class="batch-select" bind:value={batchPluginUid}>
+              <option value={0}>Choose player…</option>
+              {#each scannedPlugins.filter((plugin) => plugin.valid !== false) as plugin}
+                <option value={plugin.uid}>{plugin.name}</option>
+              {/each}
+            </select>
+            <button class="batch-apply" disabled={selectedPatchIds.size === 0} onclick={applyPluginToSelection}>
+              Assign player
+            </button>
+            <div class="batch-xmap">
+              <ExpressionMapPicker
+                maps={availableXmaps}
+                selectedId=""
+                selectedName="Assign expression map…"
+                onselect={applyExpressionMapToSelection}
+                onclear={() => applyExpressionMapToSelection("")}
+                canLoadFromFile={false}
+              />
+            </div>
+          </div>
+
           <!-- Table header -->
           <div class="inst-table-header">
-            <span class="th-name">INSTRUMENT</span>
-            <span class="th-note">NOTE</span>
-            <span class="th-vst">VST_PLUGIN</span>
-            <span class="th-expr">EXPRESSION_MAP</span>
+            <span class="th-check"></span>
+            <span class="th-name">PATCH</span>
+            <span class="th-character">CHARACTER</span>
+            <span class="th-vst">PLAYER</span>
+            <span class="th-expr">EXPRESSION MAP</span>
             <span class="th-actions">ACTIONS</span>
           </div>
 
           <!-- Table rows -->
           <div class="inst-table-body">
-            {#each sortedInstruments as row (row.id)}
-              <div class="inst-row">
+            {#each sortedPatches as row (row.id)}
+              <div class="inst-row" class:patch-selected={selectedPatchIds.has(row.id)}>
+                <div class="ir-check">
+                  <input type="checkbox" checked={selectedPatchIds.has(row.id)}
+                    aria-label={`Select ${row.name}`}
+                    onclick={(event) => selectPatch(row.id, event)} />
+                </div>
                 <div class="ir-name">
-                  <span class="ir-size-icon" title={row.size === 'section' ? 'Section' : 'Solo'}>{row.size === 'section' ? '👥' : '👤'}</span>
                   <div class="ir-name-text">
-                    <div class="ir-name-primary">{row.displayName}</div>
-                  </div>
-                  <div class="ir-instance-stepper">
-                    <button class="stepper-btn" disabled={row.instanceNums[0] <= 1}
-                      onclick={() => decrementInstance(row.id)} title="Lower chair number">−</button>
-                    <span class="stepper-val">{row.instanceNums[0]}</span>
-                    <button class="stepper-btn"
-                      onclick={() => incrementInstance(row.id)} title="Higher chair number">+</button>
+                    <input class="ir-input patch-name-input" value={row.name}
+                      aria-label="Patch name"
+                      oninput={(event) => {
+                        const name = event.currentTarget.value;
+                        patches = patches.map((patch) => patch.id === row.id ? { ...patch, name } : patch);
+                        editorDirty = true;
+                      }} />
+                    <div class="ir-instrument-name">{instrumentDisplayName(row)}</div>
                   </div>
                 </div>
-                <div class="ir-note">
-                  <input class="ir-input" type="text" placeholder="—"
-                    value={row.note}
-                    oninput={(e) => {
-                      const val = /** @type {HTMLInputElement} */ (e.target).value;
-                      instruments = instruments.map(i =>
-                        i.id === row.id ? { ...i, note: val } : i
-                      );
+                <div class="ir-character">
+                  <select class="ir-select" value={row.character}
+                    onchange={(event) => {
+                      const character = event.currentTarget.value;
+                      patches = patches.map((patch) => patch.id === row.id ? { ...patch, character } : patch);
                       editorDirty = true;
-                    }}
-                  />
+                    }}>
+                    <option value="">Unspecified</option>
+                    <option value="solo">Solo</option>
+                    <option value="section">Section</option>
+                    <option value="ensemble">Ensemble</option>
+                    <option value="overlay">Overlay</option>
+                  </select>
                 </div>
                 <div class="ir-vst">
                   <select class="ir-select" value={row.vstPlugin}
                     onchange={(e) => {
                       const uid = Number(/** @type {HTMLSelectElement} */ (e.target).value);
-                      instruments = instruments.map(i =>
-                        i.id === row.id ? { ...i, vstPlugin: uid } : i
-                      );
-                      editorDirty = true;
-                      if (uid) previewPlugin(uid, row.id);
+                      setPatchPlugin(row, uid);
                     }}
                   >
                     <option value={0}>— VSTi —</option>
@@ -676,15 +694,15 @@
                   />
                 </div>
                 <div class="ir-actions">
-                  <button class="action-delete" onclick={() => removeInstrument(row.id)} title="Remove">🗑</button>
+                  <button class="action-delete" onclick={() => removePatch(row.id)} title="Remove patch">🗑</button>
                 </div>
               </div>
             {/each}
 
-            {#if instruments.length === 0}
+            {#if patches.length === 0}
               <div class="inst-empty">
-                <p>No instruments added yet.</p>
-                <p class="inst-empty-hint">Use the ensembles panel or search to add instruments.</p>
+                <p>No patches added yet.</p>
+                <p class="inst-empty-hint">Search above or use a generic quick-add set.</p>
               </div>
             {/if}
           </div>
@@ -999,13 +1017,33 @@
   .sr-entity { flex: 1; min-width: 0; font-size: .65rem; color: #7271a0; font-weight: 400; letter-spacing: .02em; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 8px; }
   .sr-add {
     flex-shrink: 0; border: 1px solid #44446c; background: rgba(149,169,255,.08);
-    color: #c5c3ff; font-size: .7rem; padding: 2px 8px; border-radius: 4px;
+    color: #c5c3ff; font-size: .68rem; padding: 6px 10px; border-radius: 4px;
     cursor: pointer; transition: background .1s, border-color .1s;
   }
   .sr-add:hover { background: rgba(149,169,255,.22); border-color: #6a6aaa; }
+  .batch-toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 20px;
+    background: #10103d; border-bottom: 1px solid #2a2a5a;
+  }
+  .select-all-btn, .batch-apply {
+    min-height: 34px; padding: 6px 12px; border-radius: 4px;
+    border: 1px solid #44446c; background: #1a194b; color: #d8d7ff;
+    cursor: pointer; font-family: "Inter", sans-serif; font-size: .7rem;
+  }
+  .select-all-btn:hover, .batch-apply:hover:not(:disabled) {
+    border-color: #95a9ff; background: #23225b;
+  }
+  .batch-apply:disabled { opacity: .4; cursor: default; }
+  .batch-count { min-width: 72px; color: #9695bd; font-size: .68rem; }
+  .batch-select {
+    min-height: 34px; flex: 1; min-width: 150px; padding: 6px 10px;
+    border: 1px solid #44446c; border-radius: 4px; background: #131342;
+    color: #e5e3ff; font: inherit;
+  }
+  .batch-xmap { min-width: 210px; }
   .inst-table-header {
     display: grid;
-    grid-template-columns: 2fr 1fr 1.2fr 1.2fr 70px;
+    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 70px;
     gap: 8px; padding: 10px 20px;
     background: #0e0d38; border-bottom: 1px solid #2a2a5a;
   }
@@ -1017,34 +1055,23 @@
   .inst-table-body { flex: 1; overflow-y: auto; padding-bottom: 12px; }
   .inst-row {
     display: grid;
-    grid-template-columns: 2fr 1fr 1.2fr 1.2fr 70px;
+    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 70px;
     gap: 8px; align-items: center;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
     transition: background .1s;
   }
   .inst-row:hover { background: rgba(149,169,255,.04); }
-  .ir-name-primary {
-    font-family: "Inter",sans-serif; font-size: .78rem; font-weight: 600;
-    color: #e5e3ff; letter-spacing: .01em;
-  }
-  .ir-instance-stepper {
-    display: flex; align-items: center; gap: 2px; margin-left: auto; flex-shrink: 0;
-  }
-  .stepper-btn {
-    background: #1e1e50; border: 1px solid #44446c; border-radius: 3px;
-    color: #a8a7d5; cursor: pointer; font-size: .65rem; font-weight: 700;
-    width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
-    padding: 0; line-height: 1; transition: all .15s;
-  }
-  .stepper-btn:hover:not(:disabled) { border-color: #7c3aed; color: #c4b5fd; background: #2a2a5c; }
-  .stepper-btn:disabled { opacity: .3; cursor: default; }
-  .stepper-val {
-    font-family: "Inter", sans-serif; font-size: .65rem; font-weight: 700;
-    color: #c4b5fd; min-width: 14px; text-align: center;
-  }
+  .inst-row.patch-selected { background: rgba(149,169,255,.09); }
+  .ir-check { display: flex; justify-content: center; }
+  .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-name { display: flex; align-items: center; gap: 8px; }
-  .ir-size-icon { font-size: 1rem; flex-shrink: 0; }
+  .ir-name-text { width: 100%; min-width: 0; }
+  .patch-name-input { color: #e5e3ff; font-weight: 600; }
+  .ir-instrument-name {
+    padding: 3px 3px 0; color: #72719c; font-size: .6rem;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  }
   .ir-select {
     width: 100%; background: #131342; border: 1px solid #44446c;
     border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;

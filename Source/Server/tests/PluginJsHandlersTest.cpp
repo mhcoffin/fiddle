@@ -40,6 +40,7 @@ public:
   juce::String stripId;
   juce::String libraryId;
   juce::String entityId;
+  juce::String patchId;
   int pluginUid = 0;
   int instanceNumber = 0;
   ScanCompletion scanCompletion;
@@ -92,6 +93,14 @@ public:
     libraryId = targetLibraryId;
     entityId = targetEntityId;
     instanceNumber = targetInstanceNumber;
+    return commandResult;
+  }
+
+  bool restoreLibraryPatchState(const juce::String &id,
+                                const juce::String &targetPatchId) override {
+    calls.emplace_back("restore-patch-state");
+    stripId = id;
+    patchId = targetPatchId;
     return commandResult;
   }
 };
@@ -225,12 +234,22 @@ void testEditorRestoreAndPayloadValidation() {
   CHECK(commands.entityId == "entity-2");
   CHECK(commands.instanceNumber == 3);
 
+  CHECK(router.handleMessage(
+      "restoreLibraryPatchState", payload({"strip-c", "patch-9"})));
+  CHECK(pending.size() == 3);
+  pending.back()();
+  CHECK(commands.calls.back() == "restore-patch-state");
+  CHECK(commands.stripId == "strip-c");
+  CHECK(commands.patchId == "patch-9");
+
   const auto pendingCount = pending.size();
   CHECK(router.handleMessage("showStripEditor", payload({})));
   CHECK(router.handleMessage("setStripPlugin", "not-an-array"));
   CHECK(router.handleMessage("setGroupPlugin", payload({"not-json", 42})));
   CHECK(router.handleMessage("restoreLibraryPluginState",
                              payload({"strip-a", "library"})));
+  CHECK(router.handleMessage("restoreLibraryPatchState",
+                             payload({"strip-a"})));
   CHECK(pending.size() == pendingCount);
 }
 
