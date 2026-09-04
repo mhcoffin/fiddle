@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+    createBlankLibraryPatch,
     createLibraryPatch,
     duplicateLibraryPatch,
     togglePatchSelection,
@@ -21,6 +22,16 @@ test("a catalog patch describes a sound without a Dorico destination", () => {
     assert.equal(patch.vstPlugin, 42);
     assert.equal("instanceNums" in patch, false);
     assert.equal("isSolo" in patch, false);
+});
+
+test("a blank patch can be named before optional instrument classification", () => {
+    const patch = createBlankLibraryPatch("patch-blank", { vstPlugin: 42 });
+    assert.equal(patch.name, "New Patch");
+    assert.equal(patch.entityID, "");
+    assert.equal(patch.instrumentName, "");
+    assert.equal(patch.family, "");
+    assert.equal(patch.character, "");
+    assert.equal(patch.vstPlugin, 42);
 });
 
 test("batch changes affect every selected patch and no others", () => {

@@ -16,6 +16,15 @@ export function createLibraryPatch(instrument, character, id, defaults = {}) {
     };
 }
 
+export function createBlankLibraryPatch(id, defaults = {}) {
+    return createLibraryPatch(
+        { entityID: "", name: "", family: "" },
+        "",
+        id,
+        { ...defaults, name: defaults.name || "New Patch" },
+    );
+}
+
 export function updateSelectedPatches(patches, selectedIds, changes) {
     if (!selectedIds || selectedIds.size === 0) return patches;
     return patches.map((patch) =>
