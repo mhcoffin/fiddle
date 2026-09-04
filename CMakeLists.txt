@@ -147,6 +147,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginJsHandlers.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
+    Source/Server/StripAudioEngine.cpp
+    Source/Server/StripAudioEngine.h
     Source/Server/NoteInspection.cpp
     Source/Server/NoteInspection.h
     Source/Server/RealtimeMidiScheduler.cpp
@@ -755,6 +757,26 @@ target_compile_features(AudioGraphSpikeTest PRIVATE cxx_std_17)
 add_test(NAME audio_graph_spike COMMAND AudioGraphSpikeTest)
 set_tests_properties(audio_graph_spike PROPERTIES
     LABELS "audio;realtime;regression;stable"
+)
+
+# ==============================================================================
+# StripAudioEngineTest — independent per-strip graph, gain, and isolation
+# ==============================================================================
+add_executable(StripAudioEngineTest
+    Source/Server/tests/StripAudioEngineTest.cpp
+    Source/Server/StripAudioEngine.cpp
+)
+
+target_include_directories(StripAudioEngineTest PRIVATE Source/Server Source)
+target_link_libraries(StripAudioEngineTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_events
+)
+target_compile_features(StripAudioEngineTest PRIVATE cxx_std_17)
+
+add_test(NAME strip_audio_engine COMMAND StripAudioEngineTest)
+set_tests_properties(strip_audio_engine PROPERTIES
+    LABELS "audio;graph;mixer;realtime;regression;stable"
 )
 
 # ==============================================================================

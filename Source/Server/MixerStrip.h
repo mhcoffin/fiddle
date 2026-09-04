@@ -7,6 +7,7 @@
 #include "IncomingSwitchTracker.h"
 #include "MidiCaptureLog.h"
 #include "RealtimeMidiScheduler.h"
+#include "StripAudioEngine.h"
 #include <atomic>
 #include <deque>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -220,6 +221,7 @@ private:
   std::atomic<uint64_t> inputAssignment_{packInputAssignment(-1, -1)};
 
   HostedPluginSlot instrumentSlot_{PluginSlotRole::instrument};
+  StripAudioEngine audioEngine_;
 
   RealtimeMidiScheduler midiScheduler_;
   juce::MidiBuffer processMidiBuffer_; // audio thread only, preallocated
