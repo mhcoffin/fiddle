@@ -72,6 +72,27 @@ void testClearDropsQueuedAndPendingEvents() {
   CHECK(block.isEmpty());
 }
 
+void testClearPreservesEventsScheduledAfterTheBarrier() {
+  fiddle::RealtimeMidiScheduler scheduler;
+  juce::MidiBuffer block;
+
+  scheduler.schedule(2000.0, juce::MidiMessage::noteOn(1, 64, 0.8f));
+  scheduler.renderBlock(1000.0, 48000.0, 512, block);
+  CHECK(block.isEmpty());
+
+  scheduler.schedule(2001.0, juce::MidiMessage::noteOn(1, 65, 0.8f));
+  scheduler.requestClear();
+  scheduler.schedule(2001.0, juce::MidiMessage::noteOff(1, 64));
+  scheduler.schedule(2002.0, juce::MidiMessage::allSoundOff(1));
+
+  scheduler.renderBlock(1999.0, 48000.0, 512, block);
+  const auto events = capture(block);
+  CHECK(events.size() == 2);
+  CHECK(events[0].message.isNoteOff());
+  CHECK(events[0].message.getNoteNumber() == 64);
+  CHECK(events[1].message.isAllSoundOff());
+}
+
 void testPanicClearsNotesAndEmitsControllerResets() {
   fiddle::RealtimeMidiScheduler scheduler;
   juce::MidiBuffer block;
@@ -113,6 +134,7 @@ void testUnsupportedMessagesAreCounted() {
 int main() {
   testSampleAccurateSchedulingAndRetention();
   testClearDropsQueuedAndPendingEvents();
+  testClearPreservesEventsScheduledAfterTheBarrier();
   testPanicClearsNotesAndEmitsControllerResets();
   testUnsupportedMessagesAreCounted();
   std::cout << "Passed: " << passed << '\n';

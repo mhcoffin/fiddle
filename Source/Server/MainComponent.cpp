@@ -466,16 +466,10 @@ void MainComponent::initMidiServer() {
            if (event.has_transport()) {
              if (event.transport().type() ==
                  fiddle::MidiEvent_TransportEvent_Type_STOP) {
-               // Graceful stop: ramp CC1 (expression) to 0 over 300ms,
-               // then send note-OFFs, then All Sound Off.
-               auto active = noteTracker.getActiveNotes();
-               std::map<int, uint8_t> channelCC1;
-               for (const auto &n : active) {
-                 int ch = (int)n.channel();
-                 if (channelCC1.find(ch) == channelCC1.end())
-                   channelCC1[ch] = noteTracker.getCC(ch, 1);
-               }
-               mixer_.gracefulStop(active, 300.0, channelCC1);
+               // Treat transport stop as a hard synchronization point. Reset
+               // every hosted instrument independently of the tracker's note
+               // set; missing Dorico NoteOffs must never leave voices sounding.
+               mixer_.allNotesOff();
                harmonicService_.onTransportStop();
              }
            }
@@ -809,6 +803,13 @@ void MainComponent::initMidiServer() {
           pushLogMessage("<span style=\"color: #03dac6\">[Connected: " + host +
                          "]</span>");
         } else {
+          // A lost endpoint cannot send its final transport or NoteOff events.
+          // Fail safe to silence and clear all transient performance state.
+          isTransportStarted_.store(false, std::memory_order_release);
+          noteTracker.resetForTransportStop();
+          mixer_.allNotesOff();
+          harmonicService_.onTransportStop();
+          metronomeTracker_.reset();
           pushLogMessage(
               "<span style=\"color: #cf6679\">[Disconnected]</span>");
         }

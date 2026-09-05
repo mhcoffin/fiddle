@@ -169,10 +169,7 @@ public:
           callbacks.onMidiEvent(event, 0, -1);
       } else if (event.transport().type() ==
                  fiddle::MidiEvent_TransportEvent_Type_STOP) {
-        // DO NOT clear notes inside NoteStreamTracker.
-        // NoteOffs will be sent out naturally by Dorico, and the VST
-        // panics are now handled gracefully by the Mixer/MainComponent.
-        // Killing notes here causes races across multiple tracks.
+        resetForTransportStop();
         if (callbacks.onMidiEvent)
           callbacks.onMidiEvent(event, absoluteSamples, -1);
       }
@@ -187,6 +184,17 @@ public:
   std::vector<fiddle::Note> getActiveNotes() const {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     return activeNotes;
+  }
+
+  /// Reset transient performance state at the definitive transport boundary.
+  /// START deliberately does not clear this state because START messages from
+  /// multiple Dorico endpoints can race with their first notes. STOP is sent
+  /// after Dorico's final MIDI block, so retained notes would only be stale.
+  void resetForTransportStop() {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    activeNotes.clear();
+    for (auto &channel : currentCCs)
+      channel.fill(0);
   }
 
   uint64_t getSessionSamples() const {

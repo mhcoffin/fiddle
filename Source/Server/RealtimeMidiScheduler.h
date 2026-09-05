@@ -21,8 +21,11 @@ public:
   void requestPanic() noexcept;
 
   /// Appends all events due in this audio block to @p destination. Future
-  /// events remain pending. Panic emits the three standard reset messages on
-  /// all 16 channels and takes precedence over a simultaneous clear request.
+  /// events remain pending. Clear and panic discard only messages submitted
+  /// before the request, allowing transport-stop release messages queued
+  /// immediately afterward to survive. Panic emits the three standard reset
+  /// messages on all 16 channels and takes precedence over a simultaneous
+  /// clear request.
   void renderBlock(double blockStartMs, double sampleRate, int numSamples,
                    juce::MidiBuffer &destination) noexcept;
 
@@ -33,6 +36,7 @@ private:
   std::array<RealtimeMidiMessage, kCapacity> pending_{};
   size_t pendingCount_ = 0; // audio thread only
   std::atomic<uint64_t> droppedMessages_{0};
+  std::atomic<uint64_t> currentGeneration_{0};
   std::atomic<bool> clearRequested_{false};
   std::atomic<bool> panicRequested_{false};
 };

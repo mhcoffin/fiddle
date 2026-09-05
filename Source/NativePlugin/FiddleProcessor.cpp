@@ -284,26 +284,32 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     }
   }
 
-  // Detect transport start
-  if (isPlaying && !wasPlaying_ && tcpRelay_) {
+  const bool transportStarted = isPlaying && !wasPlaying_;
+  const bool transportStopped = !isPlaying && wasPlaying_;
+
+  // START must precede the first MIDI events in a playback pass so the server
+  // reinstates delayed scheduling before it sees those events.
+  if (transportStarted && tcpRelay_) {
     RealtimeMidiEvent event;
     event.type = RealtimeMidiEventType::TransportStart;
     event.hostSamplePosition = static_cast<uint64_t>(hostSamples);
     (void)tcpRelay_->pushRealtimeEvent(event);
   }
 
-  // Detect transport stop
-  if (!isPlaying && wasPlaying_ && tcpRelay_) {
+  // Process MIDI events from input event list
+  if (data.inputEvents)
+    processEvents(data.inputEvents, hostSamples);
+
+  // STOP must be the final real-time event from this block. Dorico may flush
+  // notes at the transport boundary; sending STOP first allowed those final
+  // events to arrive after the server's reset and leave notes sounding.
+  if (transportStopped && tcpRelay_) {
     RealtimeMidiEvent event;
     event.type = RealtimeMidiEventType::TransportStop;
     event.hostSamplePosition = static_cast<uint64_t>(hostSamples);
     (void)tcpRelay_->pushRealtimeEvent(event);
   }
   wasPlaying_ = isPlaying;
-
-  // Process MIDI events from input event list
-  if (data.inputEvents)
-    processEvents(data.inputEvents, hostSamples);
 
   if (programStatesDirty_.load(std::memory_order_relaxed) && tcpRelay_)
     tcpRelay_->requestControlUpdate();

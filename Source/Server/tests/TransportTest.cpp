@@ -72,7 +72,7 @@ void testCCStateUsesOneBasedChannels() {
   CHECK(tracker.getCC(17, 1) == 0);
 }
 
-void testTransportDoesNotDiscardActiveNotes() {
+void testTransportStopClearsTransientPerformanceState() {
   fiddle::NoteStreamTracker tracker;
   int transportEvents = 0;
   tracker.setCallbacks({
@@ -86,6 +86,7 @@ void testTransportDoesNotDiscardActiveNotes() {
   });
 
   tracker.processEvent(makeNoteOn(1, 60, 1000));
+  tracker.processEvent(makeCC(1, 1, 73));
   CHECK(tracker.getActiveNotes().size() == 1);
 
   tracker.processEvent(
@@ -94,7 +95,8 @@ void testTransportDoesNotDiscardActiveNotes() {
 
   tracker.processEvent(
       makeTransport(fiddle::MidiEvent_TransportEvent_Type_STOP));
-  CHECK(tracker.getActiveNotes().size() == 1);
+  CHECK(tracker.getActiveNotes().empty());
+  CHECK(tracker.getCC(1, 1) == 0);
   CHECK(transportEvents == 2);
 }
 
@@ -153,7 +155,7 @@ int main() {
   std::cout << "===== Transport Tests =====" << std::endl;
 
   testCCStateUsesOneBasedChannels();
-  testTransportDoesNotDiscardActiveNotes();
+  testTransportStopClearsTransientPerformanceState();
   testOutOfOrderNoteOffIsClamped();
   testPluginPlaybackActivityIncludesNoteAuditionAndPreTransportMidi();
 

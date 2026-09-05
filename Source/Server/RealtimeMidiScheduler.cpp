@@ -14,6 +14,7 @@ bool RealtimeMidiScheduler::schedule(
 
   RealtimeMidiMessage queued;
   queued.triggerTimeMs = triggerTimeMs;
+  queued.generation = currentGeneration_.load(std::memory_order_acquire);
   queued.size = static_cast<uint8_t>(size);
   std::copy_n(message.getRawData(), size, queued.data);
   if (incoming_.tryPush(queued))
@@ -24,10 +25,12 @@ bool RealtimeMidiScheduler::schedule(
 }
 
 void RealtimeMidiScheduler::requestClear() noexcept {
+  currentGeneration_.fetch_add(1, std::memory_order_acq_rel);
   clearRequested_.store(true, std::memory_order_release);
 }
 
 void RealtimeMidiScheduler::requestPanic() noexcept {
+  currentGeneration_.fetch_add(1, std::memory_order_acq_rel);
   panicRequested_.store(true, std::memory_order_release);
 }
 
@@ -44,8 +47,16 @@ void RealtimeMidiScheduler::renderBlock(
 
   const bool panic = panicRequested_.exchange(false, std::memory_order_acquire);
   const bool clear = clearRequested_.exchange(false, std::memory_order_acquire);
-  if (panic || clear)
-    pendingCount_ = 0;
+  if (panic || clear) {
+    const auto keepGeneration =
+        currentGeneration_.load(std::memory_order_acquire);
+    size_t retained = 0;
+    for (size_t i = 0; i < pendingCount_; ++i) {
+      if (pending_[i].generation >= keepGeneration)
+        pending_[retained++] = pending_[i];
+    }
+    pendingCount_ = retained;
+  }
 
   if (panic) {
     for (int channel = 1; channel <= 16; ++channel) {

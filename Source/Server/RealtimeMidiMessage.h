@@ -9,6 +9,7 @@ namespace fiddle {
 /// server. Keeping this as POD avoids juce::MidiMessage's heap-backed cases.
 struct RealtimeMidiMessage {
   double triggerTimeMs = 0.0;
+  uint64_t generation = 0;
   uint8_t size = 0;
   uint8_t data[3]{};
 };
