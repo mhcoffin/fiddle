@@ -78,6 +78,21 @@ Solo Violin 1
   been removed. It is shown as a missing catalog reference instead of being
   silently discarded.
 
+### Version snapshot implementation
+
+Versioned Fiddle state carries a schema-versioned routing snapshot alongside
+the master-audio state and content-addressed strip blobs. The routing snapshot
+stores the ordered chair roster, stable MIDI assignments, immutable layer IDs,
+patch references, and fallback patch/library labels. Each layer points to its
+strip blob rather than duplicating opaque VST state.
+
+Versions made before this schema remain readable through the legacy strip
+restore path. When such a version is the head of a checked-out branch, Fiddle
+marks it dirty once so the next Fiddle or Dorico save records its current
+chair/layer topology. Catalog rows are not versioned: restoring a layer whose
+patch was removed retains the patch ID and saved labels and identifies it as a
+missing catalog reference.
+
 ## Template boundary
 
 The Dorico playback template is derived only from chairs. Adding, removing, or

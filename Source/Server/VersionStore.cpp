@@ -465,6 +465,10 @@ FiddleState VersionStore::threeWayMerge(const FiddleState &ancestor,
 
   FiddleState result;
   result.globalState = target.globalState;
+  // Routing topology is a project-wide ordered graph, not a bag of strips.
+  // Until topology-specific conflict resolution is introduced, retain the
+  // checked-out target's chair/layer graph just as we do for global state.
+  result.routingState = target.routingState;
   for (const auto &[key, hash] : resultMap)
     result.stripHashes.push_back(hash);
 

@@ -43,6 +43,34 @@ std::string serializeMasterInserts(const std::vector<PluginSlotBlob> &inserts) {
   return result;
 }
 
+std::string serializeRoutingState(const RoutingState &routing) {
+  std::string result;
+  appendI32(result, routing.schemaVersion);
+  appendU32(result, static_cast<uint32_t>(routing.chairs.size()));
+  for (const auto &chair : routing.chairs) {
+    appendString(result, chair.id);
+    appendString(result, chair.instrumentEntityId);
+    appendString(result, chair.name);
+    appendString(result, chair.family);
+    result.push_back(chair.isSolo ? '\1' : '\0');
+    appendI32(result, chair.ordinal);
+    appendI32(result, chair.displayOrder);
+    appendI32(result, chair.flatIndex);
+  }
+  appendU32(result, static_cast<uint32_t>(routing.layers.size()));
+  for (const auto &layer : routing.layers) {
+    appendString(result, layer.id);
+    appendString(result, layer.chairId);
+    appendString(result, layer.patchId);
+    appendString(result, layer.patchName);
+    appendString(result, layer.libraryId);
+    appendString(result, layer.libraryName);
+    appendI32(result, layer.position);
+    appendString(result, layer.stripHash);
+  }
+  return result;
+}
+
 bool readBytes(const uint8_t *&cursor, const uint8_t *end, void *destination,
                std::size_t size) {
   if (cursor > end || static_cast<std::size_t>(end - cursor) < size)
@@ -109,6 +137,55 @@ std::vector<PluginSlotBlob> deserializeMasterInserts(const void *data,
     result.push_back(std::move(insert));
   }
   return result;
+}
+
+RoutingState deserializeRoutingState(const void *data, int size) {
+  RoutingState result;
+  if (!data || size <= 0)
+    return result;
+  const auto *cursor = static_cast<const uint8_t *>(data);
+  const auto *end = cursor + size;
+  if (!readI32(cursor, end, result.schemaVersion) ||
+      result.schemaVersion < 1)
+    return {};
+
+  uint32_t chairCount = 0;
+  if (!readU32(cursor, end, chairCount) || chairCount > 4096)
+    return {};
+  result.chairs.reserve(chairCount);
+  for (uint32_t index = 0; index < chairCount; ++index) {
+    ChairSnapshot chair;
+    if (!readString(cursor, end, chair.id) ||
+        !readString(cursor, end, chair.instrumentEntityId) ||
+        !readString(cursor, end, chair.name) ||
+        !readString(cursor, end, chair.family) || cursor >= end)
+      return {};
+    chair.isSolo = *cursor++ != 0;
+    if (!readI32(cursor, end, chair.ordinal) ||
+        !readI32(cursor, end, chair.displayOrder) ||
+        !readI32(cursor, end, chair.flatIndex))
+      return {};
+    result.chairs.push_back(std::move(chair));
+  }
+
+  uint32_t layerCount = 0;
+  if (!readU32(cursor, end, layerCount) || layerCount > 16384)
+    return {};
+  result.layers.reserve(layerCount);
+  for (uint32_t index = 0; index < layerCount; ++index) {
+    LayerSnapshot layer;
+    if (!readString(cursor, end, layer.id) ||
+        !readString(cursor, end, layer.chairId) ||
+        !readString(cursor, end, layer.patchId) ||
+        !readString(cursor, end, layer.patchName) ||
+        !readString(cursor, end, layer.libraryId) ||
+        !readString(cursor, end, layer.libraryName) ||
+        !readI32(cursor, end, layer.position) ||
+        !readString(cursor, end, layer.stripHash))
+      return {};
+    result.layers.push_back(std::move(layer));
+  }
+  return cursor == end ? result : RoutingState{};
 }
 
 } // namespace
@@ -183,6 +260,8 @@ void SqliteVersionStorage::prepareStatements() {
                "ALTER TABLE strip_blobs ADD COLUMN soloed INTEGER NOT NULL "
                "DEFAULT 0",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
+               nullptr, nullptr, nullptr);
 
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
     if (sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr) != SQLITE_OK) {
@@ -205,10 +284,11 @@ void SqliteVersionStorage::prepareStatements() {
 
   // FiddleState
   prep("INSERT OR REPLACE INTO fiddle_states "
-       "(hash, master_gain, strip_hashes, audio_schema, master_state) "
-       "VALUES (?, ?, ?, ?, ?)",
+       "(hash, master_gain, strip_hashes, audio_schema, master_state, "
+       "routing_state) VALUES (?, ?, ?, ?, ?, ?)",
        &stmtPutFiddleState_);
-  prep("SELECT master_gain, strip_hashes, audio_schema, master_state "
+  prep("SELECT master_gain, strip_hashes, audio_schema, master_state, "
+       "routing_state "
        "FROM fiddle_states WHERE hash = ?",
        &stmtGetFiddleState_);
   prep("SELECT 1 FROM fiddle_states WHERE hash = ?", &stmtHasFiddleState_);
@@ -385,6 +465,7 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
   std::string hashesStr = joinStrings(state.stripHashes);
   const auto masterState =
       serializeMasterInserts(state.globalState.masterInserts);
+  const auto routingState = serializeRoutingState(state.routingState);
 
   sqlite3_bind_text(stmtPutFiddleState_, 1, hash.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_double(stmtPutFiddleState_, 2, state.globalState.masterGainDb);
@@ -394,6 +475,8 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
                    state.globalState.audioSchemaVersion);
   sqlite3_bind_blob(stmtPutFiddleState_, 5, masterState.data(),
                     static_cast<int>(masterState.size()), SQLITE_TRANSIENT);
+  sqlite3_bind_blob(stmtPutFiddleState_, 6, routingState.data(),
+                    static_cast<int>(routingState.size()), SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutFiddleState_);
 }
@@ -421,6 +504,9 @@ SqliteVersionStorage::getFiddleState(const Hash &hash) const {
     state.globalState.masterInserts = deserializeMasterInserts(
         sqlite3_column_blob(stmtGetFiddleState_, 3),
         sqlite3_column_bytes(stmtGetFiddleState_, 3));
+    state.routingState = deserializeRoutingState(
+        sqlite3_column_blob(stmtGetFiddleState_, 4),
+        sqlite3_column_bytes(stmtGetFiddleState_, 4));
     return state;
   }
   return std::nullopt;

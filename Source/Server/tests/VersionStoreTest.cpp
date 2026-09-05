@@ -827,6 +827,59 @@ void testDoricoProjectRestoreResolution() {
              .has_value());
 }
 
+void testBranchVersionsRetainIndependentRoutingTopology() {
+  InMemoryVersionStorage storage;
+  VersionStore store(storage);
+  const VersionId rootId = store.initializeEmpty();
+  const BranchId mainId = std::get<0>(storage.listBranches().front());
+  const BranchId alternateId = store.createBranch("Alternate", rootId);
+
+  auto violinState = makeState({});
+  violinState.routingState.schemaVersion = 1;
+  ChairSnapshot violin;
+  violin.id = "violin-chair";
+  violin.instrumentEntityId = "instrument.strings.violin";
+  violin.name = "Violin I";
+  violin.family = "Strings";
+  violin.isSolo = false;
+  violin.flatIndex = 1;
+  violinState.routingState.chairs.push_back(violin);
+  LayerSnapshot elite;
+  elite.id = "elite-layer";
+  elite.chairId = violin.id;
+  elite.patchId = "elite-violin";
+  elite.patchName = "Elite Violins I";
+  elite.libraryName = "Elite Strings";
+  violinState.routingState.layers.push_back(elite);
+  const auto violinVersion = store.commitVersion(mainId, violinState);
+
+  auto brassState = makeState({});
+  brassState.routingState.schemaVersion = 1;
+  auto horn = violin;
+  horn.id = "horn-chair";
+  horn.instrumentEntityId = "instrument.brass.horn";
+  horn.name = "Horn 1";
+  horn.family = "Brass";
+  horn.isSolo = true;
+  horn.flatIndex = 2;
+  brassState.routingState.chairs.push_back(horn);
+  const auto brassVersion = store.commitVersion(alternateId, brassState);
+
+  const auto savedViolinVersion = store.getVersion(violinVersion);
+  const auto savedBrassVersion = store.getVersion(brassVersion);
+  CHECK(savedViolinVersion.has_value());
+  CHECK(savedBrassVersion.has_value());
+  const auto savedViolin = store.getState(savedViolinVersion->stateHash);
+  const auto savedBrass = store.getState(savedBrassVersion->stateHash);
+  CHECK(savedViolin.has_value());
+  CHECK(savedBrass.has_value());
+  CHECK_EQ(savedViolin->routingState.chairs.front().id, "violin-chair");
+  CHECK_EQ(savedViolin->routingState.layers.front().id, "elite-layer");
+  CHECK_EQ(savedBrass->routingState.chairs.front().id, "horn-chair");
+  CHECK(savedBrass->routingState.layers.empty());
+  CHECK(savedViolinVersion->stateHash != savedBrassVersion->stateHash);
+}
+
 // ===========================================================================
 // Main
 // ===========================================================================
@@ -858,6 +911,7 @@ int main() {
   RUN_TEST(testImportNoAncestor);
   RUN_TEST(testDeleteThenMerge);
   RUN_TEST(testMasterAudioParticipatesInVersionIdentity);
+  RUN_TEST(testBranchVersionsRetainIndependentRoutingTopology);
   RUN_TEST(testDoricoProjectRestoreResolution);
 
   std::cout << std::endl;

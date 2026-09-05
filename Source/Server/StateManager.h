@@ -8,6 +8,7 @@
 #include "VersionStore.h"
 #include <atomic>
 #include <juce_core/juce_core.h>
+#include <map>
 
 namespace fiddle {
 
@@ -67,6 +68,10 @@ public:
     versionStore_ = store;
   }
 
+  void setRoutingRepository(LibraryRoutingRepository *repository) {
+    routingRepository_ = repository;
+  }
+
   /// Set the current branch UUID so buildStateBlob can look up ancestors.
   void setCurrentBranchId(const std::string &branchId) {
     juce::SpinLock::ScopedLockType lock(nameLock_);
@@ -104,6 +109,11 @@ public:
   }
 
 private:
+  void captureRoutingState(
+      versioning::FiddleState &state,
+      const std::map<std::string, versioning::Hash> &stripHashesById,
+      bool persistFallbackBlobs) const;
+
   std::atomic<bool> dirty_{false};
   juce::String configName_;
   juce::String configVersion_;
@@ -112,6 +122,7 @@ private:
   std::unique_ptr<StateSharedMemory> sharedMemory_;
   std::atomic<bool> rebuildPending_{false};
   versioning::VersionStore *versionStore_ = nullptr;
+  LibraryRoutingRepository *routingRepository_ = nullptr;
   std::string currentBranchId_;
 };
 

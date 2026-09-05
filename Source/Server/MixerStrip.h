@@ -37,6 +37,7 @@ struct MixerStrip {
   juce::String chairId;
   juce::String patchId;
   juce::String layerName;
+  bool missingPatchReference = false;
 
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {

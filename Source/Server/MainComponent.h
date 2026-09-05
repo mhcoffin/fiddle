@@ -231,7 +231,7 @@ private:
   void pushLayerCatalog();
   void syncMixerToLayers();
   bool instantiateLayer(const LayerRow &layer, const ChairRow &chair,
-                        const LibraryPatchRow &patch,
+                        const LibraryPatchRow *patch,
                         const juce::String &libraryName);
   void installChairPlaybackTemplate();
   void masterAudioChanged();

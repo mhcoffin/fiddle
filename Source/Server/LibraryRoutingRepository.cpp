@@ -1,5 +1,6 @@
 #include "LibraryRoutingRepository.h"
 
+#include <set>
 #include <utility>
 
 namespace fiddle {
@@ -26,6 +27,86 @@ private:
 
 bool execute(sqlite3 *database, const char *sql) {
   return sqlite3_exec(database, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+}
+
+bool hasColumn(sqlite3 *database, const char *table, const char *column) {
+  Statement statement(database,
+                      (std::string("PRAGMA table_info(") + table + ")").c_str());
+  if (!statement)
+    return false;
+  while (sqlite3_step(statement.get()) == SQLITE_ROW) {
+    const auto *text = sqlite3_column_text(statement.get(), 1);
+    if (text && std::string(reinterpret_cast<const char *>(text)) == column)
+      return true;
+  }
+  return false;
+}
+
+bool ensureColumn(sqlite3 *database, const char *table, const char *column,
+                  const char *definition) {
+  if (hasColumn(database, table, column))
+    return true;
+  return execute(database, (std::string("ALTER TABLE ") + table +
+                            " ADD COLUMN " + definition)
+                               .c_str());
+}
+
+bool layersHaveCatalogForeignKey(sqlite3 *database) {
+  Statement statement(database, "PRAGMA foreign_key_list(layers)");
+  if (!statement)
+    return false;
+  while (sqlite3_step(statement.get()) == SQLITE_ROW) {
+    const auto *text = sqlite3_column_text(statement.get(), 2);
+    if (text && std::string(reinterpret_cast<const char *>(text)) ==
+                    "library_patches")
+      return true;
+  }
+  return false;
+}
+
+bool removeLayersCatalogForeignKey(sqlite3 *database) {
+  if (!layersHaveCatalogForeignKey(database))
+    return true;
+
+  // SQLite cannot drop one foreign key in place. Rebuild this small routing
+  // table so a historical layer can deliberately retain a missing patch ID.
+  if (!execute(database, "PRAGMA foreign_keys=OFF"))
+    return false;
+  if (!execute(database, "BEGIN IMMEDIATE")) {
+    execute(database, "PRAGMA foreign_keys=ON");
+    return false;
+  }
+  const bool succeeded = execute(database, R"(
+    ALTER TABLE layers RENAME TO layers_with_catalog_fk
+  )") &&
+      execute(database, R"(
+    CREATE TABLE layers (
+      id TEXT PRIMARY KEY, chair_id TEXT NOT NULL, patch_id TEXT NOT NULL,
+      patch_name TEXT NOT NULL DEFAULT '', library_id TEXT NOT NULL DEFAULT '',
+      library_name TEXT NOT NULL DEFAULT '', position INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1, muted INTEGER NOT NULL DEFAULT 0,
+      soloed INTEGER NOT NULL DEFAULT 0, gain_db REAL NOT NULL DEFAULT 0.0,
+      plugin_uid INTEGER NOT NULL DEFAULT 0, plugin_state BLOB,
+      expression_map_id TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (chair_id) REFERENCES chairs(id) ON DELETE RESTRICT
+    )
+  )") &&
+      execute(database, R"(
+    INSERT INTO layers
+      (id, chair_id, patch_id, patch_name, library_id, library_name, position,
+       active, muted, soloed, gain_db, plugin_uid, plugin_state,
+       expression_map_id)
+    SELECT id, chair_id, patch_id, patch_name, library_id, library_name,
+           position, active, muted, soloed, gain_db, plugin_uid, plugin_state,
+           expression_map_id
+    FROM layers_with_catalog_fk
+  )") &&
+      execute(database, "DROP TABLE layers_with_catalog_fk") &&
+      execute(database, "COMMIT");
+  if (!succeeded)
+    execute(database, "ROLLBACK");
+  const bool foreignKeysRestored = execute(database, "PRAGMA foreign_keys=ON");
+  return succeeded && foreignKeysRestored;
 }
 
 void bindText(sqlite3_stmt *statement, int index, const std::string &value) {
@@ -90,14 +171,17 @@ LayerRow readLayer(sqlite3_stmt *statement) {
   layer.id = columnText(statement, 0);
   layer.chairId = columnText(statement, 1);
   layer.patchId = columnText(statement, 2);
-  layer.position = sqlite3_column_int(statement, 3);
-  layer.active = sqlite3_column_int(statement, 4) != 0;
-  layer.muted = sqlite3_column_int(statement, 5) != 0;
-  layer.soloed = sqlite3_column_int(statement, 6) != 0;
-  layer.gainDb = static_cast<float>(sqlite3_column_double(statement, 7));
-  layer.pluginUid = sqlite3_column_int(statement, 8);
-  layer.pluginState = columnBlob(statement, 9);
-  layer.expressionMapId = columnText(statement, 10);
+  layer.patchName = columnText(statement, 3);
+  layer.libraryId = columnText(statement, 4);
+  layer.libraryName = columnText(statement, 5);
+  layer.position = sqlite3_column_int(statement, 6);
+  layer.active = sqlite3_column_int(statement, 7) != 0;
+  layer.muted = sqlite3_column_int(statement, 8) != 0;
+  layer.soloed = sqlite3_column_int(statement, 9) != 0;
+  layer.gainDb = static_cast<float>(sqlite3_column_double(statement, 10));
+  layer.pluginUid = sqlite3_column_int(statement, 11);
+  layer.pluginState = columnBlob(statement, 12);
+  layer.expressionMapId = columnText(statement, 13);
   return layer;
 }
 
@@ -108,8 +192,9 @@ constexpr const char *kChairColumns =
     "id, instrument_entity_id, name, family, dorico_role, ordinal, "
     "display_order, flat_index";
 constexpr const char *kLayerColumns =
-    "id, chair_id, patch_id, position, active, muted, soloed, gain_db, "
-    "plugin_uid, plugin_state, expression_map_id";
+    "id, chair_id, patch_id, patch_name, library_id, library_name, position, "
+    "active, muted, soloed, gain_db, plugin_uid, plugin_state, "
+    "expression_map_id";
 
 } // namespace
 
@@ -121,7 +206,7 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
   if (!database)
     return false;
 
-  return execute(database, R"(
+  const bool baseSchema = execute(database, R"(
     CREATE TABLE IF NOT EXISTS library_patches (
       id                   TEXT PRIMARY KEY,
       library_id           TEXT NOT NULL,
@@ -173,6 +258,9 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
       id                TEXT PRIMARY KEY,
       chair_id          TEXT NOT NULL,
       patch_id          TEXT NOT NULL,
+      patch_name        TEXT NOT NULL DEFAULT '',
+      library_id        TEXT NOT NULL DEFAULT '',
+      library_name      TEXT NOT NULL DEFAULT '',
       position          INTEGER NOT NULL DEFAULT 0,
       active            INTEGER NOT NULL DEFAULT 1,
       muted             INTEGER NOT NULL DEFAULT 0,
@@ -181,11 +269,20 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
       plugin_uid        INTEGER NOT NULL DEFAULT 0,
       plugin_state      BLOB,
       expression_map_id TEXT NOT NULL DEFAULT '',
-      FOREIGN KEY (chair_id) REFERENCES chairs(id) ON DELETE RESTRICT,
-      FOREIGN KEY (patch_id) REFERENCES library_patches(id) ON DELETE RESTRICT
+      FOREIGN KEY (chair_id) REFERENCES chairs(id) ON DELETE RESTRICT
     )
-  )") &&
-         execute(database, R"(
+  )");
+  if (!baseSchema ||
+      !ensureColumn(database, "layers", "patch_name",
+                    "patch_name TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "layers", "library_id",
+                    "library_id TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "layers", "library_name",
+                    "library_name TEXT NOT NULL DEFAULT ''") ||
+      !removeLayersCatalogForeignKey(database))
+    return false;
+
+  return execute(database, R"(
     CREATE INDEX IF NOT EXISTS layers_chair_position
     ON layers(chair_id, position)
   )") &&
@@ -522,12 +619,16 @@ bool LibraryRoutingRepository::upsertLayer(const LayerRow &layer) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   Statement statement(database_, R"(
     INSERT INTO layers
-      (id, chair_id, patch_id, position, active, muted, soloed, gain_db,
-       plugin_uid, plugin_state, expression_map_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, chair_id, patch_id, patch_name, library_id, library_name, position,
+       active, muted, soloed, gain_db, plugin_uid, plugin_state,
+       expression_map_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       chair_id = excluded.chair_id,
       patch_id = excluded.patch_id,
+      patch_name = excluded.patch_name,
+      library_id = excluded.library_id,
+      library_name = excluded.library_name,
       position = excluded.position,
       active = excluded.active,
       muted = excluded.muted,
@@ -542,14 +643,17 @@ bool LibraryRoutingRepository::upsertLayer(const LayerRow &layer) {
   bindText(statement.get(), 1, layer.id);
   bindText(statement.get(), 2, layer.chairId);
   bindText(statement.get(), 3, layer.patchId);
-  sqlite3_bind_int(statement.get(), 4, layer.position);
-  sqlite3_bind_int(statement.get(), 5, layer.active ? 1 : 0);
-  sqlite3_bind_int(statement.get(), 6, layer.muted ? 1 : 0);
-  sqlite3_bind_int(statement.get(), 7, layer.soloed ? 1 : 0);
-  sqlite3_bind_double(statement.get(), 8, layer.gainDb);
-  sqlite3_bind_int(statement.get(), 9, layer.pluginUid);
-  bindBlob(statement.get(), 10, layer.pluginState);
-  bindText(statement.get(), 11, layer.expressionMapId);
+  bindText(statement.get(), 4, layer.patchName);
+  bindText(statement.get(), 5, layer.libraryId);
+  bindText(statement.get(), 6, layer.libraryName);
+  sqlite3_bind_int(statement.get(), 7, layer.position);
+  sqlite3_bind_int(statement.get(), 8, layer.active ? 1 : 0);
+  sqlite3_bind_int(statement.get(), 9, layer.muted ? 1 : 0);
+  sqlite3_bind_int(statement.get(), 10, layer.soloed ? 1 : 0);
+  sqlite3_bind_double(statement.get(), 11, layer.gainDb);
+  sqlite3_bind_int(statement.get(), 12, layer.pluginUid);
+  bindBlob(statement.get(), 13, layer.pluginState);
+  bindText(statement.get(), 14, layer.expressionMapId);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -559,10 +663,13 @@ bool LibraryRoutingRepository::createLayerFromPatch(
   std::lock_guard<std::mutex> lock(databaseMutex_);
   Statement statement(database_, R"(
     INSERT INTO layers
-      (id, chair_id, patch_id, position, plugin_uid, plugin_state,
-       expression_map_id)
-    SELECT ?, ?, id, ?, plugin_uid, plugin_state, expression_map_id
-    FROM library_patches WHERE id = ?
+      (id, chair_id, patch_id, patch_name, library_id, library_name, position,
+       plugin_uid, plugin_state, expression_map_id)
+    SELECT ?, ?, p.id, p.name, p.library_id, COALESCE(l.name, ''), ?,
+           p.plugin_uid, p.plugin_state, p.expression_map_id
+    FROM library_patches p
+    LEFT JOIN libraries l ON l.id = p.library_id
+    WHERE p.id = ?
   )");
   if (!statement)
     return false;
@@ -614,6 +721,105 @@ bool LibraryRoutingRepository::deleteLayer(const std::string &layerId) {
   bindText(statement.get(), 1, layerId);
   return sqlite3_step(statement.get()) == SQLITE_DONE &&
          sqlite3_changes(database_) == 1;
+}
+
+bool LibraryRoutingRepository::replaceTopology(
+    const std::vector<ChairRow> &chairs,
+    const std::vector<LayerRow> &layers) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+
+  std::set<std::string> chairIds;
+  std::set<std::string> chairDestinations;
+  std::set<int> flatIndices;
+  for (const auto &chair : chairs) {
+    const auto destination = chair.instrumentEntityId + "\n" +
+                             std::to_string(static_cast<int>(chair.role)) +
+                             "\n" + std::to_string(chair.ordinal);
+    if (chair.id.empty() || chair.instrumentEntityId.empty() ||
+        chair.flatIndex <= 0 || !chairIds.insert(chair.id).second ||
+        !chairDestinations.insert(destination).second ||
+        !flatIndices.insert(chair.flatIndex).second)
+      return false;
+  }
+  std::set<std::string> layerIds;
+  for (const auto &layer : layers) {
+    if (layer.id.empty() || chairIds.count(layer.chairId) == 0 ||
+        !layerIds.insert(layer.id).second)
+      return false;
+  }
+
+  if (!execute(database_, "BEGIN IMMEDIATE"))
+    return false;
+  bool succeeded = execute(database_, "DELETE FROM layers") &&
+                   execute(database_, "DELETE FROM chairs");
+
+  Statement removeGraveyard(
+      database_, "DELETE FROM chair_midi_graveyard WHERE flat_index = ?");
+  Statement insertChair(database_, R"(
+    INSERT INTO chairs
+      (id, instrument_entity_id, name, family, dorico_role, ordinal,
+       display_order, flat_index)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  )");
+  Statement insertLayer(database_, R"(
+    INSERT INTO layers
+      (id, chair_id, patch_id, patch_name, library_id, library_name, position,
+       active, muted, soloed, gain_db, plugin_uid, plugin_state,
+       expression_map_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  )");
+  succeeded = succeeded && removeGraveyard && insertChair && insertLayer;
+
+  for (const auto &chair : chairs) {
+    if (!succeeded)
+      break;
+    sqlite3_reset(removeGraveyard.get());
+    sqlite3_clear_bindings(removeGraveyard.get());
+    sqlite3_bind_int(removeGraveyard.get(), 1, chair.flatIndex);
+    succeeded = sqlite3_step(removeGraveyard.get()) == SQLITE_DONE;
+
+    sqlite3_reset(insertChair.get());
+    sqlite3_clear_bindings(insertChair.get());
+    bindText(insertChair.get(), 1, chair.id);
+    bindText(insertChair.get(), 2, chair.instrumentEntityId);
+    bindText(insertChair.get(), 3, chair.name);
+    bindText(insertChair.get(), 4, chair.family);
+    sqlite3_bind_int(insertChair.get(), 5,
+                     chair.role == DoricoRole::solo ? 0 : 1);
+    sqlite3_bind_int(insertChair.get(), 6, chair.ordinal);
+    sqlite3_bind_int(insertChair.get(), 7, chair.displayOrder);
+    sqlite3_bind_int(insertChair.get(), 8, chair.flatIndex);
+    succeeded = succeeded &&
+                sqlite3_step(insertChair.get()) == SQLITE_DONE;
+  }
+
+  for (const auto &layer : layers) {
+    if (!succeeded)
+      break;
+    sqlite3_reset(insertLayer.get());
+    sqlite3_clear_bindings(insertLayer.get());
+    bindText(insertLayer.get(), 1, layer.id);
+    bindText(insertLayer.get(), 2, layer.chairId);
+    bindText(insertLayer.get(), 3, layer.patchId);
+    bindText(insertLayer.get(), 4, layer.patchName);
+    bindText(insertLayer.get(), 5, layer.libraryId);
+    bindText(insertLayer.get(), 6, layer.libraryName);
+    sqlite3_bind_int(insertLayer.get(), 7, layer.position);
+    sqlite3_bind_int(insertLayer.get(), 8, layer.active ? 1 : 0);
+    sqlite3_bind_int(insertLayer.get(), 9, layer.muted ? 1 : 0);
+    sqlite3_bind_int(insertLayer.get(), 10, layer.soloed ? 1 : 0);
+    sqlite3_bind_double(insertLayer.get(), 11, layer.gainDb);
+    sqlite3_bind_int(insertLayer.get(), 12, layer.pluginUid);
+    bindBlob(insertLayer.get(), 13, layer.pluginState);
+    bindText(insertLayer.get(), 14, layer.expressionMapId);
+    succeeded = sqlite3_step(insertLayer.get()) == SQLITE_DONE;
+  }
+
+  if (!succeeded || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  return true;
 }
 
 } // namespace fiddle

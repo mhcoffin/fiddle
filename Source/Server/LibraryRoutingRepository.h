@@ -39,6 +39,12 @@ struct LayerRow {
   std::string id;
   std::string chairId;
   std::string patchId;
+  /// Immutable display fallback copied when the layer is created. These
+  /// fields keep historical layers intelligible if their catalog patch is
+  /// later removed.
+  std::string patchName;
+  std::string libraryId;
+  std::string libraryName;
   int position = 0;
   bool active = true;
   bool muted = false;
@@ -89,6 +95,12 @@ public:
   std::vector<LayerRow>
   listLayers(const std::string &chairId = {}) const;
   bool deleteLayer(const std::string &layerId);
+
+  /// Atomically replace the project-owned routing topology. Catalog patches
+  /// are deliberately not part of this operation; layers may retain a
+  /// dangling patchId so historical versions remain restorable.
+  bool replaceTopology(const std::vector<ChairRow> &chairs,
+                       const std::vector<LayerRow> &layers);
 
 private:
   sqlite3 *database_;

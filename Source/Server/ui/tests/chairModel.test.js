@@ -34,3 +34,12 @@ test("chairs are grouped in orchestral family order without changing MIDI data",
     assert.equal(groups[1].chairs[0].flatIndex, 9);
 });
 
+test("chairs within a family follow score order before creation order", () => {
+    const chairs = [
+        { id: "f1", entityID: "instrument.wind.flute", family: "Woodwinds", scoreOrder: 4, ordinal: 1, displayOrder: 0 },
+        { id: "p", entityID: "instrument.wind.piccolo", family: "Woodwinds", scoreOrder: 0, ordinal: 1, displayOrder: 1 },
+        { id: "f2", entityID: "instrument.wind.flute", family: "Woodwinds", scoreOrder: 4, ordinal: 2, displayOrder: 2 },
+    ];
+    const [woodwinds] = groupChairs(chairs);
+    assert.deepEqual(woodwinds.chairs.map((chair) => chair.id), ["f1", "f2", "p"]);
+});

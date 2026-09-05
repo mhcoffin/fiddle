@@ -941,6 +941,7 @@ void MainComponent::initDatabase() {
     // Wire the version store into the state manager so it embeds ancestor
     // hashes in the Dorico blob.
     stateManager_.setVersionStore(versionStore_.get());
+    stateManager_.setRoutingRepository(db_.getLibraryRoutingRepository());
 
     // Track the current branch (default to first branch, i.e. "Main").
     auto allBranches = versionStore_->getStorage().listBranches();
@@ -1182,6 +1183,21 @@ void MainComponent::initPluginsAndStrips() {
     syncMixerToLayers();
   else
     mixer_.syncStripsToInstruments(masterList_);
+
+  // Existing branch heads predate routing snapshots. Make the one-time
+  // upgrade visible as an unsaved change so the next Fiddle or Dorico save
+  // records even an intentionally empty chair roster.
+  if (versionStore_ && !currentVersionId_.empty()) {
+    const auto version = versionStore_->getVersion(currentVersionId_);
+    const auto savedState =
+        version ? versionStore_->getState(version->stateHash) : std::nullopt;
+    if (savedState && savedState->routingState.schemaVersion == 0) {
+      stateManager_.markDirty();
+      broadcastMessage("setDirtyState", true);
+      pushLogMessage("<b>[Upgrade]</b> Save once to add chair/layer data to "
+                     "this branch's version history.");
+    }
+  }
 
   pushMixerState(false);
 
@@ -1727,50 +1743,122 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
   mixer_.clear();
   undoManager_.clear();
 
-  for (const auto &stripHash : state.stripHashes) {
-    auto blob = versionStore_->getStripBlob(stripHash);
-    if (!blob)
-      continue;
+  bool restoredRouting = false;
+  if (state.routingState.schemaVersion >= 1) {
+    if (auto *repository = db_.getLibraryRoutingRepository()) {
+      std::vector<ChairRow> chairs;
+      chairs.reserve(state.routingState.chairs.size());
+      for (const auto &saved : state.routingState.chairs) {
+        ChairRow chair;
+        chair.id = saved.id;
+        chair.instrumentEntityId = saved.instrumentEntityId;
+        chair.name = saved.name;
+        chair.family = saved.family;
+        chair.role = saved.isSolo ? DoricoRole::solo : DoricoRole::section;
+        chair.ordinal = saved.ordinal;
+        chair.displayOrder = saved.displayOrder;
+        chair.flatIndex = saved.flatIndex;
+        chairs.push_back(std::move(chair));
+      }
 
-    const juce::String newId = mixer_.addStrip();
-    auto *strip = mixer_.getStrip(newId);
-    if (!strip)
-      continue;
-
-    strip->library = blob->library;
-    strip->family = blob->family;
-    strip->isSolo = blob->isSolo;
-    strip->setActive(blob->active);
-    strip->setMuted(blob->muted);
-    strip->setSoloed(blob->soloed);
-    strip->setInputAssignment(blob->inputPort, blob->inputChannel);
-    strip->pluginUid = blob->pluginUid;
-    strip->setGainDb(blob->gainDb);
-    setupStripPluginSlot(*strip);
-
-    if (!blob->expressionMapEntityId.empty()) {
-      if (auto expressionMap = xmapLibrary_.load(blob->expressionMapEntityId))
-        strip->setExpressionMap(expressionMap);
+      std::vector<LayerRow> layers;
+      layers.reserve(state.routingState.layers.size());
+      for (const auto &saved : state.routingState.layers) {
+        LayerRow layer;
+        layer.id = saved.id;
+        layer.chairId = saved.chairId;
+        layer.patchId = saved.patchId;
+        layer.patchName = saved.patchName;
+        layer.libraryId = saved.libraryId;
+        layer.libraryName = saved.libraryName;
+        layer.position = saved.position;
+        if (const auto blob = versionStore_->getStripBlob(saved.stripHash)) {
+          layer.active = blob->active;
+          layer.muted = blob->muted;
+          layer.soloed = blob->soloed;
+          layer.gainDb = blob->gainDb;
+          layer.pluginUid = blob->pluginUid;
+          layer.pluginState = blob->pluginState;
+          layer.expressionMapId = blob->expressionMapEntityId;
+        }
+        layers.push_back(std::move(layer));
+      }
+      restoredRouting = repository->replaceTopology(chairs, layers);
+      if (restoredRouting) {
+        syncMixerToLayers();
+        // Lua processors remain content-addressed in strip blobs; restore them
+        // after the layer strips have been recreated from the topology.
+        for (const auto &saved : state.routingState.layers) {
+          auto *strip = mixer_.getStrip(juce::String(saved.id));
+          const auto blob = versionStore_->getStripBlob(saved.stripHash);
+          if (!strip || !blob)
+            continue;
+          for (const auto &fileName : blob->luaPluginFileNames) {
+            const auto path = luaCatalog_.resolvePluginPath(fileName);
+            if (path.empty())
+              continue;
+            auto plugin = std::make_shared<LuaPlugin>(path);
+            if (plugin->load())
+              strip->addLuaPlugin(std::move(plugin));
+          }
+        }
+      } else {
+        pushLogMessage("<span style=\"color: red\"><b>[Restore]</b> Failed "
+                       "to restore chair/layer topology; using legacy strip "
+                       "data.</span>",
+                       true);
+      }
     }
+  }
 
-    juce::MemoryBlock pluginState(blob->pluginState.data(),
-                                  blob->pluginState.size());
-    restoreStripPlugin(*strip, blob->pluginUid, pluginState);
-
-    for (const auto &fileName : blob->luaPluginFileNames) {
-      const auto path = luaCatalog_.resolvePluginPath(fileName);
-      if (path.empty())
+  if (!restoredRouting) {
+    for (const auto &stripHash : state.stripHashes) {
+      auto blob = versionStore_->getStripBlob(stripHash);
+      if (!blob)
         continue;
-      auto plugin = std::make_shared<LuaPlugin>(path);
-      if (plugin->load())
-        strip->addLuaPlugin(std::move(plugin));
+
+      const juce::String newId = mixer_.addStrip();
+      auto *strip = mixer_.getStrip(newId);
+      if (!strip)
+        continue;
+
+      strip->library = blob->library;
+      strip->family = blob->family;
+      strip->isSolo = blob->isSolo;
+      strip->setActive(blob->active);
+      strip->setMuted(blob->muted);
+      strip->setSoloed(blob->soloed);
+      strip->setInputAssignment(blob->inputPort, blob->inputChannel);
+      strip->pluginUid = blob->pluginUid;
+      strip->setGainDb(blob->gainDb);
+      setupStripPluginSlot(*strip);
+
+      if (!blob->expressionMapEntityId.empty()) {
+        if (auto expressionMap = xmapLibrary_.load(blob->expressionMapEntityId))
+          strip->setExpressionMap(expressionMap);
+      }
+
+      juce::MemoryBlock pluginState(blob->pluginState.data(),
+                                    blob->pluginState.size());
+      restoreStripPlugin(*strip, blob->pluginUid, pluginState);
+
+      for (const auto &fileName : blob->luaPluginFileNames) {
+        const auto path = luaCatalog_.resolvePluginPath(fileName);
+        if (path.empty())
+          continue;
+        auto plugin = std::make_shared<LuaPlugin>(path);
+        if (plugin->load())
+          strip->addLuaPlugin(std::move(plugin));
+      }
     }
   }
 
   restoreMasterAudio(state.globalState);
   saveAllStripsToDB();
-  mixer_.syncStripsToInstruments(masterList_);
+  if (!restoredRouting)
+    mixer_.syncStripsToInstruments(masterList_);
   pushMixerState(false);
+  pushChairState();
 }
 
 bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
@@ -1798,9 +1886,16 @@ bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
   }
 
   applyVersionState(*state);
-  stateManager_.clearDirty();
-  undoManager_.markSavePoint();
-  broadcastMessage("setDirtyState", false);
+  const bool needsRoutingUpgrade =
+      versionIsHead && state->routingState.schemaVersion == 0;
+  if (needsRoutingUpgrade) {
+    stateManager_.markDirty();
+    broadcastMessage("setDirtyState", true);
+  } else {
+    stateManager_.clearDirty();
+    undoManager_.markSavePoint();
+    broadcastMessage("setDirtyState", false);
+  }
   scheduleStateRebuild(); // Deliberately a no-op for a detached version.
 
   pushBranches();
@@ -4077,6 +4172,7 @@ void MainComponent::setupJsHandlers() {
 void MainComponent::pushChairState() {
   juce::Array<juce::var> result;
   if (auto *repository = db_.getLibraryRoutingRepository()) {
+    const auto &scoreOrder = instrumentBrowser_.getScoreOrder();
     for (const auto &chair : repository->listChairs()) {
       auto *obj = new juce::DynamicObject();
       obj->setProperty("id", juce::String(chair.id));
@@ -4087,6 +4183,10 @@ void MainComponent::pushChairState() {
                        chair.role == DoricoRole::solo ? "solo" : "section");
       obj->setProperty("ordinal", chair.ordinal);
       obj->setProperty("displayOrder", chair.displayOrder);
+      const auto order =
+          scoreOrder.find(juce::String(chair.instrumentEntityId));
+      obj->setProperty("scoreOrder",
+                       order != scoreOrder.end() ? order->second : 99999);
       obj->setProperty("flatIndex", chair.flatIndex);
       obj->setProperty("port", chair.flatIndex / 16);
       obj->setProperty("channel", chair.flatIndex % 16);
@@ -4130,7 +4230,7 @@ void MainComponent::pushLayerCatalog() {
 
 bool MainComponent::instantiateLayer(const LayerRow &layer,
                                      const ChairRow &chair,
-                                     const LibraryPatchRow &patch,
+                                     const LibraryPatchRow *patch,
                                      const juce::String &libraryName) {
   MixerStrip *strip = mixer_.getStrip(juce::String(layer.id));
   const bool isNew = strip == nullptr;
@@ -4144,9 +4244,13 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
     return false;
 
   strip->chairId = juce::String(chair.id);
-  strip->patchId = juce::String(patch.id);
-  strip->layerName = juce::String(patch.name);
+  strip->patchId = juce::String(layer.patchId);
+  strip->layerName = juce::String(
+      !layer.patchName.empty()
+          ? layer.patchName
+          : (patch ? patch->name : std::string{"Missing catalog patch"}));
   strip->library = libraryName;
+  strip->missingPatchReference = patch == nullptr;
   strip->family = juce::String(chair.family);
   strip->isSolo = chair.role == DoricoRole::solo;
   strip->setInputAssignment(chair.flatIndex / 16, chair.flatIndex % 16);
@@ -4206,9 +4310,11 @@ void MainComponent::syncMixerToLayers() {
   for (const auto &chair : chairs) {
     for (const auto &layer : repository->listLayers(chair.id)) {
       const auto patch = repository->getPatch(layer.patchId);
-      if (!patch)
-        continue;
-      instantiateLayer(layer, chair, *patch, libraryNames[patch->libraryId]);
+      const auto libraryName = !layer.libraryName.empty()
+                                   ? juce::String(layer.libraryName)
+                                   : patch ? libraryNames[patch->libraryId]
+                                           : juce::String("Missing library");
+      instantiateLayer(layer, chair, patch ? &*patch : nullptr, libraryName);
     }
   }
 }

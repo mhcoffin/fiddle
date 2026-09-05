@@ -243,7 +243,8 @@ void FiddleDatabase::createSchema() {
       master_gain REAL NOT NULL,
       strip_hashes TEXT NOT NULL,
       audio_schema INTEGER NOT NULL DEFAULT 1,
-      master_state BLOB
+      master_state BLOB,
+      routing_state BLOB
     )
   )");
   sqlite3_exec(db_,
@@ -251,6 +252,8 @@ void FiddleDatabase::createSchema() {
                "NOT NULL DEFAULT 1",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN master_state BLOB",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
                nullptr, nullptr, nullptr);
 
   exec(R"(

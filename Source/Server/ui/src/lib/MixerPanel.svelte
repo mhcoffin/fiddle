@@ -14,6 +14,7 @@
     import {
         FAMILY_ORDER,
         canonicalFamily,
+        compareChairsInScoreOrder,
         instrumentScoreOrder,
         populateScoreOrder,
     } from "./orchestralOrder.js";
@@ -849,9 +850,7 @@
         // visible and makes their Add Layer affordance available before any
         // plug-in instance exists.
         if (chairs.length > 0) {
-            for (const chair of chairs.slice().sort(
-                (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0),
-            )) {
+            for (const chair of chairs.slice().sort(compareChairsInScoreOrder)) {
                 const fam = canonicalFamily(chair.family || "");
                 if (!familyMap.has(fam)) {
                     const group = {
@@ -1489,7 +1488,7 @@
                                                     {#if strip.chairId}
                                                         <div class="ch-layer-name" title={strip.layerName || strip.library}>
                                                             <strong>{strip.layerName || "Layer"}</strong>
-                                                            <span>{strip.library || "Unknown library"}</span>
+                                                            <span>{strip.library || "Unknown library"}{strip.missingPatchReference ? " · missing catalog patch" : ""}</span>
                                                         </div>
                                                     {:else if editingId === strip.id}
                                                         <input

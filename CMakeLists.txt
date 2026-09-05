@@ -279,17 +279,41 @@ add_custom_command(TARGET FiddleServer POST_BUILD
     "$<TARGET_FILE_DIR:FiddleServer>/scripts"
 )
 
-# Sync UI dist → app bundle. This custom target runs every build, so
-# JS/CSS-only changes are picked up without touching C++ sources.
+# Build the Svelte UI when its sources change, then sync dist → app bundle.
+# Keeping the build and copy as separate targets prevents a plain
+# `cmake --build ... --target FiddleServer` from silently packaging stale UI.
+set(UI_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui")
 set(UI_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/dist")
 set(UI_BUNDLE_DIR "$<TARGET_FILE_DIR:FiddleServer>/ui")
-set(UI_STAMP "${CMAKE_CURRENT_BINARY_DIR}/ui_copy.stamp")
+set(UI_BUILD_STAMP "${CMAKE_CURRENT_BINARY_DIR}/ui_build.stamp")
+find_program(PNPM_EXECUTABLE pnpm)
+if(PNPM_EXECUTABLE)
+    file(GLOB_RECURSE UI_SOURCE_FILES CONFIGURE_DEPENDS
+        "${UI_SOURCE_DIR}/src/*"
+    )
+    add_custom_command(
+        OUTPUT "${UI_BUILD_STAMP}"
+        COMMAND "${PNPM_EXECUTABLE}" run build
+        COMMAND ${CMAKE_COMMAND} -E touch "${UI_BUILD_STAMP}"
+        WORKING_DIRECTORY "${UI_SOURCE_DIR}"
+        DEPENDS ${UI_SOURCE_FILES}
+                "${UI_SOURCE_DIR}/package.json"
+                "${UI_SOURCE_DIR}/pnpm-lock.yaml"
+                "${UI_SOURCE_DIR}/vite.config.js"
+        COMMENT "Building FiddleServer Svelte UI"
+        VERBATIM
+    )
+    add_custom_target(FiddleServerUIBuild DEPENDS "${UI_BUILD_STAMP}")
+endif()
 
 add_custom_target(FiddleServerUI ALL
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${UI_BUNDLE_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${UI_DIST_DIR}" "${UI_BUNDLE_DIR}"
     COMMENT "Syncing UI dist → FiddleServer bundle"
 )
+if(TARGET FiddleServerUIBuild)
+    add_dependencies(FiddleServerUI FiddleServerUIBuild)
+endif()
 add_dependencies(FiddleServer FiddleServerUI)
 
 # ==============================================================================
@@ -579,6 +603,14 @@ if(NODE_EXECUTABLE)
     )
     set_tests_properties(branch_selector_layout PROPERTIES
         LABELS "ui;versioning;regression;stable"
+    )
+
+    add_test(NAME chair_model_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/chairModel.test.js"
+    )
+    set_tests_properties(chair_model_ui PROPERTIES
+        LABELS "ui;routing;regression;stable"
     )
 endif()
 

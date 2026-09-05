@@ -76,3 +76,33 @@ export const populateScoreOrder = (instruments) => {
  */
 export const instrumentScoreOrder = (entityID) =>
     scoreOrderMap.get(entityID) ?? 99999;
+
+/**
+ * Compare project chairs in conventional orchestral score order without
+ * changing their persistent MIDI assignments. Repeated instances of one
+ * instrument stay in ordinal order.
+ */
+export const compareChairsInScoreOrder = (a, b) => {
+    // Dorico places piccolo above concert flute in its built-in Orchestral
+    // table. In the mixer, keep all numbered concert-flute chairs together
+    // and place piccolo immediately after them.
+    const isConcertFlute = (chair) =>
+        chair.entityID === "instrument.wind.flute";
+    const isPiccolo = (chair) =>
+        chair.entityID === "instrument.wind.piccolo" ||
+        chair.entityID?.startsWith("instrument.wind.piccolo.");
+    if (isConcertFlute(a) && isPiccolo(b)) return -1;
+    if (isPiccolo(a) && isConcertFlute(b)) return 1;
+
+    const orderA = a.scoreOrder ?? instrumentScoreOrder(a.entityID);
+    const orderB = b.scoreOrder ?? instrumentScoreOrder(b.entityID);
+    if (orderA !== orderB) return orderA - orderB;
+    if (a.entityID === b.entityID) {
+        const roleA = a.role === "solo" ? 0 : 1;
+        const roleB = b.role === "solo" ? 0 : 1;
+        if (roleA !== roleB) return roleA - roleB;
+        if ((a.ordinal ?? 0) !== (b.ordinal ?? 0))
+            return (a.ordinal ?? 0) - (b.ordinal ?? 0);
+    }
+    return (a.displayOrder ?? 0) - (b.displayOrder ?? 0);
+};

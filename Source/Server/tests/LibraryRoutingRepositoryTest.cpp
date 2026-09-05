@@ -34,6 +34,7 @@ struct DatabaseFixture {
                   "INSERT INTO libraries VALUES ('vsl', 'Vienna'), "
                   "('ews', 'EastWest')"));
     CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
+    CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
   }
 
   ~DatabaseFixture() {
@@ -97,6 +98,9 @@ void testPatchCanCreateIndependentLayersOnDifferentChairs() {
   CHECK(sectionLayer && sectionLayer->pluginState == patch.pluginState);
   CHECK(sectionLayer &&
         sectionLayer->expressionMapId == patch.expressionMapId);
+  CHECK(sectionLayer && sectionLayer->patchName == patch.name);
+  CHECK(sectionLayer && sectionLayer->libraryId == patch.libraryId);
+  CHECK(sectionLayer && sectionLayer->libraryName == "Vienna");
 
   sectionLayer->gainDb = -8.0f;
   sectionLayer->pluginState = {9, 9};
@@ -223,6 +227,94 @@ void testChairAllocationIsStableAndReclaimsMatchingDestination() {
   CHECK(persistedSecond && persistedSecond->flatIndex == 2);
 }
 
+void testHistoricalTopologyRestoresMissingCatalogReference() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  const auto patch = soloViolinPatch();
+  const auto chair =
+      makeChair("violin-section-1", fiddle::DoricoRole::section, 1, 1);
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.upsertChair(chair));
+  CHECK(repository.createLayerFromPatch("layer-a", chair.id, patch.id, 0));
+  const auto savedLayer = repository.getLayer("layer-a");
+  CHECK(savedLayer.has_value());
+
+  CHECK(repository.deleteLayer("layer-a"));
+  CHECK(repository.deletePatch(patch.id) ==
+        fiddle::PatchDeleteResult::deleted);
+  CHECK(!repository.getPatch(patch.id).has_value());
+
+  CHECK(savedLayer && repository.replaceTopology({chair}, {*savedLayer}));
+  const auto restored = repository.getLayer("layer-a");
+  CHECK(restored.has_value());
+  CHECK(restored && restored->patchId == patch.id);
+  CHECK(restored && restored->patchName == patch.name);
+  CHECK(restored && restored->libraryName == "Vienna");
+  CHECK(!repository.getPatch(patch.id).has_value());
+
+  CHECK(repository.replaceTopology({}, {}));
+  CHECK(repository.listChairs().empty());
+  CHECK(repository.listLayers().empty());
+}
+
+void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
+  sqlite3 *database = nullptr;
+  CHECK(sqlite3_open(":memory:", &database) == SQLITE_OK);
+  CHECK(execute(database, "PRAGMA foreign_keys=ON"));
+  CHECK(execute(database,
+                "CREATE TABLE libraries (id TEXT PRIMARY KEY, name TEXT)"));
+  CHECK(execute(database, R"(
+    CREATE TABLE library_patches (
+      id TEXT PRIMARY KEY, library_id TEXT NOT NULL, position INTEGER,
+      name TEXT NOT NULL, instrument_entity_id TEXT, family TEXT,
+      character TEXT, plugin_uid INTEGER, plugin_state BLOB,
+      expression_map_id TEXT,
+      FOREIGN KEY (library_id) REFERENCES libraries(id) ON DELETE RESTRICT)
+  )"));
+  CHECK(execute(database, R"(
+    CREATE TABLE chairs (
+      id TEXT PRIMARY KEY, instrument_entity_id TEXT NOT NULL, name TEXT,
+      family TEXT, dorico_role INTEGER, ordinal INTEGER, display_order INTEGER,
+      flat_index INTEGER UNIQUE,
+      UNIQUE (instrument_entity_id, dorico_role, ordinal))
+  )"));
+  CHECK(execute(database, R"(
+    CREATE TABLE layers (
+      id TEXT PRIMARY KEY, chair_id TEXT NOT NULL, patch_id TEXT NOT NULL,
+      position INTEGER, active INTEGER, muted INTEGER, soloed INTEGER,
+      gain_db REAL, plugin_uid INTEGER, plugin_state BLOB,
+      expression_map_id TEXT,
+      FOREIGN KEY (chair_id) REFERENCES chairs(id) ON DELETE RESTRICT,
+      FOREIGN KEY (patch_id) REFERENCES library_patches(id) ON DELETE RESTRICT)
+  )"));
+  CHECK(execute(database, "INSERT INTO libraries VALUES ('vsl', 'Vienna')"));
+  CHECK(execute(database,
+                "INSERT INTO library_patches VALUES "
+                "('patch', 'vsl', 0, 'Violin', 'violin', 'Strings', '', 42, "
+                "NULL, 'xmap')"));
+  CHECK(execute(database,
+                "INSERT INTO chairs VALUES "
+                "('chair', 'violin', 'Violin I', 'Strings', 1, 1, 0, 1)"));
+  CHECK(execute(database,
+                "INSERT INTO layers VALUES "
+                "('layer', 'chair', 'patch', 0, 1, 0, 0, 0.0, 42, NULL, "
+                "'xmap')"));
+
+  CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
+  std::mutex mutex;
+  fiddle::LibraryRoutingRepository repository(database, mutex);
+  const auto migrated = repository.getLayer("layer");
+  CHECK(migrated.has_value());
+  CHECK(migrated && migrated->patchId == "patch");
+  CHECK(repository.deleteLayer("layer"));
+  CHECK(repository.deletePatch("patch") == fiddle::PatchDeleteResult::deleted);
+  CHECK(migrated && repository.replaceTopology(
+                        {makeChair("chair", fiddle::DoricoRole::section, 1, 1)},
+                        {*migrated}));
+  CHECK(repository.getLayer("layer").has_value());
+  CHECK(sqlite3_close(database) == SQLITE_OK);
+}
+
 } // namespace
 
 int main() {
@@ -233,6 +325,8 @@ int main() {
   testDeletingChairExplicitlyDeletesItsLayersOnly();
   testChairDestinationsAndChannelsAreUnique();
   testChairAllocationIsStableAndReclaimsMatchingDestination();
+  testHistoricalTopologyRestoresMissingCatalogReference();
+  testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

@@ -149,6 +149,29 @@ void testMasterAudioRoundTripsThroughSqlite() {
     effect.pluginState = {0, 1, 2, 255};
     state.globalState.masterInserts.push_back(effect);
 
+    state.routingState.schemaVersion = 1;
+    fiddle::versioning::ChairSnapshot chair;
+    chair.id = "chair-1";
+    chair.instrumentEntityId = "instrument.strings.violin";
+    chair.name = "Violin I";
+    chair.family = "Strings";
+    chair.isSolo = false;
+    chair.ordinal = 1;
+    chair.displayOrder = 3;
+    chair.flatIndex = 17;
+    state.routingState.chairs.push_back(chair);
+
+    fiddle::versioning::LayerSnapshot layer;
+    layer.id = "layer-1";
+    layer.chairId = chair.id;
+    layer.patchId = "removed-patch";
+    layer.patchName = "Elite Violins I";
+    layer.libraryId = "elite";
+    layer.libraryName = "Elite Strings";
+    layer.position = 2;
+    layer.stripHash = "strip-a";
+    state.routingState.layers.push_back(layer);
+
     const auto hash = state.computeHash();
     storage.putFiddleState(hash, state);
     const auto restored = storage.getFiddleState(hash);
@@ -164,6 +187,16 @@ void testMasterAudioRoundTripsThroughSqlite() {
     CHECK(restored && restored->globalState.masterInserts.front().bypassed);
     CHECK(restored && restored->globalState.masterInserts.front().pluginState ==
                           effect.pluginState);
+    CHECK(restored && restored->routingState.schemaVersion == 1);
+    CHECK(restored && restored->routingState.chairs.size() == 1);
+    CHECK(restored && !restored->routingState.chairs.front().isSolo);
+    CHECK(restored && restored->routingState.chairs.front().flatIndex == 17);
+    CHECK(restored && restored->routingState.layers.size() == 1);
+    CHECK(restored &&
+          restored->routingState.layers.front().patchName ==
+              "Elite Violins I");
+    CHECK(restored &&
+          restored->routingState.layers.front().stripHash == "strip-a");
   }
 
   CHECK(sqlite3_close(database) == SQLITE_OK);

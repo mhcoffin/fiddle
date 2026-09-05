@@ -83,6 +83,82 @@ StateManager::StateManager() = default;
 
 StateManager::~StateManager() = default;
 
+void StateManager::captureRoutingState(
+    versioning::FiddleState &state,
+    const std::map<std::string, versioning::Hash> &stripHashesById,
+    bool persistFallbackBlobs) const {
+  if (!routingRepository_)
+    return;
+
+  state.routingState.schemaVersion = 1;
+  for (const auto &chair : routingRepository_->listChairs()) {
+    versioning::ChairSnapshot saved;
+    saved.id = chair.id;
+    saved.instrumentEntityId = chair.instrumentEntityId;
+    saved.name = chair.name;
+    saved.family = chair.family;
+    saved.isSolo = chair.role == DoricoRole::solo;
+    saved.ordinal = chair.ordinal;
+    saved.displayOrder = chair.displayOrder;
+    saved.flatIndex = chair.flatIndex;
+    state.routingState.chairs.push_back(std::move(saved));
+
+    for (const auto &layer : routingRepository_->listLayers(chair.id)) {
+      versioning::LayerSnapshot savedLayer;
+      savedLayer.id = layer.id;
+      savedLayer.chairId = layer.chairId;
+      savedLayer.patchId = layer.patchId;
+      savedLayer.patchName = layer.patchName;
+      savedLayer.libraryId = layer.libraryId;
+      savedLayer.libraryName = layer.libraryName;
+      savedLayer.position = layer.position;
+      // Backfill display metadata for layers created before it was copied
+      // into the routing row.
+      if (auto patch = routingRepository_->getPatch(layer.patchId)) {
+        if (savedLayer.patchName.empty())
+          savedLayer.patchName = patch->name;
+        if (savedLayer.libraryId.empty())
+          savedLayer.libraryId = patch->libraryId;
+        if (savedLayer.libraryName.empty() && versionStore_) {
+          if (auto name = versionStore_->getStorage().getLibraryName(
+                  patch->libraryId))
+            savedLayer.libraryName = *name;
+        }
+      }
+
+      if (const auto found = stripHashesById.find(layer.id);
+          found != stripHashesById.end()) {
+        savedLayer.stripHash = found->second;
+      } else {
+        // A legacy-version checkout may have rebuilt free-standing strips
+        // while the explicit routing rows remain available. Preserve each
+        // layer from its durable row instead of emitting an unusable empty
+        // strip reference.
+        versioning::StripBlob fallback;
+        fallback.libraryId = layer.id;
+        fallback.library = savedLayer.libraryName;
+        fallback.family = chair.family;
+        fallback.isSolo = chair.role == DoricoRole::solo;
+        fallback.active = layer.active;
+        fallback.muted = layer.muted;
+        fallback.soloed = layer.soloed;
+        fallback.inputPort = chair.flatIndex / 16;
+        fallback.inputChannel = chair.flatIndex % 16;
+        fallback.pluginUid = layer.pluginUid;
+        fallback.gainDb = layer.gainDb;
+        fallback.expressionMapEntityId = layer.expressionMapId;
+        fallback.pluginState = layer.pluginState;
+        savedLayer.stripHash = fallback.computeHash();
+        state.stripHashes.push_back(savedLayer.stripHash);
+        if (persistFallbackBlobs && versionStore_)
+          versionStore_->getStorage().putStripBlob(savedLayer.stripHash,
+                                                    fallback);
+      }
+      state.routingState.layers.push_back(std::move(savedLayer));
+    }
+  }
+}
+
 void StateManager::initialize() {
   sharedMemory_ = std::make_unique<StateSharedMemory>(true /* producer */);
   // std::cerr << "[StateManager] Initialized" << std::endl;
@@ -131,14 +207,18 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   state.globalState = makeGlobalState(master);
 
   auto strips = mixer.getAllStrips();
+  std::map<std::string, versioning::Hash> stripHashesById;
 
   // Hash items and prep for writing into store.
   // Strip identity = (inputPort, inputChannel, libraryId).
-  // libraryId defaults to kDefaultLibraryId until MixerStrip carries it.
+  // Explicit layers use their immutable ID as the third identity component;
+  // legacy free-standing strips retain the default-library identity.
   for (auto *strip : strips) {
     const auto realtime = strip->realtimeState();
     versioning::StripBlob sb;
-    sb.libraryId = versioning::kDefaultLibraryId;
+    sb.libraryId = strip->chairId.isNotEmpty()
+                       ? strip->id.toStdString()
+                       : versioning::kDefaultLibraryId;
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
@@ -159,8 +239,12 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
       sb.pluginState.assign(data, data + cached.getSize());
     }
 
-    state.stripHashes.push_back(sb.computeHash());
+    const auto stripHash = sb.computeHash();
+    state.stripHashes.push_back(stripHash);
+    stripHashesById[strip->id.toStdString()] = stripHash;
   }
+
+  captureRoutingState(state, stripHashesById, false);
 
   std::string stateHash = state.computeHash();
   std::vector<std::string> ancestorVersionIds;
@@ -255,11 +339,14 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
   state.globalState = makeGlobalState(mixer.masterAudio().snapshotAll());
 
   auto strips = mixer.getAllStrips();
+  std::map<std::string, versioning::Hash> stripHashesById;
 
   for (auto *strip : strips) {
     const auto realtime = strip->realtimeState();
     versioning::StripBlob sb;
-    sb.libraryId = versioning::kDefaultLibraryId;
+    sb.libraryId = strip->chairId.isNotEmpty()
+                       ? strip->id.toStdString()
+                       : versioning::kDefaultLibraryId;
     sb.library = strip->library.toStdString();
     sb.family = strip->family.toStdString();
     sb.isSolo = strip->isSolo;
@@ -280,9 +367,13 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
       sb.pluginState.assign(data, data + cached.getSize());
     }
 
-    state.stripHashes.push_back(sb.computeHash());
-    versionStore_->getStorage().putStripBlob(sb.computeHash(), sb);
+    const auto stripHash = sb.computeHash();
+    state.stripHashes.push_back(stripHash);
+    stripHashesById[strip->id.toStdString()] = stripHash;
+    versionStore_->getStorage().putStripBlob(stripHash, sb);
   }
+
+  captureRoutingState(state, stripHashesById, true);
 
   if (branchId.empty()) {
     // std::cerr << "[StateManager] Error: Cannot commit, branch ID is empty."

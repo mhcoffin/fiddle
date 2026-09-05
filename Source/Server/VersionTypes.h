@@ -54,8 +54,9 @@ inline Hash xxh3_128(const std::string &s) {
 // ---------------------------------------------------------------------------
 
 /// A strip blob contains every setting for a mixer strip. A strip is now
-/// uniquely identified by (inputPort, inputChannel, libraryId) — there is no
-/// longer a random UUID for uniqueness; the triple provides stable identity.
+/// uniquely identified by (inputPort, inputChannel, libraryId). For legacy
+/// strips libraryId is a catalog/library identity; explicit layers store their
+/// immutable layer ID here so two layers on the same chair never collapse.
 struct StripBlob {
   std::string libraryId; ///< Library UUID (default = kDefaultLibraryId)
 
@@ -165,11 +166,78 @@ struct GlobalState {
 };
 
 // ---------------------------------------------------------------------------
+// RoutingState — project-owned Dorico chairs and their ordered layers
+// ---------------------------------------------------------------------------
+
+struct ChairSnapshot {
+  std::string id;
+  std::string instrumentEntityId;
+  std::string name;
+  std::string family;
+  bool isSolo = true;
+  int ordinal = 1;
+  int displayOrder = 0;
+  int flatIndex = -1;
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << id << '\0' << instrumentEntityId << '\0' << name << '\0' << family
+       << '\0' << (isSolo ? '1' : '0') << '\0' << ordinal << '\0'
+       << displayOrder << '\0' << flatIndex << '\0';
+    return os.str();
+  }
+};
+
+struct LayerSnapshot {
+  std::string id;
+  std::string chairId;
+  std::string patchId;
+  std::string patchName;
+  std::string libraryId;
+  std::string libraryName;
+  int position = 0;
+  Hash stripHash;
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << id << '\0' << chairId << '\0' << patchId << '\0' << patchName
+       << '\0' << libraryId << '\0' << libraryName << '\0' << position
+       << '\0' << stripHash << '\0';
+    return os.str();
+  }
+};
+
+struct RoutingState {
+  /// Zero denotes a legacy snapshot that did not contain routing topology.
+  int schemaVersion = 0;
+  std::vector<ChairSnapshot> chairs;
+  std::vector<LayerSnapshot> layers;
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << schemaVersion << '\0';
+    auto data = os.str();
+    const auto appendItem = [&data](const std::string &item) {
+      data.append(std::to_string(item.size()));
+      data.push_back('\0');
+      data.append(item);
+    };
+    for (const auto &chair : chairs)
+      appendItem(chair.serializeForHash());
+    data.push_back('\0');
+    for (const auto &layer : layers)
+      appendItem(layer.serializeForHash());
+    return data;
+  }
+};
+
+// ---------------------------------------------------------------------------
 // FiddleState — global state + ordered list of strip hashes
 // ---------------------------------------------------------------------------
 
 struct FiddleState {
   GlobalState globalState;
+  RoutingState routingState;
   std::vector<Hash> stripHashes; ///< Ordered left-to-right by (port, channel).
 
   Hash computeHash() const {
@@ -179,6 +247,8 @@ struct FiddleState {
       combined += ':';
       combined += sh;
     }
+    combined += ':';
+    combined += xxh3_128(routingState.serializeForHash());
     return xxh3_128(combined);
   }
 };

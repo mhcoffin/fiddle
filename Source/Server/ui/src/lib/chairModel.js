@@ -1,4 +1,4 @@
-import { FAMILY_ORDER, canonicalFamily, instrumentScoreOrder } from "./orchestralOrder.js";
+import { FAMILY_ORDER, canonicalFamily, compareChairsInScoreOrder } from "./orchestralOrder.js";
 
 const familyLabel = (key) =>
     key ? key.charAt(0).toUpperCase() + key.slice(1) : "Other";
@@ -19,10 +19,7 @@ export function groupChairs(chairs) {
         .map(([key, entries]) => ({
             key,
             label: familyLabel(key),
-            chairs: entries.slice().sort((a, b) =>
-                (a.displayOrder ?? 0) - (b.displayOrder ?? 0) ||
-                instrumentScoreOrder(a.entityID) - instrumentScoreOrder(b.entityID) ||
-                (a.ordinal ?? 0) - (b.ordinal ?? 0)),
+            chairs: entries.slice().sort(compareChairsInScoreOrder),
         }));
 }
 
@@ -52,4 +49,3 @@ export function suggestedChairName(instrument, role, chairs) {
     const prefix = role === "solo" ? "Solo " : "";
     return `${prefix}${instrument.name} ${matching + 1}`;
 }
-
