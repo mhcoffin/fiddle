@@ -170,6 +170,18 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
   juce::File outFile = dir.getChildFile("endpointconfig.xml");
   backupExistingFile(outFile);
 
+  auto root = buildEndpointConfigXml(assignments, browserInstruments);
+  if (!root->writeTo(outFile))
+    return juce::Result::fail("Failed to write: " + outFile.getFullPathName());
+
+  return juce::Result::ok();
+}
+
+std::unique_ptr<juce::XmlElement>
+DoricoConfigGenerator::buildEndpointConfigXml(
+    const std::vector<InstrumentAssignment> &assignments,
+    const std::vector<BrowsableInstrument> &browserInstruments) {
+
   auto root = std::make_unique<juce::XmlElement>("endpointConfig");
   root->createNewChildElement("fileVersion")->addTextElement("1.1416");
   root->createNewChildElement("version")->addTextElement("1");
@@ -225,10 +237,11 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
   }
 
   // ── Instrument-to-entry mapping ──
-  // This maps each Dorico instrument entity ID to the correct entry
-  // (port/channel slot). The <endpoints> value is the flat index in
-  // the entries array. <index> disambiguates multiple instruments of
-  // the same type (e.g., Violin 1 vs Violin 2).
+  // This maps each Dorico instrument entity ID to the correct MIDI endpoint.
+  // The <endpoints> value is the physical flattened MIDI destination, not the
+  // position in this (potentially sparse) entries array. <index>
+  // disambiguates multiple instruments of the same type (e.g., Violin 1 vs
+  // Violin 2).
   auto *instruments = root->createNewChildElement("instruments");
   instruments->setAttribute("array", "true");
 
@@ -252,6 +265,7 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
 
   for (int i = 0; i < (int)assignments.size(); ++i) {
     const auto &a = assignments[i];
+    const int endpointIndex = a.flatIndex >= 0 ? a.flatIndex : i;
 
     // Get all variant entity IDs for this instrument
     std::vector<juce::String> entityIds;
@@ -276,14 +290,11 @@ juce::Result DoricoConfigGenerator::writeEndpointConfigXml(
       instrData->createNewChildElement("playerType")
           ->addTextElement(a.isSolo ? "kSoloPlayer" : "kSectionPlayer");
       instrData->createNewChildElement("endpoints")
-          ->addTextElement(juce::String(i));
+          ->addTextElement(juce::String(endpointIndex));
     }
   }
 
-  if (!root->writeTo(outFile))
-    return juce::Result::fail("Failed to write: " + outFile.getFullPathName());
-
-  return juce::Result::ok();
+  return root;
 }
 
 // ── playbacktemplatespec.xml ──────────────────────────────────────────────

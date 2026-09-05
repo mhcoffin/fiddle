@@ -175,7 +175,11 @@
                                                     pendingDeleteId = "";
                                                 } else pendingDeleteId = chair.id;
                                             }}
-                                        >{pendingDeleteId === chair.id ? "Confirm delete" : "Delete"}</button>
+                                        >{pendingDeleteId === chair.id
+                                            ? (chair.layerCount > 0
+                                                ? `Delete chair + ${chair.layerCount} ${chair.layerCount === 1 ? "layer" : "layers"}`
+                                                : "Confirm delete")
+                                            : "Delete"}</button>
                                     </article>
                                 {/each}
                             </div>

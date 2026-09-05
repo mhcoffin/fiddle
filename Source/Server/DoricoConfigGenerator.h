@@ -50,6 +50,15 @@ public:
   expandSlots(const std::vector<MasterInstrumentList::EnsembleSlot> &slots);
 
   /**
+   * Build Dorico's endpoint configuration without writing it to disk.
+   * Keeping serialization separate makes sparse, stable MIDI assignments
+   * directly testable.
+   */
+  static std::unique_ptr<juce::XmlElement> buildEndpointConfigXml(
+      const std::vector<InstrumentAssignment> &assignments,
+      const std::vector<BrowsableInstrument> &browserInstruments);
+
+  /**
    * Generate all XML config files and install them to the Dorico
    * application support directory.
    *

@@ -214,6 +214,7 @@ private:
   void initMidiServer();
   void initAudioDevice();
   void initDatabase();
+  void migrateLegacyLibraryPatches();
   void initPluginsAndStrips();
   void timerCallback() override;
 
@@ -227,6 +228,11 @@ private:
   void pushMixerState(bool markDirty = true);
   void pushMasterAudioState();
   void pushChairState();
+  void pushLayerCatalog();
+  void syncMixerToLayers();
+  bool instantiateLayer(const LayerRow &layer, const ChairRow &chair,
+                        const LibraryPatchRow &patch,
+                        const juce::String &libraryName);
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void pushToDebugWindow(const juce::String &js);

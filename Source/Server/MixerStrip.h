@@ -32,6 +32,12 @@ struct MixerStrip {
   juce::String family;  // Instrument family (e.g. "Strings", "Brass")
   bool isSolo = true;   // true = solo player, false = section
 
+  // Explicit chair/layer identity. Empty for transitional free-standing
+  // strips created by the legacy mixer workflow.
+  juce::String chairId;
+  juce::String patchId;
+  juce::String layerName;
+
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {
     bool active = true;

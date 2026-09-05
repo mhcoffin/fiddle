@@ -879,6 +879,28 @@ set_tests_properties(library_routing_repository PROPERTIES
 )
 
 # ==============================================================================
+# DoricoConfigGeneratorTest — sparse stable MIDI destinations in endpoint XML
+# ==============================================================================
+juce_add_console_app(DoricoConfigGeneratorTest
+    PRODUCT_NAME "DoricoConfigGeneratorTest"
+)
+
+target_sources(DoricoConfigGeneratorTest PRIVATE
+    Source/Server/tests/DoricoConfigGeneratorTest.cpp
+    Source/Server/DoricoConfigGenerator.cpp
+)
+
+target_include_directories(DoricoConfigGeneratorTest PRIVATE Source/Server)
+target_link_libraries(DoricoConfigGeneratorTest PRIVATE juce::juce_core)
+target_compile_features(DoricoConfigGeneratorTest PRIVATE cxx_std_17)
+juce_generate_juce_header(DoricoConfigGeneratorTest)
+
+add_test(NAME dorico_config_generator COMMAND DoricoConfigGeneratorTest)
+set_tests_properties(dorico_config_generator PROPERTIES
+    LABELS "dorico;routing;regression;stable"
+)
+
+# ==============================================================================
 # FiddleMock — CLI tool for testing Dorico save/load without Dorico
 # ==============================================================================
 add_executable(FiddleMock

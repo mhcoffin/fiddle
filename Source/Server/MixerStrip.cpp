@@ -473,6 +473,9 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("library", library);
   obj->setProperty("family", family);
   obj->setProperty("isSolo", isSolo);
+  obj->setProperty("chairId", chairId);
+  obj->setProperty("patchId", patchId);
+  obj->setProperty("layerName", layerName);
   const auto state = realtimeState();
   obj->setProperty("active", state.active);
   obj->setProperty("muted", state.muted);

@@ -118,3 +118,21 @@ existing strip-level mixing and processing controls.
 Library activation remains a convenience operation over all current layers
 from that library; it is not part of layer identity.
 
+## Deferred plug-in preset diagnostics
+
+Fiddle asks hosted VST instruments for their current program and program name,
+but many modern instruments manage presets entirely inside their own editor and
+expose only opaque state to the host. In that case Fiddle cannot reliably tell
+whether the intended sample-library patch is actually loaded. The Library
+Manager patch name describes the expected configuration; it must not be
+presented as proof of the plug-in's current internal preset.
+
+A future UI/diagnostics pass should:
+
+- display the current program/preset name whenever the plug-in reports a
+  meaningful one, including plug-ins that expose only one named program;
+- avoid inventing a preset name when the plug-in does not report one; and
+- consider a non-alarming "MIDI received, no audio output" diagnostic to help
+  identify empty or incompletely configured instrument instances. Such a
+  diagnostic needs timing and level thresholds that avoid false warnings for
+  rests, silent articulations, muted paths, and deliberately quiet patches.

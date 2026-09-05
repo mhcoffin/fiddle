@@ -5,6 +5,7 @@
     import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChairManager from "./ChairManager.svelte";
+    import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
         addStripRange,
@@ -44,6 +45,9 @@
     });
     let masterAudioOpen = $state(false);
     let chairManagerOpen = $state(false);
+    let chairs = $state([]);
+    let layerCatalog = $state([]);
+    let layerPickerChair = $state(null);
     let branches = $state([]);
     let currentBranch = $state("default");
     let stripSize = $state(readStripSize(window.localStorage));
@@ -148,6 +152,15 @@
     onFromCpp("setDoricoInstruments", (arr) => {
         populateScoreOrder(arr);
     });
+    onFromCpp("setChairState", (data) => {
+        chairs = Array.isArray(data) ? data : [];
+    });
+    onFromCpp("setLayerCatalog", (data) => {
+        layerCatalog = Array.isArray(data) ? data : [];
+    });
+    onFromCpp("layerOperationResult", (message) => {
+        if (message !== "Layer added") console.warn("[Mixer]", message);
+    });
     onFromCpp("setDetachedHead", (detached) => {
         isDetachedHead = detached;
     });
@@ -244,11 +257,14 @@
         dispatchCpp("requestMasterAudioState");
         dispatchCpp("requestExpressionMaps");
         dispatchCpp("requestCurrentBranch");
+        dispatchCpp("requestChairs");
+        dispatchCpp("requestLayerCatalog");
 
         // Escape closes the focused panel before clearing mixer selection.
         const handleKeyDown = (e) => {
             if (e.key !== "Escape") return;
-            if (chairManagerOpen) chairManagerOpen = false;
+            if (layerPickerChair) layerPickerChair = null;
+            else if (chairManagerOpen) chairManagerOpen = false;
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
         };
@@ -260,6 +276,13 @@
         dispatchCpp("addMixerStrip");
     };
     const removeStrip = (id) => {
+        const target = strips.find((strip) => strip.id === id);
+        if (target?.chairId) {
+            dispatchCpp("removeChairLayer", id);
+            selectedIds.delete(id);
+            selectedIds = new Set(selectedIds);
+            return;
+        }
         if (isMultiSelected && selectedIds.has(id)) {
             dispatchCpp("removeGroupStrips", selectedIdsJson());
             clearSelection();
@@ -821,6 +844,51 @@
     let groupedStrips = $derived.by(() => {
         const groups = [];
         const familyMap = new Map();
+
+        // Explicit chairs are the mixer hierarchy. This keeps empty chairs
+        // visible and makes their Add Layer affordance available before any
+        // plug-in instance exists.
+        if (chairs.length > 0) {
+            for (const chair of chairs.slice().sort(
+                (a, b) => (a.displayOrder ?? 0) - (b.displayOrder ?? 0),
+            )) {
+                const fam = canonicalFamily(chair.family || "");
+                if (!familyMap.has(fam)) {
+                    const group = {
+                        family: fam,
+                        displayName: chair.family || "Other",
+                        strips: [],
+                        instrGroups: [],
+                        colors: FAMILY_COLORS[fam] || defaultColors,
+                    };
+                    familyMap.set(fam, group);
+                    groups.push(group);
+                }
+                const chairStrips = strips.filter(
+                    (strip) => strip.chairId === chair.id ||
+                        (strip.inputPort === chair.port && strip.inputChannel === chair.channel),
+                );
+                const group = familyMap.get(fam);
+                group.strips.push(...chairStrips);
+                group.instrGroups.push({
+                    key: chair.id,
+                    chairId: chair.id,
+                    chair,
+                    label: chair.name,
+                    portLabel: `P${chair.port + 1}.${chair.channel + 1}`,
+                    strips: chairStrips,
+                });
+            }
+            groups.sort((a, b) => {
+                const ia = FAMILY_ORDER.indexOf(a.family);
+                const ib = FAMILY_ORDER.indexOf(b.family);
+                return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+            });
+            return groups;
+        }
+
+        // Transitional fallback for installations that have not created any
+        // explicit chairs yet.
         for (const strip of strips) {
             const fam = canonicalFamily(strip.family || "");
             if (!familyMap.has(fam)) {
@@ -1053,11 +1121,11 @@
     {/if}
 
     <div class="mixer-body" class:resizing={isResizing}>
-    {#if strips.length === 0}
+    {#if strips.length === 0 && chairs.length === 0}
         <div class="empty-state">
             <p>
-                No channel strips. Use <strong>View → Show Library Manager</strong> to set
-                up your ensemble.
+                No chairs yet. Use <strong>Manage Chairs</strong> to define the
+                instruments Dorico should address.
             </p>
         </div>
     {:else}
@@ -1118,10 +1186,16 @@
                                         class="bridge-header"
                                         class:bridge-multi={instrGroup.strips.length > 1}
                                     >
-                                        <span class="bridge-icon">{instInput?.isSolo ? "👤" : "👥"}</span>
+                                        <span class="bridge-icon">{(instrGroup.chair?.role === "solo" || instInput?.isSolo) ? "👤" : "👥"}</span>
                                         <span class="bridge-label">{instrGroup.label}</span>
                                         {#if instrGroup.portLabel}
                                             <span class="bridge-port">{instrGroup.portLabel}</span>
+                                        {/if}
+                                        {#if instrGroup.chairId}
+                                            <button
+                                                class="bridge-add-layer"
+                                                onclick={() => { layerPickerChair = instrGroup.chair; }}
+                                            >Add Layer</button>
                                         {/if}
                                     </div>
                                     <!-- inst-body: master-strip + strips-row side by side -->
@@ -1183,6 +1257,12 @@
                                         </div>
                                     {/if}
                                     <div class="strips-row">
+                                        {#if instrGroup.chairId && instrGroup.strips.length === 0}
+                                            <div class="empty-chair">
+                                                <span>No sound layers assigned</span>
+                                                <button onclick={() => { layerPickerChair = instrGroup.chair; }}>Add the first layer</button>
+                                            </div>
+                                        {/if}
                                         {#each instrGroup.strips as strip (strip.id)}
                                             <!-- svelte-ignore a11y_click_events_have_key_events -->
                                             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1406,7 +1486,12 @@
 
                                                 <!-- Strip name area: only library name now (instrument moved to bridge header) -->
                                                 <div class="ch-name-area">
-                                                    {#if editingId === strip.id}
+                                                    {#if strip.chairId}
+                                                        <div class="ch-layer-name" title={strip.layerName || strip.library}>
+                                                            <strong>{strip.layerName || "Layer"}</strong>
+                                                            <span>{strip.library || "Unknown library"}</span>
+                                                        </div>
+                                                    {:else if editingId === strip.id}
                                                         <input
                                                             class="ch-name-input"
                                                             type="text"
@@ -1430,14 +1515,16 @@
 
                                                 <!-- Strip action buttons -->
                                                 <div class="ch-buttons">
-                                                    <button
-                                                        class="ch-btn ch-btn-dup"
-                                                        disabled={isMultiSelected &&
-                                                            selectedIds.has(strip.id)}
-                                                        onclick={() => duplicateStrip(strip.id)}
-                                                        title="Add parallel strip with same input"
-                                                        >+</button
-                                                    >
+                                                    {#if !strip.chairId}
+                                                        <button
+                                                            class="ch-btn ch-btn-dup"
+                                                            disabled={isMultiSelected &&
+                                                                selectedIds.has(strip.id)}
+                                                            onclick={() => duplicateStrip(strip.id)}
+                                                            title="Add parallel strip with same input"
+                                                            >+</button
+                                                        >
+                                                    {/if}
                                                     <button
                                                         class="ch-btn ch-btn-del"
                                                         onclick={() => removeStrip(strip.id)}
@@ -1493,6 +1580,17 @@
     {/if}
     {#if chairManagerOpen}
         <ChairManager onClose={() => { chairManagerOpen = false; }} />
+    {/if}
+    {#if layerPickerChair}
+        <LayerPicker
+            chair={layerPickerChair}
+            patches={layerCatalog}
+            onChoose={(patchId) => {
+                dispatchCpp("assignPatchToChair", { chairId: layerPickerChair.id, patchId });
+                layerPickerChair = null;
+            }}
+            onClose={() => { layerPickerChair = null; }}
+        />
     {/if}
 </div>
 
@@ -1911,6 +2009,33 @@
         flex: 1;
         min-height: 0;
     }
+    .empty-chair {
+        width: max(220px, var(--strip-width, 120px));
+        min-width: max(220px, var(--strip-width, 120px));
+        align-self: stretch;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        box-sizing: border-box;
+        color: #64748b;
+        background: rgba(15, 23, 42, 0.55);
+        border-right: 1px solid #1e293b;
+    }
+    .empty-chair button {
+        min-height: 36px;
+        padding: 7px 12px;
+        border: 1px solid rgba(52, 211, 153, 0.55);
+        border-radius: 6px;
+        background: rgba(20, 83, 45, 0.45);
+        color: #a7f3d0;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.78rem;
+        font-weight: 650;
+    }
 
     /* ── Channel strip: full-height vertical column ── */
     .channel-strip {
@@ -2059,7 +2184,7 @@
     }
 
     .ch-name-area {
-        min-height: 22px;
+        min-height: 34px;
     }
     /* Instrument group bridge header */
     .inst-group {
@@ -2073,7 +2198,7 @@
         padding: 4px 6px;
         border-bottom: 2px solid var(--accent, #3b82f6);
         background: rgba(0,0,0,0.25);
-        min-height: 22px;
+        min-height: 34px;
         overflow: hidden;
     }
     .bridge-header.bridge-multi {
@@ -2098,6 +2223,40 @@
         color: #94a3b8;
         flex-shrink: 0;
     }
+    .bridge-add-layer {
+        min-height: 28px;
+        padding: 4px 10px;
+        border: 1px solid rgba(52, 211, 153, 0.55);
+        border-radius: 5px;
+        background: rgba(20, 83, 45, 0.5);
+        color: #a7f3d0;
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.7rem;
+        font-weight: 650;
+        white-space: nowrap;
+    }
+    .bridge-add-layer:hover {
+        border-color: #6ee7b7;
+        background: rgba(6, 95, 70, 0.68);
+    }
+    .ch-layer-name {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        text-align: center;
+    }
+    .ch-layer-name strong,
+    .ch-layer-name span {
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .ch-layer-name strong { color: #e2e8f0; font-size: 0.72rem; }
+    .ch-layer-name span { color: #94a3b8; font-size: 0.64rem; }
     .ch-lib-name {
         font-size: 0.75rem;
         color: #cbd5e1;

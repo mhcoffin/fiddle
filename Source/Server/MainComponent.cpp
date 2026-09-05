@@ -847,6 +847,7 @@ void MainComponent::initDatabase() {
   // Open SQLite database
   auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
   db_.open(dbFile);
+  migrateLegacyLibraryPatches();
 
   // Create the VersionStore backed by the database's SqliteVersionStorage.
   // This must happen immediately after db_.open() so that all downstream
@@ -1071,6 +1072,83 @@ void MainComponent::initDatabase() {
   safeCallAsync([this]() { initPluginsAndStrips(); });
 }
 
+void MainComponent::migrateLegacyLibraryPatches() {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return;
+
+  const auto toRoman = [](int value) {
+    static const std::pair<int, const char *> numerals[] = {
+        {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}};
+    juce::String result;
+    for (const auto &[number, numeral] : numerals) {
+      while (value >= number) {
+        result += numeral;
+        value -= number;
+      }
+    }
+    return result;
+  };
+
+  int migratedLibraries = 0;
+  int migratedPatches = 0;
+  for (const auto &library : db_.listLibraries()) {
+    const auto libraryId = library.id.toStdString();
+    if (!repository->listPatches(libraryId).empty())
+      continue;
+
+    const auto legacyRows = db_.loadLibraryInstruments(library.id);
+    if (legacyRows.empty())
+      continue;
+
+    std::map<std::pair<juce::String, bool>, int> duplicateCounts;
+    for (const auto &row : legacyRows)
+      ++duplicateCounts[{row.entityId, row.isSolo}];
+
+    int position = 0;
+    int importedForLibrary = 0;
+    for (const auto &row : legacyRows) {
+      LibraryPatchRow patch;
+      patch.id = juce::Uuid().toString().toStdString();
+      patch.libraryId = libraryId;
+      patch.position = position++;
+      patch.name = row.name.toStdString();
+      if (duplicateCounts[{row.entityId, row.isSolo}] > 1) {
+        const int instance =
+            row.instanceNums.empty() ? 1 : row.instanceNums.front();
+        const auto suffix =
+            row.isSolo ? juce::String(instance) : toRoman(instance);
+        patch.name += (" " + suffix).toStdString();
+      }
+      patch.instrumentEntityId = row.entityId.toStdString();
+      patch.family = row.family.toStdString();
+      patch.character = row.isSolo ? "solo" : "section";
+      patch.pluginUid = row.pluginUid;
+      if (patch.pluginUid == 0 && row.vstPlugin.isNotEmpty())
+        patch.pluginUid = row.vstPlugin.getIntValue();
+      if (!row.pluginState.isEmpty()) {
+        const auto *bytes = static_cast<const std::uint8_t *>(
+            row.pluginState.getData());
+        patch.pluginState.assign(bytes,
+                                 bytes + row.pluginState.getSize());
+      }
+      patch.expressionMapId = row.exprMap.toStdString();
+      if (repository->upsertPatch(patch)) {
+        ++importedForLibrary;
+        ++migratedPatches;
+      }
+    }
+    if (importedForLibrary > 0)
+      ++migratedLibraries;
+  }
+
+  if (migratedPatches > 0) {
+    std::cerr << "[LibraryMigration] Imported " << migratedPatches
+              << " legacy rows as patches across " << migratedLibraries
+              << " libraries" << std::endl;
+  }
+}
+
 void MainComponent::initPluginsAndStrips() {
   // Load plugins and strips from database
   addInitMessage("Loading plugins...");
@@ -1097,8 +1175,13 @@ void MainComponent::initPluginsAndStrips() {
     broadcastMessage("setPluginList", juce::JSON::fromString(json));
   });
 
-  // Ensure mixer strips exist for all ensemble instruments
-  mixer_.syncStripsToInstruments(masterList_);
+  // Explicit chairs/layers supersede the legacy inferred strip roster. Until
+  // the first chair is created, keep the older ensemble workflow available.
+  if (auto *repository = db_.getLibraryRoutingRepository();
+      repository && !repository->listChairs().empty())
+    syncMixerToLayers();
+  else
+    mixer_.syncStripsToInstruments(masterList_);
 
   pushMixerState(false);
 
@@ -1227,6 +1310,7 @@ void MainComponent::pushConfigStatus() {
 
 void MainComponent::saveAllStripsToDB() {
   auto strips = mixer_.getAllStrips();
+  auto *routingRepository = db_.getLibraryRoutingRepository();
   // First, clear and re-save all strips with correct positions
   db_.clearStrips();
   for (int i = 0; i < (int)strips.size(); ++i) {
@@ -1237,6 +1321,30 @@ void MainComponent::saveAllStripsToDB() {
     const auto block = strips[i]->cachedPluginState();
     if (!block.isEmpty())
       db_.savePluginBlob(strips[i]->id, block);
+
+    // A layer row owns the durable mixer defaults for an explicitly assigned
+    // patch. Transitional free-standing strips have no matching layer row.
+    if (routingRepository) {
+      auto layer = routingRepository->getLayer(strips[i]->id.toStdString());
+      if (layer) {
+        const auto state = strips[i]->realtimeState();
+        layer->active = state.active;
+        layer->muted = state.muted;
+        layer->soloed = state.soloed;
+        layer->gainDb = state.gainDb;
+        layer->pluginUid = strips[i]->pluginUid;
+        layer->pluginState.clear();
+        if (!block.isEmpty()) {
+          const auto *bytes =
+              static_cast<const std::uint8_t *>(block.getData());
+          layer->pluginState.assign(bytes, bytes + block.getSize());
+        }
+        layer->expressionMapId =
+            strips[i]->expressionMap ? strips[i]->expressionMap->entityID
+                                     : std::string{};
+        routingRepository->upsertLayer(*layer);
+      }
+    }
   }
 
   // Save plugin scanner cache
@@ -1316,6 +1424,7 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                              pluginUid, state,
                              "Plug-in could not be instantiated");
                        }
+                       safeThis->pushMixerState(false);
                      });
     return;
   }
@@ -2879,7 +2988,75 @@ void MainComponent::setupJsHandlers() {
   jsRouter_.registerHandler("requestChairs", [this](const juce::var &) {
     safeCallAsync([this]() {
       pushChairState();
+      pushLayerCatalog();
       broadcastTemplateDirty();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("requestLayerCatalog", [this](const juce::var &) {
+    safeCallAsync([this]() { pushLayerCatalog(); });
+    return;
+  });
+  jsRouter_.registerHandler("assignPatchToChair",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+    const auto chairId =
+        data->getProperty("chairId").toString().toStdString();
+    const auto patchId =
+        data->getProperty("patchId").toString().toStdString();
+    safeCallAsync([this, chairId, patchId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository || !repository->getChair(chairId) ||
+          !repository->getPatch(patchId)) {
+        broadcastMessage("layerOperationResult",
+                         juce::var("Could not find the chair or patch"));
+        return;
+      }
+      int position = 0;
+      for (const auto &existing : repository->listLayers(chairId))
+        position = std::max(position, existing.position + 1);
+      if (!repository->createLayerFromPatch(
+              juce::Uuid().toString().toStdString(), chairId, patchId,
+              position)) {
+        broadcastMessage("layerOperationResult",
+                         juce::var("Could not assign the patch"));
+        return;
+      }
+      syncMixerToLayers();
+      saveAllStripsToDB();
+      pushChairState();
+      pushMixerState();
+      scheduleStateRebuild();
+      broadcastMessage("layerOperationResult", juce::var("Layer added"));
+    });
+    return;
+  });
+  jsRouter_.registerHandler("removeChairLayer",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto layerId = args[0].toString();
+    safeCallAsync([this, layerId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository ||
+          !repository->deleteLayer(layerId.toStdString())) {
+        broadcastMessage("layerOperationResult",
+                         juce::var("Could not remove the layer"));
+        return;
+      }
+      mixer_.removeStrip(layerId);
+      saveAllStripsToDB();
+      pushChairState();
+      pushMixerState();
+      scheduleStateRebuild();
     });
     return;
   });
@@ -2953,12 +3130,18 @@ void MainComponent::setupJsHandlers() {
     const auto chairId = args[0].toString().toStdString();
     safeCallAsync([this, chairId]() {
       auto *repository = db_.getLibraryRoutingRepository();
+      const auto layers = repository ? repository->listLayers(chairId)
+                                     : std::vector<LayerRow>{};
       if (!repository || !repository->deleteChairAndLayers(chairId)) {
         broadcastMessage("chairOperationResult",
                          juce::var("Could not delete the chair"));
         return;
       }
+      for (const auto &layer : layers)
+        mixer_.removeStrip(juce::String(layer.id));
+      saveAllStripsToDB();
       pushChairState();
+      pushMixerState();
       broadcastTemplateDirty();
     });
     return;
@@ -2983,6 +3166,7 @@ void MainComponent::setupJsHandlers() {
             arr.add(juce::var(obj));
           }
           broadcastMessage("setLibraryList", juce::var(arr));
+          pushLayerCatalog();
         });
         return;
       });
@@ -3156,6 +3340,7 @@ void MainComponent::setupJsHandlers() {
             arr.add(juce::var(obj));
           }
           broadcastMessage("setLibraryList", juce::var(arr));
+          pushLayerCatalog();
         });
     return;
   });
@@ -3598,6 +3783,7 @@ void MainComponent::setupJsHandlers() {
         arr.add(juce::var(obj));
       }
       broadcastMessage("setLibraryList", juce::var(arr));
+      pushLayerCatalog();
     });
     return;
   });
@@ -3904,10 +4090,127 @@ void MainComponent::pushChairState() {
       obj->setProperty("flatIndex", chair.flatIndex);
       obj->setProperty("port", chair.flatIndex / 16);
       obj->setProperty("channel", chair.flatIndex % 16);
+      obj->setProperty(
+          "layerCount",
+          static_cast<int>(repository->listLayers(chair.id).size()));
       result.add(juce::var(obj));
     }
   }
   broadcastMessage("setChairState", juce::var(result));
+}
+
+void MainComponent::pushLayerCatalog() {
+  juce::Array<juce::var> result;
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository) {
+    broadcastMessage("setLayerCatalog", juce::var(result));
+    return;
+  }
+
+  std::map<std::string, juce::String> libraryNames;
+  for (const auto &library : db_.listLibraries())
+    libraryNames[library.id.toStdString()] = library.name;
+
+  for (const auto &patch : repository->listPatches()) {
+    auto *obj = new juce::DynamicObject();
+    obj->setProperty("id", juce::String(patch.id));
+    obj->setProperty("libraryId", juce::String(patch.libraryId));
+    obj->setProperty("libraryName", libraryNames[patch.libraryId]);
+    obj->setProperty("name", juce::String(patch.name));
+    obj->setProperty("entityID", juce::String(patch.instrumentEntityId));
+    obj->setProperty("family", juce::String(patch.family));
+    obj->setProperty("character", juce::String(patch.character));
+    obj->setProperty("pluginUid", patch.pluginUid);
+    obj->setProperty("expressionMapId",
+                     juce::String(patch.expressionMapId));
+    result.add(juce::var(obj));
+  }
+  broadcastMessage("setLayerCatalog", juce::var(result));
+}
+
+bool MainComponent::instantiateLayer(const LayerRow &layer,
+                                     const ChairRow &chair,
+                                     const LibraryPatchRow &patch,
+                                     const juce::String &libraryName) {
+  MixerStrip *strip = mixer_.getStrip(juce::String(layer.id));
+  const bool isNew = strip == nullptr;
+  if (isNew) {
+    auto newStrip = std::make_unique<MixerStrip>();
+    newStrip->id = juce::String(layer.id);
+    strip = newStrip.get();
+    mixer_.insertStripAt(std::move(newStrip), mixer_.size());
+  }
+  if (!strip)
+    return false;
+
+  strip->chairId = juce::String(chair.id);
+  strip->patchId = juce::String(patch.id);
+  strip->layerName = juce::String(patch.name);
+  strip->library = libraryName;
+  strip->family = juce::String(chair.family);
+  strip->isSolo = chair.role == DoricoRole::solo;
+  strip->setInputAssignment(chair.flatIndex / 16, chair.flatIndex % 16);
+  strip->setActive(layer.active);
+  strip->setMuted(layer.muted);
+  strip->setSoloed(layer.soloed);
+  strip->setGainDb(layer.gainDb);
+
+  const auto currentMapId =
+      strip->expressionMap ? strip->expressionMap->entityID : std::string{};
+  if (currentMapId != layer.expressionMapId) {
+    strip->setExpressionMap(nullptr);
+    if (!layer.expressionMapId.empty()) {
+      if (auto map = xmapLibrary_.load(layer.expressionMapId))
+        strip->setExpressionMap(std::move(map));
+    }
+  }
+
+  if (isNew || strip->pluginUid != layer.pluginUid) {
+    if (layer.pluginUid == 0) {
+      strip->unloadPlugin();
+      strip->pluginUid = 0;
+    } else {
+      juce::MemoryBlock pluginState;
+      if (!layer.pluginState.empty())
+        pluginState.append(layer.pluginState.data(), layer.pluginState.size());
+      restoreStripPlugin(*strip, layer.pluginUid, pluginState);
+    }
+  }
+  return true;
+}
+
+void MainComponent::syncMixerToLayers() {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return;
+  const auto chairs = repository->listChairs();
+  if (chairs.empty())
+    return;
+
+  std::map<std::string, juce::String> libraryNames;
+  for (const auto &library : db_.listLibraries())
+    libraryNames[library.id.toStdString()] = library.name;
+
+  std::set<std::string> desiredLayerIds;
+  for (const auto &layer : repository->listLayers())
+    desiredLayerIds.insert(layer.id);
+
+  std::vector<juce::String> obsoleteStripIds;
+  for (auto *strip : mixer_.getAllStrips()) {
+    if (desiredLayerIds.count(strip->id.toStdString()) == 0)
+      obsoleteStripIds.push_back(strip->id);
+  }
+  for (const auto &stripId : obsoleteStripIds)
+    mixer_.removeStrip(stripId);
+
+  for (const auto &chair : chairs) {
+    for (const auto &layer : repository->listLayers(chair.id)) {
+      const auto patch = repository->getPatch(layer.patchId);
+      if (!patch)
+        continue;
+      instantiateLayer(layer, chair, *patch, libraryNames[patch->libraryId]);
+    }
+  }
 }
 
 void MainComponent::installChairPlaybackTemplate() {
@@ -4013,7 +4316,7 @@ void MainComponent::installChairPlaybackTemplate() {
   }
   db_.saveChannelAssignments(channelRows);
   masterList_.reconcileAssignments(db_);
-  mixer_.syncStripsToInstruments(masterList_);
+  syncMixerToLayers();
   saveAllStripsToDB();
 
   broadcastMessage(
