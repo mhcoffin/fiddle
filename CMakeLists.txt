@@ -147,6 +147,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginJsHandlers.h
     Source/Server/LibraryRoutingRepository.cpp
     Source/Server/LibraryRoutingRepository.h
+    Source/Server/LibraryPatchPreviewHost.cpp
+    Source/Server/LibraryPatchPreviewHost.h
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/StripAudioEngine.cpp
@@ -611,6 +613,22 @@ if(NODE_EXECUTABLE)
     )
     set_tests_properties(chair_model_ui PROPERTIES
         LABELS "ui;routing;regression;stable"
+    )
+
+    add_test(NAME library_patch_model_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/libraryPatchModel.test.js"
+    )
+    set_tests_properties(library_patch_model_ui PROPERTIES
+        LABELS "ui;library;routing;regression;stable"
+    )
+
+    add_test(NAME layer_catalog_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/layerCatalog.test.js"
+    )
+    set_tests_properties(layer_catalog_ui PROPERTIES
+        LABELS "ui;library;routing;regression;stable"
     )
 
     add_test(NAME locked_group_gain_ui

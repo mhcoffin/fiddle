@@ -9,6 +9,7 @@
 
 #include "InstrumentMapper.h"
 #include "JsTestBridge.h"
+#include "LibraryPatchPreviewHost.h"
 #include "LibraryManagerWindow.h"
 #include "LuaPlugin.h"
 #include "MasterInstrumentList.h"
@@ -111,6 +112,7 @@ private:
   InstrumentMapper instrumentMapper_;
   PluginScanner pluginScanner_;
   MixerModel mixer_;
+  LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
   std::unique_ptr<MixerCommandService> mixerCommandService_;

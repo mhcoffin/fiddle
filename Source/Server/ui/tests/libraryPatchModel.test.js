@@ -5,9 +5,16 @@ import {
     createBlankLibraryPatch,
     createLibraryPatch,
     duplicateLibraryPatch,
+    shouldMarkLibraryEditorDirtyForPreviewChange,
     togglePatchSelection,
     updateSelectedPatches,
 } from "../src/lib/libraryPatchModel.js";
+
+test("plug-in preview changes dirty only the open library editor", () => {
+    assert.equal(shouldMarkLibraryEditorDirtyForPreviewChange("editor"), true);
+    assert.equal(shouldMarkLibraryEditorDirtyForPreviewChange("none"), false);
+    assert.equal(shouldMarkLibraryEditorDirtyForPreviewChange("create"), false);
+});
 
 test("a catalog patch describes a sound without a Dorico destination", () => {
     const patch = createLibraryPatch(
@@ -22,6 +29,7 @@ test("a catalog patch describes a sound without a Dorico destination", () => {
     assert.equal(patch.vstPlugin, 42);
     assert.equal("instanceNums" in patch, false);
     assert.equal("isSolo" in patch, false);
+    assert.equal("stripId" in patch, false, "catalog patches are not mixer strips");
 });
 
 test("a blank patch can be named before optional instrument classification", () => {
@@ -69,7 +77,6 @@ test("duplicate creates an independent row and retains its catalog defaults", ()
         character: "section",
         vstPlugin: 42,
         exprMap: "xmap.violin",
-        stripId: "preview-strip",
         hasPluginState: true,
     };
 
@@ -79,6 +86,6 @@ test("duplicate creates an independent row and retains its catalog defaults", ()
     assert.equal(copy.entityID, original.entityID);
     assert.equal(copy.vstPlugin, 42);
     assert.equal(copy.exprMap, "xmap.violin");
-    assert.equal(copy.stripId, "");
+    assert.equal("stripId" in copy, false);
     assert.equal(copy.sourcePatchId, "patch-1");
 });

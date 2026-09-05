@@ -274,6 +274,10 @@ public:
   void saveLibrary(const LibraryRow &lib,
                    const std::vector<LibraryInstrumentRow> &instruments);
 
+  /// Save only the library header. Catalog patches live in
+  /// LibraryRoutingRepository and must not be mirrored into legacy rows.
+  bool saveLibraryMetadata(const LibraryRow &lib);
+
   /// List all libraries (header info only).
   std::vector<LibraryRow> listLibraries();
 

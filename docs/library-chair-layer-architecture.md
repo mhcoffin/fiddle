@@ -1,6 +1,6 @@
 # Library, chair, and layer architecture
 
-Status: accepted for implementation, September 2026.
+Status: implemented and in acceptance testing, September 2026.
 
 ## Problem
 
@@ -111,8 +111,17 @@ VST instrument, saved state, and expression map. Later catalog edits do not
 silently rewrite an existing layer. The mixer may offer an explicit
 "Reset from Library Patch" operation.
 
-The Library Manager must use a dedicated preview host. Previewing or editing a
-catalog patch must not create a persistent mixer layer.
+The Library Manager uses a dedicated preview host. Previewing or editing a
+catalog patch does not create a mixer strip, enter the real-time audio graph,
+or appear in branch/version state. Catalog saves capture state directly from
+that isolated host. Legacy `library_instruments` rows remain readable for the
+one-time catalog migration, but current patch edits are no longer mirrored
+back into that obsolete model.
+
+At normal startup, chairs and layers are the sole live routing model. An empty
+chair roster produces an empty mixer; it does not resurrect strips inferred
+from the old ensemble list. The ensemble/channel-map tables remain a derived
+compatibility view written when installing a chair-based playback template.
 
 ## Deletion behavior
 
@@ -132,6 +141,11 @@ existing strip-level mixing and processing controls.
 
 Library activation remains a convenience operation over all current layers
 from that library; it is not part of layer identity.
+
+When a chair's aggregate level is locked, activating or deactivating a library
+redistributes power among that chair's remaining audible layers in the same
+way as muting or unmuting a layer. A library used by several chairs is
+compensated independently in each chair.
 
 ## Deferred plug-in preset diagnostics
 

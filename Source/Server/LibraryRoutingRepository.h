@@ -56,6 +56,7 @@ struct LayerRow {
 };
 
 enum class PatchDeleteResult { deleted, referenced, notFound, error };
+enum class PatchReplaceResult { replaced, referenced, error };
 
 /// SQLite persistence for the library-patch, Dorico-chair, and layer model.
 ///
@@ -76,6 +77,11 @@ public:
   listPatches(const std::string &libraryId = {}) const;
   int patchUsageCount(const std::string &patchId) const;
   PatchDeleteResult deletePatch(const std::string &patchId);
+  /// Atomically replace one library's catalog rows. Removing a patch used by
+  /// any current layer is rejected without changing the catalog.
+  PatchReplaceResult
+  replaceLibraryPatches(const std::string &libraryId,
+                        const std::vector<LibraryPatchRow> &patches);
 
   /// Insert a new chair and allocate its ordinal, display order, and stable
   /// MIDI destination. A previously deleted matching destination is reclaimed

@@ -505,8 +505,12 @@ void FiddleDatabase::prepareStatements() {
 
   // Library statements
   prep(R"(
-    INSERT OR REPLACE INTO libraries (id, name, vendor, variant)
+    INSERT INTO libraries (id, name, vendor, variant)
     VALUES (?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name,
+      vendor = excluded.vendor,
+      variant = excluded.variant
   )",
        stmtSaveLibrary_);
   prep("DELETE FROM libraries WHERE id = ?", stmtDeleteLibrary_);
@@ -1617,6 +1621,24 @@ void FiddleDatabase::saveLibrary(
   exec("COMMIT");
   std::cerr << "[FiddleDB] Saved library '" << lib.name << "' with "
             << instruments.size() << " instruments" << std::endl;
+}
+
+bool FiddleDatabase::saveLibraryMetadata(const LibraryRow &lib) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!stmtSaveLibrary_)
+    return false;
+
+  sqlite3_reset(stmtSaveLibrary_);
+  sqlite3_clear_bindings(stmtSaveLibrary_);
+  sqlite3_bind_text(stmtSaveLibrary_, 1, lib.id.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 2, lib.name.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 3, lib.vendor.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveLibrary_, 4, lib.variant.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  return sqlite3_step(stmtSaveLibrary_) == SQLITE_DONE;
 }
 
 std::vector<LibraryRow> FiddleDatabase::listLibraries() {

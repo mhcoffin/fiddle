@@ -6,7 +6,7 @@
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
-  import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
+  import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, shouldMarkLibraryEditorDirtyForPreviewChange, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -42,7 +42,6 @@
         character: patch.character || "",
         vstPlugin: Number(patch.vstPlugin) || patch.pluginUid || 0,
         exprMap:   patch.exprMap || "",
-        stripId:   "",
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
       }));
@@ -58,14 +57,6 @@
   let scannedPlugins = $state([]);
   onFromCpp("setPluginList", (data) => {
     try { scannedPlugins = data; } catch (e) { /* ignore */ }
-  });
-
-  // Temporary mixer strips host patch editors until the dedicated preview
-  // host lands. They are tracked rigorously and removed with the dialog.
-  let _knownStripIds = new Set();
-  onFromCpp("setMixerState", (data) => {
-    // Keep a running set of known strip IDs so we can detect new ones.
-    _knownStripIds = new Set(data.map((s) => s.id));
   });
 
   // ── Dashboard state ───────────────────────────────────
@@ -95,7 +86,6 @@
   let selectedPatchIds = $state(new Set());
   let selectionAnchorId = $state("");
   let batchPluginUid = $state(0);
-  let previewStripIds = $state(new Set());
 
   // ── Dorico instrument database ─────────────────────────
   let allDoricoInstruments = $state([]);
@@ -149,7 +139,6 @@
    * @property {string}  character
    * @property {number}  vstPlugin
    * @property {string}  exprMap
-   * @property {string}  stripId
    * @property {number}  pluginUid
    * @property {boolean} hasPluginState
    */
@@ -166,12 +155,15 @@
     dispatchCpp("requestExpressionMaps");
     dispatchCpp("requestPluginsState");
     dispatchCpp("requestLibraries");
-    dispatchCpp("requestSetupData");  // load Dorico instrument database
+    dispatchCpp("requestDoricoInstruments");
     const el = document.createElement("div");
     el.id = "lm-portal";
     document.body.appendChild(el);
     portalTarget = el;
-    return () => { el.remove(); };
+    return () => {
+      dispatchCpp("closeLibraryPatchPreviews");
+      el.remove();
+    };
   });
 
   // ── Actions: create modal ─────────────────────────────
@@ -187,6 +179,13 @@
   onFromCpp("setLibraryDeleteResult", (data) => {
     buildResult = typeof data === "string" ? data : "Could not delete the library";
     setTimeout(() => { buildResult = ""; }, 5000);
+  });
+  onFromCpp("libraryPatchPreviewResult", (data) => {
+    buildResult = typeof data === "string" ? data : "Could not open plug-in";
+    setTimeout(() => { buildResult = ""; }, 5000);
+  });
+  onFromCpp("libraryPatchPreviewChanged", () => {
+    if (shouldMarkLibraryEditorDirtyForPreviewChange(modalView)) editorDirty = true;
   });
 
   const handleInitialize = () => {
@@ -204,14 +203,8 @@
   };
 
   // ── Actions: editor modal ─────────────────────────────
-  const cleanupPreviewStrips = () => {
-    for (const stripId of previewStripIds)
-      dispatchCpp("removeMixerStrip", stripId);
-    previewStripIds = new Set();
-  };
-
   const closeEditor = () => {
-    cleanupPreviewStrips();
+    dispatchCpp("closeLibraryPatchPreviews");
     instrumentChooserPatchId = "";
     modalView = "none";
   };
@@ -299,12 +292,7 @@
   };
 
   const removePatch = (/** @type {string} */ id) => {
-    const patch = patches.find((candidate) => candidate.id === id);
-    if (patch?.stripId) {
-      dispatchCpp("removeMixerStrip", patch.stripId);
-      previewStripIds.delete(patch.stripId);
-      previewStripIds = new Set(previewStripIds);
-    }
+    dispatchCpp("discardLibraryPatchPreview", id);
     patches = patches.filter(r => r.id !== id);
     selectedPatchIds.delete(id);
     selectedPatchIds = new Set(selectedPatchIds);
@@ -319,54 +307,16 @@
     editorDirty = true;
   };
 
-  /** Open the VST editor for a catalog patch.
-   *  If a live preview strip exists, show its editor.
-   *  Otherwise, create a strip, load the plugin, restore saved state, and show editor. */
+  /** Open the VST editor in the Library Manager's isolated preview host. */
   const openVstEditor = (/** @type {typeof patches[0]} */ row) => {
-    if (row.stripId) {
-      // Live strip exists — just show its editor
-      dispatchCpp("showStripEditor", row.stripId);
-      return;
-    }
     const uid = Number(row.vstPlugin) || row.pluginUid;
     if (!uid) return;
-
-    // Phase 1: create strip, detect its ID from setMixerState
-    const before = new Set(_knownStripIds);
-    const unsub1 = onFromCpp("setMixerState", (data) => {
-      unsub1();
-      const newStrip = data.find((s) => !before.has(s.id));
-      if (!newStrip) return;
-
-      const stripId = newStrip.id;
-      patches = patches.map(patch =>
-        patch.id === row.id ? { ...patch, stripId } : patch
-      );
-      previewStripIds.add(stripId);
-      previewStripIds = new Set(previewStripIds);
-
-      // Phase 2: load plugin, then wait for it to be ready
-      // Listen for the next setMixerState where this strip has a pluginUid
-      const unsub2 = onFromCpp("setMixerState", (data2) => {
-        const updated = data2.find((s) => s.id === stripId && s.pluginUid);
-        if (!updated) return;  // plugin not loaded yet, keep listening
-        unsub2();
-        // Plugin is loaded — always attempt to restore saved state from library DB
-        if (editorLibId) {
-          console.log("[openVstEditor] Plugin loaded, restoring patch state for", row.id);
-          dispatchCpp("restoreLibraryPatchState", stripId, row.id);
-          // Delay editor open to let state restore complete
-          setTimeout(() => dispatchCpp("showStripEditor", stripId), 500);
-        } else {
-          dispatchCpp("showStripEditor", stripId);
-        }
-      });
-
-      // Trigger plugin load on the new strip
-      dispatchCpp("setStripPlugin", stripId, uid);
+    dispatchCpp("openLibraryPatchEditor", {
+      patchId: row.id,
+      sourcePatchId: row.sourcePatchId || "",
+      title: `${editorLibName} — ${row.name}`,
+      pluginUid: uid,
     });
-
-    dispatchCpp("addMixerStrip");
   };
   const selectPatch = (id, event) => {
     const orderedIds = sortedPatches.map((patch) => patch.id);
@@ -396,31 +346,23 @@
 
   const applyPluginToSelection = () => {
     if (selectedPatchIds.size === 0) return;
-    for (const patch of patches) {
-      if (selectedPatchIds.has(patch.id) && patch.stripId) {
-        dispatchCpp("removeMixerStrip", patch.stripId);
-        previewStripIds.delete(patch.stripId);
-      }
-    }
-    previewStripIds = new Set(previewStripIds);
+    for (const patch of patches)
+      if (selectedPatchIds.has(patch.id))
+        dispatchCpp("discardLibraryPatchPreview", patch.id);
     patches = updateSelectedPatches(patches, selectedPatchIds, {
       vstPlugin: Number(batchPluginUid),
       pluginUid: Number(batchPluginUid),
-      stripId: "",
       hasPluginState: false,
+      sourcePatchId: "",
     });
     editorDirty = true;
   };
 
   const setPatchPlugin = (row, uid) => {
-    if (row.stripId) {
-      dispatchCpp("removeMixerStrip", row.stripId);
-      previewStripIds.delete(row.stripId);
-      previewStripIds = new Set(previewStripIds);
-    }
+    dispatchCpp("discardLibraryPatchPreview", row.id);
     patches = patches.map((patch) =>
       patch.id === row.id
-        ? { ...patch, vstPlugin: uid, pluginUid: uid, stripId: "", hasPluginState: false }
+        ? { ...patch, vstPlugin: uid, pluginUid: uid, hasPluginState: false, sourcePatchId: "" }
         : patch
     );
     editorDirty = true;
@@ -448,13 +390,11 @@
         character:   patch.character,
         vstPlugin:   patch.vstPlugin,
         exprMap:     patch.exprMap,
-        stripId:     patch.stripId,
         hasPluginState: patch.hasPluginState,
         sourcePatchId: patch.sourcePatchId || "",
       })),
     };
     dispatchCpp("saveLibrary", libData);
-    cleanupPreviewStrips();
     editorDirty = false;
     modalView = "none";
   };

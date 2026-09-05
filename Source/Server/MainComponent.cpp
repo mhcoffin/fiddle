@@ -23,7 +23,8 @@ namespace fiddle {
 
 MainComponent::MainComponent()
     : webViewBridge_(jsRouter_,
-                     [this](std::function<void()> f) { safeCallAsync(f); }) {
+                     [this](std::function<void()> f) { safeCallAsync(f); }),
+      libraryPatchPreviewHost_(mixer_.getFormatManager()) {
   setupJsHandlers();
   webViewBridge_.setup();
 
@@ -1176,13 +1177,9 @@ void MainComponent::initPluginsAndStrips() {
     broadcastMessage("setPluginList", juce::JSON::fromString(json));
   });
 
-  // Explicit chairs/layers supersede the legacy inferred strip roster. Until
-  // the first chair is created, keep the older ensemble workflow available.
-  if (auto *repository = db_.getLibraryRoutingRepository();
-      repository && !repository->listChairs().empty())
-    syncMixerToLayers();
-  else
-    mixer_.syncStripsToInstruments(masterList_);
+  // Chairs/layers are the sole live routing model. An empty chair roster
+  // intentionally produces an empty mixer rather than reviving legacy strips.
+  syncMixerToLayers();
 
   // Existing branch heads predate routing snapshots. Make the one-time
   // upgrade visible as an unsaved change so the next Fiddle or Dorico save
@@ -2254,6 +2251,11 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 void MainComponent::timerCallback() {
   subnoteGenerator.tick(noteTracker.getSessionSamples());
 
+  // Library patch previews are not project mixer strips. Their editor changes
+  // enable the Library Manager's Save button without dirtying the branch.
+  if (libraryPatchPreviewHost_.consumeChangeNotifications())
+    broadcastMessage("libraryPatchPreviewChanged");
+
   // Push meter levels to UI every ~60ms (3 × 20ms timer ticks)
   static int meterCounter = 0;
   if (++meterCounter % 3 == 0) {
@@ -3088,6 +3090,15 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
+  jsRouter_.registerHandler("requestDoricoInstruments",
+                            [this](const juce::var &) {
+    const auto instruments = instrumentBrowser_.getInstrumentsAsJson();
+    safeCallAsync([this, instruments]() {
+      broadcastMessage("setDoricoInstruments",
+                       juce::JSON::fromString(instruments));
+    });
+    return;
+  });
   jsRouter_.registerHandler("requestLayerCatalog", [this](const juce::var &) {
     safeCallAsync([this]() { pushLayerCatalog(); });
     return;
@@ -3265,6 +3276,92 @@ void MainComponent::setupJsHandlers() {
         });
         return;
       });
+  jsRouter_.registerHandler("openLibraryPatchEditor",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+
+    const auto patchId =
+        data->getProperty("patchId").toString().toStdString();
+    const auto sourcePatchId =
+        data->getProperty("sourcePatchId").toString().toStdString();
+    const auto title = data->getProperty("title").toString();
+    const int pluginUid = static_cast<int>(data->getProperty("pluginUid"));
+
+    safeCallAsync([this, patchId, sourcePatchId, title, pluginUid]() {
+      std::optional<juce::PluginDescription> description;
+      for (const auto &candidate :
+           pluginScanner_.getKnownPluginList().getTypes()) {
+        if (candidate.uniqueId == pluginUid) {
+          description = candidate;
+          break;
+        }
+      }
+      if (!description) {
+        broadcastMessage("libraryPatchPreviewResult",
+                         juce::var("Plug-in is not available"));
+        return;
+      }
+
+      juce::MemoryBlock initialState;
+      std::vector<std::uint8_t> previewState;
+      bool foundState = false;
+      if (!sourcePatchId.empty()) {
+        foundState = libraryPatchPreviewHost_.captureState(
+            sourcePatchId, pluginUid, previewState);
+      }
+      if (foundState) {
+        if (!previewState.empty())
+          initialState.append(previewState.data(), previewState.size());
+      } else if (auto *repository = db_.getLibraryRoutingRepository()) {
+        auto patch = repository->getPatch(patchId);
+        if (!patch && !sourcePatchId.empty())
+          patch = repository->getPatch(sourcePatchId);
+        if (patch && patch->pluginUid == pluginUid &&
+            !patch->pluginState.empty()) {
+          initialState.append(patch->pluginState.data(),
+                              patch->pluginState.size());
+        }
+      }
+
+      juce::Component::SafePointer<MainComponent> safeThis(this);
+      if (!libraryPatchPreviewHost_.open(
+              patchId, title, *description, initialState,
+              [safeThis](bool success, const juce::String &error) {
+                if (safeThis == nullptr || success)
+                  return;
+                safeThis->broadcastMessage(
+                    "libraryPatchPreviewResult",
+                    juce::var(error.isNotEmpty() ? error
+                                                 : "Could not open plug-in"));
+              })) {
+        broadcastMessage("libraryPatchPreviewResult",
+                         juce::var("Could not open plug-in"));
+      }
+    });
+    return;
+  });
+  jsRouter_.registerHandler("discardLibraryPatchPreview",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto patchId = args[0].toString().toStdString();
+    safeCallAsync(
+        [this, patchId]() { libraryPatchPreviewHost_.discard(patchId); });
+    return;
+  });
+  jsRouter_.registerHandler("closeLibraryPatchPreviews",
+                            [this](const juce::var &) {
+    safeCallAsync([this]() { libraryPatchPreviewHost_.closeAll(); });
+    return;
+  });
   jsRouter_.registerHandler("saveLibrary", [this](const juce::var &payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -3305,19 +3402,10 @@ void MainComponent::setupJsHandlers() {
           patch.expressionMapId =
               patchObj->getProperty("exprMap").toString().toStdString();
 
-          // A live preview instance owns the most recent configured state.
-          const auto stripId = patchObj->getProperty("stripId").toString();
-          if (stripId.isNotEmpty()) {
-            if (auto *strip = mixer_.getStrip(stripId)) {
-              patch.pluginUid = strip->pluginUid;
-              strip->refreshPluginStateCache();
-              const auto state = strip->cachedPluginState();
-              if (!state.isEmpty()) {
-                const auto *bytes = static_cast<const std::uint8_t *>(
-                    state.getData());
-                patch.pluginState.assign(bytes, bytes + state.getSize());
-              }
-            }
+          // An isolated preview owns the newest explicitly configured state.
+          if (libraryPatchPreviewHost_.captureState(
+                  patch.id, patch.pluginUid, patch.pluginState)) {
+            // Captured successfully, including the valid empty-state case.
           } else if ((bool)patchObj->getProperty("hasPluginState")) {
             // Loading and saving a library without opening every plug-in must
             // not erase the catalog's stored default state. A newly duplicated
@@ -3336,23 +3424,6 @@ void MainComponent::setupJsHandlers() {
             }
           }
 
-          // Transitional shadow data keeps the old template builder usable
-          // until chairs become its sole input in the next phase.
-          fiddle::LibraryInstrumentRow legacy;
-          legacy.libraryId = lib.id;
-          legacy.sortOrder = patch.position;
-          legacy.entityId = patch.instrumentEntityId;
-          legacy.name = patch.name;
-          legacy.family = patch.family;
-          legacy.isSolo = patch.character != "section";
-          legacy.vstPlugin = juce::String(patch.pluginUid);
-          legacy.exprMap = patch.expressionMapId;
-          legacy.pluginUid = patch.pluginUid;
-          if (!patch.pluginState.empty())
-            legacy.pluginState.append(patch.pluginState.data(),
-                                      patch.pluginState.size());
-          legacy.instanceNums = {1};
-          instruments.push_back(std::move(legacy));
           patches.push_back(std::move(patch));
         }
       }
@@ -3406,22 +3477,55 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync(
         [this, lib = std::move(lib), instruments = std::move(instruments),
          patches = std::move(patches), usesPatchModel]() {
-          db_.saveLibrary(lib, instruments);
-
           if (usesPatchModel) {
             if (auto *repository = db_.getLibraryRoutingRepository()) {
               std::set<std::string> retainedIds;
-              for (const auto &patch : patches) {
-                if (repository->upsertPatch(patch))
-                  retainedIds.insert(patch.id);
-              }
-              for (const auto &oldPatch :
+              for (const auto &patch : patches)
+                retainedIds.insert(patch.id);
+              for (const auto &existing :
                    repository->listPatches(lib.id.toStdString())) {
-                if (retainedIds.count(oldPatch.id) == 0)
-                  repository->deletePatch(oldPatch.id);
+                if (retainedIds.count(existing.id) == 0 &&
+                    repository->patchUsageCount(existing.id) > 0) {
+                  broadcastMessage(
+                      "setLibraryDeleteResult",
+                      juce::var(
+                          "Cannot remove a patch that is assigned to a chair. "
+                          "Remove its layers first."));
+                  return;
+                }
               }
+
+              // The library header must exist before inserting new patch rows
+              // because the catalog enforces a library foreign key.
+              if (!db_.saveLibraryMetadata(lib)) {
+                broadcastMessage("setLibraryDeleteResult",
+                                 juce::var("Could not save the library"));
+                return;
+              }
+              const auto result = repository->replaceLibraryPatches(
+                  lib.id.toStdString(), patches);
+              if (result == PatchReplaceResult::referenced) {
+                broadcastMessage(
+                    "setLibraryDeleteResult",
+                    juce::var("Cannot remove a patch that is assigned to a "
+                              "chair. Remove its layers first."));
+                return;
+              }
+              if (result != PatchReplaceResult::replaced) {
+                broadcastMessage("setLibraryDeleteResult",
+                                 juce::var("Could not save the library"));
+                return;
+              }
+            } else {
+              broadcastMessage("setLibraryDeleteResult",
+                               juce::var("Could not save the library"));
+              return;
             }
+          } else {
+            db_.saveLibrary(lib, instruments);
           }
+
+          libraryPatchPreviewHost_.closeAll();
 
           // Broadcast updated library list
           auto libs = db_.listLibraries();
@@ -4288,8 +4392,6 @@ void MainComponent::syncMixerToLayers() {
   if (!repository)
     return;
   const auto chairs = repository->listChairs();
-  if (chairs.empty())
-    return;
 
   std::map<std::string, juce::String> libraryNames;
   for (const auto &library : db_.listLibraries())
@@ -4384,9 +4486,8 @@ void MainComponent::installChairPlaybackTemplate() {
     return;
   }
 
-  // Keep the existing mixer/channel-map infrastructure synchronized while
-  // chairs replace the legacy Setup list. Layers will replace these empty
-  // base strips in the next phase.
+  // Keep the channel-map infrastructure synchronized as a derived view of
+  // chairs for Timeline labels and Dorico compatibility metadata.
   std::vector<MasterInstrumentList::EnsembleSlot> slots;
   std::map<juce::String, std::size_t> slotByEntity;
   for (const auto &chair : chairs) {

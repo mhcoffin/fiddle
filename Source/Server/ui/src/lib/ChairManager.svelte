@@ -42,7 +42,7 @@
 
     onMount(() => {
         dispatchCpp("requestChairs");
-        dispatchCpp("requestSetupData");
+        dispatchCpp("requestDoricoInstruments");
         return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
     });
 

@@ -156,6 +156,45 @@ void testReferencedPatchDeletionIsBlocked() {
         fiddle::PatchDeleteResult::notFound);
 }
 
+void testLibraryPatchReplacementIsAtomicAndReferenceSafe() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto referenced = soloViolinPatch();
+  auto retained = referenced;
+  retained.id = "retained";
+  retained.name = "Retained";
+  CHECK(repository.upsertPatch(referenced));
+  CHECK(repository.upsertPatch(retained));
+  CHECK(repository.upsertChair(
+      makeChair("violin-section-1", fiddle::DoricoRole::section, 1, 1)));
+  CHECK(repository.createLayerFromPatch(
+      "layer-a", "violin-section-1", referenced.id, 0));
+
+  retained.name = "Edited but not partially saved";
+  CHECK(repository.replaceLibraryPatches("vsl", {retained}) ==
+        fiddle::PatchReplaceResult::referenced);
+  CHECK(repository.getPatch(referenced.id).has_value());
+  const auto unchanged = repository.getPatch(retained.id);
+  CHECK(unchanged && unchanged->name == "Retained");
+
+  CHECK(repository.deleteLayer("layer-a"));
+  CHECK(repository.replaceLibraryPatches("vsl", {retained}) ==
+        fiddle::PatchReplaceResult::replaced);
+  CHECK(!repository.getPatch(referenced.id).has_value());
+  const auto edited = repository.getPatch(retained.id);
+  CHECK(edited && edited->name == retained.name);
+
+  auto foreign = retained;
+  foreign.id = "foreign";
+  foreign.libraryId = "ews";
+  CHECK(repository.upsertPatch(foreign));
+  foreign.libraryId = "vsl";
+  CHECK(repository.replaceLibraryPatches("vsl", {retained, foreign}) ==
+        fiddle::PatchReplaceResult::error);
+  CHECK(repository.getPatch("foreign") &&
+        repository.getPatch("foreign")->libraryId == "ews");
+}
+
 void testDeletingChairExplicitlyDeletesItsLayersOnly() {
   DatabaseFixture fixture;
   const auto patch = soloViolinPatch();
@@ -322,6 +361,7 @@ int main() {
   testPatchCanCreateIndependentLayersOnDifferentChairs();
   testOneChairAcceptsSeveralPatchesFromOneLibrary();
   testReferencedPatchDeletionIsBlocked();
+  testLibraryPatchReplacementIsAtomicAndReferenceSafe();
   testDeletingChairExplicitlyDeletesItsLayersOnly();
   testChairDestinationsAndChannelsAreUnique();
   testChairAllocationIsStableAndReclaimsMatchingDestination();

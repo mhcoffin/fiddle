@@ -10,7 +10,6 @@ export function createLibraryPatch(instrument, character, id, defaults = {}) {
         character: PATCH_CHARACTERS.includes(character) ? character : "",
         vstPlugin: Number(defaults.vstPlugin) || 0,
         exprMap: defaults.exprMap || "",
-        stripId: "",
         pluginUid: Number(defaults.vstPlugin) || 0,
         hasPluginState: false,
     };
@@ -37,7 +36,6 @@ export function duplicateLibraryPatch(patch, id) {
         ...patch,
         id,
         name: `${patch.name} Copy`,
-        stripId: "",
         sourcePatchId: patch.id,
     };
 }
@@ -47,4 +45,8 @@ export function togglePatchSelection(selectedIds, patchId, additive = false) {
     if (additive && next.has(patchId)) next.delete(patchId);
     else next.add(patchId);
     return next;
+}
+
+export function shouldMarkLibraryEditorDirtyForPreviewChange(modalView) {
+    return modalView === "editor";
 }

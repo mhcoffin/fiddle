@@ -391,6 +391,116 @@ LibraryRoutingRepository::deletePatch(const std::string &patchId) {
                                          : PatchDeleteResult::deleted;
 }
 
+PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
+    const std::string &libraryId,
+    const std::vector<LibraryPatchRow> &patches) {
+  if (libraryId.empty())
+    return PatchReplaceResult::error;
+
+  std::set<std::string> retainedIds;
+  for (const auto &patch : patches) {
+    if (patch.id.empty() || patch.libraryId != libraryId ||
+        !retainedIds.insert(patch.id).second)
+      return PatchReplaceResult::error;
+  }
+
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  std::vector<std::string> removedIds;
+  {
+    Statement existing(
+        database_, "SELECT id FROM library_patches WHERE library_id = ?");
+    if (!existing)
+      return PatchReplaceResult::error;
+    bindText(existing.get(), 1, libraryId);
+    while (sqlite3_step(existing.get()) == SQLITE_ROW) {
+      const auto id = columnText(existing.get(), 0);
+      if (retainedIds.count(id) == 0)
+        removedIds.push_back(id);
+    }
+  }
+
+  {
+    Statement owner(database_,
+                    "SELECT library_id FROM library_patches WHERE id = ?");
+    Statement usage(database_,
+                    "SELECT COUNT(*) FROM layers WHERE patch_id = ?");
+    if (!owner || !usage)
+      return PatchReplaceResult::error;
+
+    for (const auto &patch : patches) {
+      sqlite3_reset(owner.get());
+      sqlite3_clear_bindings(owner.get());
+      bindText(owner.get(), 1, patch.id);
+      if (sqlite3_step(owner.get()) == SQLITE_ROW &&
+          columnText(owner.get(), 0) != libraryId)
+        return PatchReplaceResult::error;
+    }
+    for (const auto &id : removedIds) {
+      sqlite3_reset(usage.get());
+      sqlite3_clear_bindings(usage.get());
+      bindText(usage.get(), 1, id);
+      if (sqlite3_step(usage.get()) != SQLITE_ROW)
+        return PatchReplaceResult::error;
+      if (sqlite3_column_int(usage.get(), 0) > 0)
+        return PatchReplaceResult::referenced;
+    }
+  }
+
+  if (!execute(database_, "BEGIN IMMEDIATE"))
+    return PatchReplaceResult::error;
+
+  Statement upsert(database_, R"(
+    INSERT INTO library_patches
+      (id, library_id, position, name, instrument_entity_id, family,
+       character, plugin_uid, plugin_state, expression_map_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      position = excluded.position,
+      name = excluded.name,
+      instrument_entity_id = excluded.instrument_entity_id,
+      family = excluded.family,
+      character = excluded.character,
+      plugin_uid = excluded.plugin_uid,
+      plugin_state = excluded.plugin_state,
+      expression_map_id = excluded.expression_map_id
+  )");
+  Statement remove(database_, "DELETE FROM library_patches WHERE id = ?");
+  bool succeeded = upsert && remove;
+
+  for (const auto &patch : patches) {
+    if (!succeeded)
+      break;
+    sqlite3_reset(upsert.get());
+    sqlite3_clear_bindings(upsert.get());
+    bindText(upsert.get(), 1, patch.id);
+    bindText(upsert.get(), 2, patch.libraryId);
+    sqlite3_bind_int(upsert.get(), 3, patch.position);
+    bindText(upsert.get(), 4, patch.name);
+    bindText(upsert.get(), 5, patch.instrumentEntityId);
+    bindText(upsert.get(), 6, patch.family);
+    bindText(upsert.get(), 7, patch.character);
+    sqlite3_bind_int(upsert.get(), 8, patch.pluginUid);
+    bindBlob(upsert.get(), 9, patch.pluginState);
+    bindText(upsert.get(), 10, patch.expressionMapId);
+    succeeded = sqlite3_step(upsert.get()) == SQLITE_DONE;
+  }
+
+  for (const auto &id : removedIds) {
+    if (!succeeded)
+      break;
+    sqlite3_reset(remove.get());
+    sqlite3_clear_bindings(remove.get());
+    bindText(remove.get(), 1, id);
+    succeeded = sqlite3_step(remove.get()) == SQLITE_DONE;
+  }
+
+  if (!succeeded || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return PatchReplaceResult::error;
+  }
+  return PatchReplaceResult::replaced;
+}
+
 bool LibraryRoutingRepository::insertChairWithStableAssignment(
     ChairRow &chair) {
   if (chair.id.empty() || chair.instrumentEntityId.empty() ||
