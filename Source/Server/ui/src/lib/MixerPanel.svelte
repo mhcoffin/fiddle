@@ -23,6 +23,7 @@
         readStripSize,
         writeStripSize,
     } from "./uiPreferences.js";
+    import { planLockedActivationChange } from "./lockedGroupGain.js";
 
     let {
         uiZoom = 1,
@@ -489,6 +490,51 @@
     });
 
     const toggleLibActive = (libraryName) => {
+        const libraryStrips = strips.filter((strip) => strip.library === libraryName);
+        if (libraryStrips.length === 0) return;
+
+        // Native library activation changes every matching strip to the same
+        // state: deactivate when all are active, otherwise activate them all.
+        const nextActive = !libraryStrips.every((strip) => strip.active !== false);
+        const affectedIds = new Set(libraryStrips.map((strip) => strip.id));
+        const adjustedGroups = [];
+        const adjustments = [];
+
+        // One library may contribute layers to several chairs. Preserve each
+        // locked chair independently, just as its mute controls do.
+        for (const familyGroup of groupedStrips) {
+            for (const instrGroup of familyGroup.instrGroups || []) {
+                if (!instrGroup.strips.some((strip) => affectedIds.has(strip.id)))
+                    continue;
+                const gm = getGroupMaster(instrGroup.key);
+                if (!gm.lockSum || instrGroup.strips.length <= 1)
+                    continue;
+
+                const gainState = instrGroup.strips.map((strip) => ({
+                    ...strip,
+                    gainDb: gainShadowRaw[strip.id] ?? strip.gainDb ?? 0,
+                }));
+                adjustments.push(
+                    ...planLockedActivationChange(
+                        gainState,
+                        affectedIds,
+                        nextActive,
+                        anySoloed,
+                    ),
+                );
+                adjustedGroups.push(instrGroup);
+            }
+        }
+
+        // Update the local audibility state before gain echoes arrive from
+        // native code, avoiding a transient jump in the derived master fader.
+        for (const strip of libraryStrips)
+            strip.active = nextActive;
+        for (const adjustment of adjustments)
+            setGainRaw(adjustment.id, adjustment.gainDb);
+        for (const instrGroup of adjustedGroups)
+            easeGroupFaders(instrGroup);
+
         dispatchCpp("toggleLibraryActive", libraryName);
     };
 

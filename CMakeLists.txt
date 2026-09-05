@@ -612,6 +612,14 @@ if(NODE_EXECUTABLE)
     set_tests_properties(chair_model_ui PROPERTIES
         LABELS "ui;routing;regression;stable"
     )
+
+    add_test(NAME locked_group_gain_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/lockedGroupGain.test.js"
+    )
+    set_tests_properties(locked_group_gain_ui PROPERTIES
+        LABELS "mixer;ui;gain;regression;stable"
+    )
 endif()
 
 # ==============================================================================
