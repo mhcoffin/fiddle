@@ -270,6 +270,9 @@ void SqliteVersionStorage::prepareStatements() {
                "ALTER TABLE strip_blobs ADD COLUMN soloed INTEGER NOT NULL "
                "DEFAULT 0",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN audio_insert_state BLOB",
+               nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
                nullptr, nullptr, nullptr);
 
@@ -283,12 +286,14 @@ void SqliteVersionStorage::prepareStatements() {
   // StripBlobs — library_id replaces uuid
   prep("INSERT OR REPLACE INTO strip_blobs (hash, library_id, library, family, "
        "is_solo, input_port, input_channel, plugin_uid, gain_db, "
-       "expression_map, plugin_state, active, lua_plugins, muted, soloed) "
-       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "expression_map, plugin_state, active, lua_plugins, muted, soloed, "
+       "audio_insert_state) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
-       "active, lua_plugins, muted, soloed FROM strip_blobs WHERE hash = ?",
+       "active, lua_plugins, muted, soloed, audio_insert_state FROM "
+       "strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
 
@@ -409,6 +414,13 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
                     SQLITE_TRANSIENT);
   sqlite3_bind_int(stmtPutStripBlob_, 14, blob.muted ? 1 : 0);
   sqlite3_bind_int(stmtPutStripBlob_, 15, blob.soloed ? 1 : 0);
+  if (blob.audioInsertState.empty()) {
+    sqlite3_bind_null(stmtPutStripBlob_, 16);
+  } else {
+    sqlite3_bind_blob(stmtPutStripBlob_, 16, blob.audioInsertState.data(),
+                      static_cast<int>(blob.audioInsertState.size()),
+                      SQLITE_TRANSIENT);
+  }
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -449,6 +461,13 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
       blob.luaPluginFileNames = splitStrings(luaPlugins);
     blob.muted = sqlite3_column_int(stmtGetStripBlob_, 12) != 0;
     blob.soloed = sqlite3_column_int(stmtGetStripBlob_, 13) != 0;
+    if (sqlite3_column_type(stmtGetStripBlob_, 14) != SQLITE_NULL) {
+      const int size = sqlite3_column_bytes(stmtGetStripBlob_, 14);
+      const auto *data = static_cast<const uint8_t *>(
+          sqlite3_column_blob(stmtGetStripBlob_, 14));
+      if (size > 0 && data)
+        blob.audioInsertState.assign(data, data + size);
+    }
     return blob;
   }
   return std::nullopt;

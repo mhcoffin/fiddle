@@ -38,6 +38,8 @@ class MixerCommandService;
 class MixerJsHandlers;
 class MasterAudioCommandService;
 class MasterAudioJsHandlers;
+class StripAudioCommandService;
+class StripAudioJsHandlers;
 class PluginCommandService;
 class PluginJsHandlers;
 
@@ -122,6 +124,8 @@ private:
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
   std::unique_ptr<MasterAudioCommandService> masterAudioCommandService_;
   std::unique_ptr<MasterAudioJsHandlers> masterAudioJsHandlers_;
+  std::unique_ptr<StripAudioCommandService> stripAudioCommandService_;
+  std::unique_ptr<StripAudioJsHandlers> stripAudioJsHandlers_;
   FiddleDatabase db_;
   std::unique_ptr<PluginCommandService> pluginCommandService_;
   std::unique_ptr<PluginJsHandlers> pluginJsHandlers_;
@@ -244,6 +248,7 @@ private:
   void applyLayerLibrarySetup(const LayerRow &layer);
   void installChairPlaybackTemplate();
   void masterAudioChanged();
+  void stripAudioChanged(const juce::String &stripId);
   void pushToDebugWindow(const juce::String &js);
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
@@ -265,6 +270,11 @@ private:
                           bool publishWhenLoaded = true);
   void restoreMasterAudio(const RestoredProjectState &state,
                           bool publishWhenLoaded = true);
+  void restoreStripAudio(MixerStrip &strip,
+                         const StripAudioSnapshot &snapshot,
+                         bool publishWhenLoaded = true);
+  void restoreStripAudio(MixerStrip &strip, const juce::MemoryBlock &state,
+                         bool publishWhenLoaded = true);
 
   /// Restore a versioned mixer snapshot and its plug-in state.
   void applyVersionState(const versioning::FiddleState &state);

@@ -34,7 +34,8 @@ makeBlobWithActive(bool active, bool includeActive = true,
                    uint32_t version = fiddle::kStateBlobVersion,
                    bool includeMasterInsert = false,
                    bool muted = false, bool soloed = false,
-                   bool includeMuteSolo = false) {
+                   bool includeMuteSolo = false,
+                   bool includeStripAudio = false) {
   juce::MemoryBlock blob;
   append<uint32_t>(blob, fiddle::kStateBlobMagic);
   append<uint32_t>(blob, version);
@@ -69,10 +70,19 @@ makeBlobWithActive(bool active, bool includeActive = true,
           ? std::string{"\"muted\":"} + (muted ? "true," : "false,") +
                 "\"soloed\":" + (soloed ? "true," : "false,")
           : "";
+  juce::MemoryBlock stripAudioState;
+  const uint8_t stripAudioBytes[] = {7, 8, 9};
+  if (includeStripAudio)
+    stripAudioState.append(stripAudioBytes, sizeof(stripAudioBytes));
+  const std::string stripAudioProperty =
+      includeStripAudio
+          ? "\"audioInserts\":\"" +
+                stripAudioState.toBase64Encoding().toStdString() + "\","
+          : "";
   const std::string json =
       std::string{"{\"id\":\"strip-1\",\"library\":\"Test\",\"family\":"
                   "\"Strings\",\"isSolo\":true,"} +
-      activeProperty + muteSoloProperties +
+      activeProperty + muteSoloProperties + stripAudioProperty +
       "\"inputPort\":0,\"inputChannel\":1,\"pluginUid\":0,"
       "\"gainDb\":0.0,\"expressionMap\":\"\",\"luaPlugins\":[]}";
   appendString(blob, json);
@@ -82,6 +92,26 @@ makeBlobWithActive(bool active, bool includeActive = true,
   std::memcpy(static_cast<uint8_t *>(blob.getData()) + 8, &totalSize,
               sizeof(totalSize));
   return blob;
+}
+
+void testStripAudioStateRoundTripsAndDefaultsEmpty() {
+  auto persistedBlob = makeBlobWithActive(
+      true, true, fiddle::kStateBlobVersion, false, false, false, false, true);
+  auto persisted = fiddle::deserializeStateBlob(persistedBlob.getData(),
+                                                persistedBlob.getSize());
+  CHECK(persisted.has_value());
+  CHECK(persisted && persisted->strips.front().audioInsertState.getSize() == 3);
+  if (persisted && persisted->strips.front().audioInsertState.getSize() == 3) {
+    const auto *bytes = static_cast<const uint8_t *>(
+        persisted->strips.front().audioInsertState.getData());
+    CHECK(bytes[0] == 7 && bytes[1] == 8 && bytes[2] == 9);
+  }
+
+  auto legacyBlob = makeBlobWithActive(true);
+  auto legacy =
+      fiddle::deserializeStateBlob(legacyBlob.getData(), legacyBlob.getSize());
+  CHECK(legacy.has_value());
+  CHECK(legacy && legacy->strips.front().audioInsertState.isEmpty());
 }
 
 void testMuteAndSoloRoundTripWithLegacyDefaults() {
@@ -153,6 +183,7 @@ int main() {
   testActiveStateRoundTripsThroughDeserialization();
   testMuteAndSoloRoundTripWithLegacyDefaults();
   testMasterAudioRoundTripsAndV3DefaultsRemainCompatible();
+  testStripAudioStateRoundTripsAndDefaultsEmpty();
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;
   return failed == 0 ? 0 : 1;

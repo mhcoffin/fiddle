@@ -1103,7 +1103,7 @@ coverage is recorded in
 real-plug-in restart and Dorico restore checks remain part of manual release
 testing.
 
-### Phase 4: instrument-strip inserts (in progress)
+### Phase 4: instrument-strip inserts (implementation complete)
 
 - Move each instrument render path into the graph.
 - Add pre/post insert racks to strips.
@@ -1113,12 +1113,15 @@ testing.
 Acceptance criterion: different strips can host different ordered effect racks
 without cross-talk, and all current mixer tests continue to pass.
 
-Phase 4A foundation: every instrument now renders into an independent stereo
-JUCE graph before being summed into Master. The graph currently contains the
-strip fader; mute, solo, and library activation produce zero graph output while
-the instrument path continues processing. This establishes the insertion point
-for an ordered rack without changing the Master path. See
-[`strip-audio-path-results.md`](strip-audio-path-results.md).
+Implementation result: every instrument renders through its own stereo JUCE
+graph with ordered pre-fader and post-fader racks around the existing strip
+fader. A generously sized Channel Audio panel provides compatible-effect
+search, add, remove, reorder, cross-fader move, bypass, and editor controls.
+Rack changes participate in undo and dirty tracking, survive ordinary server
+restart and Dorico project restoration, and contribute their processor latency
+to per-strip MIDI alignment. Automated coverage and the remaining real-plug-in
+checks are recorded in
+[`strip-effect-rack-results.md`](strip-effect-rack-results.md).
 
 ### Phase 5: group buses
 

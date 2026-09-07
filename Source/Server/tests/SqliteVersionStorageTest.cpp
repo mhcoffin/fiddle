@@ -87,6 +87,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.gainDb = -6.5f;
     strip.expressionMapEntityId = "xmap-2";
     strip.pluginState = {0, 1, 2, 255};
+    strip.audioInsertState = {9, 8, 7, 6, 5};
     strip.luaPluginFileNames = {"first.lua", "second.lua"};
 
     const auto hash = strip.computeHash();
@@ -99,6 +100,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored &&
           restored->luaPluginFileNames == strip.luaPluginFileNames);
     CHECK(restored && restored->pluginState == strip.pluginState);
+    CHECK(restored && restored->audioInsertState == strip.audioInsertState);
     CHECK(restored && restored->computeHash() == hash);
   }
 

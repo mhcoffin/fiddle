@@ -26,6 +26,7 @@ struct StripRow {
   float gainDb = 0.0f;
   std::string expressionMapEntityID;
   juce::MemoryBlock pluginState; // binary BLOB
+  StripAudioSnapshot audio;
   std::vector<std::string> luaPluginFileNames; // ordered Lua plugin filenames
 };
 
@@ -163,6 +164,10 @@ public:
 
   /// Load all strips, ordered by position.
   std::vector<StripRow> loadAllStrips();
+
+  /// Replace one strip's ordered pre/post-fader effect racks.
+  void saveStripAudio(const juce::String &stripId,
+                      const StripAudioSnapshot &snapshot);
 
   // ── Master audio stage ───────────────────────────────────────────
 

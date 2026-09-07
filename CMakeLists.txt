@@ -142,6 +142,13 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MasterAudioActions.h
     Source/Server/MasterAudioJsHandlers.cpp
     Source/Server/MasterAudioJsHandlers.h
+    Source/Server/AudioInsertSnapshot.h
+    Source/Server/StripAudioCommandService.cpp
+    Source/Server/StripAudioCommandService.h
+    Source/Server/StripAudioCommands.h
+    Source/Server/StripAudioActions.h
+    Source/Server/StripAudioJsHandlers.cpp
+    Source/Server/StripAudioJsHandlers.h
     Source/Server/PluginCommands.h
     Source/Server/PluginJsHandlers.cpp
     Source/Server/PluginJsHandlers.h
@@ -864,18 +871,41 @@ set_tests_properties(audio_graph_spike PROPERTIES
 add_executable(StripAudioEngineTest
     Source/Server/tests/StripAudioEngineTest.cpp
     Source/Server/StripAudioEngine.cpp
+    Source/Server/HostedPluginSlot.cpp
 )
 
 target_include_directories(StripAudioEngineTest PRIVATE Source/Server Source)
 target_link_libraries(StripAudioEngineTest PRIVATE
     juce::juce_audio_processors
     juce::juce_events
+    juce::juce_gui_basics
 )
+target_compile_definitions(StripAudioEngineTest PRIVATE JUCE_PLUGINHOST_VST3=1)
 target_compile_features(StripAudioEngineTest PRIVATE cxx_std_17)
 
 add_test(NAME strip_audio_engine COMMAND StripAudioEngineTest)
 set_tests_properties(strip_audio_engine PROPERTIES
     LABELS "audio;graph;mixer;realtime;regression;stable"
+)
+
+# ==============================================================================
+# StripAudioJsHandlersTest — per-strip rack command and payload routing
+# ==============================================================================
+add_executable(StripAudioJsHandlersTest
+    Source/Server/tests/StripAudioJsHandlersTest.cpp
+    Source/Server/StripAudioJsHandlers.cpp
+)
+
+target_include_directories(StripAudioJsHandlersTest PRIVATE Source/Server)
+target_link_libraries(StripAudioJsHandlersTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_gui_basics
+)
+target_compile_features(StripAudioJsHandlersTest PRIVATE cxx_std_17)
+
+add_test(NAME strip_audio_js_handlers COMMAND StripAudioJsHandlersTest)
+set_tests_properties(strip_audio_js_handlers PROPERTIES
+    LABELS "audio;ui;regression;stable"
 )
 
 # ==============================================================================

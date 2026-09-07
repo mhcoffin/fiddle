@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioInsertSnapshot.h"
 #include "HostedPluginSlot.h"
 
 #include <atomic>
@@ -14,12 +15,7 @@ namespace fiddle {
 
 inline constexpr const char *kMasterAudioId = "master";
 
-struct MasterInsertSnapshot {
-  juce::String slotId;
-  juce::PluginDescription description;
-  bool bypassed = false;
-  juce::MemoryBlock pluginState;
-};
+using MasterInsertSnapshot = AudioInsertSnapshot;
 
 struct MasterAudioSnapshot {
   float gainDb = 0.0f;

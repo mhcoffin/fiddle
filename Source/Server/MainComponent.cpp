@@ -10,6 +10,8 @@
 #include "PluginCommandService.h"
 #include "PluginChangeSuppression.h"
 #include "PluginJsHandlers.h"
+#include "StripAudioCommandService.h"
+#include "StripAudioJsHandlers.h"
 
 #include "midi_event.pb.h"
 #include <chrono>
@@ -803,6 +805,7 @@ void MainComponent::initMidiServer() {
               }
 
               restoreStripPlugin(*strip, rs.pluginUid, rs.pluginState);
+              restoreStripAudio(*strip, rs.audioInsertState, false);
 
               // Restore Lua plugins
               for (const auto &fileName : rs.luaPluginFileNames) {
@@ -1320,6 +1323,8 @@ void MainComponent::handleDoricoSaveRequest(uint64_t requestId) {
   const bool suppressPlaybackChanges = shouldSuppressPluginChanges(now);
   processPluginChangeNotifications(suppressPlaybackChanges);
   mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
+  for (auto *strip : mixer_.getAllStrips())
+    strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
 
   if (stateManager_.isDirty())
     saveConfig();
@@ -1389,6 +1394,8 @@ void MainComponent::saveAllStripsToDB() {
     const auto block = strips[i]->cachedPluginState();
     if (!block.isEmpty())
       db_.savePluginBlob(strips[i]->id, block);
+    db_.saveStripAudio(strips[i]->id,
+                       strips[i]->audioEngine().snapshotAll());
 
     // A layer row owns the durable mixer defaults for an explicitly assigned
     // patch. Transitional free-standing strips have no matching layer row.
@@ -1456,6 +1463,22 @@ void MainComponent::scheduleStateRebuild() {
 
 void MainComponent::setupStripPluginSlot(MixerStrip &strip) {
   strip.updatePluginSlotId();
+  const auto stripId = strip.id;
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  strip.audioEngine().setOnChanged([safeThis, stripId] {
+    if (safeThis != nullptr)
+      safeThis->stripAudioChanged(stripId);
+  });
+  strip.audioEngine().setOnEditorVisibilityChanged([safeThis, stripId] {
+    if (safeThis == nullptr)
+      return;
+    if (auto *current = safeThis->mixer_.getStrip(stripId)) {
+      auto state = current->audioEngine().toJson();
+      if (auto *object = state.getDynamicObject())
+        object->setProperty("stripId", stripId);
+      safeThis->broadcastMessage("setStripAudioState", state);
+    }
+  });
 }
 
 void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
@@ -1602,6 +1625,8 @@ bool MainComponent::shouldSuppressPluginChanges(uint32_t now) {
     // the window are drained using playback semantics.
     captureStripPluginFingerprints();
     mixer_.masterAudio().captureParameterFingerprints();
+    for (auto *strip : mixer_.getAllStrips())
+      strip->audioEngine().captureParameterFingerprints();
     pluginChangesWereSuppressed_ = false;
     return true;
   }
@@ -1644,6 +1669,7 @@ void MainComponent::captureStripPluginFingerprints() {
           StripPluginFingerprint{strip->pluginUid,
                                  strip->pluginParameterFingerprint()});
     }
+    strip->audioEngine().captureParameterFingerprints();
   }
 }
 
@@ -1738,6 +1764,7 @@ void MainComponent::loadStripsFromDB() {
       }
 
       restoreStripPlugin(*strip, row.pluginUid, row.pluginState);
+      restoreStripAudio(*strip, row.audio, false);
 
       // Restore Lua plugins
       for (const auto &fileName : row.luaPluginFileNames) {
@@ -1837,6 +1864,48 @@ void MainComponent::restoreMasterAudio(const RestoredProjectState &state,
   restoreMasterAudio(snapshot, publishWhenLoaded);
 }
 
+void MainComponent::restoreStripAudio(MixerStrip &strip,
+                                      const StripAudioSnapshot &snapshot,
+                                      bool publishWhenLoaded) {
+  auto &audio = strip.audioEngine();
+  audio.clear(false);
+  const auto stripId = strip.id;
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  const auto restoreRack = [&](const std::vector<AudioInsertSnapshot> &rack,
+                               StripInsertPosition position) {
+    for (int index = 0; index < static_cast<int>(rack.size()); ++index) {
+      audio.insert(
+          rack[static_cast<std::size_t>(index)], position, index,
+          mixer_.getFormatManager(),
+          [safeThis, stripId, publishWhenLoaded](bool, const juce::String &) {
+            if (publishWhenLoaded && safeThis != nullptr) {
+              if (auto *current = safeThis->mixer_.getStrip(stripId)) {
+                auto state = current->audioEngine().toJson();
+                if (auto *object = state.getDynamicObject())
+                  object->setProperty("stripId", stripId);
+                safeThis->broadcastMessage("setStripAudioState", state);
+              }
+              safeThis->pushMixerState(false);
+            }
+          },
+          false);
+    }
+  };
+  restoreRack(snapshot.preFaderInserts, StripInsertPosition::preFader);
+  restoreRack(snapshot.postFaderInserts, StripInsertPosition::postFader);
+  if (publishWhenLoaded)
+    pushMixerState(false);
+}
+
+void MainComponent::restoreStripAudio(MixerStrip &strip,
+                                      const juce::MemoryBlock &state,
+                                      bool publishWhenLoaded) {
+  restoreStripAudio(strip,
+                    deserializeStripAudioSnapshot(state.getData(),
+                                                  state.getSize()),
+                    publishWhenLoaded);
+}
+
 void MainComponent::applyVersionState(const versioning::FiddleState &state) {
   mixer_.clear();
   undoManager_.clear();
@@ -1893,6 +1962,11 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
           const auto blob = versionStore_->getStripBlob(saved.stripHash);
           if (!strip || !blob)
             continue;
+          juce::MemoryBlock audioState;
+          if (!blob->audioInsertState.empty())
+            audioState.append(blob->audioInsertState.data(),
+                              blob->audioInsertState.size());
+          restoreStripAudio(*strip, audioState, false);
           for (const auto &fileName : blob->luaPluginFileNames) {
             const auto path = luaCatalog_.resolvePluginPath(fileName);
             if (path.empty())
@@ -1941,6 +2015,12 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
       juce::MemoryBlock pluginState(blob->pluginState.data(),
                                     blob->pluginState.size());
       restoreStripPlugin(*strip, blob->pluginUid, pluginState);
+
+      juce::MemoryBlock audioState;
+      if (!blob->audioInsertState.empty())
+        audioState.append(blob->audioInsertState.data(),
+                          blob->audioInsertState.size());
+      restoreStripAudio(*strip, audioState, false);
 
       for (const auto &fileName : blob->luaPluginFileNames) {
         const auto path = luaCatalog_.resolvePluginPath(fileName);
@@ -2149,6 +2229,23 @@ void MainComponent::masterAudioChanged() {
   broadcastMessage("setDirtyState", true);
   saveMasterAudioToDB();
   pushMasterAudioState();
+  scheduleStateRebuild();
+}
+
+void MainComponent::stripAudioChanged(const juce::String &stripId) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip)
+    return;
+  db_.saveStripAudio(stripId, strip->audioEngine().snapshotAll());
+  auto state = strip->audioEngine().toJson();
+  if (auto *object = state.getDynamicObject()) {
+    object->setProperty("stripId", stripId);
+    object->setProperty("stripName",
+                        strip->layerName.isNotEmpty() ? strip->layerName
+                                                     : strip->library);
+  }
+  broadcastMessage("setStripAudioState", state);
+  pushMixerState(true);
   scheduleStateRebuild();
 }
 
@@ -2413,10 +2510,14 @@ void MainComponent::timerCallback() {
 
   processPluginChangeNotifications(suppressPlaybackChanges);
   mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
+  for (auto *strip : mixer_.getAllStrips())
+    strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
   if (++pluginPollCounter_ % 100 == 0) {
     if (!suppressPlaybackChanges) {
       pollPluginStateChanges();
       mixer_.masterAudio().refreshPluginStateCaches();
+      for (auto *strip : mixer_.getAllStrips())
+        strip->audioEngine().refreshPluginStateCaches();
     }
   }
 
@@ -2617,6 +2718,19 @@ void MainComponent::setupJsHandlers() {
           }});
   masterAudioJsHandlers_->registerHandlers();
   mixer_.masterAudio().setOnChanged([this] { masterAudioChanged(); });
+
+  stripAudioCommandService_ = std::make_unique<StripAudioCommandService>(
+      mixer_, pluginScanner_, undoManager_);
+  stripAudioJsHandlers_ = std::make_unique<StripAudioJsHandlers>(
+      jsRouter_, *stripAudioCommandService_,
+      StripAudioJsHandlers::Callbacks{
+          [this](StripAudioJsHandlers::Task task) {
+            safeCallAsync(std::move(task));
+          },
+          [this](const juce::var &state) {
+            broadcastMessage("setStripAudioState", state);
+          }});
+  stripAudioJsHandlers_->registerHandlers();
 
   pluginCommandService_ = std::make_unique<PluginCommandService>(
       mixer_, pluginScanner_, undoManager_, db_);
@@ -4752,6 +4866,9 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
   }
   if (!strip)
     return false;
+
+  if (isNew)
+    setupStripPluginSlot(*strip);
 
   strip->chairId = juce::String(chair.id);
   strip->patchId = juce::String(layer.patchId);

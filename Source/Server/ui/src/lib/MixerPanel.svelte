@@ -4,6 +4,7 @@
     import BranchSelector from "./BranchSelector.svelte";
     import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
+    import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
     import ChairManager from "./ChairManager.svelte";
     import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
@@ -46,6 +47,8 @@
         inserts: [],
     });
     let masterAudioOpen = $state(false);
+    let channelAudioStripId = $state("");
+    let channelAudio = $state(null);
     let chairManagerOpen = $state(false);
     let chairs = $state([]);
     let layerCatalog = $state([]);
@@ -135,6 +138,15 @@
     });
     onFromCpp("setMasterAudioState", (data) => {
         if (data && typeof data === "object") masterAudio = data;
+    });
+    onFromCpp("setStripAudioState", (data) => {
+        if (!data || typeof data !== "object" || !data.stripId) return;
+        strips = strips.map((strip) =>
+            strip.id === data.stripId
+                ? { ...strip, audio: { ...(strip.audio || {}), ...data } }
+                : strip,
+        );
+        if (data.stripId === channelAudioStripId) channelAudio = data;
     });
     onFromCpp("setExpressionMaps", (data) => {
         try {
@@ -278,6 +290,7 @@
             if (e.key !== "Escape") return;
             if (layerPickerChair) layerPickerChair = null;
             else if (chairManagerOpen) chairManagerOpen = false;
+            else if (channelAudioStripId) channelAudioStripId = "";
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
         };
@@ -332,6 +345,15 @@
     const showEditor = (stripId) => {
         dispatchCpp("showStripEditor", stripId);
     };
+    const openChannelAudio = (strip) => {
+        channelAudioStripId = strip.id;
+        channelAudio = { stripId: strip.id, ...(strip.audio || {}) };
+        dispatchCpp("requestStripAudioState", strip.id);
+    };
+    const visibleStripInserts = (strip) => [
+        ...(strip.audio?.preFaderInserts || []).map((insert) => ({ ...insert, location: "Pre" })),
+        ...(strip.audio?.postFaderInserts || []).map((insert) => ({ ...insert, location: "Post" })),
+    ];
     const loadExpressionMap = (stripId, entityID) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
             dispatchCpp("setGroupExpressionMap", selectedIdsJson(), entityID);
@@ -1533,6 +1555,38 @@
                                                     </div>
                                                 </div>
 
+                                                <button
+                                                    class="ch-audio-fx"
+                                                    class:has-effects={(strip.audio?.insertCount || 0) > 0}
+                                                    onclick={() => openChannelAudio(strip)}
+                                                    title="Open this layer's audio effects"
+                                                >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
+
+                                                {#if stripSize === "large" && (strip.audio?.insertCount || 0) > 0}
+                                                    <div class="ch-fx-summary" aria-label="Audio effect inserts">
+                                                        {#each visibleStripInserts(strip) as insert (insert.id)}
+                                                            <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
+                                                                <div class="ch-fx-summary-name" title={`${insert.location}-fader: ${insert.name || "Unavailable plug-in"}`}>
+                                                                    <span>{insert.location}</span>
+                                                                    <strong>{insert.name || "Unavailable plug-in"}</strong>
+                                                                </div>
+                                                                <div class="ch-fx-summary-actions">
+                                                                    <button
+                                                                        class:active={insert.bypassed}
+                                                                        onclick={() => dispatchCpp("setStripInsertBypassed", strip.id, insert.id, !insert.bypassed)}
+                                                                        title={insert.bypassed ? `Enable ${insert.name}` : `Bypass ${insert.name}`}
+                                                                    >{insert.bypassed ? "Enable" : "Bypass"}</button>
+                                                                    <button
+                                                                        onclick={() => dispatchCpp("toggleStripInsertEditor", strip.id, insert.id)}
+                                                                        disabled={insert.status !== "loaded"}
+                                                                        title={insert.editorOpen ? `Hide ${insert.name}` : `Edit ${insert.name || "audio effect"}`}
+                                                                    >{insert.editorOpen ? "Hide" : "Edit"}</button>
+                                                                </div>
+                                                            </div>
+                                                        {/each}
+                                                    </div>
+                                                {/if}
+
                                                 <!-- Program preset (only if VST exposes meaningful program names) -->
                                                 {#if strip.hasPlugin && (strip.numPrograms ?? 0) > 1 && (strip.programNames ?? []).some((n) => n && !/^Program\s*\d*$/.test(n))}
                                                     <div class="ch-program">
@@ -1661,6 +1715,18 @@
             plugins={scannedPlugins}
             onClose={() => { masterAudioOpen = false; }}
         />
+    {/if}
+    {#if channelAudioStripId}
+        {@const channelStrip = strips.find((strip) => strip.id === channelAudioStripId)}
+        {#if channelStrip}
+            <ChannelAudioPanel
+                strip={channelStrip}
+                audio={channelAudio || channelStrip.audio}
+                instrumentName={getPluginName(channelStrip)}
+                plugins={scannedPlugins}
+                onClose={() => { channelAudioStripId = ""; channelAudio = null; }}
+            />
+        {/if}
     {/if}
     {#if chairManagerOpen}
         <ChairManager onClose={() => { chairManagerOpen = false; }} />
@@ -2645,6 +2711,91 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+    }
+    .ch-audio-fx {
+        width: 100%;
+        min-height: 32px;
+        padding: 5px 8px;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        background: #111c2e;
+        color: #cbd5e1;
+        font-size: 0.74rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .ch-audio-fx:hover, .ch-audio-fx.has-effects {
+        border-color: #38bdf8;
+        color: #bae6fd;
+    }
+    .ch-fx-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        max-height: 160px;
+        overflow-y: auto;
+        flex-shrink: 0;
+    }
+    .ch-fx-summary-row {
+        padding: 6px;
+        border: 1px solid #334155;
+        border-radius: 5px;
+        background: #0d1728;
+    }
+    .ch-fx-summary-row.bypassed {
+        opacity: 0.62;
+    }
+    .ch-fx-summary-name {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
+        min-width: 0;
+    }
+    .ch-fx-summary-name span {
+        flex-shrink: 0;
+        color: #7dd3fc;
+        font-size: 0.6rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .ch-fx-summary-name strong {
+        min-width: 0;
+        overflow: hidden;
+        color: #e2e8f0;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .ch-fx-summary-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        margin-top: 5px;
+    }
+    .ch-fx-summary-actions button {
+        min-width: 0;
+        min-height: 27px;
+        padding: 3px 5px;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #172337;
+        color: #cbd5e1;
+        font-size: 0.68rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .ch-fx-summary-actions button:hover:not(:disabled) {
+        border-color: #7dd3fc;
+        color: #e0f2fe;
+    }
+    .ch-fx-summary-actions button.active {
+        border-color: #f59e0b;
+        color: #fbbf24;
+    }
+    .ch-fx-summary-actions button:disabled {
+        opacity: 0.38;
+        cursor: default;
     }
     .ch-program {
         display: flex;

@@ -209,6 +209,9 @@ struct MixerStrip {
 
   [[nodiscard]] uint64_t droppedMidiMessageCount() const noexcept;
 
+  StripAudioEngine &audioEngine() noexcept { return audioEngine_; }
+  const StripAudioEngine &audioEngine() const noexcept { return audioEngine_; }
+
   /// Show the editor window (create if needed).
   void showEditor();
 

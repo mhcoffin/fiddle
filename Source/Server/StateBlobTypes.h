@@ -11,6 +11,10 @@
 namespace fiddle {
 
 inline constexpr uint32_t kStateBlobMagic = 0x46444C53; // "FDLS"
+// Strip insert state lives inside the existing per-strip JSON envelope, so it
+// is an additive v4 field rather than a binary-layout change. Keeping v4 lets
+// an already-installed Fiddle plug-in continue to read blobs from a newly
+// built server.
 inline constexpr uint32_t kStateBlobVersion = 4;
 
 struct RestoredMasterInsertState {
@@ -39,6 +43,7 @@ struct RestoredStripState {
   float gainDb = 0.0f;
   std::string expressionMapEntityID;
   juce::MemoryBlock pluginState;
+  juce::MemoryBlock audioInsertState;
   std::vector<std::string> luaPluginFileNames;
 };
 

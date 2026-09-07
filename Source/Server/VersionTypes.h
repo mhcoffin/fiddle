@@ -76,6 +76,9 @@ struct StripBlob {
   /// Binary VST3 plugin state. Stored separately in the blob for efficiency.
   std::vector<uint8_t> pluginState;
 
+  /// Serialized ordered pre/post-fader audio-effect racks.
+  std::vector<uint8_t> audioInsertState;
+
   /// Ordered Lua plugin filenames (basenames, e.g. "force_staccato.lua").
   std::vector<std::string> luaPluginFileNames;
 
@@ -95,10 +98,16 @@ struct StripBlob {
       os << name << '\0';
     os << '\0'; // terminator for lua plugin list
     std::string header = os.str();
-    // Append binary plugin state
+    header.append(std::to_string(pluginState.size()));
+    header.push_back('\0');
     if (!pluginState.empty())
       header.append(reinterpret_cast<const char *>(pluginState.data()),
                     pluginState.size());
+    header.append(std::to_string(audioInsertState.size()));
+    header.push_back('\0');
+    if (!audioInsertState.empty())
+      header.append(reinterpret_cast<const char *>(audioInsertState.data()),
+                    audioInsertState.size());
     return header;
   }
 

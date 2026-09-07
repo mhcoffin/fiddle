@@ -176,6 +176,26 @@ void FiddleDatabase::createSchema() {
     )
   )");
 
+  exec(R"(
+    CREATE TABLE IF NOT EXISTS strip_audio_inserts (
+      strip_id       TEXT NOT NULL,
+      slot_id        TEXT PRIMARY KEY,
+      section        INTEGER NOT NULL,
+      position       INTEGER NOT NULL,
+      format_name    TEXT NOT NULL,
+      plugin_uid     INTEGER NOT NULL,
+      file_id        TEXT NOT NULL,
+      manufacturer   TEXT NOT NULL DEFAULT '',
+      plugin_name    TEXT NOT NULL DEFAULT '',
+      category       TEXT NOT NULL DEFAULT '',
+      plugin_version TEXT NOT NULL DEFAULT '',
+      num_inputs     INTEGER NOT NULL DEFAULT 0,
+      num_outputs    INTEGER NOT NULL DEFAULT 0,
+      bypassed       INTEGER NOT NULL DEFAULT 0,
+      plugin_state   BLOB
+    )
+  )");
+
   // Harmless cache-schema upgrade for databases created before audio effects.
   const auto pluginCacheUpgrade = sqlite3_exec(
       db_,
@@ -233,7 +253,8 @@ void FiddleDatabase::createSchema() {
       active        INTEGER NOT NULL DEFAULT 1,
       muted         INTEGER NOT NULL DEFAULT 0,
       soloed        INTEGER NOT NULL DEFAULT 0,
-      lua_plugins   TEXT NOT NULL DEFAULT ''
+      lua_plugins   TEXT NOT NULL DEFAULT '',
+      audio_insert_state BLOB
     )
   )");
 
@@ -344,6 +365,8 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN muted INTEGER NOT NULL DEFAULT 0",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN soloed INTEGER NOT NULL DEFAULT 0",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN audio_insert_state BLOB",
                nullptr, nullptr, nullptr);
 
   // Seed the default library on first boot
@@ -673,6 +696,15 @@ void FiddleDatabase::removeStrip(const juce::String &stripId) {
   sqlite3_bind_text(stmtRemoveStrip_, 1, stripId.toRawUTF8(), -1,
                     SQLITE_TRANSIENT);
   sqlite3_step(stmtRemoveStrip_);
+  sqlite3_stmt *audioStatement = nullptr;
+  if (sqlite3_prepare_v2(db_,
+                         "DELETE FROM strip_audio_inserts WHERE strip_id = ?",
+                         -1, &audioStatement, nullptr) == SQLITE_OK) {
+    sqlite3_bind_text(audioStatement, 1, stripId.toRawUTF8(), -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_step(audioStatement);
+  }
+  sqlite3_finalize(audioStatement);
 }
 
 void FiddleDatabase::clearStrips() {
@@ -681,6 +713,8 @@ void FiddleDatabase::clearStrips() {
     return;
   sqlite3_reset(stmtClearStrips_);
   sqlite3_step(stmtClearStrips_);
+  sqlite3_exec(db_, "DELETE FROM strip_audio_inserts", nullptr, nullptr,
+               nullptr);
 }
 
 std::vector<StripRow> FiddleDatabase::loadAllStrips() {
@@ -730,11 +764,131 @@ std::vector<StripRow> FiddleDatabase::loadAllStrips() {
     row.muted = sqlite3_column_int(stmtLoadStrips_, 13) != 0;
     row.soloed = sqlite3_column_int(stmtLoadStrips_, 14) != 0;
 
+    sqlite3_stmt *audioStatement = nullptr;
+    const char *audioSql =
+        "SELECT slot_id, section, format_name, plugin_uid, file_id, "
+        "manufacturer, plugin_name, category, plugin_version, num_inputs, "
+        "num_outputs, bypassed, plugin_state FROM strip_audio_inserts "
+        "WHERE strip_id = ? ORDER BY section, position";
+    if (sqlite3_prepare_v2(db_, audioSql, -1, &audioStatement, nullptr) ==
+        SQLITE_OK) {
+      sqlite3_bind_text(audioStatement, 1, row.id.toRawUTF8(), -1,
+                        SQLITE_TRANSIENT);
+      while (sqlite3_step(audioStatement) == SQLITE_ROW) {
+        const auto text = [&](int column) {
+          const auto *value = sqlite3_column_text(audioStatement, column);
+          return juce::String(
+              value ? reinterpret_cast<const char *>(value) : "");
+        };
+        AudioInsertSnapshot slot;
+        slot.slotId = text(0);
+        const int section = sqlite3_column_int(audioStatement, 1);
+        slot.description.pluginFormatName = text(2);
+        slot.description.uniqueId = sqlite3_column_int(audioStatement, 3);
+        slot.description.fileOrIdentifier = text(4);
+        slot.description.manufacturerName = text(5);
+        slot.description.name = text(6);
+        slot.description.category = text(7);
+        slot.description.version = text(8);
+        slot.description.numInputChannels =
+            sqlite3_column_int(audioStatement, 9);
+        slot.description.numOutputChannels =
+            sqlite3_column_int(audioStatement, 10);
+        slot.description.isInstrument = false;
+        slot.bypassed = sqlite3_column_int(audioStatement, 11) != 0;
+        const void *state = sqlite3_column_blob(audioStatement, 12);
+        const int stateSize = sqlite3_column_bytes(audioStatement, 12);
+        if (state && stateSize > 0)
+          slot.pluginState.append(state, static_cast<std::size_t>(stateSize));
+        auto &destination = section == 0 ? row.audio.preFaderInserts
+                                         : row.audio.postFaderInserts;
+        destination.push_back(std::move(slot));
+      }
+    }
+    sqlite3_finalize(audioStatement);
+
     rows.push_back(std::move(row));
   }
 
   std::cerr << "[FiddleDB] Loaded " << rows.size() << " strips" << std::endl;
   return rows;
+}
+
+void FiddleDatabase::saveStripAudio(const juce::String &stripId,
+                                    const StripAudioSnapshot &snapshot) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!db_)
+    return;
+
+  sqlite3_exec(db_, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr);
+  sqlite3_stmt *deleteStatement = nullptr;
+  if (sqlite3_prepare_v2(db_,
+                         "DELETE FROM strip_audio_inserts WHERE strip_id = ?",
+                         -1, &deleteStatement, nullptr) == SQLITE_OK) {
+    sqlite3_bind_text(deleteStatement, 1, stripId.toRawUTF8(), -1,
+                      SQLITE_TRANSIENT);
+    sqlite3_step(deleteStatement);
+  }
+  sqlite3_finalize(deleteStatement);
+
+  sqlite3_stmt *insertStatement = nullptr;
+  const char *sql =
+      "INSERT INTO strip_audio_inserts "
+      "(strip_id, slot_id, section, position, format_name, plugin_uid, "
+      "file_id, manufacturer, plugin_name, category, plugin_version, "
+      "num_inputs, num_outputs, bypassed, plugin_state) "
+      "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  if (sqlite3_prepare_v2(db_, sql, -1, &insertStatement, nullptr) ==
+      SQLITE_OK) {
+    const auto saveRack = [&](const std::vector<AudioInsertSnapshot> &rack,
+                              int section) {
+      for (int position = 0; position < static_cast<int>(rack.size());
+           ++position) {
+        const auto &slot = rack[static_cast<std::size_t>(position)];
+        const auto &description = slot.description;
+        sqlite3_reset(insertStatement);
+        sqlite3_clear_bindings(insertStatement);
+        sqlite3_bind_text(insertStatement, 1, stripId.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(insertStatement, 2, slot.slotId.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_int(insertStatement, 3, section);
+        sqlite3_bind_int(insertStatement, 4, position);
+        sqlite3_bind_text(insertStatement, 5,
+                          description.pluginFormatName.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_int(insertStatement, 6, description.uniqueId);
+        sqlite3_bind_text(insertStatement, 7,
+                          description.fileOrIdentifier.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(insertStatement, 8,
+                          description.manufacturerName.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(insertStatement, 9, description.name.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(insertStatement, 10,
+                          description.category.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_text(insertStatement, 11,
+                          description.version.toRawUTF8(), -1,
+                          SQLITE_TRANSIENT);
+        sqlite3_bind_int(insertStatement, 12, description.numInputChannels);
+        sqlite3_bind_int(insertStatement, 13, description.numOutputChannels);
+        sqlite3_bind_int(insertStatement, 14, slot.bypassed ? 1 : 0);
+        if (slot.pluginState.isEmpty())
+          sqlite3_bind_null(insertStatement, 15);
+        else
+          sqlite3_bind_blob(insertStatement, 15, slot.pluginState.getData(),
+                            static_cast<int>(slot.pluginState.getSize()),
+                            SQLITE_TRANSIENT);
+        sqlite3_step(insertStatement);
+      }
+    };
+    saveRack(snapshot.preFaderInserts, 0);
+    saveRack(snapshot.postFaderInserts, 1);
+  }
+  sqlite3_finalize(insertStatement);
+  sqlite3_exec(db_, "COMMIT", nullptr, nullptr, nullptr);
 }
 
 void FiddleDatabase::saveMasterAudio(const MasterAudioSnapshot &snapshot) {

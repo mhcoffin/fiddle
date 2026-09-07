@@ -240,6 +240,12 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
       const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
       sb.pluginState.assign(data, data + cached.getSize());
     }
+    const auto audioState =
+        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll());
+    if (!audioState.isEmpty()) {
+      const auto *data = static_cast<const uint8_t *>(audioState.getData());
+      sb.audioInsertState.assign(data, data + audioState.getSize());
+    }
 
     const auto stripHash = sb.computeHash();
     state.stripHashes.push_back(stripHash);
@@ -301,6 +307,10 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
                      strip->expressionMap
                          ? juce::String(strip->expressionMap->entityID)
                          : juce::String());
+    obj->setProperty(
+        "audioInserts",
+        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll())
+            .toBase64Encoding());
 
     // Lua plugin filenames (stored as basenames for portability)
     juce::Array<juce::var> luaArr;
@@ -367,6 +377,12 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     if (cached.getSize() > 0) {
       const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
       sb.pluginState.assign(data, data + cached.getSize());
+    }
+    const auto audioState =
+        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll());
+    if (!audioState.isEmpty()) {
+      const auto *data = static_cast<const uint8_t *>(audioState.getData());
+      sb.audioInsertState.assign(data, data + audioState.getSize());
     }
 
     const auto stripHash = sb.computeHash();

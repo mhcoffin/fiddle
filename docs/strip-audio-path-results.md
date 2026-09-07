@@ -17,11 +17,11 @@ so MIDI state remains synchronized and the eventual effect rack can preserve
 tails while inaudible. Metering occurs after the graph, matching the existing
 post-fader behavior.
 
-The next Phase 4 slice will place ordered hosted-effect nodes between the graph
-input and fader, then expose them through a generously sized Strip Audio panel.
-There are no strip-effect commands or UI in Phase 4A.
+The completed Phase 4B slice places ordered hosted-effect nodes on both sides
+of the fader and exposes them through the generously sized Channel Audio panel.
+See [`strip-effect-rack-results.md`](strip-effect-rack-results.md).
 
 Automated coverage verifies independent graph instances, stereo gain, silence,
 zero initial latency, and absence of cross-path state leakage. The production
-server builds successfully, and all 26 stable tests pass (the loopback TCP test
-must run outside restricted sandboxes).
+server and stable regression suite pass (the loopback TCP tests must run
+outside restricted sandboxes).

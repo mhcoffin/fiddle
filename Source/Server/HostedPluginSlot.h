@@ -129,8 +129,11 @@ public:
   void setBypassed(bool bypassed) noexcept;
   [[nodiscard]] bool isBypassed() const noexcept;
 
-  void showEditor(const juce::String &title);
+  using EditorVisibilityCallback = std::function<void()>;
+  void showEditor(const juce::String &title,
+                  EditorVisibilityCallback visibilityChanged = {});
   void closeEditor();
+  [[nodiscard]] bool isEditorVisible() const noexcept;
 
   /// AudioProcessorListener callbacks set this flag without allocating or
   /// calling UI code. Consume it from the message thread.
@@ -192,6 +195,7 @@ private:
   juce::AudioProcessor *messageThreadProcessor_ = nullptr;
   juce::MemoryBlock cachedState_;
   std::unique_ptr<PluginEditorWindow> editorWindow_;
+  EditorVisibilityCallback editorVisibilityChanged_;
   RealtimeObjectPublisher<Runtime> runtime_;
 };
 

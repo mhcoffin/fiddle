@@ -354,19 +354,33 @@ bool HostedPluginSlot::isBypassed() const noexcept {
   return bypassed_.load(std::memory_order_relaxed);
 }
 
-void HostedPluginSlot::showEditor(const juce::String &title) {
+void HostedPluginSlot::showEditor(
+    const juce::String &title,
+    EditorVisibilityCallback visibilityChanged) {
   if (!messageThreadProcessor_)
     return;
+  editorVisibilityChanged_ = std::move(visibilityChanged);
   if (editorWindow_) {
     editorWindow_->setVisible(true);
     editorWindow_->toFront(true);
   } else if (auto *editor =
                  messageThreadProcessor_->createEditorAndMakeActive()) {
-    editorWindow_ = std::make_unique<PluginEditorWindow>(title, editor);
+    editorWindow_ = std::make_unique<PluginEditorWindow>(
+        title, editor, [this] {
+          if (editorVisibilityChanged_)
+            editorVisibilityChanged_();
+        });
   }
 }
 
-void HostedPluginSlot::closeEditor() { editorWindow_.reset(); }
+void HostedPluginSlot::closeEditor() {
+  editorWindow_.reset();
+  editorVisibilityChanged_ = nullptr;
+}
+
+bool HostedPluginSlot::isEditorVisible() const noexcept {
+  return editorWindow_ != nullptr && editorWindow_->isVisible();
+}
 
 bool HostedPluginSlot::consumeChangeNotification() noexcept {
   return changeNotificationPending_.exchange(false, std::memory_order_acq_rel);

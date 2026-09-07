@@ -329,6 +329,10 @@ void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
 
 void MixerStrip::addDelayedMessage(double triggerTime,
                                    const juce::MidiMessage &msg) {
+  // Each strip may have a different insert-rack latency. Advance its MIDI
+  // independently so layered instruments remain aligned at the shared mix.
+  if (triggerTime > 0.0)
+    triggerTime = juce::jmax(0.0, triggerTime - audioEngine_.latencyMs());
   midiScheduler_.schedule(triggerTime, msg);
 }
 
@@ -494,6 +498,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("gainDb", (double)state.gainDb);
   obj->setProperty("peakDb", (double)state.peakDb);
   obj->setProperty("peakHoldDb", (double)state.peakHoldDb);
+  obj->setProperty("audio", audioEngine_.toJson());
   obj->setProperty("expressionMapName",
                    expressionMap ? juce::String(expressionMap->name) : "");
   obj->setProperty("expressionMapEntityID",

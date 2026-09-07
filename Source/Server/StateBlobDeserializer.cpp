@@ -145,6 +145,9 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
       strip.gainDb = (float)(double)obj->getProperty("gainDb");
       strip.expressionMapEntityID =
           obj->getProperty("expressionMap").toString().toStdString();
+      if (obj->hasProperty("audioInserts"))
+        strip.audioInsertState.fromBase64Encoding(
+            obj->getProperty("audioInserts").toString());
 
       auto luaVar = obj->getProperty("luaPlugins");
       if (auto *luaArr = luaVar.getArray()) {
