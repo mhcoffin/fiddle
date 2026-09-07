@@ -23,6 +23,10 @@ const mixerPanelSource = readFileSync(
     new URL("../src/lib/MixerPanel.svelte", import.meta.url),
     "utf8",
 );
+const layerDetailsSource = readFileSync(
+    new URL("../src/lib/LayerDetailsPanel.svelte", import.meta.url),
+    "utf8",
+);
 const mainComponentSource = readFileSync(
     new URL("../../MainComponent.cpp", import.meta.url),
     "utf8",
@@ -84,7 +88,7 @@ test("chair layers expose a one-click, undoable refresh from their source patch"
     assert.match(mixerPanelSource, /"refreshChairLayerFromLibrary", strip\.id/);
     assert.match(mixerPanelSource, /!strip\.sourcePatchOutOfDate/);
     assert.match(mixerPanelSource, /strip\.missingPatchReference/);
-    assert.match(mixerPanelSource, />Refresh Library<\/button>/);
+    assert.match(layerDetailsSource, />Refresh Library<\/button>/);
     assert.doesNotMatch(mixerPanelSource, /pendingLayerRefreshId/);
     assert.match(
         mainComponentSource,

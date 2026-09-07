@@ -2,9 +2,9 @@
     import { onMount, onDestroy, untrack } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
-    import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
+    import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
     import ChairManager from "./ChairManager.svelte";
     import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
@@ -49,6 +49,7 @@
     let masterAudioOpen = $state(false);
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
+    let layerDetailsStripId = $state("");
     let chairManagerOpen = $state(false);
     let chairs = $state([]);
     let layerCatalog = $state([]);
@@ -290,6 +291,7 @@
             if (e.key !== "Escape") return;
             if (layerPickerChair) layerPickerChair = null;
             else if (chairManagerOpen) chairManagerOpen = false;
+            else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
@@ -354,6 +356,26 @@
         ...(strip.audio?.preFaderInserts || []).map((insert) => ({ ...insert, location: "Pre" })),
         ...(strip.audio?.postFaderInserts || []).map((insert) => ({ ...insert, location: "Post" })),
     ];
+    const stripNeedsAttention = (strip) =>
+        Boolean(
+            strip.missingPatchReference ||
+            strip.sourcePatchOutOfDate ||
+            strip.luaPlugins?.some((plugin) => !plugin.loaded) ||
+            visibleStripInserts(strip).some((insert) =>
+                insert.status === "missing" || insert.status === "failed"),
+        );
+    const openLayerDetails = (strip) => {
+        channelAudioStripId = "";
+        channelAudio = null;
+        layerDetailsStripId = strip.id;
+    };
+    const renameLibrary = (stripId, value) => {
+        const library = String(value || "").trim();
+        if (!library) return;
+        if (isMultiSelected && selectedIds.has(stripId))
+            dispatchCpp("setGroupLibrary", selectedIdsJson(), library);
+        else dispatchCpp("setStripLibrary", stripId, library);
+    };
     const loadExpressionMap = (stripId, entityID) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
             dispatchCpp("setGroupExpressionMap", selectedIdsJson(), entityID);
@@ -891,33 +913,6 @@
         return input ? input.label || input.name : "";
     };
 
-    let editingId = $state(null);
-    let editValue = $state("");
-    const startEditing = (strip) => {
-        editingId = strip.id;
-        editValue = strip.library || "";
-    };
-    const commitEdit = (stripId) => {
-        if (editValue.trim()) {
-            const lib = editValue.trim();
-            if (isMultiSelected && selectedIds.has(stripId)) {
-                dispatchCpp("setGroupLibrary", selectedIdsJson(), lib);
-            } else {
-                dispatchCpp("setStripLibrary", stripId, lib);
-            }
-        }
-        editingId = null;
-    };
-    const cancelEdit = () => {
-        editingId = null;
-    };
-    const handleNameKeydown = (e, stripId) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            commitEdit(stripId);
-        } else if (e.key === "Escape") cancelEdit();
-    };
-
     /** @type {Record<string, boolean>} */
     let collapsedFamilies = $state({});
     const toggleFamily = (family) => {
@@ -1045,7 +1040,7 @@
 
 <div
     class="mixer-container"
-    style="--strip-width: {stripWidth}px;"
+    style="--strip-width: {stripWidth}px; --strip-pre-fader-height: {stripSize === "large" ? 288 : 140}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1378,50 +1373,64 @@
                                                     }}
                                                 ></div>
 
-                                                <div class="ch-inspect-midi-slot">
-                                                    <button
-                                                        class="ch-inspect-midi-btn"
-                                                        class:active={inspectorStripId === strip.id}
-                                                        title="Open the incoming MIDI note inspector"
-                                                        onclick={() => toggleInspector(strip.id)}
-                                                    >Inspect MIDI</button>
+                                                <div class="ch-strip-identity" title={`${strip.layerName || "Layer"} — ${strip.library || "Unknown library"}`}>
+                                                    <strong>{strip.layerName || strip.library || "Layer"}</strong>
+                                                    <span>{strip.chairId ? (strip.library || "Unknown library") : (getInputName(strip) || "Free-standing strip")}</span>
                                                 </div>
 
-                                                <!-- Lua Plugins (top of strip = first in signal chain) -->
-                                                <div class="ch-lua">
-                                                    {#if strip.luaPlugins && strip.luaPlugins.length > 0}
-                                                        <div class="ch-lua-chips">
-                                                            {#each strip.luaPlugins as lp}
-                                                                <span class="ch-lua-chip" class:error={!lp.loaded} title={lp.filePath}>
-                                                                    <span class="ch-lua-chip-name">{lp.name || 'Unknown'}</span>
-                                                                    <button
-                                                                        class="ch-lua-chip-x"
-                                                                        title="Remove"
-                                                                        onclick={() => removeLuaPlugin(strip.id, lp.index)}
-                                                                    >×</button>
-                                                                </span>
-                                                            {/each}
-                                                        </div>
-                                                    {/if}
-                                                    {#if luaPluginCatalog.length > 0}
-                                                        <select
-                                                            class="ch-select ch-lua-select"
-                                                            value=""
-                                                            onchange={(e) => {
-                                                                const val = /** @type {HTMLSelectElement} */ (e.target).value;
-                                                                if (val) {
-                                                                    addLuaPlugin(strip.id, val);
-                                                                    /** @type {HTMLSelectElement} */ (e.target).value = "";
-                                                                }
-                                                            }}
-                                                        >
-                                                            <option value="">+ lua plugin</option>
-                                                            {#each luaPluginCatalog as lp}
-                                                                <option value={lp.filePath}>{lp.name}</option>
-                                                            {/each}
-                                                        </select>
+                                                <div class="ch-instrument-summary">
+                                                    <div title={getPluginName(strip) || "No VST instrument assigned"}>
+                                                        <span>VSTi</span>
+                                                        <strong>{getPluginName(strip) || "No instrument"}</strong>
+                                                    </div>
+                                                    {#if strip.hasPlugin}
+                                                        <button onclick={() => showEditor(strip.id)} title="Open the VST instrument editor">Edit</button>
                                                     {/if}
                                                 </div>
+
+                                                {#if stripSize === "large"}
+                                                    <div class="ch-fx-zone">
+                                                        <button
+                                                            class="ch-audio-fx ch-audio-fx-heading"
+                                                            class:has-effects={(strip.audio?.insertCount || 0) > 0}
+                                                            onclick={() => openChannelAudio(strip)}
+                                                            title="Add, remove, or reorder this layer's audio effects"
+                                                        >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
+                                                        <div class="ch-fx-summary" aria-label="Audio effect inserts">
+                                                            {#if (strip.audio?.insertCount || 0) > 0}
+                                                                {#each visibleStripInserts(strip) as insert (insert.id)}
+                                                                    <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
+                                                                        <div class="ch-fx-summary-name" title={`${insert.location}-fader: ${insert.name || "Unavailable plug-in"}`}>
+                                                                            <span>{insert.location}</span>
+                                                                            <strong>{insert.name || "Unavailable plug-in"}</strong>
+                                                                        </div>
+                                                                        <div class="ch-fx-summary-actions">
+                                                                            <button
+                                                                                class:active={insert.bypassed}
+                                                                                onclick={() => dispatchCpp("setStripInsertBypassed", strip.id, insert.id, !insert.bypassed)}
+                                                                                title={insert.bypassed ? `Enable ${insert.name}` : `Bypass ${insert.name}`}
+                                                                            >{insert.bypassed ? "Enable" : "Bypass"}</button>
+                                                                            <button
+                                                                                onclick={() => dispatchCpp("toggleStripInsertEditor", strip.id, insert.id)}
+                                                                                disabled={insert.status !== "loaded"}
+                                                                                title={insert.editorOpen ? `Hide ${insert.name}` : `Edit ${insert.name || "audio effect"}`}
+                                                                            >{insert.editorOpen ? "Hide" : "Edit"}</button>
+                                                                        </div>
+                                                                    </div>
+                                                                {/each}
+                                                            {:else}
+                                                                <div class="ch-fx-empty">No audio effects</div>
+                                                            {/if}
+                                                        </div>
+                                                    </div>
+                                                {:else}
+                                                    <button
+                                                        class="ch-audio-fx"
+                                                        class:has-effects={(strip.audio?.insertCount || 0) > 0}
+                                                        onclick={() => openChannelAudio(strip)}
+                                                        title="Open this layer's audio effects"
+                                                    >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
+                                                {/if}
 
                                                 <!-- Vertical fader -->
                                                 <div class="ch-fader">
@@ -1506,169 +1515,12 @@
                                                     >
                                                 </div>
 
-                                                <!-- Expression Map -->
-                                                <ExpressionMapPicker
-                                                    maps={availableXmaps}
-                                                    selectedId={strip.expressionMapEntityID || ""}
-                                                    selectedName={strip.expressionMapName || ""}
-                                                    onselect={(entityID) =>
-                                                        loadExpressionMap(strip.id, entityID)}
-                                                    onclear={() => clearExpressionMap(strip.id)}
-                                                    onloadfile={() =>
-                                                        loadExpressionMapFromFile(strip.id)}
-                                                />
-
-
-                                                <!-- Plugin -->
-                                                <div class="ch-plugin">
-                                                    <div class="ch-control-heading">
-                                                        <span>VSTi</span>
-                                                        {#if strip.hasPlugin}
-                                                            <button
-                                                                class="ch-action-btn"
-                                                                onclick={() => showEditor(strip.id)}
-                                                                title="Open the VST instrument editor"
-                                                            >Edit</button>
-                                                        {/if}
-                                                    </div>
-                                                    <div class="ch-plugin-row">
-                                                        <select
-                                                            class="ch-select"
-                                                            title={getPluginName(strip) || "Choose a VST instrument"}
-                                                            value={strip.pluginUid || 0}
-                                                            onchange={(e) => {
-                                                                const uid = Number(
-                                                                    /** @type {HTMLSelectElement} */ (
-                                                                        e.target
-                                                                    ).value,
-                                                                );
-                                                                setPlugin(strip.id, uid);
-                                                            }}
-                                                        >
-                                                            <option value="0">—</option>
-                                                            {#each scannedPlugins.filter((p) => p.valid !== false) as plugin}
-                                                                <option value={plugin.uid}
-                                                                    >{plugin.name}</option
-                                                                >
-                                                            {/each}
-                                                        </select>
-                                                    </div>
-                                                </div>
-
                                                 <button
-                                                    class="ch-audio-fx"
-                                                    class:has-effects={(strip.audio?.insertCount || 0) > 0}
-                                                    onclick={() => openChannelAudio(strip)}
-                                                    title="Open this layer's audio effects"
-                                                >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
-
-                                                {#if stripSize === "large" && (strip.audio?.insertCount || 0) > 0}
-                                                    <div class="ch-fx-summary" aria-label="Audio effect inserts">
-                                                        {#each visibleStripInserts(strip) as insert (insert.id)}
-                                                            <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
-                                                                <div class="ch-fx-summary-name" title={`${insert.location}-fader: ${insert.name || "Unavailable plug-in"}`}>
-                                                                    <span>{insert.location}</span>
-                                                                    <strong>{insert.name || "Unavailable plug-in"}</strong>
-                                                                </div>
-                                                                <div class="ch-fx-summary-actions">
-                                                                    <button
-                                                                        class:active={insert.bypassed}
-                                                                        onclick={() => dispatchCpp("setStripInsertBypassed", strip.id, insert.id, !insert.bypassed)}
-                                                                        title={insert.bypassed ? `Enable ${insert.name}` : `Bypass ${insert.name}`}
-                                                                    >{insert.bypassed ? "Enable" : "Bypass"}</button>
-                                                                    <button
-                                                                        onclick={() => dispatchCpp("toggleStripInsertEditor", strip.id, insert.id)}
-                                                                        disabled={insert.status !== "loaded"}
-                                                                        title={insert.editorOpen ? `Hide ${insert.name}` : `Edit ${insert.name || "audio effect"}`}
-                                                                    >{insert.editorOpen ? "Hide" : "Edit"}</button>
-                                                                </div>
-                                                            </div>
-                                                        {/each}
-                                                    </div>
-                                                {/if}
-
-                                                <!-- Program preset (only if VST exposes meaningful program names) -->
-                                                {#if strip.hasPlugin && (strip.numPrograms ?? 0) > 1 && (strip.programNames ?? []).some((n) => n && !/^Program\s*\d*$/.test(n))}
-                                                    <div class="ch-program">
-                                                        <select
-                                                            class="ch-select ch-program-select"
-                                                            value={strip.programIndex ?? 0}
-                                                            onchange={(e) => {
-                                                                const idx = Number(
-                                                                    /** @type {HTMLSelectElement} */ (
-                                                                        e.target
-                                                                    ).value,
-                                                                );
-                                                                dispatchCpp("setStripProgram", strip.id, idx);
-                                                            }}
-                                                        >
-                                                            {#each (strip.programNames ?? []) as name, i}
-                                                                <option value={i}>{name || `Program ${i}`}</option>
-                                                            {/each}
-                                                        </select>
-                                                    </div>
-                                                {/if}
-
-
-                                                <!-- Strip name area: only library name now (instrument moved to bridge header) -->
-                                                <div class="ch-name-area">
-                                                    {#if strip.chairId}
-                                                        <div class="ch-layer-name" title={strip.layerName || strip.library}>
-                                                            <strong>{strip.layerName || "Layer"}</strong>
-                                                            <span>{strip.library || "Unknown library"}{strip.missingPatchReference ? " · missing catalog patch" : ""}</span>
-                                                        </div>
-                                                    {:else if editingId === strip.id}
-                                                        <input
-                                                            class="ch-name-input"
-                                                            type="text"
-                                                            placeholder="Library"
-                                                            bind:value={editValue}
-                                                            onblur={() => commitEdit(strip.id)}
-                                                            onkeydown={(e) =>
-                                                                handleNameKeydown(e, strip.id)}
-                                                        />
-                                                    {:else}
-                                                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                                        <div
-                                                            class="ch-lib-name"
-                                                            ondblclick={() => startEditing(strip)}
-                                                            title="Double-click to set library name"
-                                                        >
-                                                            {strip.library || "—"}
-                                                        </div>
-                                                    {/if}
-                                                </div>
-
-                                                <!-- Strip action buttons -->
-                                                <div class="ch-buttons" class:chair-actions={strip.chairId}>
-                                                    {#if strip.chairId}
-                                                        <button
-                                                            class="ch-btn ch-btn-refresh"
-                                                            disabled={strip.missingPatchReference || !strip.sourcePatchOutOfDate}
-                                                            onclick={() => refreshLayerFromLibrary(strip)}
-                                                            title={strip.missingPatchReference
-                                                                ? "The source library patch is missing"
-                                                                : !strip.sourcePatchOutOfDate
-                                                                    ? "This layer already matches its library patch"
-                                                                    : "Replace this layer's player setup and expression map from its library patch"}
-                                                        >Refresh Library</button>
-                                                    {/if}
-                                                    {#if !strip.chairId}
-                                                        <button
-                                                            class="ch-btn ch-btn-dup"
-                                                            disabled={isMultiSelected &&
-                                                                selectedIds.has(strip.id)}
-                                                            onclick={() => duplicateStrip(strip.id)}
-                                                            title="Add parallel strip with same input"
-                                                            >+</button
-                                                        >
-                                                    {/if}
-                                                    <button
-                                                        class="ch-btn ch-btn-del"
-                                                        onclick={() => removeStrip(strip.id)}
-                                                        title="Delete strip">✕</button
-                                                    >
-                                                </div>
+                                                    class="ch-details-btn"
+                                                    class:attention={stripNeedsAttention(strip)}
+                                                    onclick={() => openLayerDetails(strip)}
+                                                    title={stripNeedsAttention(strip) ? "Layer details need attention" : "Edit layer assignments and setup"}
+                                                >{stripNeedsAttention(strip) ? "Details · !" : "Edit details…"}</button>
                                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                                                 <div
@@ -1725,6 +1577,42 @@
                 instrumentName={getPluginName(channelStrip)}
                 plugins={scannedPlugins}
                 onClose={() => { channelAudioStripId = ""; channelAudio = null; }}
+            />
+        {/if}
+    {/if}
+    {#if layerDetailsStripId}
+        {@const detailsStrip = strips.find((strip) => strip.id === layerDetailsStripId)}
+        {#if detailsStrip}
+            <LayerDetailsPanel
+                strip={detailsStrip}
+                pluginName={getPluginName(detailsStrip)}
+                plugins={scannedPlugins}
+                maps={availableXmaps}
+                luaCatalog={luaPluginCatalog}
+                inspectorOpen={inspectorStripId === detailsStrip.id}
+                onClose={() => { layerDetailsStripId = ""; }}
+                onSetPlugin={(uid) => setPlugin(detailsStrip.id, uid)}
+                onShowInstrument={() => showEditor(detailsStrip.id)}
+                onSetProgram={(index) => dispatchCpp("setStripProgram", detailsStrip.id, index)}
+                onSelectMap={(entityID) => loadExpressionMap(detailsStrip.id, entityID)}
+                onClearMap={() => clearExpressionMap(detailsStrip.id)}
+                onLoadMapFile={() => loadExpressionMapFromFile(detailsStrip.id)}
+                onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}
+                onRemoveLua={(index) => removeLuaPlugin(detailsStrip.id, index)}
+                onInspectMidi={() => {
+                    toggleInspector(detailsStrip.id);
+                    layerDetailsStripId = "";
+                }}
+                onRefreshLibrary={() => refreshLayerFromLibrary(detailsStrip)}
+                onRenameLibrary={(value) => renameLibrary(detailsStrip.id, value)}
+                onDuplicate={() => {
+                    duplicateStrip(detailsStrip.id);
+                    layerDetailsStripId = "";
+                }}
+                onDelete={() => {
+                    removeStrip(detailsStrip.id);
+                    layerDetailsStripId = "";
+                }}
             />
         {/if}
     {/if}
@@ -2255,8 +2143,8 @@
     /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
     .master-strip-top-spacer {
         flex-shrink: 0;
-        /* selection bar + MIDI inspector slot + Lua area and gaps */
-        height: 134px;
+        /* Mirrors the fixed operational area above every channel fader. */
+        height: var(--strip-pre-fader-height, 140px);
     }
     /* Mirrors the enlarged controls below each channel fader. */
     .master-strip-bot-spacer {
@@ -2265,7 +2153,8 @@
         flex-direction: column;
         align-items: center;
         justify-content: flex-start;
-        height: 264px;
+        /* Mute/Solo plus the Details button, including their internal gap. */
+        height: 74px;
         gap: 6px;
     }
 
@@ -2327,38 +2216,6 @@
         filter: brightness(1.6);
     }
 
-    .ch-inspect-midi-slot {
-        height: 24px;
-        flex-shrink: 0;
-    }
-    .ch-inspect-midi-btn {
-        width: 100%;
-        height: 24px;
-        padding: 1px 6px;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        background: #0f172a;
-        color: #cbd5e1;
-        cursor: pointer;
-        font-size: 0.7rem;
-        font-weight: 600;
-        line-height: 1;
-        transition: all 0.15s;
-    }
-    .ch-inspect-midi-btn:hover {
-        background: #1e3a5f;
-        color: #bfdbfe;
-        border-color: #3b82f6;
-    }
-    .ch-inspect-midi-btn.active {
-        background: #1e3a5f;
-        color: #38bdf8;
-        border-color: #38bdf8;
-    }
-
-    .ch-name-area {
-        min-height: 34px;
-    }
     /* Instrument group bridge header */
     .inst-group {
         display: flex;
@@ -2412,49 +2269,6 @@
     .bridge-add-layer:hover {
         border-color: #6ee7b7;
         background: rgba(6, 95, 70, 0.68);
-    }
-    .ch-layer-name {
-        display: flex;
-        min-width: 0;
-        flex-direction: column;
-        align-items: center;
-        gap: 1px;
-        text-align: center;
-    }
-    .ch-layer-name strong,
-    .ch-layer-name span {
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .ch-layer-name strong { color: #e2e8f0; font-size: 0.72rem; }
-    .ch-layer-name span { color: #94a3b8; font-size: 0.64rem; }
-    .ch-lib-name {
-        font-size: 0.75rem;
-        color: #cbd5e1;
-        text-align: center;
-        cursor: default;
-        user-select: none;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        line-height: 1.3;
-    }
-    .ch-name-input {
-        width: 100%;
-        padding: 3px 5px;
-        border: 1px solid #3b82f6;
-        border-radius: 2px;
-        background: #0f172a;
-        color: #f1f5f9;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-align: center;
-        box-sizing: border-box;
-    }
-    .ch-name-input:focus {
-        outline: none;
     }
 
     /* ── Fader ────────────────────────────── */
@@ -2677,41 +2491,6 @@
         white-space: nowrap;
     }
 
-    .ch-control-heading {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 28px;
-        gap: 6px;
-        color: #94a3b8;
-        font-size: 0.7rem;
-        font-weight: 600;
-        line-height: 1;
-    }
-    .ch-action-btn {
-        min-width: 52px;
-        min-height: 28px;
-        padding: 3px 8px;
-        background: #0f172a;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 0.72rem;
-        font-weight: 600;
-        color: #cbd5e1;
-        transition: all 0.15s;
-        flex-shrink: 0;
-    }
-    .ch-action-btn:hover {
-        background: #1e3a5f;
-        color: #bfdbfe;
-        border-color: #3b82f6;
-    }
-    .ch-plugin {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
     .ch-audio-fx {
         width: 100%;
         min-height: 32px;
@@ -2723,18 +2502,105 @@
         font-size: 0.74rem;
         font-weight: 600;
         cursor: pointer;
+        flex-shrink: 0;
     }
     .ch-audio-fx:hover, .ch-audio-fx.has-effects {
         border-color: #38bdf8;
         color: #bae6fd;
     }
-    .ch-fx-summary {
+    .ch-strip-identity {
         display: flex;
+        height: 38px;
+        min-width: 0;
+        flex-shrink: 0;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        text-align: center;
+    }
+    .ch-strip-identity strong,
+    .ch-strip-identity span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .ch-strip-identity strong { color: #e2e8f0; font-size: 0.73rem; }
+    .ch-strip-identity span { color: #94a3b8; font-size: 0.64rem; }
+    .ch-instrument-summary {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 44px;
+        flex-shrink: 0;
+        padding: 5px 6px;
+        box-sizing: border-box;
+        border: 1px solid #29384f;
+        border-radius: 5px;
+        background: #0d1728;
+    }
+    .ch-instrument-summary > div {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 2px;
+    }
+    .ch-instrument-summary span {
+        color: #64748b;
+        font-size: 0.58rem;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .ch-instrument-summary strong {
+        overflow: hidden;
+        color: #dbeafe;
+        font-size: 0.69rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .ch-instrument-summary button {
+        min-width: 42px;
+        min-height: 28px;
+        padding: 3px 6px;
+        flex-shrink: 0;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #172337;
+        color: #cbd5e1;
+        font-size: 0.67rem;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .ch-instrument-summary button:hover {
+        border-color: #7dd3fc;
+        color: #e0f2fe;
+    }
+    .ch-fx-zone {
+        display: flex;
+        height: 180px;
+        min-height: 180px;
+        flex-shrink: 0;
         flex-direction: column;
         gap: 5px;
-        max-height: 160px;
+    }
+    .ch-audio-fx-heading { min-height: 32px; }
+    .ch-fx-summary {
+        display: flex;
+        min-height: 0;
+        flex: 1;
+        flex-direction: column;
+        gap: 5px;
         overflow-y: auto;
-        flex-shrink: 0;
+    }
+    .ch-fx-empty {
+        display: grid;
+        height: 100%;
+        place-items: center;
+        border: 1px dashed #29384f;
+        border-radius: 5px;
+        color: #64748b;
+        font-size: 0.68rem;
     }
     .ch-fx-summary-row {
         padding: 6px;
@@ -2797,149 +2663,25 @@
         opacity: 0.38;
         cursor: default;
     }
-    .ch-program {
-        display: flex;
-        gap: 2px;
-    }
-
-    /* ── Lua Plugin Section ──────────────────────────────── */
-    .ch-lua {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        height: 90px;
+    .ch-details-btn {
+        width: 100%;
+        min-height: 32px;
+        padding: 5px 8px;
         flex-shrink: 0;
-        overflow-y: auto;
-        overflow-x: hidden;
-        justify-content: flex-end;
-    }
-    .ch-lua-chips {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 2px;
-    }
-    .ch-lua-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 2px;
-        padding: 1px 4px;
-        border-radius: 3px;
-        background: #1e293b;
-        border: 1px solid #475569;
-        font-size: 0.7rem;
-        color: #e2e8f0;
-        line-height: 1.2;
-        transition: border-color 0.15s;
-    }
-    .ch-lua-chip:hover {
-        border-color: #cbd5e1;
-    }
-    .ch-lua-chip.error {
-        color: #fca5a5;
-        border-color: #991b1b;
-    }
-    .ch-lua-chip-name {
-        white-space: nowrap;
-        max-width: calc(var(--strip-width, 120px) - 48px);
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .ch-lua-chip-x {
-        background: none;
-        border: none;
-        color: #94a3b8;
-        cursor: pointer;
-        min-width: 22px;
-        min-height: 22px;
-        font-size: 0.8rem;
-        padding: 0 3px;
-        line-height: 1;
-    }
-    .ch-lua-chip-x:hover {
-        color: #f87171;
-    }
-    .ch-lua-select {
-        min-height: 26px;
-        font-size: 0.7rem;
-        color: #94a3b8;
-        background: transparent;
-        border: none;
-        outline: none;
-    }
-    .ch-lua-select option {
-        color: initial;
-    }
-    .ch-program-select {
-        font-size: 0.7rem;
-        color: #94a3b8;
-    }
-    .ch-plugin-row {
-        display: flex;
-        gap: 2px;
-        align-items: center;
-    }
-    .ch-select {
-        flex: 1;
-        min-width: 0;
-        min-height: 30px;
-        padding: 4px 6px;
         border: 1px solid #334155;
-        border-radius: 3px;
+        border-radius: 4px;
         background: #0f172a;
         color: #cbd5e1;
-        font-size: 0.75rem;
+        font-size: 0.72rem;
+        font-weight: 600;
         cursor: pointer;
-        appearance: auto;
     }
-    .ch-select:focus {
-        outline: none;
-        border-color: #3b82f6;
+    .ch-details-btn:hover {
+        border-color: #7dd3fc;
+        color: #e0f2fe;
     }
-
-    .ch-buttons {
-        display: flex;
-        gap: 6px;
-        margin-top: 4px;
-    }
-    .ch-buttons.chair-actions {
-        flex-direction: column;
-    }
-    .ch-btn {
-        flex: 1;
-        min-height: 28px;
-        padding: 3px 0;
-        border: 1px solid #334155;
-        border-radius: 3px;
-        background: #0f172a;
-        color: #cbd5e1;
-        font-size: 0.8rem;
-        cursor: pointer;
-        text-align: center;
-        transition: all 0.12s;
-    }
-    .ch-btn-dup:hover {
-        background: #1e3a5f;
-        color: #93c5fd;
-        border-color: #3b82f6;
-    }
-    .ch-btn-refresh {
-        color: #a7f3d0;
-        border-color: rgba(52, 211, 153, 0.55);
-        background: rgba(20, 83, 45, 0.35);
-        font-size: 0.68rem;
-        font-weight: 650;
-    }
-    .ch-btn-refresh:hover:not(:disabled) {
-        border-color: #6ee7b7;
-        background: rgba(6, 95, 70, 0.65);
-    }
-    .ch-btn:disabled {
-        opacity: 0.35;
-        cursor: default;
-    }
-    .ch-btn-del:hover {
-        background: #451a1a;
-        color: #f87171;
-        border-color: #dc2626;
+    .ch-details-btn.attention {
+        border-color: #f59e0b;
+        color: #fbbf24;
     }
 </style>
