@@ -22,9 +22,11 @@ MixerModel::~MixerModel() {
 
 void MixerModel::clear() {
   std::vector<std::unique_ptr<MixerStrip>> localStrips;
+  std::vector<std::unique_ptr<GroupBus>> localBuses;
   {
     std::lock_guard<std::mutex> lock(stripsMutex_);
     localStrips.swap(strips_);
+    localBuses.swap(groupBuses_);
     commitAudioGraph();
   }
 
@@ -34,6 +36,8 @@ void MixerModel::clear() {
     s->unloadPlugin();
     trashStrips_.emplace_back(std::move(s));
   }
+  for (auto &bus : localBuses)
+    trashGroupBuses_.emplace_back(std::move(bus));
 }
 
 juce::String MixerModel::addStrip() {
@@ -124,6 +128,7 @@ StripSnapshot MixerModel::snapshotStrip(const juce::String &id) const {
       snap.gainDb = state.gainDb;
       snap.expressionMapEntityID =
           s->expressionMap ? s->expressionMap->entityID : "";
+      snap.directOutputBusId = s->directOutputBusId;
       snap.index = i;
       break;
     }
@@ -149,6 +154,7 @@ juce::String MixerModel::duplicateStripAfter(const juce::String &afterId) {
   strip->setInputAssignment(sourceState.inputPort, sourceState.inputChannel);
   strip->family = source->family;
   strip->isSolo = source->isSolo;
+  strip->directOutputBusId = source->directOutputBusId;
   strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
 
   // Library label defaults to empty — user fills in later
@@ -178,6 +184,172 @@ std::vector<MixerStrip *> MixerModel::getAllStrips() {
   return result;
 }
 
+juce::String MixerModel::addGroupBus(const juce::String &name) {
+  auto bus = std::make_unique<GroupBus>();
+  bus->id = juce::Uuid().toString();
+  bus->name = name.trim().isNotEmpty() ? name.trim() : "Group";
+  bus->prepareToPlay(currentSampleRate_, currentBlockSize_);
+  const auto id = bus->id;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  groupBuses_.push_back(std::move(bus));
+  commitAudioGraph();
+  return id;
+}
+
+void MixerModel::insertGroupBusAt(std::unique_ptr<GroupBus> bus, int index) {
+  if (!bus || bus->id.isEmpty())
+    return;
+  bus->prepareToPlay(currentSampleRate_, currentBlockSize_);
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  index = juce::jlimit(0, static_cast<int>(groupBuses_.size()), index);
+  groupBuses_.insert(groupBuses_.begin() + index, std::move(bus));
+  commitAudioGraph();
+}
+
+bool MixerModel::removeGroupBus(const juce::String &id) {
+  auto removed = removeGroupBusKeepAlive(id);
+  if (!removed)
+    return false;
+  std::lock_guard<std::mutex> lock(retiredStripMutex_);
+  trashGroupBuses_.push_back(std::move(removed));
+  return true;
+}
+
+std::unique_ptr<GroupBus>
+MixerModel::removeGroupBusKeepAlive(const juce::String &id) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  const auto found = std::find_if(
+      groupBuses_.begin(), groupBuses_.end(),
+      [&id](const auto &bus) { return bus->id == id; });
+  if (found == groupBuses_.end())
+    return nullptr;
+  for (auto &strip : strips_)
+    if (strip->directOutputBusId == id)
+      strip->directOutputBusId.clear();
+  auto removed = std::move(*found);
+  groupBuses_.erase(found);
+  commitAudioGraph();
+  return removed;
+}
+
+int MixerModel::groupBusIndex(const juce::String &id) const {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (int index = 0; index < static_cast<int>(groupBuses_.size()); ++index)
+    if (groupBuses_[static_cast<std::size_t>(index)]->id == id)
+      return index;
+  return -1;
+}
+
+bool MixerModel::renameGroupBus(const juce::String &id,
+                                const juce::String &name) {
+  const auto cleaned = name.trim();
+  if (cleaned.isEmpty())
+    return false;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (auto &bus : groupBuses_) {
+    if (bus->id == id) {
+      bus->name = cleaned;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool MixerModel::moveGroupBus(const juce::String &id, int newIndex) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  const auto found = std::find_if(
+      groupBuses_.begin(), groupBuses_.end(),
+      [&id](const auto &bus) { return bus->id == id; });
+  if (found == groupBuses_.end())
+    return false;
+  const int oldIndex = static_cast<int>(found - groupBuses_.begin());
+  newIndex = juce::jlimit(0, static_cast<int>(groupBuses_.size()) - 1,
+                         newIndex);
+  if (oldIndex == newIndex)
+    return true;
+  auto bus = std::move(*found);
+  groupBuses_.erase(found);
+  groupBuses_.insert(groupBuses_.begin() + newIndex, std::move(bus));
+  commitAudioGraph();
+  return true;
+}
+
+bool MixerModel::setGroupBusGain(const juce::String &id, float gainDb) {
+  if (auto *bus = getGroupBus(id)) {
+    bus->setGainDb(gainDb);
+    return true;
+  }
+  return false;
+}
+
+bool MixerModel::setGroupBusMute(const juce::String &id, bool muted) {
+  if (auto *bus = getGroupBus(id)) {
+    bus->setMuted(muted);
+    return true;
+  }
+  return false;
+}
+
+bool MixerModel::setGroupBusSolo(const juce::String &id, bool soloed) {
+  if (auto *bus = getGroupBus(id)) {
+    bus->setSoloed(soloed);
+    return true;
+  }
+  return false;
+}
+
+GroupBus *MixerModel::getGroupBus(const juce::String &id) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (auto &bus : groupBuses_)
+    if (bus->id == id)
+      return bus.get();
+  return nullptr;
+}
+
+std::vector<GroupBus *> MixerModel::getAllGroupBuses() {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  std::vector<GroupBus *> result;
+  result.reserve(groupBuses_.size());
+  for (auto &bus : groupBuses_)
+    result.push_back(bus.get());
+  return result;
+}
+
+bool MixerModel::setStripDirectOutput(const juce::String &stripId,
+                                      const juce::String &busId) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  auto strip = std::find_if(strips_.begin(), strips_.end(),
+                            [&stripId](const auto &item) {
+                              return item->id == stripId;
+                            });
+  if (strip == strips_.end())
+    return false;
+  if (busId.isNotEmpty()) {
+    const auto bus = std::find_if(groupBuses_.begin(), groupBuses_.end(),
+                                  [&busId](const auto &item) {
+                                    return item->id == busId;
+                                  });
+    if (bus == groupBuses_.end())
+      return false;
+  }
+  (*strip)->directOutputBusId = busId;
+  commitAudioGraph();
+  return true;
+}
+
+void MixerModel::refreshAudioRouting() {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  commitAudioGraph();
+}
+
+juce::String MixerModel::groupBusesToJson() const {
+  juce::Array<juce::var> values;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &bus : groupBuses_)
+    values.add(bus->toJson());
+  return juce::JSON::toString(juce::var(values), true);
+}
+
 juce::AudioPluginFormatManager &MixerModel::getFormatManager() {
   return formatManager_;
 }
@@ -204,16 +376,29 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
 
   // Pre-compute whether any strip is soloed
   bool anySoloed = false;
-  for (auto *strip : graph->strips) {
-    if (strip->isSoloed()) {
+  for (const auto &route : graph->stripRoutes) {
+    if (route.strip->isSoloed()) {
       anySoloed = true;
       break;
     }
   }
 
-  for (auto *strip : graph->strips) {
-    strip->processBlock(audioBuffer, currentTime, anySoloed);
+  bool anyBusSoloed = false;
+  for (auto *bus : graph->groupBuses) {
+    bus->beginBlock(audioBuffer.getNumSamples());
+    anyBusSoloed |= bus->isSoloed();
   }
+
+  for (const auto &route : graph->stripRoutes) {
+    const bool directPathAudible = !anyBusSoloed || route.destination != nullptr;
+    auto &destination = route.destination ? route.destination->inputBuffer()
+                                          : audioBuffer;
+    route.strip->processBlock(destination, currentTime, anySoloed,
+                              directPathAudible);
+  }
+
+  for (auto *bus : graph->groupBuses)
+    bus->processTo(audioBuffer, !anyBusSoloed || bus->isSoloed());
 
   masterAudio_.processBlock(audioBuffer);
 }
@@ -225,6 +410,8 @@ void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
   for (auto &strip : strips_) {
     strip->prepareToPlay(sampleRate, blockSize);
   }
+  for (auto &bus : groupBuses_)
+    bus->prepareToPlay(sampleRate, blockSize);
   masterAudio_.prepareToPlay(sampleRate, blockSize);
 }
 
@@ -236,7 +423,8 @@ void MixerModel::routeNoteEvent(int port, int channel,
   if (!graph)
     return;
 
-  for (auto *strip : graph->strips) {
+  for (const auto &route : graph->stripRoutes) {
+    auto *strip = route.strip;
     if (strip->matchesInput(port, channel)) {
       strip->addDelayedMessage(triggerTime, msg);
     }
@@ -251,7 +439,8 @@ void MixerModel::routeCCEvent(int port, int channel,
     return;
 
   double now = juce::Time::getMillisecondCounterHiRes();
-  for (auto *strip : graph->strips) {
+  for (const auto &route : graph->stripRoutes) {
+    auto *strip = route.strip;
     if (strip->matchesInput(port, channel)) {
       strip->addDelayedMessage(now, msg);
     }
@@ -789,19 +978,37 @@ void MixerModel::setHarmonicService(HarmonicAnalysisService *service) {
 
 void MixerModel::commitAudioGraph() {
   auto current = std::make_unique<ActiveAudioGraph>();
+  std::map<juce::String, GroupBus *> busById;
+  for (auto &bus : groupBuses_) {
+    current->groupBuses.push_back(bus.get());
+    busById.emplace(bus->id, bus.get());
+  }
   for (auto &s : strips_) {
     current->strips.push_back(s.get());
+    GroupBus *destination = nullptr;
+    if (s->directOutputBusId.isNotEmpty()) {
+      const auto found = busById.find(s->directOutputBusId);
+      if (found != busById.end())
+        destination = found->second;
+      else
+        s->directOutputBusId.clear();
+    }
+    s->setDownstreamLatencySamples(
+        destination ? destination->audioEngine().latencySamples() : 0);
+    current->stripRoutes.push_back({s.get(), destination});
   }
   audioGraph_.publish(std::move(current));
 }
 
 void MixerModel::timerCallback() {
   std::vector<std::unique_ptr<MixerStrip>> stripsToDelete;
+  std::vector<std::unique_ptr<GroupBus>> busesToDelete;
 
   audioGraph_.reclaimRetiredWith(
-      [this, &stripsToDelete] {
+      [this, &stripsToDelete, &busesToDelete] {
         std::lock_guard<std::mutex> lock(retiredStripMutex_);
         stripsToDelete.swap(trashStrips_);
+        busesToDelete.swap(trashGroupBuses_);
       },
       [](ActiveAudioGraph &) {});
 
@@ -812,6 +1019,7 @@ void MixerModel::timerCallback() {
       strip->reclaimRetiredPluginRuntimes();
   }
   stripsToDelete.clear();
+  busesToDelete.clear();
 }
 
 int MixerModel::getPlaybackDelayMs() const { return playbackDelayMs_; }

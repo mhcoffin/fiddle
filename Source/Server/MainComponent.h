@@ -36,6 +36,8 @@ class ExpressionMapCommandService;
 class ExpressionMapJsHandlers;
 class MixerCommandService;
 class MixerJsHandlers;
+class GroupBusCommandService;
+class GroupBusJsHandlers;
 class MasterAudioCommandService;
 class MasterAudioJsHandlers;
 class StripAudioCommandService;
@@ -122,6 +124,8 @@ private:
   UndoManager undoManager_;
   std::unique_ptr<MixerCommandService> mixerCommandService_;
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
+  std::unique_ptr<GroupBusCommandService> groupBusCommandService_;
+  std::unique_ptr<GroupBusJsHandlers> groupBusJsHandlers_;
   std::unique_ptr<MasterAudioCommandService> masterAudioCommandService_;
   std::unique_ptr<MasterAudioJsHandlers> masterAudioJsHandlers_;
   std::unique_ptr<StripAudioCommandService> stripAudioCommandService_;
@@ -237,6 +241,7 @@ private:
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
   void pushMasterAudioState();
+  void pushGroupBusState();
   void pushChairState();
   void pushLayerCatalog();
   void syncMixerToLayers();
@@ -270,6 +275,8 @@ private:
                           bool publishWhenLoaded = true);
   void restoreMasterAudio(const RestoredProjectState &state,
                           bool publishWhenLoaded = true);
+  void restoreGroupBuses(const versioning::GlobalState &state,
+                         bool publishWhenLoaded = true);
   void restoreStripAudio(MixerStrip &strip,
                          const StripAudioSnapshot &snapshot,
                          bool publishWhenLoaded = true);

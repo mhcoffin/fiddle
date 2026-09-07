@@ -258,6 +258,7 @@ public:
                                   sourceState.inputChannel);
         strip->family = src->family;
         strip->isSolo = src->isSolo;
+        strip->directOutputBusId = src->directOutputBusId;
       }
       int sourceIdx = mixer_.stripIndex(sourceStripId_);
       mixer_.insertStripAt(std::move(strip), sourceIdx + 1);

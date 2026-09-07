@@ -5,6 +5,7 @@
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
+    import BusManager from "./BusManager.svelte";
     import ChairManager from "./ChairManager.svelte";
     import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
@@ -47,6 +48,8 @@
         inserts: [],
     });
     let masterAudioOpen = $state(false);
+    let busManagerOpen = $state(false);
+    let groupBuses = $state([]);
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
@@ -139,6 +142,9 @@
     });
     onFromCpp("setMasterAudioState", (data) => {
         if (data && typeof data === "object") masterAudio = data;
+    });
+    onFromCpp("setGroupBusState", (data) => {
+        groupBuses = Array.isArray(data) ? data : [];
     });
     onFromCpp("setStripAudioState", (data) => {
         if (!data || typeof data !== "object" || !data.stripId) return;
@@ -281,6 +287,7 @@
         dispatchCpp("getAvailableInputs");
         dispatchCpp("requestPluginsState");
         dispatchCpp("requestMasterAudioState");
+        dispatchCpp("requestGroupBusState");
         dispatchCpp("requestExpressionMaps");
         dispatchCpp("requestCurrentBranch");
         dispatchCpp("requestChairs");
@@ -293,6 +300,7 @@
             else if (chairManagerOpen) chairManagerOpen = false;
             else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
+            else if (busManagerOpen) busManagerOpen = false;
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
         };
@@ -1087,6 +1095,14 @@
                 Library Manager
             </button>
             <button
+                class="toolbar-ms-btn buses-btn"
+                onclick={() => { busManagerOpen = true; }}
+                aria-haspopup="dialog"
+                title="Create and manage audio group buses"
+            >
+                Audio Buses{groupBuses.length ? ` · ${groupBuses.length}` : ""}
+            </button>
+            <button
                 class="toolbar-ms-btn master-audio-btn"
                 onclick={() => { masterAudioOpen = true; }}
                 aria-haspopup="dialog"
@@ -1589,6 +1605,7 @@
                 plugins={scannedPlugins}
                 maps={availableXmaps}
                 luaCatalog={luaPluginCatalog}
+                {groupBuses}
                 inspectorOpen={inspectorStripId === detailsStrip.id}
                 onClose={() => { layerDetailsStripId = ""; }}
                 onSetPlugin={(uid) => setPlugin(detailsStrip.id, uid)}
@@ -1613,11 +1630,20 @@
                     removeStrip(detailsStrip.id);
                     layerDetailsStripId = "";
                 }}
+                onSetOutput={(busId) => dispatchCpp("setStripDirectOutput", detailsStrip.id, busId)}
             />
         {/if}
     {/if}
     {#if chairManagerOpen}
         <ChairManager onClose={() => { chairManagerOpen = false; }} />
+    {/if}
+    {#if busManagerOpen}
+        <BusManager
+            buses={groupBuses}
+            {strips}
+            selectedStripIds={[...selectedIds]}
+            onClose={() => { busManagerOpen = false; }}
+        />
     {/if}
     {#if layerPickerChair}
         <LayerPicker

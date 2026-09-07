@@ -72,6 +72,8 @@ struct StripBlob {
   int pluginUid = 0;
   float gainDb = 0.0f;
   std::string expressionMapEntityId;
+  /// Empty routes directly to Master; otherwise references a GroupBusBlob ID.
+  std::string directOutputBusId;
 
   /// Binary VST3 plugin state. Stored separately in the blob for efficiency.
   std::vector<uint8_t> pluginState;
@@ -92,7 +94,7 @@ struct StripBlob {
        << (soloed ? '1' : '0') << '\0' << pluginUid << '\0';
     // Use fixed-precision for float to ensure deterministic hashing
     os << std::fixed << std::setprecision(6) << gainDb << '\0';
-    os << expressionMapEntityId << '\0';
+    os << expressionMapEntityId << '\0' << directOutputBusId << '\0';
     // Lua plugins (ordered)
     for (const auto &name : luaPluginFileNames)
       os << name << '\0';
@@ -149,10 +151,32 @@ struct PluginSlotBlob {
   }
 };
 
+struct GroupBusBlob {
+  std::string id;
+  std::string name;
+  float gainDb = 0.0f;
+  bool muted = false;
+  bool soloed = false;
+  std::vector<uint8_t> audioInsertState;
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << id << '\0' << name << '\0' << std::fixed << std::setprecision(6)
+       << gainDb << '\0' << (muted ? '1' : '0') << '\0'
+       << (soloed ? '1' : '0') << '\0' << audioInsertState.size() << '\0';
+    auto data = os.str();
+    if (!audioInsertState.empty())
+      data.append(reinterpret_cast<const char *>(audioInsertState.data()),
+                  audioInsertState.size());
+    return data;
+  }
+};
+
 struct GlobalState {
-  int audioSchemaVersion = 1;
+  int audioSchemaVersion = 2;
   float masterGainDb = 0.0f;
   std::vector<PluginSlotBlob> masterInserts;
+  std::vector<GroupBusBlob> groupBuses;
 
   std::string serializeForHash() const {
     std::ostringstream os;
@@ -161,6 +185,13 @@ struct GlobalState {
     auto data = os.str();
     for (const auto &insert : masterInserts) {
       const auto serialized = insert.serializeForHash();
+      data.append(std::to_string(serialized.size()));
+      data.push_back('\0');
+      data.append(serialized);
+    }
+    data.push_back('\0');
+    for (const auto &bus : groupBuses) {
+      const auto serialized = bus.serializeForHash();
       data.append(std::to_string(serialized.size()));
       data.push_back('\0');
       data.append(serialized);

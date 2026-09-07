@@ -26,6 +26,7 @@ test("rarely changed layer configuration lives in the details panel", () => {
     assert.match(detailsSource, /Lua processors/);
     assert.match(detailsSource, /Inspect MIDI/);
     assert.match(detailsSource, /Refresh Library/);
+    assert.match(detailsSource, /Audio output/);
 });
 
 test("operational instrument and effect controls remain on large strips", () => {

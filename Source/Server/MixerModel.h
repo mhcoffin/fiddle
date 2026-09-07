@@ -2,6 +2,7 @@
 
 #include "../RealtimeObjectPublisher.h"
 #include "MasterAudioEngine.h"
+#include "GroupBus.h"
 #include "MixerStrip.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -17,7 +18,7 @@ class MasterInstrumentList;
 
 /// Lightweight snapshot of strip state for undo/redo.
 struct StripSnapshot {
-  juce::String id, library, family;
+  juce::String id, library, family, directOutputBusId;
   bool isSolo = true;
   bool muted = false;
   bool soloed = false;
@@ -31,8 +32,17 @@ struct StripSnapshot {
 /// Manages an ordered list of MixerStrips. Owns a shared
 /// AudioPluginFormatManager for plugin instantiation.
 class MixerModel : public juce::Timer {
+  struct StripRoute {
+    MixerStrip *strip = nullptr;
+    GroupBus *destination = nullptr; // nullptr means Master
+  };
+
   struct ActiveAudioGraph {
+    // Flat strip list serves MIDI routing; stripRoutes adds resolved audio
+    // destinations without making the audio thread inspect mutable strings.
     std::vector<MixerStrip *> strips;
+    std::vector<StripRoute> stripRoutes;
+    std::vector<GroupBus *> groupBuses;
   };
 
 public:
@@ -70,6 +80,40 @@ public:
 
   /// Get raw pointers to all strips (caller must not hold them long).
   std::vector<MixerStrip *> getAllStrips();
+
+  /// Add a stereo group bus routed to Master. Returns its stable ID.
+  juce::String addGroupBus(const juce::String &name);
+
+  /// Restore/undo a fully constructed bus at a stable order position.
+  void insertGroupBusAt(std::unique_ptr<GroupBus> bus, int index);
+
+  /// Remove a group bus and repair every affected strip route to Master.
+  bool removeGroupBus(const juce::String &id);
+
+  /// Remove a bus without destroying it, for exact undo restoration. Routes
+  /// targeting it are repaired to Master.
+  std::unique_ptr<GroupBus>
+  removeGroupBusKeepAlive(const juce::String &id);
+
+  [[nodiscard]] int groupBusIndex(const juce::String &id) const;
+  bool renameGroupBus(const juce::String &id, const juce::String &name);
+  bool moveGroupBus(const juce::String &id, int newIndex);
+  bool setGroupBusGain(const juce::String &id, float gainDb);
+  bool setGroupBusMute(const juce::String &id, bool muted);
+  bool setGroupBusSolo(const juce::String &id, bool soloed);
+
+  GroupBus *getGroupBus(const juce::String &id);
+  std::vector<GroupBus *> getAllGroupBuses();
+
+  /// Route a strip to a group bus, or to Master when busId is empty.
+  /// Missing bus IDs are rejected without changing the existing route.
+  bool setStripDirectOutput(const juce::String &stripId,
+                            const juce::String &busId);
+
+  /// Republish routing and downstream latency after a bus rack changes.
+  void refreshAudioRouting();
+
+  [[nodiscard]] juce::String groupBusesToJson() const;
 
   /// Get the shared format manager (for plugin loading).
   juce::AudioPluginFormatManager &getFormatManager();
@@ -176,12 +220,14 @@ private:
   // Only the main thread accesses these UI representations
   mutable std::mutex stripsMutex_;
   std::vector<std::unique_ptr<MixerStrip>> strips_;
+  std::vector<std::unique_ptr<GroupBus>> groupBuses_;
 
   RealtimeObjectPublisher<ActiveAudioGraph> audioGraph_;
 
   // Garbage bin emptied by timer
   mutable std::mutex retiredStripMutex_;
   std::vector<std::unique_ptr<MixerStrip>> trashStrips_;
+  std::vector<std::unique_ptr<GroupBus>> trashGroupBuses_;
 
   void commitAudioGraph();
 

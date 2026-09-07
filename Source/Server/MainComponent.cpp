@@ -5,6 +5,8 @@
 #include "FiddleConfig.h"
 #include "MasterAudioCommandService.h"
 #include "MasterAudioJsHandlers.h"
+#include "GroupBusCommandService.h"
+#include "GroupBusJsHandlers.h"
 #include "MixerCommandService.h"
 #include "MixerJsHandlers.h"
 #include "PluginCommandService.h"
@@ -1864,6 +1866,49 @@ void MainComponent::restoreMasterAudio(const RestoredProjectState &state,
   restoreMasterAudio(snapshot, publishWhenLoaded);
 }
 
+void MainComponent::restoreGroupBuses(const versioning::GlobalState &state,
+                                      bool publishWhenLoaded) {
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  for (int index = 0; index < static_cast<int>(state.groupBuses.size());
+       ++index) {
+    const auto &saved = state.groupBuses[static_cast<std::size_t>(index)];
+    auto bus = std::make_unique<GroupBus>();
+    bus->id = saved.id;
+    bus->name = saved.name;
+    bus->setGainDb(saved.gainDb);
+    bus->setMuted(saved.muted);
+    bus->setSoloed(saved.soloed);
+    const auto busId = bus->id;
+    mixer_.insertGroupBusAt(std::move(bus), index);
+
+    auto *restored = mixer_.getGroupBus(busId);
+    if (!restored || saved.audioInsertState.empty())
+      continue;
+    const auto snapshot = deserializeStripAudioSnapshot(
+        saved.audioInsertState.data(), saved.audioInsertState.size());
+    const auto restoreRack = [&](const std::vector<AudioInsertSnapshot> &rack,
+                                 StripInsertPosition position) {
+      for (int insertIndex = 0;
+           insertIndex < static_cast<int>(rack.size()); ++insertIndex) {
+        restored->audioEngine().insert(
+            rack[static_cast<std::size_t>(insertIndex)], position, insertIndex,
+            mixer_.getFormatManager(),
+            [safeThis, publishWhenLoaded](bool, const juce::String &) {
+              if (safeThis == nullptr)
+                return;
+              safeThis->mixer_.refreshAudioRouting();
+              if (publishWhenLoaded)
+                safeThis->pushMixerState(false);
+            },
+            false);
+      }
+    };
+    restoreRack(snapshot.preFaderInserts, StripInsertPosition::preFader);
+    restoreRack(snapshot.postFaderInserts, StripInsertPosition::postFader);
+  }
+  mixer_.refreshAudioRouting();
+}
+
 void MainComponent::restoreStripAudio(MixerStrip &strip,
                                       const StripAudioSnapshot &snapshot,
                                       bool publishWhenLoaded) {
@@ -1909,6 +1954,7 @@ void MainComponent::restoreStripAudio(MixerStrip &strip,
 void MainComponent::applyVersionState(const versioning::FiddleState &state) {
   mixer_.clear();
   undoManager_.clear();
+  restoreGroupBuses(state.globalState, false);
 
   bool restoredRouting = false;
   if (state.routingState.schemaVersion >= 1) {
@@ -1962,6 +2008,7 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
           const auto blob = versionStore_->getStripBlob(saved.stripHash);
           if (!strip || !blob)
             continue;
+          strip->directOutputBusId = blob->directOutputBusId;
           juce::MemoryBlock audioState;
           if (!blob->audioInsertState.empty())
             audioState.append(blob->audioInsertState.data(),
@@ -2005,6 +2052,7 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
       strip->setInputAssignment(blob->inputPort, blob->inputChannel);
       strip->pluginUid = blob->pluginUid;
       strip->setGainDb(blob->gainDb);
+      strip->directOutputBusId = blob->directOutputBusId;
       setupStripPluginSlot(*strip);
 
       if (!blob->expressionMapEntityId.empty()) {
@@ -2034,10 +2082,12 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
   }
 
   restoreMasterAudio(state.globalState);
+  mixer_.refreshAudioRouting();
   saveAllStripsToDB();
   if (!restoredRouting)
     mixer_.syncStripsToInstruments(masterList_);
   pushMixerState(false);
+  pushGroupBusState();
   pushChairState();
 }
 
@@ -2219,6 +2269,12 @@ void MainComponent::pushMixerState(bool markDirty) {
 void MainComponent::pushMasterAudioState() {
   if (webViewBridge_.isLoaded())
     broadcastMessage("setMasterAudioState", mixer_.masterAudio().toJson());
+}
+
+void MainComponent::pushGroupBusState() {
+  if (webViewBridge_.isLoaded())
+    broadcastMessage("setGroupBusState",
+                     juce::JSON::fromString(mixer_.groupBusesToJson()));
 }
 
 void MainComponent::masterAudioChanged() {
@@ -2704,6 +2760,22 @@ void MainComponent::setupJsHandlers() {
                                  [this] { pushMixerState(); },
                                  [this] { saveAllStripsToDB(); }});
   mixerJsHandlers_->registerHandlers();
+
+  groupBusCommandService_ =
+      std::make_unique<GroupBusCommandService>(mixer_, undoManager_);
+  groupBusJsHandlers_ = std::make_unique<GroupBusJsHandlers>(
+      jsRouter_, *groupBusCommandService_,
+      GroupBusJsHandlers::Callbacks{
+          [this](GroupBusJsHandlers::Task task) {
+            safeCallAsync(std::move(task));
+          },
+          [this] {
+            pushGroupBusState();
+            pushMixerState(true);
+            scheduleStateRebuild();
+          },
+          [this] { pushGroupBusState(); }});
+  groupBusJsHandlers_->registerHandlers();
 
   masterAudioCommandService_ = std::make_unique<MasterAudioCommandService>(
       mixer_, pluginScanner_, undoManager_);
@@ -4451,6 +4523,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       if (undoManager_.undo()) {
         pushMixerState();
+        pushGroupBusState();
         scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
@@ -4469,6 +4542,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       if (undoManager_.redo()) {
         pushMixerState();
+        pushGroupBusState();
         scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();

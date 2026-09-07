@@ -15,6 +15,10 @@ void appendI32(std::string &destination, int value) {
   destination.append(reinterpret_cast<const char *>(&stored), sizeof(stored));
 }
 
+void appendFloat(std::string &destination, float value) {
+  destination.append(reinterpret_cast<const char *>(&value), sizeof(value));
+}
+
 void appendString(std::string &destination, const std::string &value) {
   appendU32(destination, static_cast<uint32_t>(value.size()));
   destination.append(value);
@@ -75,6 +79,23 @@ std::string serializeRoutingState(const RoutingState &routing) {
   return result;
 }
 
+std::string serializeGroupBuses(const std::vector<GroupBusBlob> &buses) {
+  std::string result;
+  appendU32(result, static_cast<uint32_t>(buses.size()));
+  for (const auto &bus : buses) {
+    appendString(result, bus.id);
+    appendString(result, bus.name);
+    appendFloat(result, bus.gainDb);
+    result.push_back(bus.muted ? '\1' : '\0');
+    result.push_back(bus.soloed ? '\1' : '\0');
+    appendU32(result, static_cast<uint32_t>(bus.audioInsertState.size()));
+    if (!bus.audioInsertState.empty())
+      result.append(reinterpret_cast<const char *>(bus.audioInsertState.data()),
+                    bus.audioInsertState.size());
+  }
+  return result;
+}
+
 bool readBytes(const uint8_t *&cursor, const uint8_t *end, void *destination,
                std::size_t size) {
   if (cursor > end || static_cast<std::size_t>(end - cursor) < size)
@@ -94,6 +115,10 @@ bool readI32(const uint8_t *&cursor, const uint8_t *end, int &value) {
     return false;
   value = static_cast<int>(stored);
   return true;
+}
+
+bool readFloat(const uint8_t *&cursor, const uint8_t *end, float &value) {
+  return readBytes(cursor, end, &value, sizeof(value));
 }
 
 bool readString(const uint8_t *&cursor, const uint8_t *end,
@@ -198,6 +223,35 @@ RoutingState deserializeRoutingState(const void *data, int size) {
   return cursor == end ? result : RoutingState{};
 }
 
+std::vector<GroupBusBlob> deserializeGroupBuses(const void *data, int size) {
+  std::vector<GroupBusBlob> result;
+  if (!data || size <= 0)
+    return result;
+  const auto *cursor = static_cast<const uint8_t *>(data);
+  const auto *end = cursor + size;
+  uint32_t count = 0;
+  if (!readU32(cursor, end, count) || count > 1024)
+    return {};
+  result.reserve(count);
+  for (uint32_t index = 0; index < count; ++index) {
+    GroupBusBlob bus;
+    if (!readString(cursor, end, bus.id) ||
+        !readString(cursor, end, bus.name) ||
+        !readFloat(cursor, end, bus.gainDb) || end - cursor < 2)
+      return {};
+    bus.muted = *cursor++ != 0;
+    bus.soloed = *cursor++ != 0;
+    uint32_t stateSize = 0;
+    if (!readU32(cursor, end, stateSize) ||
+        static_cast<std::size_t>(end - cursor) < stateSize)
+      return {};
+    bus.audioInsertState.assign(cursor, cursor + stateSize);
+    cursor += stateSize;
+    result.push_back(std::move(bus));
+  }
+  return cursor == end ? result : std::vector<GroupBusBlob>{};
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -273,7 +327,13 @@ void SqliteVersionStorage::prepareStatements() {
   sqlite3_exec(db_,
                "ALTER TABLE strip_blobs ADD COLUMN audio_insert_state BLOB",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN direct_output_bus TEXT "
+               "NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN group_bus_state BLOB",
                nullptr, nullptr, nullptr);
 
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
@@ -287,12 +347,13 @@ void SqliteVersionStorage::prepareStatements() {
   prep("INSERT OR REPLACE INTO strip_blobs (hash, library_id, library, family, "
        "is_solo, input_port, input_channel, plugin_uid, gain_db, "
        "expression_map, plugin_state, active, lua_plugins, muted, soloed, "
-       "audio_insert_state) "
-       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "audio_insert_state, direct_output_bus) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
-       "active, lua_plugins, muted, soloed, audio_insert_state FROM "
+       "active, lua_plugins, muted, soloed, audio_insert_state, "
+       "direct_output_bus FROM "
        "strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
@@ -300,10 +361,10 @@ void SqliteVersionStorage::prepareStatements() {
   // FiddleState
   prep("INSERT OR REPLACE INTO fiddle_states "
        "(hash, master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state) VALUES (?, ?, ?, ?, ?, ?)",
+       "routing_state, group_bus_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
        &stmtPutFiddleState_);
   prep("SELECT master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state "
+       "routing_state, group_bus_state "
        "FROM fiddle_states WHERE hash = ?",
        &stmtGetFiddleState_);
   prep("SELECT 1 FROM fiddle_states WHERE hash = ?", &stmtHasFiddleState_);
@@ -421,6 +482,8 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
                       static_cast<int>(blob.audioInsertState.size()),
                       SQLITE_TRANSIENT);
   }
+  sqlite3_bind_text(stmtPutStripBlob_, 17, blob.directOutputBusId.c_str(), -1,
+                    SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -468,6 +531,9 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
       if (size > 0 && data)
         blob.audioInsertState.assign(data, data + size);
     }
+    if (const auto *output = reinterpret_cast<const char *>(
+            sqlite3_column_text(stmtGetStripBlob_, 15)))
+      blob.directOutputBusId = output;
     return blob;
   }
   return std::nullopt;
@@ -495,6 +561,7 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
   const auto masterState =
       serializeMasterInserts(state.globalState.masterInserts);
   const auto routingState = serializeRoutingState(state.routingState);
+  const auto groupBusState = serializeGroupBuses(state.globalState.groupBuses);
 
   sqlite3_bind_text(stmtPutFiddleState_, 1, hash.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_double(stmtPutFiddleState_, 2, state.globalState.masterGainDb);
@@ -506,6 +573,8 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
                     static_cast<int>(masterState.size()), SQLITE_TRANSIENT);
   sqlite3_bind_blob(stmtPutFiddleState_, 6, routingState.data(),
                     static_cast<int>(routingState.size()), SQLITE_TRANSIENT);
+  sqlite3_bind_blob(stmtPutFiddleState_, 7, groupBusState.data(),
+                    static_cast<int>(groupBusState.size()), SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutFiddleState_);
 }
@@ -536,6 +605,9 @@ SqliteVersionStorage::getFiddleState(const Hash &hash) const {
     state.routingState = deserializeRoutingState(
         sqlite3_column_blob(stmtGetFiddleState_, 4),
         sqlite3_column_bytes(stmtGetFiddleState_, 4));
+    state.globalState.groupBuses = deserializeGroupBuses(
+        sqlite3_column_blob(stmtGetFiddleState_, 5),
+        sqlite3_column_bytes(stmtGetFiddleState_, 5));
     return state;
   }
   return std::nullopt;

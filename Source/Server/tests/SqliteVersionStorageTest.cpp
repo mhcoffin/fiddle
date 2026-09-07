@@ -86,6 +86,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.pluginUid = 876;
     strip.gainDb = -6.5f;
     strip.expressionMapEntityId = "xmap-2";
+    strip.directOutputBusId = "strings-bus";
     strip.pluginState = {0, 1, 2, 255};
     strip.audioInsertState = {9, 8, 7, 6, 5};
     strip.luaPluginFileNames = {"first.lua", "second.lua"};
@@ -101,6 +102,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
           restored->luaPluginFileNames == strip.luaPluginFileNames);
     CHECK(restored && restored->pluginState == strip.pluginState);
     CHECK(restored && restored->audioInsertState == strip.audioInsertState);
+    CHECK(restored && restored->directOutputBusId == "strings-bus");
     CHECK(restored && restored->computeHash() == hash);
   }
 
@@ -132,7 +134,7 @@ void testMasterAudioRoundTripsThroughSqlite() {
   {
     fiddle::versioning::SqliteVersionStorage storage(database, mutex);
     fiddle::versioning::FiddleState state;
-    state.globalState.audioSchemaVersion = 1;
+    state.globalState.audioSchemaVersion = 2;
     state.globalState.masterGainDb = -4.5f;
     state.stripHashes = {"strip-a", "strip-b"};
 
@@ -150,6 +152,14 @@ void testMasterAudioRoundTripsThroughSqlite() {
     effect.bypassed = true;
     effect.pluginState = {0, 1, 2, 255};
     state.globalState.masterInserts.push_back(effect);
+
+    fiddle::versioning::GroupBusBlob bus;
+    bus.id = "strings-bus";
+    bus.name = "Strings";
+    bus.gainDb = -2.0f;
+    bus.muted = true;
+    bus.audioInsertState = {7, 6, 5, 4};
+    state.globalState.groupBuses.push_back(bus);
 
     state.routingState.schemaVersion = 1;
     fiddle::versioning::ChairSnapshot chair;
@@ -180,7 +190,7 @@ void testMasterAudioRoundTripsThroughSqlite() {
     CHECK(restored.has_value());
     CHECK(restored && restored->stripHashes == state.stripHashes);
     CHECK(restored && restored->globalState.masterGainDb == -4.5f);
-    CHECK(restored && restored->globalState.audioSchemaVersion == 1);
+    CHECK(restored && restored->globalState.audioSchemaVersion == 2);
     CHECK(restored && restored->globalState.masterInserts.size() == 1);
     CHECK(restored &&
           restored->globalState.masterInserts.front().slotId == "master-fx-1");
@@ -189,6 +199,15 @@ void testMasterAudioRoundTripsThroughSqlite() {
     CHECK(restored && restored->globalState.masterInserts.front().bypassed);
     CHECK(restored && restored->globalState.masterInserts.front().pluginState ==
                           effect.pluginState);
+    CHECK(restored && restored->globalState.groupBuses.size() == 1);
+    CHECK(restored &&
+          restored->globalState.groupBuses.front().id == "strings-bus");
+    CHECK(restored &&
+          restored->globalState.groupBuses.front().name == "Strings");
+    CHECK(restored && restored->globalState.groupBuses.front().muted);
+    CHECK(restored &&
+          restored->globalState.groupBuses.front().audioInsertState ==
+              bus.audioInsertState);
     CHECK(restored && restored->routingState.schemaVersion == 1);
     CHECK(restored && restored->routingState.chairs.size() == 1);
     CHECK(restored && !restored->routingState.chairs.front().isSolo);

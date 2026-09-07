@@ -28,13 +28,29 @@ makePluginSlotBlob(const MasterInsertSnapshot &snapshot) {
   return result;
 }
 
-versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master) {
+versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master,
+                                        MixerModel &mixer) {
   versioning::GlobalState result;
-  result.audioSchemaVersion = 1;
+  result.audioSchemaVersion = 2;
   result.masterGainDb = master.gainDb;
   result.masterInserts.reserve(master.inserts.size());
   for (const auto &insert : master.inserts)
     result.masterInserts.push_back(makePluginSlotBlob(insert));
+  for (auto *bus : mixer.getAllGroupBuses()) {
+    versioning::GroupBusBlob saved;
+    saved.id = bus->id.toStdString();
+    saved.name = bus->name.toStdString();
+    saved.gainDb = bus->gainDb();
+    saved.muted = bus->isMuted();
+    saved.soloed = bus->isSoloed();
+    const auto audio =
+        serializeStripAudioSnapshot(bus->audioEngine().snapshotAll());
+    if (!audio.isEmpty()) {
+      const auto *data = static_cast<const uint8_t *>(audio.getData());
+      saved.audioInsertState.assign(data, data + audio.getSize());
+    }
+    result.groupBuses.push_back(std::move(saved));
+  }
   return result;
 }
 
@@ -206,7 +222,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   // actual version commit persists this state in the version object store;
   // persisting every shadow-blob rebuild leaked thousands of transient states.
   versioning::FiddleState state;
-  state.globalState = makeGlobalState(master);
+  state.globalState = makeGlobalState(master, mixer);
 
   auto strips = mixer.getAllStrips();
   std::map<std::string, versioning::Hash> stripHashesById;
@@ -233,6 +249,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.directOutputBusId = strip->directOutputBusId.toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();
@@ -348,7 +365,8 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     return "";
 
   versioning::FiddleState state;
-  state.globalState = makeGlobalState(mixer.masterAudio().snapshotAll());
+  state.globalState =
+      makeGlobalState(mixer.masterAudio().snapshotAll(), mixer);
 
   auto strips = mixer.getAllStrips();
   std::map<std::string, versioning::Hash> stripHashesById;
@@ -371,6 +389,7 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
     sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.directOutputBusId = strip->directOutputBusId.toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();

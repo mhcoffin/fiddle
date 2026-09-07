@@ -254,7 +254,8 @@ void FiddleDatabase::createSchema() {
       muted         INTEGER NOT NULL DEFAULT 0,
       soloed        INTEGER NOT NULL DEFAULT 0,
       lua_plugins   TEXT NOT NULL DEFAULT '',
-      audio_insert_state BLOB
+      audio_insert_state BLOB,
+      direct_output_bus TEXT NOT NULL DEFAULT ''
     )
   )");
 
@@ -265,7 +266,8 @@ void FiddleDatabase::createSchema() {
       strip_hashes TEXT NOT NULL,
       audio_schema INTEGER NOT NULL DEFAULT 1,
       master_state BLOB,
-      routing_state BLOB
+      routing_state BLOB,
+      group_bus_state BLOB
     )
   )");
   sqlite3_exec(db_,
@@ -275,6 +277,8 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN master_state BLOB",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN group_bus_state BLOB",
                nullptr, nullptr, nullptr);
 
   exec(R"(
@@ -367,6 +371,10 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN soloed INTEGER NOT NULL DEFAULT 0",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN audio_insert_state BLOB",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN direct_output_bus TEXT "
+               "NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
   // Seed the default library on first boot

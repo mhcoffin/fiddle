@@ -39,6 +39,10 @@ struct MixerStrip {
   juce::String layerName;
   bool missingPatchReference = false;
 
+  /// Empty means the strip feeds Master directly. The message thread owns the
+  /// string; MixerModel resolves it to a pointer in each published graph.
+  juce::String directOutputBusId;
+
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {
     bool active = true;
@@ -181,6 +185,10 @@ struct MixerStrip {
 
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg);
 
+  /// Latency contributed after this strip by its current direct-output bus.
+  /// MixerModel updates this whenever it publishes routing.
+  void setDownstreamLatencySamples(int samples) noexcept;
+
   /// Clear all pending delayed messages (used during graceful stop).
   void clearDelayedMessages();
 
@@ -189,7 +197,7 @@ struct MixerStrip {
   void allNotesOff();
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
-                    bool anySoloed = false);
+                    bool anySoloed = false, bool routeAudible = true);
 
   /// Load a plugin from a description. Must be called on the message thread.
   void loadPlugin(const juce::PluginDescription &desc,
@@ -241,6 +249,7 @@ private:
   std::atomic<float> gainDb_{0.0f};
   std::atomic<float> peakDb_{-120.0f};
   std::atomic<float> peakHoldDb_{-120.0f};
+  std::atomic<int> downstreamLatencySamples_{0};
 
 };
 

@@ -136,6 +136,14 @@ target_sources(FiddleServer PRIVATE
     Source/Server/HostedPluginSlot.h
     Source/Server/MasterAudioEngine.cpp
     Source/Server/MasterAudioEngine.h
+    Source/Server/GroupBus.cpp
+    Source/Server/GroupBus.h
+    Source/Server/GroupBusActions.h
+    Source/Server/GroupBusCommandService.cpp
+    Source/Server/GroupBusCommandService.h
+    Source/Server/GroupBusCommands.h
+    Source/Server/GroupBusJsHandlers.cpp
+    Source/Server/GroupBusJsHandlers.h
     Source/Server/MasterAudioCommandService.cpp
     Source/Server/MasterAudioCommandService.h
     Source/Server/MasterAudioCommands.h
@@ -884,6 +892,40 @@ target_compile_definitions(StripAudioEngineTest PRIVATE JUCE_PLUGINHOST_VST3=1)
 target_compile_features(StripAudioEngineTest PRIVATE cxx_std_17)
 
 add_test(NAME strip_audio_engine COMMAND StripAudioEngineTest)
+
+# GroupBusTest — submix gain/mute/meter behavior and published state
+add_executable(GroupBusTest
+    Source/Server/tests/GroupBusTest.cpp
+    Source/Server/GroupBus.cpp
+    Source/Server/StripAudioEngine.cpp
+    Source/Server/HostedPluginSlot.cpp
+)
+
+target_include_directories(GroupBusTest PRIVATE Source/Server Source)
+target_link_libraries(GroupBusTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_audio_utils
+    juce::juce_gui_extra
+)
+target_compile_definitions(GroupBusTest PRIVATE JUCE_PLUGINHOST_VST3=1)
+target_compile_features(GroupBusTest PRIVATE cxx_std_17)
+
+add_test(NAME group_bus COMMAND GroupBusTest)
+set_tests_properties(group_bus PROPERTIES
+    LABELS "audio;graph;bus;realtime;regression;stable"
+)
+
+add_executable(GroupBusJsHandlersTest
+    Source/Server/tests/GroupBusJsHandlersTest.cpp
+    Source/Server/GroupBusJsHandlers.cpp
+)
+target_include_directories(GroupBusJsHandlersTest PRIVATE Source/Server)
+target_link_libraries(GroupBusJsHandlersTest PRIVATE juce::juce_core)
+target_compile_features(GroupBusJsHandlersTest PRIVATE cxx_std_17)
+add_test(NAME group_bus_js_handlers COMMAND GroupBusJsHandlersTest)
+set_tests_properties(group_bus_js_handlers PROPERTIES
+    LABELS "audio;bus;ui;regression;stable"
+)
 set_tests_properties(strip_audio_engine PROPERTIES
     LABELS "audio;graph;mixer;realtime;regression;stable"
 )

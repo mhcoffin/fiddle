@@ -329,11 +329,23 @@ void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
 
 void MixerStrip::addDelayedMessage(double triggerTime,
                                    const juce::MidiMessage &msg) {
-  // Each strip may have a different insert-rack latency. Advance its MIDI
-  // independently so layered instruments remain aligned at the shared mix.
-  if (triggerTime > 0.0)
-    triggerTime = juce::jmax(0.0, triggerTime - audioEngine_.latencyMs());
+  // Each strip may have a different insert-rack and destination-bus latency.
+  // Advance MIDI independently so direct and grouped paths remain aligned.
+  if (triggerTime > 0.0) {
+    const auto sampleRate = currentSampleRate_.load(std::memory_order_relaxed);
+    const auto downstream =
+        downstreamLatencySamples_.load(std::memory_order_relaxed);
+    const double totalLatencyMs =
+        audioEngine_.latencyMs() +
+        (sampleRate > 0.0 ? 1000.0 * downstream / sampleRate : 0.0);
+    triggerTime = juce::jmax(0.0, triggerTime - totalLatencyMs);
+  }
   midiScheduler_.schedule(triggerTime, msg);
+}
+
+void MixerStrip::setDownstreamLatencySamples(int samples) noexcept {
+  downstreamLatencySamples_.store(juce::jmax(0, samples),
+                                  std::memory_order_relaxed);
 }
 
 void MixerStrip::clearDelayedMessages() { midiScheduler_.requestClear(); }
@@ -344,10 +356,12 @@ void MixerStrip::allNotesOff() {
 }
 
 void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
-                              double currentTime, bool anySoloed) {
+                              double currentTime, bool anySoloed,
+                              bool routeAudible) {
   // Effective audibility: active AND not muted AND (no solos active OR
   // this strip soloed)
-  const bool audible = active_.load(std::memory_order_relaxed) &&
+  const bool audible = routeAudible &&
+                       active_.load(std::memory_order_relaxed) &&
                        !muted_.load(std::memory_order_relaxed) &&
                        (!anySoloed || soloed_.load(std::memory_order_relaxed));
   processMidiBuffer_.clear();
@@ -481,6 +495,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("patchId", patchId);
   obj->setProperty("layerName", layerName);
   obj->setProperty("missingPatchReference", missingPatchReference);
+  obj->setProperty("directOutputBusId", directOutputBusId);
   const auto state = realtimeState();
   obj->setProperty("active", state.active);
   obj->setProperty("muted", state.muted);
