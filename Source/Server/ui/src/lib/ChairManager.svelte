@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { populateScoreOrder } from "./orchestralOrder.js";
-    import { groupChairs, searchDoricoInstruments, suggestedChairName } from "./chairModel.js";
+    import { groupChairs, likelySectionRoleMistakes, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
 
     let { onClose = () => {} } = $props();
     let chairs = $state([]);
@@ -17,6 +17,7 @@
     let installing = $state(false);
     let message = $state("");
     let groups = $derived(groupChairs(chairs));
+    let roleWarnings = $derived(likelySectionRoleMistakes(chairs));
     let results = $derived(searchDoricoInstruments(instruments, query));
 
     const clearMessageLater = () => setTimeout(() => { message = ""; }, 5000);
@@ -56,6 +57,7 @@
 
     const selectInstrument = (instrument) => {
         selectedInstrument = instrument;
+        role = suggestedChairRole(instrument);
         chairName = suggestedChairName(instrument, role, chairs);
     };
 
@@ -82,6 +84,19 @@
             dispatchCpp("updateChair", { id: chair.id, name });
         else if (!name)
             input.value = chair.name;
+    };
+
+    const updateChairRole = (chair, nextRole) => {
+        if (nextRole === chair.role) return;
+        dispatchCpp("updateChair", { id: chair.id, name: chair.name, role: nextRole });
+    };
+
+    const correctLikelyRoles = () => {
+        if (roleWarnings.length === 0) return;
+        dispatchCpp("updateChairRoles", {
+            ids: roleWarnings.map((chair) => chair.id),
+            role: "solo",
+        });
     };
 
     const installTemplate = () => {
@@ -129,6 +144,16 @@
                 <div class:error={message.startsWith("Error") || message.startsWith("Could") || message.startsWith("Add ")} class="message">{message}</div>
             {/if}
 
+            {#if roleWarnings.length > 0}
+                <div class="role-warning">
+                    <div>
+                        <strong>{roleWarnings.length} {roleWarnings.length === 1 ? "chair is" : "chairs are"} set to Section player</strong>
+                        <span>Dorico normally uses solo players for winds, brass, percussion, and keyboards.</span>
+                    </div>
+                    <button onclick={correctLikelyRoles}>Change all to Solo players</button>
+                </div>
+            {/if}
+
             {#if chairs.length === 0}
                 <div class="empty">
                     <strong>No chairs yet</strong>
@@ -160,7 +185,18 @@
                                         />
                                         <div class="identity">
                                             <strong>{instruments.find((item) => item.entityID === chair.entityID)?.name || chair.entityID}</strong>
-                                            <span>{chair.role === "solo" ? "Solo player" : "Section player"} · instance {chair.ordinal}</span>
+                                            <div class="role-row">
+                                                <select
+                                                    class="chair-role"
+                                                    aria-label={`Player type for ${chair.name}`}
+                                                    value={chair.role}
+                                                    onchange={(event) => updateChairRole(chair, event.currentTarget.value)}
+                                                >
+                                                    <option value="solo">Solo player</option>
+                                                    <option value="section">Section player</option>
+                                                </select>
+                                                <span>instance {chair.ordinal}</span>
+                                            </div>
                                         </div>
                                         <div class="midi">
                                             <span>MIDI destination</span>
@@ -259,6 +295,11 @@
     .intro-row { justify-content:space-between; margin-bottom:18px; }
     .message { margin-bottom:16px; padding:10px 13px; border:1px solid rgba(34,197,94,.35); border-radius:6px; background:rgba(34,197,94,.1); color:#86efac; }
     .message.error { border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.1); color:#fca5a5; }
+    .role-warning { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:16px; padding:13px 15px; border:1px solid rgba(251,191,36,.45); border-radius:7px; background:rgba(251,191,36,.09); }
+    .role-warning div { display:flex; flex-direction:column; gap:3px; }
+    .role-warning strong { color:#fde68a; }
+    .role-warning span { color:#cbd5e1; font-size:.8rem; }
+    .role-warning button { flex-shrink:0; border-color:#d6a629; background:#5b4311; color:#fff4bd; font-weight:650; }
     .empty { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px dashed #334155; border-radius:10px; color:#cbd5e1; text-align:center; }
     .empty span { max-width:520px; color:#94a3b8; }
     .groups { display:flex; flex-direction:column; gap:18px; }
@@ -272,6 +313,9 @@
     .chair-name:focus,.search:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
     .identity { flex:1; min-width:180px; display:flex; flex-direction:column; gap:4px; }
     .identity span,.midi span { color:#94a3b8; font-size:.76rem; }
+    .role-row { display:flex; align-items:center; gap:8px; }
+    .chair-role { min-height:30px; padding:4px 26px 4px 8px; border:1px solid #3b4b61; border-radius:5px; background:#0b1422; color:#cbd5e1; font:inherit; font-size:.76rem; }
+    .chair-role:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
     .midi { min-width:185px; display:flex; flex-direction:column; gap:4px; font-variant-numeric:tabular-nums; }
     .midi strong { font-size:.88rem; }
     .delete { min-width:116px; } .delete.confirm { border-color:#f87171; background:#7f1d1d; color:#fee2e2; }

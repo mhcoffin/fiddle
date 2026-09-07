@@ -20,6 +20,43 @@
 #include <string>
 
 namespace fiddle {
+namespace {
+
+constexpr uint32_t kPluginStateSettleMs = 5000;
+
+/// One project-level edit that replaces a layer's library-owned setup. Both
+/// halves are complete LayerRows so undo/redo also keep the routing database
+/// synchronized with the live mixer.
+class RefreshLayerFromLibraryAction final : public UndoableAction {
+public:
+  using ApplyLive = std::function<void(const LayerRow &)>;
+
+  RefreshLayerFromLibraryAction(LibraryRoutingRepository &repository,
+                                LayerRow before, LayerRow after,
+                                ApplyLive applyLive)
+      : repository_(repository), before_(std::move(before)),
+        after_(std::move(after)), applyLive_(std::move(applyLive)) {}
+
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  juce::String getDescription() const override {
+    return "Refresh layer '" + juce::String(after_.patchName) +
+           "' from library";
+  }
+
+private:
+  void apply(const LayerRow &layer) {
+    if (repository_.upsertLayer(layer))
+      applyLive_(layer);
+  }
+
+  LibraryRoutingRepository &repository_;
+  LayerRow before_;
+  LayerRow after_;
+  ApplyLive applyLive_;
+};
+
+} // namespace
 
 MainComponent::MainComponent()
     : webViewBridge_(jsRouter_,
@@ -816,6 +853,23 @@ void MainComponent::initMidiServer() {
       });
     });
 
+    server->onAdditionalConnectionAttempt([this](juce::String host) {
+      safeCallAsync([this, host]() {
+        const juce::String message =
+            "More than one Fiddle plug-in tried to connect. Fiddle supports "
+            "one connection at a time. In Dorico, this usually means the "
+            "playback template does not provide enough matching chairs, so "
+            "Dorico loaded another Fiddle instance. Check Chair Manager, "
+            "then reinstall and reapply the playback template.";
+        connectionWarning_ = message;
+        broadcastMessage("setConnectionWarning", message);
+        pushLogMessage("<span style=\"color: #fbbf24\"><b>[Additional "
+                       "connection rejected: " +
+                           host + "]</b> " + message + "</span>",
+                       true);
+      });
+    });
+
     server->onRawActivity([this](juce::String msg) {
       safeCallAsync(
           [this, msg]() { pushLogMessage("<small>" + msg + "</small>"); });
@@ -1430,15 +1484,25 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                          if (!state.isEmpty())
                            currentStrip->applyPluginState(
                                state.getData(), static_cast<int>(state.getSize()));
+                         (void)currentStrip
+                             ->consumePluginChangeNotification();
+                         (void)currentStrip
+                             ->consumePluginExplicitEditNotification();
+                         (void)currentStrip
+                             ->consumePluginNonParameterStateChangeNotification();
                          safeThis->pluginFingerprints_[stripId] = {
                              currentStrip->pluginUid,
                              currentStrip->pluginParameterFingerprint()};
+                         safeThis->pluginStateSettleUntilMs_[stripId] =
+                             juce::Time::getMillisecondCounter() +
+                             kPluginStateSettleMs;
                        } else {
                          currentStrip->markPluginMissing(
                              pluginUid, state,
                              "Plug-in could not be instantiated");
                        }
                        safeThis->pushMixerState(false);
+                       safeThis->scheduleStateRebuild();
                      });
     return;
   }
@@ -1450,6 +1514,7 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
 void MainComponent::processPluginChangeNotifications(
     bool suppressPlaybackChanges) {
   bool changed = false;
+  std::vector<std::string> editedLayerIds;
   for (auto *strip : mixer_.getAllStrips()) {
     const bool explicitEdit =
         strip->consumePluginExplicitEditNotification();
@@ -1471,19 +1536,41 @@ void MainComponent::processPluginChangeNotifications(
     const bool parametersChanged = observeStripPluginFingerprint(*strip);
     if (suppressPlaybackChanges && !explicitEdit)
       continue;
+    bool stateSettling = false;
+    if (const auto settling = pluginStateSettleUntilMs_.find(strip->id);
+        settling != pluginStateSettleUntilMs_.end()) {
+      const auto now = juce::Time::getMillisecondCounter();
+      if (static_cast<juce::int32>(now - settling->second) < 0) {
+        stateSettling = true;
+      } else {
+        pluginStateSettleUntilMs_.erase(settling);
+      }
+    }
+    if (stateSettling && !explicitEdit)
+      continue;
+    if (explicitEdit)
+      pluginStateSettleUntilMs_.erase(strip->id);
     if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
       continue;
 
     changed = true;
     strip->refreshPluginStateCache();
+    if (strip->chairId.isNotEmpty())
+      editedLayerIds.push_back(strip->id.toStdString());
   }
 
   if (!changed)
     return;
 
+  if (auto *repository = db_.getLibraryRoutingRepository()) {
+    for (const auto &layerId : editedLayerIds)
+      repository->markLayerPluginStateEdited(layerId);
+  }
+
   stateManager_.markDirty();
   pushConfigStatus();
   broadcastMessage("setDirtyState", true);
+  pushMixerState(false);
   scheduleStateRebuild();
 }
 
@@ -1562,16 +1649,29 @@ void MainComponent::captureStripPluginFingerprints() {
 
 void MainComponent::pollPluginStateChanges() {
   auto strips = mixer_.getAllStrips();
+  const auto now = juce::Time::getMillisecondCounter();
   for (auto *strip : strips) {
     if (!observeStripPluginFingerprint(*strip))
       continue;
 
+    if (const auto settling = pluginStateSettleUntilMs_.find(strip->id);
+        settling != pluginStateSettleUntilMs_.end()) {
+      if (static_cast<juce::int32>(now - settling->second) < 0)
+        continue;
+      pluginStateSettleUntilMs_.erase(settling);
+    }
+
     std::cerr << "[PluginPoll] Parameter change detected in strip: "
               << strip->id << " (" << strip->library << ")" << std::endl;
     strip->refreshPluginStateCache();
+    if (strip->chairId.isNotEmpty()) {
+      if (auto *repository = db_.getLibraryRoutingRepository())
+        repository->markLayerPluginStateEdited(strip->id.toStdString());
+    }
     stateManager_.markDirty();
     pushConfigStatus();
     broadcastMessage("setDirtyState", true);
+    pushMixerState(false);
     scheduleStateRebuild();
     return; // One dirty notification per poll cycle is enough
   }
@@ -1770,6 +1870,8 @@ void MainComponent::applyVersionState(const versioning::FiddleState &state) {
         layer.libraryId = saved.libraryId;
         layer.libraryName = saved.libraryName;
         layer.position = saved.position;
+        layer.sourcePatchRevision = saved.sourcePatchRevision;
+        layer.pluginStateEdited = saved.pluginStateEdited;
         if (const auto blob = versionStore_->getStripBlob(saved.stripHash)) {
           layer.active = blob->active;
           layer.muted = blob->muted;
@@ -2016,8 +2118,22 @@ void MainComponent::pushMixerState(bool markDirty) {
     if (!wasDirty)
       pushConfigStatus();
   }
-  juce::String json = mixer_.toJson();
-  broadcastMessage("setMixerState", juce::JSON::fromString(json));
+  auto state = juce::JSON::fromString(mixer_.toJson());
+  std::set<std::string> outOfDateLayerIds;
+  if (auto *repository = db_.getLibraryRoutingRepository()) {
+    const auto ids = repository->outOfDateLayerIds();
+    outOfDateLayerIds.insert(ids.begin(), ids.end());
+  }
+  if (auto *strips = state.getArray()) {
+    for (auto &strip : *strips) {
+      if (auto *object = strip.getDynamicObject()) {
+        const auto id = object->getProperty("id").toString().toStdString();
+        object->setProperty("sourcePatchOutOfDate",
+                            outOfDateLayerIds.count(id) != 0);
+      }
+    }
+  }
+  broadcastMessage("setMixerState", state);
 }
 
 void MainComponent::pushMasterAudioState() {
@@ -2140,8 +2256,8 @@ bool MainComponent::isHistoryWindowVisible() const {
   return historyWindow_ && historyWindow_->isVisible();
 }
 
-void MainComponent::toggleLibraryManagerWindow() {
-  // Lazily create the Library Manager window on first toggle.
+void MainComponent::showLibraryManagerWindow() {
+  // Lazily create the Library Manager window on first request.
   if (!libraryManagerWindow_) {
     libraryManagerWindow_ = std::make_unique<LibraryManagerWindow>(
         webViewBridge_.createWebOptions());
@@ -2156,17 +2272,15 @@ void MainComponent::toggleLibraryManagerWindow() {
     auto lws = db_.loadWindowSettings("library");
     if (lws.width > 0 && lws.height > 0) {
       libraryManagerWindow_->restoreGeometry(
-          lws.x, lws.y, lws.width, lws.height, false /* we toggle below */);
+          lws.x, lws.y, lws.width, lws.height, false /* shown below */);
     }
   }
 
   if (libraryManagerWindow_) {
-    bool wasVisible = libraryManagerWindow_->isVisible();
-    bool nowVisible = !wasVisible;
-    libraryManagerWindow_->setVisible(nowVisible);
-    if (nowVisible) {
-      libraryManagerWindow_->toFront(true);
-    }
+    libraryManagerWindow_->setMinimised(false);
+    libraryManagerWindow_->setVisible(true);
+    libraryManagerWindow_->toFront(true);
+    libraryManagerWindow_->grabKeyboardFocus();
 
     auto bounds = libraryManagerWindow_->getBounds();
     fiddle::WindowSettings ws;
@@ -2175,9 +2289,27 @@ void MainComponent::toggleLibraryManagerWindow() {
     ws.y = bounds.getY();
     ws.width = bounds.getWidth();
     ws.height = bounds.getHeight();
-    ws.visible = nowVisible;
+    ws.visible = true;
     db_.saveWindowSettings(ws);
   }
+}
+
+void MainComponent::toggleLibraryManagerWindow() {
+  if (!libraryManagerWindow_ || !libraryManagerWindow_->isVisible()) {
+    showLibraryManagerWindow();
+    return;
+  }
+
+  libraryManagerWindow_->setVisible(false);
+  auto bounds = libraryManagerWindow_->getBounds();
+  fiddle::WindowSettings ws;
+  ws.windowId = "library";
+  ws.x = bounds.getX();
+  ws.y = bounds.getY();
+  ws.width = bounds.getWidth();
+  ws.height = bounds.getHeight();
+  ws.visible = false;
+  db_.saveWindowSettings(ws);
 }
 
 bool MainComponent::isLibraryManagerWindowVisible() const {
@@ -2254,8 +2386,9 @@ void MainComponent::timerCallback() {
 
   // Library patch previews are not project mixer strips. Their editor changes
   // enable the Library Manager's Save button without dirtying the branch.
-  if (libraryPatchPreviewHost_.consumeChangeNotifications())
-    broadcastMessage("libraryPatchPreviewChanged");
+  for (const auto &patchId :
+       libraryPatchPreviewHost_.consumeChangedPatchIds())
+    broadcastMessage("libraryPatchPreviewChanged", juce::String(patchId));
 
   // Push meter levels to UI every ~60ms (3 × 20ms timer ticks)
   static int meterCounter = 0;
@@ -2593,6 +2726,9 @@ void MainComponent::setupJsHandlers() {
       broadcastMessage("setServerVersion",
                        juce::var(app->getApplicationVersion()));
     }
+
+    if (connectionWarning_.isNotEmpty())
+      broadcastMessage("setConnectionWarning", connectionWarning_);
 
     // Push current BPM
     double bpm = currentBpm_.load(std::memory_order_relaxed);
@@ -3167,6 +3303,77 @@ void MainComponent::setupJsHandlers() {
     });
     return;
   });
+  jsRouter_.registerHandler("refreshChairLayerFromLibrary",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto layerId = args[0].toString().toStdString();
+    safeCallAsync([this, layerId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      auto before = repository ? repository->getLayer(layerId) : std::nullopt;
+      auto *strip = mixer_.getStrip(juce::String(layerId));
+      const auto patch = before && repository
+                             ? repository->getPatch(before->patchId)
+                             : std::nullopt;
+      if (!before || !strip || !patch) {
+        broadcastMessage("layerOperationResult",
+                         juce::var("Could not refresh the layer from its "
+                                   "library patch"));
+        return;
+      }
+
+      // Capture the live state, not merely the last database snapshot, so an
+      // immediate Undo restores unsaved edits made in the hosted player.
+      before->patchName = strip->layerName.toStdString();
+      before->libraryName = strip->library.toStdString();
+      before->pluginUid = strip->pluginUid;
+      strip->refreshPluginStateCache();
+      const auto previousPluginState = strip->cachedPluginState();
+      before->pluginState.clear();
+      if (!previousPluginState.isEmpty()) {
+        const auto *bytes = static_cast<const std::uint8_t *>(
+            previousPluginState.getData());
+        before->pluginState.assign(bytes,
+                                   bytes + previousPluginState.getSize());
+      }
+      before->expressionMapId =
+          strip->expressionMap ? strip->expressionMap->entityID
+                               : std::string{};
+
+      auto after = *before;
+      after.patchName = patch->name;
+      after.libraryId = patch->libraryId;
+      after.libraryName.clear();
+      for (const auto &library : db_.listLibraries()) {
+        if (library.id.toStdString() == patch->libraryId) {
+          after.libraryName = library.name.toStdString();
+          break;
+        }
+      }
+      after.pluginUid = patch->pluginUid;
+      after.pluginState = patch->pluginState;
+      after.expressionMapId = patch->expressionMapId;
+      after.sourcePatchRevision = patch->revision;
+      after.pluginStateEdited = false;
+
+      undoManager_.perform(std::make_unique<RefreshLayerFromLibraryAction>(
+          *repository, std::move(*before), std::move(after),
+          [this](const LayerRow &layer) { applyLayerLibrarySetup(layer); }));
+      pushMixerState();
+      scheduleStateRebuild();
+
+      auto *result = new juce::DynamicObject();
+      result->setProperty("success", true);
+      result->setProperty("operation", "refresh");
+      result->setProperty("layerId", juce::String(layerId));
+      result->setProperty("message", "Layer refreshed from library");
+      broadcastMessage("layerOperationResult", juce::var(result));
+    });
+    return;
+  });
   jsRouter_.registerHandler("createChair", [this](const juce::var &payload) {
     juce::Array<juce::var> args;
     if (payload.isArray())
@@ -3206,10 +3413,14 @@ void MainComponent::setupJsHandlers() {
       return;
     const auto chairId = data->getProperty("id").toString().toStdString();
     const auto name = data->getProperty("name").toString().trim().toStdString();
-    if (chairId.empty() || name.empty())
+    const auto roleText = data->getProperty("role").toString();
+    const bool updateRole = roleText == "solo" || roleText == "section";
+    const auto requestedRole = roleText == "section" ? DoricoRole::section
+                                                      : DoricoRole::solo;
+    if (chairId.empty() || (name.empty() && !updateRole))
       return;
 
-    safeCallAsync([this, chairId, name]() {
+    safeCallAsync([this, chairId, name, updateRole, requestedRole]() {
       auto *repository = db_.getLibraryRoutingRepository();
       auto chair = repository ? repository->getChair(chairId) : std::nullopt;
       if (!chair) {
@@ -3217,14 +3428,91 @@ void MainComponent::setupJsHandlers() {
                          juce::var("Could not find the chair"));
         return;
       }
-      chair->name = name;
-      if (!repository->upsertChair(*chair)) {
+      const bool roleChanged = updateRole && chair->role != requestedRole;
+      if (roleChanged &&
+          !repository->changeChairRole(chairId, requestedRole)) {
         broadcastMessage("chairOperationResult",
-                         juce::var("Could not rename the chair"));
+                         juce::var("Could not change the chair's player type"));
         return;
+      }
+      if (!name.empty() && name != chair->name) {
+        chair = repository->getChair(chairId);
+        if (!chair) {
+          broadcastMessage("chairOperationResult",
+                           juce::var("Could not find the updated chair"));
+          return;
+        }
+        chair->name = name;
+        if (!repository->upsertChair(*chair)) {
+          broadcastMessage("chairOperationResult",
+                           juce::var("Could not rename the chair"));
+          return;
+        }
+      }
+      if (roleChanged) {
+        syncMixerToLayers();
+        saveAllStripsToDB();
+        pushMixerState();
       }
       pushChairState();
       broadcastTemplateDirty();
+      scheduleStateRebuild();
+    });
+    return;
+  });
+  jsRouter_.registerHandler("updateChairRoles",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+
+    const auto roleText = data->getProperty("role").toString();
+    const auto ids = data->getProperty("ids");
+    auto *idsValue = ids.getArray();
+    if (!idsValue || (roleText != "solo" && roleText != "section"))
+      return;
+    std::vector<std::string> chairIds;
+    chairIds.reserve(static_cast<std::size_t>(idsValue->size()));
+    for (const auto &id : *idsValue) {
+      const auto text = id.toString().toStdString();
+      if (!text.empty())
+        chairIds.push_back(text);
+    }
+    const auto requestedRole = roleText == "section" ? DoricoRole::section
+                                                      : DoricoRole::solo;
+
+    safeCallAsync([this, chairIds = std::move(chairIds), requestedRole]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository) {
+        broadcastMessage("chairOperationResult",
+                         juce::var("Could not update chair player types"));
+        return;
+      }
+      int changed = 0;
+      for (const auto &chairId : chairIds) {
+        const auto chair = repository->getChair(chairId);
+        if (chair && chair->role == requestedRole)
+          continue;
+        if (!chair || !repository->changeChairRole(chairId, requestedRole)) {
+          broadcastMessage("chairOperationResult",
+                           juce::var("Could not update all chair player types"));
+          return;
+        }
+        ++changed;
+      }
+      syncMixerToLayers();
+      saveAllStripsToDB();
+      pushChairState();
+      pushMixerState();
+      broadcastTemplateDirty();
+      scheduleStateRebuild();
+      broadcastMessage("chairOperationResult",
+                       juce::var("Changed " + juce::String(changed) +
+                                 (changed == 1 ? " chair" : " chairs") +
+                                 " to Solo player"));
     });
     return;
   });
@@ -3541,6 +3829,9 @@ void MainComponent::setupJsHandlers() {
           }
           broadcastMessage("setLibraryList", juce::var(arr));
           pushLayerCatalog();
+          // Catalog edits can make individual chair layers eligible for a
+          // refresh even though the project itself has not changed yet.
+          pushMixerState(false);
         });
     return;
   });
@@ -3568,7 +3859,8 @@ void MainComponent::setupJsHandlers() {
 
       auto instruments = db_.loadLibraryInstruments(libraryId);
       std::vector<fiddle::LibraryPatchRow> patches;
-      if (auto *repository = db_.getLibraryRoutingRepository())
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (repository)
         patches = repository->listPatches(libraryId.toStdString());
 
       auto *result = new juce::DynamicObject();
@@ -3592,6 +3884,10 @@ void MainComponent::setupJsHandlers() {
                                 juce::String(patch.expressionMapId));
           patchObj->setProperty("pluginUid", patch.pluginUid);
           patchObj->setProperty("hasPluginState", !patch.pluginState.empty());
+          patchObj->setProperty("usageCount",
+                                repository->patchUsageCount(patch.id));
+          patchObj->setProperty("outOfDateLayerCount",
+                                repository->outOfDateLayerCount(patch.id));
           patchArr.add(juce::var(patchObj));
         }
       } else {
@@ -3610,12 +3906,58 @@ void MainComponent::setupJsHandlers() {
           patchObj->setProperty("pluginUid", inst.pluginUid);
           patchObj->setProperty("hasPluginState",
                                 inst.pluginState.getSize() > 0);
+          patchObj->setProperty("usageCount", 0);
+          patchObj->setProperty("outOfDateLayerCount", 0);
           patchArr.add(juce::var(patchObj));
         }
       }
       result->setProperty("patches", juce::var(patchArr));
 
       broadcastMessage("setLibraryData", juce::var(result));
+    });
+    return;
+  });
+  jsRouter_.registerHandler("updateLayersFromLibraryPatch",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto patchId = args[0].toString().toStdString();
+
+    safeCallAsync([this, patchId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      const auto patch = repository ? repository->getPatch(patchId)
+                                    : std::nullopt;
+      const auto updatedCount =
+          repository ? repository->updateLayersFromPatch(patchId)
+                     : std::nullopt;
+      if (!patch || !updatedCount) {
+        broadcastMessage("libraryLayersUpdateResult",
+                         juce::var("Could not update layers from the patch"));
+        return;
+      }
+
+      for (const auto &layer : repository->listLayers()) {
+        if (layer.patchId != patchId)
+          continue;
+        applyLayerLibrarySetup(layer);
+      }
+
+      if (*updatedCount > 0) {
+        pushMixerState();
+        scheduleStateRebuild();
+      }
+      const auto noun = *updatedCount == 1 ? " layer" : " layers";
+      auto *result = new juce::DynamicObject();
+      result->setProperty("success", true);
+      result->setProperty("patchId", juce::String(patchId));
+      result->setProperty("updatedCount", *updatedCount);
+      result->setProperty("message",
+                          "OK: Updated " + juce::String(*updatedCount) + noun +
+                              " from " + juce::String(patch->name));
+      broadcastMessage("libraryLayersUpdateResult", juce::var(result));
     });
     return;
   });
@@ -3995,6 +4337,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       if (undoManager_.undo()) {
         pushMixerState();
+        scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
           broadcastMessage("setDirtyState", false);
@@ -4012,6 +4355,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() {
       if (undoManager_.redo()) {
         pushMixerState();
+        scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
           broadcastMessage("setDirtyState", false);
@@ -4108,6 +4452,19 @@ void MainComponent::setupJsHandlers() {
         historyWindow_->toFront(true);
         // pushDagHistory() will be called once the window signals ready
       }
+    });
+    return;
+  });
+  jsRouter_.registerHandler("showLibraryManagerWindow", [this](
+                                                           const juce::var &) {
+    safeCallAsync([this]() { showLibraryManagerWindow(); });
+    return;
+  });
+  jsRouter_.registerHandler("dismissConnectionWarning", [this](
+                                                          const juce::var &) {
+    safeCallAsync([this]() {
+      connectionWarning_.clear();
+      broadcastMessage("setConnectionWarning", juce::String());
     });
     return;
   });
@@ -4331,6 +4688,54 @@ void MainComponent::pushLayerCatalog() {
     result.add(juce::var(obj));
   }
   broadcastMessage("setLayerCatalog", juce::var(result));
+}
+
+void MainComponent::applyLayerLibrarySetup(const LayerRow &layer) {
+  auto *strip = mixer_.getStrip(juce::String(layer.id));
+  if (!strip)
+    return;
+
+  strip->layerName = juce::String(layer.patchName);
+  strip->library = juce::String(layer.libraryName);
+  strip->missingPatchReference = false;
+
+  strip->setExpressionMap(nullptr);
+  if (!layer.expressionMapId.empty()) {
+    if (auto map = xmapLibrary_.load(layer.expressionMapId))
+      strip->setExpressionMap(std::move(map));
+  }
+
+  if (layer.pluginUid == 0) {
+    strip->unloadPlugin();
+    strip->pluginUid = 0;
+    pluginFingerprints_.erase(strip->id);
+    pluginStateSettleUntilMs_.erase(strip->id);
+    return;
+  }
+
+  juce::MemoryBlock pluginState;
+  if (!layer.pluginState.empty())
+    pluginState.append(layer.pluginState.data(), layer.pluginState.size());
+  const bool canApplyToCurrentInstance =
+      strip->pluginUid == layer.pluginUid && strip->hasPlugin() &&
+      !pluginState.isEmpty();
+  if (canApplyToCurrentInstance &&
+      strip->applyPluginState(pluginState.getData(),
+                              static_cast<int>(pluginState.getSize()))) {
+    strip->refreshPluginStateCache();
+    (void)strip->consumePluginChangeNotification();
+    (void)strip->consumePluginExplicitEditNotification();
+    (void)strip->consumePluginNonParameterStateChangeNotification();
+    pluginFingerprints_[strip->id] = {
+        strip->pluginUid, strip->pluginParameterFingerprint()};
+    pluginStateSettleUntilMs_[strip->id] =
+        juce::Time::getMillisecondCounter() + kPluginStateSettleMs;
+    return;
+  }
+
+  if (strip->pluginUid == layer.pluginUid)
+    strip->unloadPlugin();
+  restoreStripPlugin(*strip, layer.pluginUid, pluginState);
 }
 
 bool MainComponent::instantiateLayer(const LayerRow &layer,

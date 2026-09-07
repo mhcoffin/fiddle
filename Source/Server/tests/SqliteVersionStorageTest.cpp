@@ -197,6 +197,21 @@ void testMasterAudioRoundTripsThroughSqlite() {
               "Elite Violins I");
     CHECK(restored &&
           restored->routingState.layers.front().stripHash == "strip-a");
+
+    state.routingState.schemaVersion = 2;
+    state.routingState.layers.front().sourcePatchRevision = 7;
+    state.routingState.layers.front().pluginStateEdited = true;
+    const auto versionTwoHash = state.computeHash();
+    storage.putFiddleState(versionTwoHash, state);
+    const auto restoredVersionTwo = storage.getFiddleState(versionTwoHash);
+    CHECK(restoredVersionTwo.has_value());
+    CHECK(restoredVersionTwo &&
+          restoredVersionTwo->routingState.schemaVersion == 2);
+    CHECK(restoredVersionTwo &&
+          restoredVersionTwo->routingState.layers.front()
+                  .sourcePatchRevision == 7);
+    CHECK(restoredVersionTwo &&
+          restoredVersionTwo->routingState.layers.front().pluginStateEdited);
   }
 
   CHECK(sqlite3_close(database) == SQLITE_OK);

@@ -149,11 +149,11 @@ public:
       }
 
     } else if (menuItemID == 13) {
-      // Toggle library manager window
+      // Show or focus the library manager window.
       if (mainWindow) {
         if (auto *mc = dynamic_cast<MainComponent *>(
                 mainWindow->getContentComponent())) {
-          mc->toggleLibraryManagerWindow();
+          mc->showLibraryManagerWindow();
         }
       }
     }

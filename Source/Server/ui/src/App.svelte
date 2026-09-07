@@ -43,6 +43,7 @@
   let midiEvents = $state([]);
   let serverVersion = $state("");
   let isConnected = $state(false);
+  let connectionWarning = $state("");
   let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }
   let metronomeActive = $state(false); // true when tempo is derived from click track
   let metronomeBeats = $state([]); // [{samplePosition, isDownbeat}] — actual beat positions from click track
@@ -139,6 +140,10 @@
 
   onFromCpp("setConnectionState", (connected) => {
     isConnected = connected;
+  });
+
+  onFromCpp("setConnectionWarning", (message) => {
+    connectionWarning = String(message || "");
   });
 
   // data = { channel, name }
@@ -422,6 +427,22 @@
 </script>
 
 <div class="app-container" style="zoom: {uiZoom};">
+  {#if connectionWarning}
+    <div class="connection-warning" role="alert">
+      <div>
+        <strong>Additional Fiddle plug-in rejected</strong>
+        <span>{connectionWarning}</span>
+      </div>
+      <button
+        type="button"
+        aria-label="Dismiss connection warning"
+        onclick={() => {
+          connectionWarning = "";
+          dispatchCpp("dismissConnectionWarning");
+        }}>Dismiss</button
+      >
+    </div>
+  {/if}
   {#if windowMode === "debug"}
     <!-- DEBUG WINDOW: tab bar with timeline, eventlog, plugins -->
     <nav class="tab-nav">
@@ -561,6 +582,51 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
+  }
+
+  .connection-warning {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 12px 18px;
+    border-bottom: 1px solid rgba(251, 191, 36, 0.55);
+    background: #3f2f0b;
+    color: #fef3c7;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+    z-index: 100;
+  }
+
+  .connection-warning > div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .connection-warning strong {
+    color: #fde68a;
+  }
+
+  .connection-warning span {
+    color: #f8e7b0;
+    font-size: 0.9rem;
+  }
+
+  .connection-warning button {
+    flex: 0 0 auto;
+    padding: 7px 13px;
+    border: 1px solid #d6a629;
+    border-radius: 6px;
+    background: #5b4311;
+    color: #fff4bd;
+    font: inherit;
+    font-weight: 650;
+    cursor: pointer;
+  }
+
+  .connection-warning button:hover {
+    background: #765719;
   }
 
   .main-content {

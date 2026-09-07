@@ -80,19 +80,19 @@ bool LibraryPatchPreviewHost::captureState(
   return true;
 }
 
-bool LibraryPatchPreviewHost::consumeChangeNotifications() noexcept {
-  bool changed = false;
+std::vector<std::string>
+LibraryPatchPreviewHost::consumeChangedPatchIds() {
+  std::vector<std::string> changedPatchIds;
   for (auto &[id, preview] : previews_) {
-    juce::ignoreUnused(id);
     const bool parameterChanged = preview->slot.consumeChangeNotification();
     const bool explicitEdit =
         preview->slot.consumeExplicitEditNotification();
     const bool nonParameterChanged =
         preview->slot.consumeNonParameterStateChangeNotification();
-    changed = changed || parameterChanged || explicitEdit ||
-              nonParameterChanged;
+    if (parameterChanged || explicitEdit || nonParameterChanged)
+      changedPatchIds.push_back(id);
   }
-  return changed;
+  return changedPatchIds;
 }
 
 void LibraryPatchPreviewHost::discard(const std::string &patchId) {

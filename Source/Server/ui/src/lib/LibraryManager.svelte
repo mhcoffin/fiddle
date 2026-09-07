@@ -6,7 +6,7 @@
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
-  import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, shouldMarkLibraryEditorDirtyForPreviewChange, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
+  import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, moveLibraryPatch, moveLibraryPatchByOffset, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -44,6 +44,9 @@
         exprMap:   patch.exprMap || "",
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
+        pluginStatePending: false,
+        usageCount: Number(patch.usageCount) || 0,
+        outOfDateLayerCount: Number(patch.outOfDateLayerCount) || 0,
       }));
       selectedPatchIds = new Set();
       searchQuery = "";
@@ -86,6 +89,9 @@
   let selectedPatchIds = $state(new Set());
   let selectionAnchorId = $state("");
   let batchPluginUid = $state(0);
+  let draggedPatchId = $state("");
+  let dropTargetPatchId = $state("");
+  let dropAfterTarget = $state(false);
 
   // ── Dorico instrument database ─────────────────────────
   let allDoricoInstruments = $state([]);
@@ -146,6 +152,8 @@
   /** @type {LibraryPatch[]} */
   let patches = $state([]);
   /** @type {string} */ let pendingDeleteId = $state("");
+  /** @type {string} */ let pendingLayerUpdateId = $state("");
+  let layerUpdateResult = $state("");
 
   // ── Portal container for modals ───────────────────────
   // Attach modal DOM directly to <body> so overflow:hidden parents
@@ -184,8 +192,29 @@
     buildResult = typeof data === "string" ? data : "Could not open plug-in";
     setTimeout(() => { buildResult = ""; }, 5000);
   });
-  onFromCpp("libraryPatchPreviewChanged", () => {
+  onFromCpp("libraryPatchPreviewChanged", (patchId) => {
     if (shouldMarkLibraryEditorDirtyForPreviewChange(modalView)) editorDirty = true;
+    if (patchId) {
+      patches = patches.map((patch) =>
+        patch.id === patchId
+          ? { ...patch, hasPluginState: true, pluginStatePending: true }
+          : patch
+      );
+    }
+  });
+  onFromCpp("libraryLayersUpdateResult", (result) => {
+    layerUpdateResult = typeof result === "string"
+      ? result
+      : result?.message || "Could not update layers from the patch";
+    if (result?.success && result.patchId) {
+      patches = patches.map((patch) =>
+        patch.id === result.patchId
+          ? { ...patch, outOfDateLayerCount: 0 }
+          : patch
+      );
+    }
+    pendingLayerUpdateId = "";
+    setTimeout(() => { layerUpdateResult = ""; }, 5000);
   });
 
   const handleInitialize = () => {
@@ -276,15 +305,6 @@
     editorDirty = true;
   };
 
-  let sortedPatches = $derived.by(() => {
-    return [...patches].sort((a, b) => {
-      const ordA = instrumentScoreOrder(a.entityID);
-      const ordB = instrumentScoreOrder(b.entityID);
-      if (ordA !== ordB) return ordA - ordB;
-      return a.name.localeCompare(b.name);
-    });
-  });
-
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
     for (const inst of ens.instruments) {
       addPatch(inst, inst.type || "");
@@ -299,12 +319,73 @@
     editorDirty = true;
   };
 
+  const updateLayersFromPatch = (row) => {
+    if (editorDirty || !row.outOfDateLayerCount) return;
+    if (pendingLayerUpdateId !== row.id) {
+      pendingLayerUpdateId = row.id;
+      return;
+    }
+    pendingLayerUpdateId = "";
+    dispatchCpp("updateLayersFromLibraryPatch", row.id);
+  };
+
   const duplicatePatch = (row) => {
     const copy = duplicateLibraryPatch(row, crypto.randomUUID());
     patches = [...patches, copy];
     selectedPatchIds = new Set([copy.id]);
     selectionAnchorId = copy.id;
     editorDirty = true;
+  };
+
+  const reorderPatch = (patchId, targetId, insertAfter = false) => {
+    const reordered = moveLibraryPatch(patches, patchId, targetId, insertAfter);
+    if (reordered === patches) return;
+    patches = reordered;
+    editorDirty = true;
+  };
+
+  const movePatchWithKeyboard = (patchId, offset) => {
+    const reordered = moveLibraryPatchByOffset(patches, patchId, offset);
+    if (reordered === patches) return;
+    patches = reordered;
+    editorDirty = true;
+  };
+
+  const sortPatchesOrchestrally = () => {
+    const reordered = sortLibraryPatchesOrchestrally(patches, instrumentScoreOrder);
+    if (reordered === patches) return;
+    patches = reordered;
+    editorDirty = true;
+  };
+
+  const beginPatchDrag = (event, patchId) => {
+    draggedPatchId = patchId;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", patchId);
+  };
+
+  const updatePatchDropTarget = (event, patchId) => {
+    if (!draggedPatchId || draggedPatchId === patchId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const bounds = event.currentTarget.getBoundingClientRect();
+    dropTargetPatchId = patchId;
+    dropAfterTarget = event.clientY >= bounds.top + bounds.height / 2;
+  };
+
+  const dropPatch = (event, targetId) => {
+    event.preventDefault();
+    const patchId = draggedPatchId || event.dataTransfer.getData("text/plain");
+    reorderPatch(patchId, targetId, dropAfterTarget);
+    draggedPatchId = "";
+    dropTargetPatchId = "";
+    dropAfterTarget = false;
+  };
+
+  const finishPatchDrag = () => {
+    draggedPatchId = "";
+    dropTargetPatchId = "";
+    dropAfterTarget = false;
   };
 
   /** Open the VST editor in the Library Manager's isolated preview host. */
@@ -319,7 +400,7 @@
     });
   };
   const selectPatch = (id, event) => {
-    const orderedIds = sortedPatches.map((patch) => patch.id);
+    const orderedIds = patches.map((patch) => patch.id);
     if (event.shiftKey && selectionAnchorId) {
       selectedPatchIds = addStripRange(
         selectedPatchIds,
@@ -353,6 +434,7 @@
       vstPlugin: Number(batchPluginUid),
       pluginUid: Number(batchPluginUid),
       hasPluginState: false,
+      pluginStatePending: false,
       sourcePatchId: "",
     });
     editorDirty = true;
@@ -362,7 +444,7 @@
     dispatchCpp("discardLibraryPatchPreview", row.id);
     patches = patches.map((patch) =>
       patch.id === row.id
-        ? { ...patch, vstPlugin: uid, pluginUid: uid, hasPluginState: false, sourcePatchId: "" }
+        ? { ...patch, vstPlugin: uid, pluginUid: uid, hasPluginState: false, pluginStatePending: false, sourcePatchId: "" }
         : patch
     );
     editorDirty = true;
@@ -445,7 +527,7 @@
                 pendingDeleteId = lib.id;
               }
             }}
-          >{pendingDeleteId === lib.id ? '✓ Delete?' : '×'}</button>
+          >{pendingDeleteId === lib.id ? 'Confirm Delete' : 'Delete Library…'}</button>
           <div class="lm-card-icon">{libraryIcons[i % libraryIcons.length]}</div>
           <div class="lm-card-name">{lib.name}</div>
           <div class="lm-card-sub">{[lib.vendor, lib.variant].filter(Boolean).join(" · ") || "Library"}</div>
@@ -541,8 +623,15 @@
         <div class="inst-content">
           <div class="patch-toolbar">
             <button class="add-patch-btn" onclick={addBlankPatch}>+ Add Patch</button>
+            <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}>Sort Orchestrally</button>
             <span>Creates an empty catalog row. Instrument classification is optional.</span>
           </div>
+
+          {#if layerUpdateResult}
+            <div class="layer-update-result" class:success={layerUpdateResult.startsWith("OK:")} role="status">
+              {layerUpdateResult}
+            </div>
+          {/if}
 
           <div class="batch-toolbar">
             <button class="select-all-btn" onclick={selectAllPatches}>
@@ -572,7 +661,7 @@
 
           <!-- Table header -->
           <div class="inst-table-header">
-            <span class="th-check"></span>
+            <span class="th-order">ORDER</span>
             <span class="th-name">PATCH</span>
             <span class="th-character">CHARACTER</span>
             <span class="th-vst">PLAYER</span>
@@ -582,12 +671,38 @@
 
           <!-- Table rows -->
           <div class="inst-table-body">
-            {#each sortedPatches as row (row.id)}
-              <div class="inst-row" class:patch-selected={selectedPatchIds.has(row.id)}>
-                <div class="ir-check">
-                  <input type="checkbox" checked={selectedPatchIds.has(row.id)}
-                    aria-label={`Select ${row.name}`}
-                    onclick={(event) => selectPatch(row.id, event)} />
+            {#each patches as row (row.id)}
+              {@const setupStatus = pluginSetupStatus(row)}
+              <div
+                class="inst-row"
+                class:patch-selected={selectedPatchIds.has(row.id)}
+                class:patch-dragging={draggedPatchId === row.id}
+                class:patch-drop-before={dropTargetPatchId === row.id && !dropAfterTarget}
+                class:patch-drop-after={dropTargetPatchId === row.id && dropAfterTarget}
+                ondragover={(event) => updatePatchDropTarget(event, row.id)}
+                ondrop={(event) => dropPatch(event, row.id)}
+              >
+                <div class="ir-leading">
+                  <button
+                    type="button"
+                    class="patch-drag-handle"
+                    draggable="true"
+                    aria-label={`Reorder ${row.name}. Use the up and down arrow keys, or drag.`}
+                    title="Drag to reorder; arrow keys also work"
+                    ondragstart={(event) => beginPatchDrag(event, row.id)}
+                    ondragend={finishPatchDrag}
+                    onkeydown={(event) => {
+                      if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                        event.preventDefault();
+                        movePatchWithKeyboard(row.id, event.key === "ArrowUp" ? -1 : 1);
+                      }
+                    }}
+                  >⠿</button>
+                  <div class="ir-check">
+                    <input type="checkbox" checked={selectedPatchIds.has(row.id)}
+                      aria-label={`Select ${row.name}`}
+                      onclick={(event) => selectPatch(row.id, event)} />
+                  </div>
                 </div>
                 <div class="ir-name">
                   <div class="ir-name-text">
@@ -630,7 +745,15 @@
                     {/each}
                   </select>
                   {#if row.vstPlugin || row.pluginUid}
-                    <button class="action-vst-edit" onclick={() => openVstEditor(row)} title="Open VST Editor">⚙️</button>
+                    <div class="vst-editor-control">
+                      <button class="action-vst-edit" onclick={() => openVstEditor(row)} title="Open VST Editor">⚙️</button>
+                      <span
+                        class="plugin-setup-status {setupStatus.kind}"
+                        role="img"
+                        aria-label={setupStatus.label}
+                        title={setupStatus.label}>{setupStatus.symbol}</span
+                      >
+                    </div>
                   {/if}
                 </div>
                 <div class="ir-expr">
@@ -645,6 +768,19 @@
                   />
                 </div>
                 <div class="ir-actions">
+                  <button
+                    class="action-update-layers"
+                    class:confirm={pendingLayerUpdateId === row.id}
+                    disabled={editorDirty || !row.outOfDateLayerCount}
+                    title={editorDirty
+                      ? "Save and reopen the library before updating layers"
+                      : !row.usageCount
+                        ? "This patch is not used by any current layer"
+                        : !row.outOfDateLayerCount
+                          ? "All linked layers already match this patch"
+                          : `Replace the saved setup in ${row.usageCount} linked ${row.usageCount === 1 ? "layer" : "layers"}; ${row.outOfDateLayerCount} currently differ`}
+                    onclick={() => updateLayersFromPatch(row)}
+                  >{pendingLayerUpdateId === row.id ? `Confirm ${row.usageCount}` : "Update Layers"}</button>
                   <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
                   <button class="action-delete" onclick={() => removePatch(row.id)}>Delete</button>
                 </div>
@@ -781,17 +917,15 @@
     position: relative;
   }
   .lm-card-delete {
-    position: absolute; top: 6px; right: 6px;
-    background: transparent; border: 1px solid transparent; border-radius: 3px;
-    color: #72719c; font-size: .85rem; cursor: pointer;
-    padding: 1px 5px; line-height: 1; opacity: 0;
-    transition: opacity .15s, color .15s, border-color .15s;
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(255,110,132,.06); border: 1px solid #595879; border-radius: 4px;
+    color: #aaa9c8; font-size: .68rem; font-weight: 600; cursor: pointer;
+    padding: 5px 8px; line-height: 1.15;
+    transition: color .15s, border-color .15s, background .15s;
   }
-  .lm-card:hover .lm-card-delete { opacity: 1; }
-  .lm-card-delete:hover { color: #ff6e84; border-color: #ff6e84; }
+  .lm-card-delete:hover { color: #ff9aaa; border-color: #ff6e84; background: rgba(255,110,132,.12); }
   .lm-card-delete--confirm {
-    opacity: 1 !important; color: #fff; background: #c44; border-color: #c44;
-    font-size: .7rem; padding: 2px 8px;
+    color: #fff; background: #c44; border-color: #c44;
   }
   .lm-card-delete--confirm:hover { background: #e33; border-color: #e33; color: #fff; }
   .lm-card:hover { border-color: #95a9ff; background: #19194b; }
@@ -971,12 +1105,15 @@
     border-bottom: 1px solid #44446c;
   }
   .patch-toolbar span { color: #8584ac; font: 500 .68rem "Inter", sans-serif; }
-  .add-patch-btn {
+  .add-patch-btn, .sort-patches-btn {
     min-height: 36px; padding: 7px 14px; border: 1px solid #7877b8;
     border-radius: 4px; background: #3938a0; color: #f1f0ff;
     font: 700 .72rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
   }
   .add-patch-btn:hover { background: #4a49b8; border-color: #a8b7ff; }
+  .sort-patches-btn { background: #1a194b; border-color: #555480; color: #c4c3e3; }
+  .sort-patches-btn:hover:not(:disabled) { background: #292863; border-color: #95a9ff; color: #f1f0ff; }
+  .sort-patches-btn:disabled { opacity: .4; cursor: default; }
   .batch-toolbar {
     display: flex; align-items: center; gap: 10px; padding: 10px 20px;
     background: #10103d; border-bottom: 1px solid #2a2a5a;
@@ -999,7 +1136,7 @@
   .batch-xmap { min-width: 210px; }
   .inst-table-header {
     display: grid;
-    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 154px;
+    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
     gap: 8px; padding: 10px 20px;
     background: #0e0d38; border-bottom: 1px solid #2a2a5a;
   }
@@ -1008,10 +1145,11 @@
     letter-spacing: .08em; text-transform: uppercase; color: #72719c;
   }
   .th-actions { text-align: center; }
+  .th-order { text-align: center; }
   .inst-table-body { flex: 1; overflow-y: auto; padding-bottom: 12px; }
   .inst-row {
     display: grid;
-    grid-template-columns: 30px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 154px;
+    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
     gap: 8px; align-items: start;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
@@ -1019,17 +1157,47 @@
   }
   .inst-row:hover { background: rgba(149,169,255,.04); }
   .inst-row.patch-selected { background: rgba(149,169,255,.09); }
-  .ir-check { display: flex; justify-content: center; padding-top: 6px; }
+  .inst-row.patch-dragging { opacity: .45; }
+  .inst-row.patch-drop-before { box-shadow: inset 0 3px 0 #75d3ff; }
+  .inst-row.patch-drop-after { box-shadow: inset 0 -3px 0 #75d3ff; }
+  .ir-leading { display: flex; align-items: center; gap: 7px; }
+  .patch-drag-handle {
+    width: 30px; height: 30px; padding: 0; box-sizing: border-box;
+    border: 1px solid #555480; border-radius: 4px; background: #181744;
+    color: #aaa9cd; font: 700 1.15rem/1 "Inter", sans-serif; cursor: grab;
+  }
+  .patch-drag-handle:hover, .patch-drag-handle:focus-visible {
+    border-color: #95a9ff; color: #e5e3ff; background: #292863; outline: none;
+  }
+  .patch-drag-handle:active { cursor: grabbing; }
+  .ir-check { display: flex; justify-content: center; }
   .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .action-duplicate, .action-delete {
+  .action-update-layers, .action-duplicate, .action-delete {
     width: auto; height: 30px; padding: 0 9px; box-sizing: border-box;
     border: 1px solid #44446c;
     border-radius: 4px; background: #1a194b; color: #d8d7ff;
     font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
+  .action-update-layers { color: #a7f3d0; border-color: #2f6f61; }
+  .action-update-layers:hover:not(:disabled) {
+    border-color: #5eead4; background: #164e46; color: #ecfdf5;
+  }
+  .action-update-layers.confirm {
+    border-color: #fbbf24; background: #5b4311; color: #fff4bd;
+  }
+  .action-update-layers:disabled { opacity: .36; cursor: default; }
   .action-duplicate:hover { border-color: #95a9ff; background: #292863; }
   .action-delete:hover { border-color: #d96a78; background: #4b1e32; color: #ffd7dc; }
+  .layer-update-result {
+    padding: 9px 20px; border-bottom: 1px solid #7f1d1d;
+    background: rgba(127, 29, 29, .24); color: #fecaca;
+    font: 600 .7rem "Inter", sans-serif;
+  }
+  .layer-update-result.success {
+    border-bottom-color: #166534; background: rgba(22, 101, 52, .22);
+    color: #bbf7d0;
+  }
   .ir-name { display: flex; align-items: center; gap: 8px; }
   .ir-name-text { width: 100%; min-width: 0; }
   .patch-name-input { color: #e5e3ff; font-weight: 600; }
@@ -1058,6 +1226,9 @@
   .ir-input::placeholder { color: #44446c; }
   .ir-vst { display: flex; align-items: center; gap: 4px; }
   .ir-vst .ir-select { flex: 1; min-width: 0; }
+  .vst-editor-control {
+    position: relative; width: 30px; height: 30px; flex: 0 0 30px;
+  }
   .ir-expr { margin-top: -1px; }
   :global(.ir-expr .xmap-control) { margin-bottom: 0; }
   :global(.ir-expr .xmap-trigger) {
@@ -1070,6 +1241,16 @@
     transition: background .15s, border-color .15s; flex-shrink: 0;
   }
   .action-vst-edit:hover { background: #2a2a5c; border-color: #95a9ff; }
+  .plugin-setup-status {
+    position: absolute; right: -5px; bottom: -5px;
+    display: grid; place-items: center; width: 16px; height: 16px;
+    box-sizing: border-box; border: 2px solid #0e0d38; border-radius: 50%;
+    color: #07110b; font: 800 .63rem/1 "Inter", sans-serif;
+    pointer-events: auto;
+  }
+  .plugin-setup-status.saved { background: #4ade80; }
+  .plugin-setup-status.pending { background: #67e8f9; font-size: .8rem; }
+  .plugin-setup-status.missing { background: #fbbf24; color: #321f03; }
   .inst-empty {
     display: flex; flex-direction: column; align-items: center;
     justify-content: center; padding: 60px 20px; color: #44446c;

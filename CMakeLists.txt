@@ -638,6 +638,14 @@ if(NODE_EXECUTABLE)
     set_tests_properties(locked_group_gain_ui PROPERTIES
         LABELS "mixer;ui;gain;regression;stable"
     )
+
+    add_test(NAME connection_warning_ui
+        COMMAND "${NODE_EXECUTABLE}" --test
+                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/connectionWarning.test.js"
+    )
+    set_tests_properties(connection_warning_ui PROPERTIES
+        LABELS "ui;connection;regression;stable"
+    )
 endif()
 
 # ==============================================================================
@@ -681,6 +689,37 @@ target_link_libraries(TransportTest PRIVATE
 target_compile_features(TransportTest PRIVATE cxx_std_17)
 add_test(NAME transport COMMAND TransportTest)
 set_tests_properties(transport PROPERTIES LABELS stable)
+
+# ==============================================================================
+# MidiTcpServerTest — duplicate plug-in connection diagnostics
+# ==============================================================================
+juce_add_console_app(MidiTcpServerTest
+    PRODUCT_NAME "MidiTcpServerTest"
+)
+
+target_sources(MidiTcpServerTest PRIVATE
+    Source/Server/tests/MidiTcpServerTest.cpp
+    Source/Server/MidiTcpServer.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+
+target_include_directories(MidiTcpServerTest PRIVATE
+    Source/Server
+    "${CMAKE_CURRENT_BINARY_DIR}"
+)
+
+target_link_libraries(MidiTcpServerTest PRIVATE
+    juce::juce_core
+    juce::juce_events
+    libprotobuf
+)
+target_compile_features(MidiTcpServerTest PRIVATE cxx_std_17)
+juce_generate_juce_header(MidiTcpServerTest)
+
+add_test(NAME midi_tcp_server COMMAND MidiTcpServerTest)
+set_tests_properties(midi_tcp_server PROPERTIES
+    LABELS "connection;regression;stable"
+)
 
 # ==============================================================================
 # ProgramStateReplayTest — verifies zero-based replay port numbering

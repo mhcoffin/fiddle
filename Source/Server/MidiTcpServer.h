@@ -28,6 +28,12 @@ public:
 
   void onConnectionChanged(std::function<void(bool, juce::String)> callback);
 
+  /// Called once per primary-client session when another client attempts to
+  /// connect. The additional connection is rejected; the established client
+  /// remains active.
+  void onAdditionalConnectionAttempt(
+      std::function<void(juce::String)> callback);
+
   /// Request that the current client connection be closed.
   void disconnectClient();
 
@@ -45,10 +51,13 @@ private:
   std::function<void(const fiddle::MidiEvent &)> messageCallback;
   std::function<void(juce::String)> rawActivityCallback;
   std::function<void(bool, juce::String)> connectionCallback;
+  std::function<void(juce::String)> additionalConnectionCallback;
 
   void handleConnection(std::unique_ptr<juce::StreamingSocket> clientSocket);
+  void rejectPendingAdditionalConnections();
 
   std::atomic<bool> shouldDisconnect{false};
+  bool additionalConnectionReported_{false};
   std::mutex clientMutex_;
   juce::StreamingSocket *currentClient_{nullptr};
   std::string cachedConfigStatus_; // guarded by clientMutex_

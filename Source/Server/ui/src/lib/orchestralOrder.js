@@ -83,6 +83,13 @@ export const instrumentScoreOrder = (entityID) =>
  * instrument stay in ordinal order.
  */
 export const compareChairsInScoreOrder = (a, b) => {
+    // Mixer workflow is clearer when independent solo players are collected
+    // before ensemble/section destinations. Preserve orchestral score order
+    // within each of those two role groups.
+    const roleA = a.role === "solo" ? 0 : 1;
+    const roleB = b.role === "solo" ? 0 : 1;
+    if (roleA !== roleB) return roleA - roleB;
+
     // Dorico places piccolo above concert flute in its built-in Orchestral
     // table. In the mixer, keep all numbered concert-flute chairs together
     // and place piccolo immediately after them.
@@ -98,9 +105,6 @@ export const compareChairsInScoreOrder = (a, b) => {
     const orderB = b.scoreOrder ?? instrumentScoreOrder(b.entityID);
     if (orderA !== orderB) return orderA - orderB;
     if (a.entityID === b.entityID) {
-        const roleA = a.role === "solo" ? 0 : 1;
-        const roleB = b.role === "solo" ? 0 : 1;
-        if (roleA !== roleB) return roleA - roleB;
         if ((a.ordinal ?? 0) !== (b.ordinal ?? 0))
             return (a.ordinal ?? 0) - (b.ordinal ?? 0);
     }

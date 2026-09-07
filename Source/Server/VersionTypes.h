@@ -196,13 +196,16 @@ struct LayerSnapshot {
   std::string libraryId;
   std::string libraryName;
   int position = 0;
+  int sourcePatchRevision = 0;
+  bool pluginStateEdited = false;
   Hash stripHash;
 
   std::string serializeForHash() const {
     std::ostringstream os;
     os << id << '\0' << chairId << '\0' << patchId << '\0' << patchName
        << '\0' << libraryId << '\0' << libraryName << '\0' << position
-       << '\0' << stripHash << '\0';
+       << '\0' << sourcePatchRevision << '\0'
+       << (pluginStateEdited ? '1' : '0') << '\0' << stripHash << '\0';
     return os.str();
   }
 };

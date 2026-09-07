@@ -43,9 +43,22 @@ export function searchDoricoInstruments(instruments, query, limit = 30) {
         .slice(0, limit);
 }
 
+export function suggestedChairRole(instrument) {
+    const family = canonicalFamily(instrument?.family || "");
+    return family === "strings" || family === "choir" ? "section" : "solo";
+}
+
+export function likelySectionRoleMistakes(chairs) {
+    return chairs.filter((chair) =>
+        chair.role === "section" && suggestedChairRole(chair) === "solo");
+}
+
 export function suggestedChairName(instrument, role, chairs) {
     const matching = chairs.filter((chair) =>
         chair.entityID === instrument.entityID && chair.role === role).length;
-    const prefix = role === "solo" ? "Solo " : "";
+    const conventionalRole = suggestedChairRole(instrument);
+    const prefix = role === conventionalRole
+        ? ""
+        : role === "solo" ? "Solo " : "Section ";
     return `${prefix}${instrument.name} ${matching + 1}`;
 }

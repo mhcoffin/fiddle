@@ -50,6 +50,7 @@
     let chairs = $state([]);
     let layerCatalog = $state([]);
     let layerPickerChair = $state(null);
+    let layerRefreshResult = $state("");
     let branches = $state([]);
     let currentBranch = $state("default");
     let stripSize = $state(readStripSize(window.localStorage));
@@ -160,8 +161,18 @@
     onFromCpp("setLayerCatalog", (data) => {
         layerCatalog = Array.isArray(data) ? data : [];
     });
-    onFromCpp("layerOperationResult", (message) => {
-        if (message !== "Layer added") console.warn("[Mixer]", message);
+    onFromCpp("layerOperationResult", (result) => {
+        const message = typeof result === "string"
+            ? result
+            : result?.message || "Layer operation failed";
+        if (result?.operation === "refresh") {
+            layerRefreshResult = message;
+            setTimeout(() => { layerRefreshResult = ""; }, 4000);
+        } else if (message !== "Layer added") {
+            layerRefreshResult = message;
+            setTimeout(() => { layerRefreshResult = ""; }, 5000);
+            console.warn("[Mixer]", message);
+        }
     });
     onFromCpp("setDetachedHead", (detached) => {
         isDetachedHead = detached;
@@ -291,6 +302,12 @@
             return;
         }
         dispatchCpp("removeMixerStrip", id);
+    };
+
+    const refreshLayerFromLibrary = (strip) => {
+        if (!strip?.chairId || strip.missingPatchReference ||
+            !strip.sourcePatchOutOfDate) return;
+        dispatchCpp("refreshChairLayerFromLibrary", strip.id);
     };
 
     const duplicateStrip = (id) => {
@@ -1008,6 +1025,9 @@
     class="mixer-container"
     style="--strip-width: {stripWidth}px;"
 >
+    {#if layerRefreshResult}
+        <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
+    {/if}
     <div class="mixer-toolbar">
         <div class="toolbar-left">
 
@@ -1041,6 +1061,13 @@
                 title="Create and manage Dorico chairs"
             >
                 Manage Chairs
+            </button>
+            <button
+                class="toolbar-ms-btn library-manager-btn"
+                onclick={() => dispatchCpp("showLibraryManagerWindow")}
+                title="Show or bring forward the Library Manager"
+            >
+                Library Manager
             </button>
             <button
                 class="toolbar-ms-btn master-audio-btn"
@@ -1559,7 +1586,19 @@
                                                 </div>
 
                                                 <!-- Strip action buttons -->
-                                                <div class="ch-buttons">
+                                                <div class="ch-buttons" class:chair-actions={strip.chairId}>
+                                                    {#if strip.chairId}
+                                                        <button
+                                                            class="ch-btn ch-btn-refresh"
+                                                            disabled={strip.missingPatchReference || !strip.sourcePatchOutOfDate}
+                                                            onclick={() => refreshLayerFromLibrary(strip)}
+                                                            title={strip.missingPatchReference
+                                                                ? "The source library patch is missing"
+                                                                : !strip.sourcePatchOutOfDate
+                                                                    ? "This layer already matches its library patch"
+                                                                    : "Replace this layer's player setup and expression map from its library patch"}
+                                                        >Refresh Library</button>
+                                                    {/if}
                                                     {#if !strip.chairId}
                                                         <button
                                                             class="ch-btn ch-btn-dup"
@@ -1653,6 +1692,22 @@
             -apple-system,
             sans-serif;
         overflow: hidden;
+    }
+
+    .layer-refresh-notice {
+        position: absolute;
+        z-index: 30;
+        top: 54px;
+        right: 18px;
+        max-width: min(360px, calc(100% - 36px));
+        padding: 9px 13px;
+        border: 1px solid #34d399;
+        border-radius: 6px;
+        background: #0f2f2b;
+        color: #d1fae5;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        font-size: 0.75rem;
+        font-weight: 600;
     }
 
     .mixer-body {
@@ -1795,6 +1850,13 @@
         border-color: rgba(52, 211, 153, 0.55);
         color: #a7f3d0;
         background: rgba(20, 83, 45, 0.45);
+    }
+    .toolbar-ms-btn.library-manager-btn {
+        min-height: 30px;
+        padding: 4px 12px;
+        border-color: rgba(167, 139, 250, 0.58);
+        color: #ddd6fe;
+        background: rgba(76, 29, 149, 0.42);
     }
     .toolbar-right {
         display: flex;
@@ -2688,6 +2750,9 @@
         gap: 6px;
         margin-top: 4px;
     }
+    .ch-buttons.chair-actions {
+        flex-direction: column;
+    }
     .ch-btn {
         flex: 1;
         min-height: 28px;
@@ -2705,6 +2770,21 @@
         background: #1e3a5f;
         color: #93c5fd;
         border-color: #3b82f6;
+    }
+    .ch-btn-refresh {
+        color: #a7f3d0;
+        border-color: rgba(52, 211, 153, 0.55);
+        background: rgba(20, 83, 45, 0.35);
+        font-size: 0.68rem;
+        font-weight: 650;
+    }
+    .ch-btn-refresh:hover:not(:disabled) {
+        border-color: #6ee7b7;
+        background: rgba(6, 95, 70, 0.65);
+    }
+    .ch-btn:disabled {
+        opacity: 0.35;
+        cursor: default;
     }
     .ch-btn-del:hover {
         background: #451a1a;

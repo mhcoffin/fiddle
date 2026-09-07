@@ -36,9 +36,10 @@ public:
   bool captureState(const std::string &patchId, int expectedPluginUid,
                     std::vector<std::uint8_t> &destination);
 
-  /// Consume editor/processor notifications from every preview. This is kept
-  /// separate from MainComponent's project dirty tracking.
-  bool consumeChangeNotifications() noexcept;
+  /// Consume editor/processor notifications from every preview and return the
+  /// affected catalog patch IDs. This is kept separate from MainComponent's
+  /// project dirty tracking.
+  std::vector<std::string> consumeChangedPatchIds();
 
   void discard(const std::string &patchId);
   void closeAll();

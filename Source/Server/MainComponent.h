@@ -63,8 +63,11 @@ public:
   /// Check if history window is visible.
   bool isHistoryWindowVisible() const;
 
-  /// Toggle library manager window visibility (called from View menu).
+  /// Toggle library manager window visibility.
   void toggleLibraryManagerWindow();
+
+  /// Create the Library Manager if needed, otherwise unminimize and focus it.
+  void showLibraryManagerWindow();
 
   /// Check if library manager window is visible.
   bool isLibraryManagerWindowVisible() const;
@@ -129,6 +132,7 @@ private:
   LuaPluginCatalog luaCatalog_;
 
   std::atomic<bool> isTransportStarted_{false};
+  juce::String connectionWarning_;
 
   /// Global harmonic analysis service (joint key/chord HMM).
   /// Owned here; MixerModel holds a raw ptr.
@@ -235,6 +239,9 @@ private:
   bool instantiateLayer(const LayerRow &layer, const ChairRow &chair,
                         const LibraryPatchRow *patch,
                         const juce::String &libraryName);
+  /// Apply only the library-owned portion of a saved layer row to its live
+  /// mixer strip, leaving routing and mixer controls unchanged.
+  void applyLayerLibrarySetup(const LayerRow &layer);
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void pushToDebugWindow(const juce::String &js);
@@ -330,6 +337,11 @@ private:
 
   /// Persistent-parameter fingerprints for each hosted instrument instance.
   std::map<juce::String, StripPluginFingerprint> pluginFingerprints_;
+
+  /// State restoration can emit delayed parameter/non-parameter callbacks.
+  /// Ignore those briefly unless the plug-in reports an explicit editor
+  /// gesture, while continually rebasing its parameter fingerprint.
+  std::map<juce::String, uint32_t> pluginStateSettleUntilMs_;
 
   /// Plugin UIDs that fire AudioProcessorListener callbacks.
   /// Retained as compatibility telemetry; polling still verifies all plug-ins

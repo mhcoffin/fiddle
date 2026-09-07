@@ -134,6 +134,107 @@ void testOneChairAcceptsSeveralPatchesFromOneLibrary() {
   CHECK(layers.size() == 2 && layers[1].patchId == second.id);
 }
 
+void testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto patch = soloViolinPatch();
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.upsertChair(
+      makeChair("violin-section-1", fiddle::DoricoRole::section, 1, 1)));
+  CHECK(repository.upsertChair(
+      makeChair("violin-solo-1", fiddle::DoricoRole::solo, 1, 2)));
+  CHECK(repository.createLayerFromPatch("layer-a", "violin-section-1",
+                                        patch.id, 0));
+  CHECK(repository.createLayerFromPatch("layer-b", "violin-solo-1",
+                                        patch.id, 3));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  auto customized = repository.getLayer("layer-a");
+  CHECK(customized.has_value());
+  customized->active = false;
+  customized->muted = true;
+  customized->soloed = true;
+  customized->gainDb = -7.5f;
+  customized->pluginState = {9, 9};
+  customized->expressionMapId = "xmap.local";
+  CHECK(repository.upsertLayer(*customized));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+
+  patch.name = "Updated Synchron Solo Violin";
+  patch.pluginUid = 911;
+  patch.pluginState = {8, 7, 6};
+  patch.expressionMapId = "xmap.updated";
+  CHECK(repository.upsertPatch(patch));
+  const auto currentPatch = repository.getPatch(patch.id);
+  CHECK(currentPatch.has_value());
+  CHECK(currentPatch && currentPatch->revision == 2);
+  CHECK(repository.outOfDateLayerCount(patch.id) == 2);
+  const auto staleIds = repository.outOfDateLayerIds();
+  CHECK(staleIds.size() == 2);
+  CHECK(staleIds.size() == 2 && staleIds[0] == "layer-a");
+  CHECK(staleIds.size() == 2 && staleIds[1] == "layer-b");
+
+  auto oneLayerUpdate = repository.getLayer("layer-a");
+  CHECK(oneLayerUpdate.has_value());
+  oneLayerUpdate->patchName = patch.name;
+  oneLayerUpdate->libraryId = patch.libraryId;
+  oneLayerUpdate->libraryName = "Vienna";
+  oneLayerUpdate->pluginUid = patch.pluginUid;
+  oneLayerUpdate->pluginState = patch.pluginState;
+  oneLayerUpdate->expressionMapId = patch.expressionMapId;
+  oneLayerUpdate->sourcePatchRevision = currentPatch->revision;
+  oneLayerUpdate->pluginStateEdited = false;
+  CHECK(repository.upsertLayer(*oneLayerUpdate));
+  const auto refreshedOne = repository.getLayer("layer-a");
+  CHECK(refreshedOne.has_value());
+  CHECK(refreshedOne && refreshedOne->pluginUid == patch.pluginUid);
+  CHECK(refreshedOne && refreshedOne->pluginState == patch.pluginState);
+  CHECK(refreshedOne && refreshedOne->expressionMapId == patch.expressionMapId);
+  CHECK(refreshedOne && !refreshedOne->active);
+  CHECK(refreshedOne && refreshedOne->muted);
+  CHECK(refreshedOne && refreshedOne->soloed);
+  CHECK(refreshedOne && refreshedOne->gainDb == -7.5f);
+  CHECK(refreshedOne && refreshedOne->position == 0);
+  const auto untouched = repository.getLayer("layer-b");
+  CHECK(untouched && untouched->pluginUid == 410);
+  CHECK(untouched && untouched->pluginState ==
+                         std::vector<std::uint8_t>({1, 2, 3, 4}));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+  CHECK(repository.outOfDateLayerIds() ==
+        std::vector<std::string>({"layer-b"}));
+  const auto updateCount = repository.updateLayersFromPatch(patch.id);
+  CHECK(updateCount && *updateCount == 2);
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+  const auto updated = repository.getLayer("layer-a");
+  CHECK(updated.has_value());
+  CHECK(updated && updated->patchName == patch.name);
+  CHECK(updated && updated->libraryId == patch.libraryId);
+  CHECK(updated && updated->libraryName == "Vienna");
+  CHECK(updated && updated->pluginUid == patch.pluginUid);
+  CHECK(updated && updated->pluginState == patch.pluginState);
+  CHECK(updated && updated->expressionMapId == patch.expressionMapId);
+  CHECK(updated && !updated->active);
+  CHECK(updated && updated->muted);
+  CHECK(updated && updated->soloed);
+  CHECK(updated && updated->gainDb == -7.5f);
+  CHECK(updated && updated->position == 0);
+
+  // A plug-in may rewrite an equivalent state blob merely by being loaded.
+  // That must not make a synchronized layer look stale.
+  auto reserialized = *updated;
+  reserialized.pluginState = {42, 43, 44, 45};
+  CHECK(repository.upsertLayer(reserialized));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  // A genuine player edit is tracked explicitly, without relying on opaque
+  // serialized bytes being stable.
+  CHECK(repository.markLayerPluginStateEdited("layer-a"));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+  CHECK(repository.updateLayersFromPatch(patch.id).has_value());
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+  CHECK(!repository.updateLayersFromPatch("missing-patch").has_value());
+}
+
 void testReferencedPatchDeletionIsBlocked() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
@@ -266,6 +367,25 @@ void testChairAllocationIsStableAndReclaimsMatchingDestination() {
   CHECK(persistedSecond && persistedSecond->flatIndex == 2);
 }
 
+void testChairRoleCanChangeWithoutChangingItsMidiDestination() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+
+  auto section = makeChair("violin-section-1", fiddle::DoricoRole::section,
+                           1, 8);
+  auto solo = makeChair("violin-solo-1", fiddle::DoricoRole::solo, 1, 9);
+  CHECK(repository.upsertChair(section));
+  CHECK(repository.upsertChair(solo));
+  CHECK(repository.changeChairRole(section.id, fiddle::DoricoRole::solo));
+
+  const auto changed = repository.getChair(section.id);
+  CHECK(changed.has_value());
+  CHECK(changed && changed->role == fiddle::DoricoRole::solo);
+  CHECK(changed && changed->ordinal == 2);
+  CHECK(changed && changed->flatIndex == 8);
+  CHECK(repository.changeChairRole(section.id, fiddle::DoricoRole::solo));
+}
+
 void testHistoricalTopologyRestoresMissingCatalogReference() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
@@ -360,11 +480,13 @@ int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
   testPatchCanCreateIndependentLayersOnDifferentChairs();
   testOneChairAcceptsSeveralPatchesFromOneLibrary();
+  testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix();
   testReferencedPatchDeletionIsBlocked();
   testLibraryPatchReplacementIsAtomicAndReferenceSafe();
   testDeletingChairExplicitlyDeletesItsLayersOnly();
   testChairDestinationsAndChannelsAreUnique();
   testChairAllocationIsStableAndReclaimsMatchingDestination();
+  testChairRoleCanChangeWithoutChangingItsMidiDestination();
   testHistoricalTopologyRestoresMissingCatalogReference();
   testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
   std::cout << "Passed: " << passed << '\n';

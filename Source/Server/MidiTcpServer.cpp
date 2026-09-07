@@ -40,6 +40,11 @@ void MidiTcpServer::onConnectionChanged(
   connectionCallback = callback;
 }
 
+void MidiTcpServer::onAdditionalConnectionAttempt(
+    std::function<void(juce::String)> callback) {
+  additionalConnectionCallback = std::move(callback);
+}
+
 void MidiTcpServer::disconnectClient() { shouldDisconnect.store(true); }
 
 bool MidiTcpServer::sendToClient(const fiddle::MidiEvent &msg) {
@@ -74,6 +79,7 @@ void MidiTcpServer::run() {
   while (!threadShouldExit()) {
     auto *client = listenerSocket.waitForNextConnection();
     if (client != nullptr) {
+      additionalConnectionReported_ = false;
       // Register client BEFORE firing the callback so sendToClient() works
       // from within the connectionCallback (e.g. to push config status).
       {
@@ -105,6 +111,17 @@ void MidiTcpServer::handleConnection(
 
   while (!threadShouldExit() && clientSocket->isConnected() &&
          !shouldDisconnect.load()) {
+    // Keep servicing the listening socket while the primary client is active.
+    // Otherwise a second plug-in can complete its TCP handshake and appear
+    // connected even though this server never accepts or reads it.
+    rejectPendingAdditionalConnections();
+
+    const int ready = clientSocket->waitUntilReady(true, 100);
+    if (ready == 0)
+      continue;
+    if (ready < 0)
+      break;
+
     // Read 4-byte length prefix
     uint32_t networkSize = 0;
     int bytesRead = clientSocket->read(&networkSize, 4, true);
@@ -159,6 +176,27 @@ void MidiTcpServer::handleConnection(
   }
   shouldDisconnect.store(false);
   // DBG("MidiTcpServer: Connection closed");
+}
+
+void MidiTcpServer::rejectPendingAdditionalConnections() {
+  while (!threadShouldExit() && listenerSocket.waitUntilReady(true, 0) > 0) {
+    std::unique_ptr<juce::StreamingSocket> extra(
+        listenerSocket.waitForNextConnection());
+    if (!extra)
+      return;
+
+    const auto host = extra->getHostName();
+    extra->close();
+
+    // TcpRelay retries rejected connections, so report only once until the
+    // primary client disconnects. This keeps the warning useful rather than
+    // turning it into a repeating alert.
+    if (!additionalConnectionReported_) {
+      additionalConnectionReported_ = true;
+      if (additionalConnectionCallback)
+        additionalConnectionCallback(host);
+    }
+  }
 }
 
 } // namespace fiddle

@@ -66,6 +66,10 @@ std::string serializeRoutingState(const RoutingState &routing) {
     appendString(result, layer.libraryId);
     appendString(result, layer.libraryName);
     appendI32(result, layer.position);
+    if (routing.schemaVersion >= 2) {
+      appendI32(result, layer.sourcePatchRevision);
+      result.push_back(layer.pluginStateEdited ? '\1' : '\0');
+    }
     appendString(result, layer.stripHash);
   }
   return result;
@@ -180,8 +184,14 @@ RoutingState deserializeRoutingState(const void *data, int size) {
         !readString(cursor, end, layer.patchName) ||
         !readString(cursor, end, layer.libraryId) ||
         !readString(cursor, end, layer.libraryName) ||
-        !readI32(cursor, end, layer.position) ||
-        !readString(cursor, end, layer.stripHash))
+        !readI32(cursor, end, layer.position))
+      return {};
+    if (result.schemaVersion >= 2) {
+      if (!readI32(cursor, end, layer.sourcePatchRevision) || cursor >= end)
+        return {};
+      layer.pluginStateEdited = *cursor++ != 0;
+    }
+    if (!readString(cursor, end, layer.stripHash))
       return {};
     result.layers.push_back(std::move(layer));
   }

@@ -22,6 +22,7 @@ struct LibraryPatchRow {
   int pluginUid = 0;
   std::vector<std::uint8_t> pluginState;
   std::string expressionMapId;
+  int revision = 1;
 };
 
 struct ChairRow {
@@ -53,6 +54,11 @@ struct LayerRow {
   int pluginUid = 0;
   std::vector<std::uint8_t> pluginState;
   std::string expressionMapId;
+  /// Catalog patch revision last copied into this layer. Unlike serialized
+  /// VST state bytes, this remains stable when a plug-in rewrites an
+  /// equivalent setup during getStateInformation().
+  int sourcePatchRevision = 0;
+  bool pluginStateEdited = false;
 };
 
 enum class PatchDeleteResult { deleted, referenced, notFound, error };
@@ -76,6 +82,18 @@ public:
   std::vector<LibraryPatchRow>
   listPatches(const std::string &libraryId = {}) const;
   int patchUsageCount(const std::string &patchId) const;
+  /// Count linked layers whose library-owned setup no longer matches the
+  /// current catalog patch. Layer-owned mixer controls are ignored.
+  int outOfDateLayerCount(const std::string &patchId) const;
+  /// Return the IDs of all layers whose library-owned setup differs from
+  /// their current source patch. Layers whose source patch is missing are not
+  /// included; callers can report that condition separately.
+  std::vector<std::string> outOfDateLayerIds() const;
+  /// Copy the current catalog patch defaults to every linked layer while
+  /// preserving layer-owned routing and mixer controls. Returns the number of
+  /// updated layers, or std::nullopt on failure/missing patch.
+  std::optional<int>
+  updateLayersFromPatch(const std::string &patchId);
   PatchDeleteResult deletePatch(const std::string &patchId);
   /// Atomically replace one library's catalog rows. Removing a patch used by
   /// any current layer is rejected without changing the catalog.
@@ -89,6 +107,10 @@ public:
   /// chair.
   bool insertChairWithStableAssignment(ChairRow &chair);
   bool upsertChair(const ChairRow &chair);
+  /// Change a chair's Dorico player type without changing its stable MIDI
+  /// destination. Retains the ordinal when available, otherwise allocates the
+  /// next ordinal for the new instrument/player-type combination.
+  bool changeChairRole(const std::string &chairId, DoricoRole role);
   std::optional<ChairRow> getChair(const std::string &chairId) const;
   std::vector<ChairRow> listChairs() const;
   bool deleteChairAndLayers(const std::string &chairId);
@@ -101,6 +123,8 @@ public:
   std::vector<LayerRow>
   listLayers(const std::string &chairId = {}) const;
   bool deleteLayer(const std::string &layerId);
+  /// Record a genuine user edit made inside a layer's hosted player.
+  bool markLayerPluginStateEdited(const std::string &layerId);
 
   /// Atomically replace the project-owned routing topology. Catalog patches
   /// are deliberately not part of this operation; layers may retain a

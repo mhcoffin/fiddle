@@ -1,6 +1,7 @@
 <script>
     import { tick } from "svelte";
     import { groupExpressionMaps } from "./expressionMapCatalog.js";
+    import { getRememberedExpressionMapQuery, rememberExpressionMapQuery } from "./expressionMapPickerState.js";
 
     let {
         maps = [],
@@ -20,11 +21,16 @@
     let resultCount = $derived(groups.reduce((total, group) => total + group.items.length, 0));
 
     const openPicker = async () => {
-        query = "";
+        query = getRememberedExpressionMapQuery();
         isOpen = true;
         await tick();
         dialog?.showModal();
         searchInput?.focus();
+    };
+
+    const updateQuery = (event) => {
+        query = event.currentTarget.value;
+        rememberExpressionMapQuery(query);
     };
 
     const closePicker = () => {
@@ -123,7 +129,8 @@
                 <label class="xmap-search-label" for="xmap-search">Find an expression map</label>
                 <input
                     bind:this={searchInput}
-                    bind:value={query}
+                    value={query}
+                    oninput={updateQuery}
                     id="xmap-search"
                     class="xmap-search"
                     type="search"

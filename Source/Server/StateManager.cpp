@@ -90,7 +90,7 @@ void StateManager::captureRoutingState(
   if (!routingRepository_)
     return;
 
-  state.routingState.schemaVersion = 1;
+  state.routingState.schemaVersion = 2;
   for (const auto &chair : routingRepository_->listChairs()) {
     versioning::ChairSnapshot saved;
     saved.id = chair.id;
@@ -112,6 +112,8 @@ void StateManager::captureRoutingState(
       savedLayer.libraryId = layer.libraryId;
       savedLayer.libraryName = layer.libraryName;
       savedLayer.position = layer.position;
+      savedLayer.sourcePatchRevision = layer.sourcePatchRevision;
+      savedLayer.pluginStateEdited = layer.pluginStateEdited;
       // Backfill display metadata for layers created before it was copied
       // into the routing row.
       if (auto patch = routingRepository_->getPatch(layer.patchId)) {
