@@ -227,6 +227,13 @@ target_sources(FiddleServer PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.h"
 )
 
+if(APPLE)
+    target_sources(FiddleServer PRIVATE
+        Source/Server/MacWindowMenu.mm
+        Source/Server/MacWindowMenu.h
+    )
+endif()
+
 # Copy expression map resource into FiddleServer app bundle
 add_custom_command(TARGET FiddleServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

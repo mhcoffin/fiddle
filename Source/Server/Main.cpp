@@ -1,5 +1,6 @@
 #include "ApplicationRestart.h"
 #include "MainComponent.h"
+#include "MacWindowMenu.h"
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include <JuceHeader.h>
@@ -80,11 +81,21 @@ public:
 #if JUCE_MAC
     applicationMenu_.addItem(kRestartMenuItemId, "Restart FiddleServer");
     juce::MenuBarModel::setMacMainMenu(this, &applicationMenu_);
+
+    // setMacMainMenu() schedules one final asynchronous menu rebuild. Install
+    // the native Window menu after that rebuild so JUCE does not replace it
+    // with the empty placeholder returned by getMenuForIndex().
+    auto *application = this;
+    juce::MessageManager::callAsync([application] {
+      if (juce::JUCEApplicationBase::getInstance() == application)
+        mac_window_menu::install();
+    });
 #endif
   }
 
   void shutdown() override {
 #if JUCE_MAC
+    mac_window_menu::uninstall();
     juce::MenuBarModel::setMacMainMenu(nullptr);
 #endif
     mainWindow.reset();
@@ -96,7 +107,13 @@ public:
 
   // ── Menu Bar ──────────────────────────────────────────────
 
-  juce::StringArray getMenuBarNames() override { return {"File", "View"}; }
+  juce::StringArray getMenuBarNames() override {
+#if JUCE_MAC
+    return {"File", "View", "Window"};
+#else
+    return {"File", "View"};
+#endif
+  }
 
   juce::PopupMenu getMenuForIndex(int menuIndex,
                                   const juce::String &menuName) override {
