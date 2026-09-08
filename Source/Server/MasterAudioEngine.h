@@ -64,6 +64,7 @@ public:
   bool setBypassed(const juce::String &slotId, bool bypassed,
                    bool notify = true);
   bool showEditor(const juce::String &slotId);
+  bool toggleEditor(const juce::String &slotId);
 
   void setGainDb(float gainDb, bool notify = true);
   [[nodiscard]] float gainDb() const noexcept;

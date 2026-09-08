@@ -920,7 +920,10 @@ add_executable(GroupBusJsHandlersTest
     Source/Server/GroupBusJsHandlers.cpp
 )
 target_include_directories(GroupBusJsHandlersTest PRIVATE Source/Server)
-target_link_libraries(GroupBusJsHandlersTest PRIVATE juce::juce_core)
+target_link_libraries(GroupBusJsHandlersTest PRIVATE
+    juce::juce_audio_processors
+    juce::juce_gui_basics
+)
 target_compile_features(GroupBusJsHandlersTest PRIVATE cxx_std_17)
 add_test(NAME group_bus_js_handlers COMMAND GroupBusJsHandlersTest)
 set_tests_properties(group_bus_js_handlers PROPERTIES

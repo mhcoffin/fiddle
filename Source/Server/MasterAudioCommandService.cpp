@@ -63,6 +63,11 @@ bool MasterAudioCommandService::showInsertEditor(const juce::String &slotId) {
   return mixer_.masterAudio().showEditor(slotId);
 }
 
+bool MasterAudioCommandService::toggleInsertEditor(
+    const juce::String &slotId) {
+  return mixer_.masterAudio().toggleEditor(slotId);
+}
+
 bool MasterAudioCommandService::setGainDb(float gainDb) {
   undoManager_.perform(std::make_unique<SetMasterGainAction>(
       mixer_, mixer_.masterAudio().gainDb(), gainDb));

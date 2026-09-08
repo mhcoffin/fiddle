@@ -1483,6 +1483,19 @@ void MainComponent::setupStripPluginSlot(MixerStrip &strip) {
   });
 }
 
+void MainComponent::setupGroupBusAudioCallbacks(GroupBus &bus) {
+  const auto busId = bus.id;
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  bus.audioEngine().setOnChanged([safeThis, busId] {
+    if (safeThis != nullptr)
+      safeThis->groupBusAudioChanged(busId);
+  });
+  bus.audioEngine().setOnEditorVisibilityChanged([safeThis] {
+    if (safeThis != nullptr)
+      safeThis->pushGroupBusState();
+  });
+}
+
 void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                                        const juce::MemoryBlock &state) {
   pluginFingerprints_.erase(strip.id);
@@ -1882,6 +1895,8 @@ void MainComponent::restoreGroupBuses(const versioning::GlobalState &state,
     mixer_.insertGroupBusAt(std::move(bus), index);
 
     auto *restored = mixer_.getGroupBus(busId);
+    if (restored)
+      setupGroupBusAudioCallbacks(*restored);
     if (!restored || saved.audioInsertState.empty())
       continue;
     const auto snapshot = deserializeStripAudioSnapshot(
@@ -2305,6 +2320,15 @@ void MainComponent::stripAudioChanged(const juce::String &stripId) {
   scheduleStateRebuild();
 }
 
+void MainComponent::groupBusAudioChanged(const juce::String &busId) {
+  if (!mixer_.getGroupBus(busId))
+    return;
+  mixer_.refreshAudioRouting();
+  pushGroupBusState();
+  pushMixerState(true);
+  scheduleStateRebuild();
+}
+
 void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
   std::lock_guard<std::mutex> lock(logMutex);
   if (!webViewBridge_.isLoaded()) {
@@ -2548,6 +2572,7 @@ void MainComponent::timerCallback() {
   if (++meterCounter % 3 == 0) {
     safeCallAsync([this]() { pushMixerState(false); });
     safeCallAsync([this]() { pushMasterAudioState(); });
+    safeCallAsync([this]() { pushGroupBusState(); });
   }
 
   static int hbCounter = 0;
@@ -2568,12 +2593,16 @@ void MainComponent::timerCallback() {
   mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
   for (auto *strip : mixer_.getAllStrips())
     strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
+  for (auto *bus : mixer_.getAllGroupBuses())
+    bus->audioEngine().consumePluginChanges(suppressPlaybackChanges);
   if (++pluginPollCounter_ % 100 == 0) {
     if (!suppressPlaybackChanges) {
       pollPluginStateChanges();
       mixer_.masterAudio().refreshPluginStateCaches();
       for (auto *strip : mixer_.getAllStrips())
         strip->audioEngine().refreshPluginStateCaches();
+      for (auto *bus : mixer_.getAllGroupBuses())
+        bus->audioEngine().refreshPluginStateCaches();
     }
   }
 
@@ -2762,7 +2791,8 @@ void MainComponent::setupJsHandlers() {
   mixerJsHandlers_->registerHandlers();
 
   groupBusCommandService_ =
-      std::make_unique<GroupBusCommandService>(mixer_, undoManager_);
+      std::make_unique<GroupBusCommandService>(mixer_, pluginScanner_,
+                                                undoManager_);
   groupBusJsHandlers_ = std::make_unique<GroupBusJsHandlers>(
       jsRouter_, *groupBusCommandService_,
       GroupBusJsHandlers::Callbacks{
@@ -2770,6 +2800,8 @@ void MainComponent::setupJsHandlers() {
             safeCallAsync(std::move(task));
           },
           [this] {
+            for (auto *bus : mixer_.getAllGroupBuses())
+              setupGroupBusAudioCallbacks(*bus);
             pushGroupBusState();
             pushMixerState(true);
             scheduleStateRebuild();

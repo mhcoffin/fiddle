@@ -83,6 +83,19 @@ void MasterAudioJsHandlers::registerHandlers() {
         dispatch([this, slotId] { commands_.showInsertEditor(slotId); });
       });
 
+  router_.registerHandler(
+      "toggleMasterInsertEditor", [this](const juce::var &payload) {
+        const auto args = arguments(payload);
+        if (args.isEmpty())
+          return;
+        const auto slotId = args[0].toString();
+        dispatch([this, slotId] {
+          commands_.toggleInsertEditor(slotId);
+          if (callbacks_.publishState)
+            callbacks_.publishState(commands_.state());
+        });
+      });
+
   router_.registerHandler("setMasterGain", [this](const juce::var &payload) {
     const auto args = arguments(payload);
     if (args.isEmpty())

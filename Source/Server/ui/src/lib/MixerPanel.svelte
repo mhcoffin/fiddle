@@ -4,6 +4,8 @@
     import BranchSelector from "./BranchSelector.svelte";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
+    import BusAudioPanel from "./BusAudioPanel.svelte";
+    import AudioBusBank from "./AudioBusBank.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
     import BusManager from "./BusManager.svelte";
     import ChairManager from "./ChairManager.svelte";
@@ -50,6 +52,7 @@
     let masterAudioOpen = $state(false);
     let busManagerOpen = $state(false);
     let groupBuses = $state([]);
+    let busAudioBusId = $state("");
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
@@ -145,6 +148,8 @@
     });
     onFromCpp("setGroupBusState", (data) => {
         groupBuses = Array.isArray(data) ? data : [];
+        if (busAudioBusId && !groupBuses.some((bus) => bus.id === busAudioBusId))
+            busAudioBusId = "";
     });
     onFromCpp("setStripAudioState", (data) => {
         if (!data || typeof data !== "object" || !data.stripId) return;
@@ -300,6 +305,7 @@
             else if (chairManagerOpen) chairManagerOpen = false;
             else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
+            else if (busAudioBusId) busAudioBusId = "";
             else if (busManagerOpen) busManagerOpen = false;
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
@@ -609,6 +615,7 @@
 
     // ── Mute / Solo ──────────────────────────────────────────────
     let anySoloed = $derived(strips.some((s) => s.soloed));
+    let anyBusSoloed = $derived(groupBuses.some((bus) => bus.soloed));
 
     const isAudible = (strip) => strip.active !== false && !strip.muted && (!anySoloed || strip.soloed);
 
@@ -715,6 +722,9 @@
     const clearSolos = () => {
         for (const s of strips) {
             if (s.soloed) dispatchCpp("setStripSolo", s.id, false);
+        }
+        for (const bus of groupBuses) {
+            if (bus.soloed) dispatchCpp("setGroupBusSolo", bus.id, false);
         }
     };
 
@@ -904,6 +914,7 @@
         );
     };
 
+
     /** Format dB for display */
     const formatDb = (db) => {
         if (db <= -120) return "-∞";
@@ -1074,7 +1085,7 @@
             {/if}
             <button
                 class="toolbar-ms-btn solo-clear"
-                style:visibility={anySoloed ? 'visible' : 'hidden'}
+                style:visibility={(anySoloed || anyBusSoloed) ? 'visible' : 'hidden'}
                 onclick={clearSolos}
             >
                 Clear Solos
@@ -1557,6 +1568,14 @@
                     {/if}
                 </div>
             {/each}
+            <AudioBusBank
+                buses={groupBuses}
+                strips={strips}
+                master={masterAudio}
+                onManage={() => { busManagerOpen = true; }}
+                onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
+                onOpenMasterAudio={() => { masterAudioOpen = true; }}
+            />
         </div>
         </div> <!-- /mixer-strips-area -->
     {/if}
@@ -1593,6 +1612,16 @@
                 instrumentName={getPluginName(channelStrip)}
                 plugins={scannedPlugins}
                 onClose={() => { channelAudioStripId = ""; channelAudio = null; }}
+            />
+        {/if}
+    {/if}
+    {#if busAudioBusId}
+        {@const audioBus = groupBuses.find((bus) => bus.id === busAudioBusId)}
+        {#if audioBus}
+            <BusAudioPanel
+                bus={audioBus}
+                plugins={scannedPlugins}
+                onClose={() => { busAudioBusId = ""; }}
             />
         {/if}
     {/if}

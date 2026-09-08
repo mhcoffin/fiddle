@@ -60,6 +60,10 @@ public:
     slotId = id;
     return record("editor");
   }
+  bool toggleInsertEditor(const juce::String &id) override {
+    slotId = id;
+    return record("toggleEditor");
+  }
   bool setGainDb(float value) override {
     number = value;
     return record("gain");
@@ -106,6 +110,9 @@ void testMasterAudioCommandsAreRouted() {
   CHECK(commands.bypassed);
   CHECK(router.handleMessage("showMasterInsertEditor", payload({"slot-a"})));
   CHECK(commands.calls.back() == "editor");
+  CHECK(router.handleMessage("toggleMasterInsertEditor", payload({"slot-a"})));
+  CHECK(commands.calls.back() == "toggleEditor");
+  CHECK(published == 2);
   CHECK(router.handleMessage("setMasterGain", payload({-4.25})));
   CHECK(commands.calls.back() == "gain");
   CHECK(std::abs(commands.number - -4.25f) < 0.001f);

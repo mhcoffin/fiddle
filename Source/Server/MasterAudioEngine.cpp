@@ -366,6 +366,17 @@ bool MasterAudioEngine::showEditor(const juce::String &slotId) {
   return true;
 }
 
+bool MasterAudioEngine::toggleEditor(const juce::String &slotId) {
+  const auto entry = find(slotId);
+  if (!entry || !entry->hosted->hasProcessor())
+    return false;
+  if (entry->hosted->isEditorVisible())
+    entry->hosted->closeEditor();
+  else
+    entry->hosted->showEditor("Master - " + entry->description.name);
+  return true;
+}
+
 void MasterAudioEngine::setGainDb(float gainDb, bool notify) {
   gainDb = juce::jlimit(-120.0f, 6.0f, gainDb);
   gainDb_.store(gainDb, std::memory_order_release);
@@ -473,6 +484,7 @@ juce::var MasterAudioEngine::toJson() const {
     slot->setProperty("manufacturer", entry->description.manufacturerName);
     slot->setProperty("format", entry->description.pluginFormatName);
     slot->setProperty("bypassed", entry->hosted->isBypassed());
+    slot->setProperty("editorOpen", entry->hosted->isEditorVisible());
     slot->setProperty("status",
                       HostedPluginSlot::statusName(entry->hosted->status()));
     slot->setProperty("error", entry->hosted->lastError());

@@ -19,6 +19,7 @@ public:
   bool moveInsert(const juce::String &slotId, int newIndex) override;
   bool setInsertBypassed(const juce::String &slotId, bool bypassed) override;
   bool showInsertEditor(const juce::String &slotId) override;
+  bool toggleInsertEditor(const juce::String &slotId) override;
   bool setGainDb(float gainDb) override;
 
 private:

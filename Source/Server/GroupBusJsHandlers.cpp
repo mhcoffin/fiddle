@@ -3,6 +3,8 @@
 #include "GroupBusCommands.h"
 #include "MessageRouter.h"
 
+#include <optional>
+
 namespace fiddle {
 namespace {
 juce::Array<juce::var> args(const juce::var &payload) {
@@ -18,6 +20,14 @@ std::vector<juce::String> stripIds(const juce::var &value) {
     for (const auto &item : *array)
       result.push_back(item.toString());
   return result;
+}
+
+std::optional<StripInsertPosition> positionFrom(const juce::var &value) {
+  if (value.toString() == "preFader")
+    return StripInsertPosition::preFader;
+  if (value.toString() == "postFader")
+    return StripInsertPosition::postFader;
+  return std::nullopt;
 }
 } // namespace
 
@@ -81,6 +91,50 @@ void GroupBusJsHandlers::registerHandlers() {
     const auto a = args(payload); if (a.size() < 2) return;
     const auto id = a[0].toString(); const bool value = static_cast<bool>(a[1]);
     dispatch([this, id, value] { notify(commands_.setGroupBusSolo(id, value)); });
+  });
+  router_.registerHandler("addGroupBusInsert", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 3) return;
+    const auto id = a[0].toString();
+    const int uid = static_cast<int>(a[1]);
+    const auto position = positionFrom(a[2]);
+    if (!position) return;
+    dispatch([this, id, uid, position = *position] {
+      notify(commands_.addGroupBusInsert(id, uid, position));
+    });
+  });
+  router_.registerHandler("removeGroupBusInsert", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 2) return;
+    const auto id = a[0].toString(), slot = a[1].toString();
+    dispatch([this, id, slot] {
+      notify(commands_.removeGroupBusInsert(id, slot));
+    });
+  });
+  router_.registerHandler("moveGroupBusInsert", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 4) return;
+    const auto id = a[0].toString(), slot = a[1].toString();
+    const auto position = positionFrom(a[2]);
+    if (!position) return;
+    const int index = static_cast<int>(a[3]);
+    dispatch([this, id, slot, position = *position, index] {
+      notify(commands_.moveGroupBusInsert(id, slot, position, index));
+    });
+  });
+  router_.registerHandler("setGroupBusInsertBypassed", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 3) return;
+    const auto id = a[0].toString(), slot = a[1].toString();
+    const bool bypassed = static_cast<bool>(a[2]);
+    dispatch([this, id, slot, bypassed] {
+      notify(commands_.setGroupBusInsertBypassed(id, slot, bypassed));
+    });
+  });
+  router_.registerHandler("toggleGroupBusInsertEditor", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 2) return;
+    const auto id = a[0].toString(), slot = a[1].toString();
+    dispatch([this, id, slot] {
+      commands_.toggleGroupBusInsertEditor(id, slot);
+      if (callbacks_.requested)
+        callbacks_.requested();
+    });
   });
   router_.registerHandler("setStripDirectOutput", [this](const juce::var &payload) {
     const auto a = args(payload); if (a.size() < 2) return;

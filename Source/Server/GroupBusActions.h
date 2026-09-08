@@ -166,4 +166,144 @@ private:
   bool old_, value_;
 };
 
+class AddGroupBusInsertAction final : public UndoableAction {
+public:
+  AddGroupBusInsertAction(MixerModel &mixer, juce::String busId,
+                          const juce::PluginDescription &description,
+                          StripInsertPosition position)
+      : mixer_(mixer), busId_(std::move(busId)), position_(position) {
+    snapshot_.slotId = juce::Uuid().toString();
+    snapshot_.description = description;
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      index_ = bus->audioEngine().insertCount(position_);
+  }
+
+  void execute() override {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().insert(
+          snapshot_, position_, index_, mixer_.getFormatManager(),
+          [mixer = &mixer_](bool, const juce::String &) {
+            mixer->refreshAudioRouting();
+          });
+    mixer_.refreshAudioRouting();
+  }
+
+  void undo() override {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().remove(snapshot_.slotId);
+    mixer_.refreshAudioRouting();
+  }
+
+  juce::String getDescription() const override {
+    return "Add " + snapshot_.description.name + " to group bus";
+  }
+
+private:
+  MixerModel &mixer_;
+  juce::String busId_;
+  StripInsertPosition position_;
+  AudioInsertSnapshot snapshot_;
+  int index_ = 0;
+};
+
+class RemoveGroupBusInsertAction final : public UndoableAction {
+public:
+  RemoveGroupBusInsertAction(MixerModel &mixer, juce::String busId,
+                             const juce::String &slotId)
+      : mixer_(mixer), busId_(std::move(busId)) {
+    if (auto *bus = mixer_.getGroupBus(busId_)) {
+      if (const auto position = bus->audioEngine().positionOf(slotId)) {
+        position_ = *position;
+        index_ = bus->audioEngine().indexOf(slotId, *position);
+      }
+      if (const auto snapshot = bus->audioEngine().snapshot(slotId))
+        snapshot_ = *snapshot;
+    }
+  }
+
+  void execute() override {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().remove(snapshot_.slotId);
+    mixer_.refreshAudioRouting();
+  }
+
+  void undo() override {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().insert(
+          snapshot_, position_, index_, mixer_.getFormatManager(),
+          [mixer = &mixer_](bool, const juce::String &) {
+            mixer->refreshAudioRouting();
+          });
+    mixer_.refreshAudioRouting();
+  }
+
+  juce::String getDescription() const override {
+    return "Remove " + snapshot_.description.name + " from group bus";
+  }
+
+private:
+  MixerModel &mixer_;
+  juce::String busId_;
+  StripInsertPosition position_ = StripInsertPosition::preFader;
+  AudioInsertSnapshot snapshot_;
+  int index_ = 0;
+};
+
+class MoveGroupBusInsertAction final : public UndoableAction {
+public:
+  MoveGroupBusInsertAction(MixerModel &mixer, juce::String busId,
+                           juce::String slotId,
+                           StripInsertPosition newPosition, int newIndex)
+      : mixer_(mixer), busId_(std::move(busId)), slotId_(std::move(slotId)),
+        newPosition_(newPosition), newIndex_(newIndex) {
+    if (auto *bus = mixer_.getGroupBus(busId_)) {
+      if (const auto position = bus->audioEngine().positionOf(slotId_)) {
+        oldPosition_ = *position;
+        oldIndex_ = bus->audioEngine().indexOf(slotId_, *position);
+      }
+    }
+  }
+
+  void execute() override { move(newPosition_, newIndex_); }
+  void undo() override { move(oldPosition_, oldIndex_); }
+  juce::String getDescription() const override { return "Move group bus insert"; }
+
+private:
+  void move(StripInsertPosition position, int index) {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().move(slotId_, position, index);
+    mixer_.refreshAudioRouting();
+  }
+  MixerModel &mixer_;
+  juce::String busId_, slotId_;
+  StripInsertPosition oldPosition_ = StripInsertPosition::preFader;
+  StripInsertPosition newPosition_ = StripInsertPosition::preFader;
+  int oldIndex_ = 0, newIndex_ = 0;
+};
+
+class BypassGroupBusInsertAction final : public UndoableAction {
+public:
+  BypassGroupBusInsertAction(MixerModel &mixer, juce::String busId,
+                             juce::String slotId, bool oldValue,
+                             bool newValue)
+      : mixer_(mixer), busId_(std::move(busId)), slotId_(std::move(slotId)),
+        oldValue_(oldValue), newValue_(newValue) {}
+
+  void execute() override { set(newValue_); }
+  void undo() override { set(oldValue_); }
+  juce::String getDescription() const override {
+    return newValue_ ? "Bypass group bus insert" : "Enable group bus insert";
+  }
+
+private:
+  void set(bool bypassed) {
+    if (auto *bus = mixer_.getGroupBus(busId_))
+      bus->audioEngine().setBypassed(slotId_, bypassed);
+    mixer_.refreshAudioRouting();
+  }
+  MixerModel &mixer_;
+  juce::String busId_, slotId_;
+  bool oldValue_ = false, newValue_ = false;
+};
+
 } // namespace fiddle

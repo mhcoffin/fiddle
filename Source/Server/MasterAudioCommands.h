@@ -15,6 +15,7 @@ public:
   virtual bool moveInsert(const juce::String &slotId, int newIndex) = 0;
   virtual bool setInsertBypassed(const juce::String &slotId, bool bypassed) = 0;
   virtual bool showInsertEditor(const juce::String &slotId) = 0;
+  virtual bool toggleInsertEditor(const juce::String &slotId) = 0;
   virtual bool setGainDb(float gainDb) = 0;
 };
 

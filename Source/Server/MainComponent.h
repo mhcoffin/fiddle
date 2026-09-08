@@ -38,6 +38,7 @@ class MixerCommandService;
 class MixerJsHandlers;
 class GroupBusCommandService;
 class GroupBusJsHandlers;
+class GroupBus;
 class MasterAudioCommandService;
 class MasterAudioJsHandlers;
 class StripAudioCommandService;
@@ -254,6 +255,7 @@ private:
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void stripAudioChanged(const juce::String &stripId);
+  void groupBusAudioChanged(const juce::String &busId);
   void pushToDebugWindow(const juce::String &js);
 
   void pushEventToWebView(const fiddle::MidiEvent &event);
@@ -332,6 +334,7 @@ private:
 
   /// Refresh the stable hosted-slot ID after assigning/restoring strip.id.
   void setupStripPluginSlot(MixerStrip &strip);
+  void setupGroupBusAudioCallbacks(GroupBus &bus);
 
   /// Restore an instrument or retain an explicit missing-slot placeholder.
   void restoreStripPlugin(MixerStrip &strip, int pluginUid,

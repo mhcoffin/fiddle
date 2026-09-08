@@ -2,13 +2,15 @@
 
 #include "GroupBusActions.h"
 #include "MixerModel.h"
+#include "PluginScanner.h"
 #include "UndoManager.h"
 
 namespace fiddle {
 
 GroupBusCommandService::GroupBusCommandService(MixerModel &mixer,
+                                               PluginScanner &scanner,
                                                UndoManager &undoManager)
-    : mixer_(mixer), undoManager_(undoManager) {}
+    : mixer_(mixer), scanner_(scanner), undoManager_(undoManager) {}
 
 bool GroupBusCommandService::addGroupBus(
     const juce::String &name, const std::vector<juce::String> &stripIds) {
@@ -75,6 +77,64 @@ bool GroupBusCommandService::setGroupBusSolo(const juce::String &busId,
   undoManager_.perform(std::make_unique<SetGroupBusSoloAction>(
       mixer_, busId, bus->isSoloed(), soloed));
   return true;
+}
+
+bool GroupBusCommandService::addGroupBusInsert(
+    const juce::String &busId, int pluginUid, StripInsertPosition position) {
+  if (!mixer_.getGroupBus(busId))
+    return false;
+  for (const auto &description : scanner_.getKnownPluginList().getTypes()) {
+    if (description.uniqueId != pluginUid)
+      continue;
+    if (!PluginCompatibility::fromDescription(description,
+                                               PluginSlotRole::effect)
+             .compatible)
+      return false;
+    undoManager_.perform(std::make_unique<AddGroupBusInsertAction>(
+        mixer_, busId, description, position));
+    return true;
+  }
+  return false;
+}
+
+bool GroupBusCommandService::removeGroupBusInsert(
+    const juce::String &busId, const juce::String &slotId) {
+  auto *bus = mixer_.getGroupBus(busId);
+  if (!bus || !bus->audioEngine().positionOf(slotId))
+    return false;
+  undoManager_.perform(
+      std::make_unique<RemoveGroupBusInsertAction>(mixer_, busId, slotId));
+  return true;
+}
+
+bool GroupBusCommandService::moveGroupBusInsert(
+    const juce::String &busId, const juce::String &slotId,
+    StripInsertPosition position, int newIndex) {
+  auto *bus = mixer_.getGroupBus(busId);
+  if (!bus || !bus->audioEngine().positionOf(slotId) || newIndex < 0 ||
+      newIndex > bus->audioEngine().insertCount(position))
+    return false;
+  undoManager_.perform(std::make_unique<MoveGroupBusInsertAction>(
+      mixer_, busId, slotId, position, newIndex));
+  return true;
+}
+
+bool GroupBusCommandService::setGroupBusInsertBypassed(
+    const juce::String &busId, const juce::String &slotId, bool bypassed) {
+  auto *bus = mixer_.getGroupBus(busId);
+  const auto snapshot = bus ? bus->audioEngine().snapshot(slotId)
+                            : std::optional<AudioInsertSnapshot>{};
+  if (!snapshot)
+    return false;
+  undoManager_.perform(std::make_unique<BypassGroupBusInsertAction>(
+      mixer_, busId, slotId, snapshot->bypassed, bypassed));
+  return true;
+}
+
+bool GroupBusCommandService::toggleGroupBusInsertEditor(
+    const juce::String &busId, const juce::String &slotId) {
+  auto *bus = mixer_.getGroupBus(busId);
+  return bus && bus->audioEngine().toggleEditor(slotId, bus->name + " bus");
 }
 
 bool GroupBusCommandService::setStripDirectOutput(
