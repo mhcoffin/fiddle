@@ -3,8 +3,9 @@
 
 namespace fiddle {
 
-MidiTcpServer::MidiTcpServer(int port)
-    : juce::Thread("MidiTcpServer"), port(port) {
+MidiTcpServer::MidiTcpServer(int port, juce::String bindAddress)
+    : juce::Thread("MidiTcpServer"), port(port),
+      bindAddress_(std::move(bindAddress)) {
   // Thread is NOT started here — MainComponent::MainComponent() will call
   // startThread() after all callbacks (onMessageReceived, onConnectionChanged,
   // onRawActivity) are registered. Starting the thread here would create a
@@ -69,10 +70,12 @@ bool MidiTcpServer::sendToClient(const fiddle::MidiEvent &msg) {
 }
 
 void MidiTcpServer::run() {
-  if (!listenerSocket.createListener(port)) {
+  listeningPort_.store(0);
+  if (!listenerSocket.createListener(port, bindAddress_)) {
     // DBG("MidiTcpServer: Failed to create listener on port " << port);
     return;
   }
+  listeningPort_.store(listenerSocket.getBoundPort());
 
   // DBG("MidiTcpServer: Listening on port " << port);
 

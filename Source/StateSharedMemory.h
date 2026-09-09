@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <iostream>
 #include <mutex>
 
 namespace fiddle {
@@ -19,7 +20,13 @@ namespace fiddle {
  */
 class StateSharedMemory {
 public:
-  StateSharedMemory(bool isProducer) : isProducer_(isProducer) {
+  explicit StateSharedMemory(bool isProducer)
+      : StateSharedMemory(isProducer, defaultStateFile()) {}
+
+  /// Explicit endpoint for isolated hosts/tests. Never falls back to the live
+  /// user's cache when a caller supplies an endpoint.
+  StateSharedMemory(bool isProducer, juce::File stateFile)
+      : stateFile_(std::move(stateFile)), isProducer_(isProducer) {
     if (isProducer) {
       getStateFile().getParentDirectory().createDirectory();
       std::cerr << "[StateSharedMemory] Producer: "
@@ -37,7 +44,7 @@ public:
     std::lock_guard<std::mutex> lock(writeMutex_);
 
     auto stateFile = getStateFile();
-    auto tmpFile = stateFile.getSiblingFile("fiddle_state.tmp");
+    auto tmpFile = stateFile.getSiblingFile(stateFile.getFileName() + ".tmp");
 
     // Write to temp file
     {
@@ -76,7 +83,9 @@ public:
   void remap() {}
 
 private:
-  static juce::File getStateFile() {
+  const juce::File &getStateFile() const { return stateFile_; }
+
+  static juce::File defaultStateFile() {
     return juce::File::getSpecialLocation(
                juce::File::userApplicationDataDirectory)
         .getChildFile("Caches")
@@ -84,6 +93,7 @@ private:
         .getChildFile("fiddle_state.bin");
   }
 
+  juce::File stateFile_;
   bool isProducer_;
   std::mutex writeMutex_;
 };

@@ -30,6 +30,7 @@ public:
                               int pluginUid,
                               LoadCompletion completion) = 0;
   virtual bool showEditor(const juce::String &stripId) = 0;
+  virtual bool toggleEditor(const juce::String &stripId) = 0;
   virtual bool restoreLibraryState(const juce::String &stripId,
                                    const juce::String &libraryId,
                                    const juce::String &entityId,

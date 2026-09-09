@@ -1123,7 +1123,7 @@ to per-strip MIDI alignment. Automated coverage and the remaining real-plug-in
 checks are recorded in
 [`strip-effect-rack-results.md`](strip-effect-rack-results.md).
 
-### Phase 5: group buses
+### Phase 5: group buses (implementation complete)
 
 - Add bus model, Bus Manager, bus strip bank, and output routing.
 - Implement convenience creation from selected strips.
@@ -1131,6 +1131,12 @@ checks are recorded in
 
 Acceptance criterion: multiple strips can route through a compressed group bus
 to Master with correct mute, solo, meter, state, and latency behavior.
+
+Implementation result: direct-output routing, Bus Manager, selected-strip bus
+creation, compound removal/undo, and the Audio Buses mixer bank are implemented.
+Bus racks provide the same editor visibility and bypass controls as strip racks.
+Manual acceptance passed. Automated production-mixer integration is being
+expanded before Phase 6; see [automated-testing.md](automated-testing.md).
 
 ### Phase 6: aux/FX buses and sends
 
@@ -1212,17 +1218,15 @@ The following recommendations are accepted as the implementation defaults:
 
 ## 22. Recommended immediate next step
 
-Implement Phase 1 as a narrowly scoped audio-graph spike with fake processors
-and offline tests. The spike should answer these questions before production
-refactoring begins:
+Strengthen automated testing before implementing Phase 6. Bring CI and UI test
+discovery up to date, test the production mixer and version capture against
+isolated data, then extend coverage to full restoration and a host for the real
+Fiddle VST3. Keep Dorico-specific acceptance small and machine-checked where
+possible; see [automated-testing.md](automated-testing.md).
 
-- Can scheduled MIDI be isolated per instrument node cleanly?
-- Does JUCE graph latency compensation behave correctly for Fiddle's dry/send
-  topology?
-- Can graph rebuilds occur during continuous rendering without blocking the
-  audio callback?
-- Can Fiddle's current editor/state ownership be generalized without unsafe raw
-  pointers?
+The next audio feature remains post-fader sends and shared FX buses. Parallel
+dry/wet branches need explicit sample-delay compensation at summing points;
+advancing each strip's MIDI for its single direct route is not sufficient.
 - What exact scheduling adjustment is required to keep effect latency inside
   Fiddle's configured playback delay?
 

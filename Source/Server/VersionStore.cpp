@@ -239,6 +239,77 @@ VersionStore::findCommonAncestor(const VersionId &a, const VersionId &b) const {
 // Mutations
 // ---------------------------------------------------------------------------
 
+ProjectSaveResult VersionStore::saveProjectState(
+    const BranchId &branchId, const VersionId &loadedVersionId,
+    const FiddleState &state,
+    const std::optional<std::string> &newBranchName) {
+  const auto fail = [](const std::string &error) {
+    ProjectSaveResult result;
+    result.error = error;
+    return result;
+  };
+  const auto branch = storage_.getBranch(branchId);
+  const auto base = storage_.getVersion(loadedVersionId);
+  if (!branch || !base || !storage_.getVersion(branch->second) ||
+      !storage_.hasFiddleState(base->stateHash))
+    return fail("The loaded branch or version no longer exists");
+  // A fast-forwarded branch may legitimately point to another branch's node.
+  if (base->branchId != branchId && branch->second != loadedVersionId)
+    return fail("The loaded version does not belong to the selected branch");
+  if (newBranchName &&
+      (newBranchName->find_first_not_of(" \t\r\n") == std::string::npos ||
+       storage_.branchNameExists(*newBranchName)))
+    return fail("The branch name is empty or already in use");
+
+  // The storage interface's writes return void. Check referenced payloads and
+  // read back each publication stage rather than report a silent write failure
+  // as a successful Dorico save. Publish the head only after its data exists.
+  for (const auto &hash : state.stripHashes)
+    if (!storage_.hasStripBlob(hash))
+      return fail("Could not store an instrument snapshot");
+
+  const auto stateHash = state.computeHash();
+  if (!newBranchName && stateHash == base->stateHash)
+    return {ProjectSaveResult::Kind::Unchanged, branchId, loadedVersionId,
+            branch->first, {}};
+
+  const bool fork = newBranchName || branch->second != loadedVersionId;
+  auto name = branch->first;
+  if (newBranchName) {
+    name = *newBranchName;
+  } else if (fork) {
+    int suffix = 2;
+    do {
+      name = branch->first + " (" + std::to_string(suffix++) + ")";
+    } while (storage_.branchNameExists(name));
+  }
+
+  const auto destination = fork ? generateUUID() : branchId;
+  const auto newId = generateUUID();
+  Version version;
+  version.id = newId;
+  version.branchId = destination;
+  version.parentId = loadedVersionId;
+  version.stateHash = stateHash;
+  storage_.putFiddleState(stateHash, state);
+  if (!storage_.hasFiddleState(stateHash))
+    return fail("Could not store the project snapshot");
+  storage_.putVersion(newId, version);
+  if (!storage_.hasVersion(newId))
+    return fail("Could not store the project version");
+  if (fork)
+    storage_.putBranch(destination, name, newId);
+  else
+    storage_.updateBranchHead(destination, newId);
+
+  if (getBranchHead(destination) != std::optional<VersionId>(newId))
+    return fail("Could not update the branch head");
+
+  return {fork ? ProjectSaveResult::Kind::Branched
+               : ProjectSaveResult::Kind::Committed,
+          destination, newId, name, {}};
+}
+
 VersionId VersionStore::commitVersion(const BranchId &branchId,
                                       const FiddleState &state) {
   Hash stateHash = state.computeHash();

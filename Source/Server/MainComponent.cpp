@@ -1276,46 +1276,53 @@ void MainComponent::initPluginsAndStrips() {
   addInitMessage("Preparing interface...");
 }
 
-void MainComponent::saveConfig() {
-  saveAllStripsToDB();
-
-  // Commit a new version on the currently-checked-out branch.
-  if (versionStore_ && !currentBranchId_.empty()) {
-    stateManager_.commitCurrentState(mixer_, currentBranchId_);
-    // Track the new head as the current version.
-    auto headOpt = versionStore_->getBranchHead(currentBranchId_);
-    if (headOpt)
-      currentVersionId_ = *headOpt;
-
-    stateManager_.clearDirty();
-    undoManager_.markSavePoint();
-    broadcastMessage("setDirtyState", false);
-    pushLogMessage("<b>[Save]</b> Committed to branch");
+bool MainComponent::saveConfig(const std::optional<std::string> &newBranchName) {
+  versioning::ProjectSaveResult result;
+  try {
+    // Refresh instrument bytes before comparing the snapshot with the loaded
+    // version. A dirty hint alone must not manufacture a branch after undo.
+    saveAllStripsToDB();
+    result = stateManager_.saveCurrentState(
+        mixer_, currentBranchId_, currentVersionId_, newBranchName);
+  } catch (const std::exception &error) {
+    result.error = error.what();
+  }
+  if (!result.succeeded()) {
+    stateManager_.markDirty();
+    broadcastMessage("setDirtyState", true);
     pushConfigStatus();
-
-    // The committed state is now the clean baseline for plug-in edits.
-    captureStripPluginFingerprints();
-
-    // Do not evaluate History-window JavaScript inline with a save request.
-    // Dorico saves and WebView-originated saves can otherwise issue these
-    // evaluations while native/JavaScript dispatch is still unwinding, and
-    // WebKit may silently drop the update. Publish on the next message-loop
-    // turn, after the correlated Dorico response or UI callback can complete.
-    safeCallAsync([this]() {
-      // Branches must arrive first so History has current head IDs when it
-      // lays out and labels the new version nodes.
-      pushBranches();
-      pushDagHistory();
-      pushCurrentVersion();
-    });
-  } else {
-    pushLogMessage("<b>[Save]</b> No branch checked out");
+    pushLogMessage("<b>[Save]</b> Failed: " + juce::String(result.error), true);
+    return false;
   }
 
-  // Rebuild state blob
-  stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
-    return stateManager_.buildStateBlob(mixer_);
+  currentBranchId_ = result.branchId;
+  currentVersionId_ = result.versionId;
+  stateManager_.setCurrentBranchId(result.branchId);
+  stateManager_.setConfigName(juce::String(result.branchName));
+  isDetached_ = versionStore_->getBranchHead(result.branchId) !=
+                std::optional<versioning::VersionId>(result.versionId);
+  stateManager_.clearDirty();
+  undoManager_.markSavePoint();
+  broadcastMessage("setDirtyState", false);
+  pushConfigStatus(); // Advertise the fork's identity before acknowledging save.
+  captureStripPluginFingerprints();
+
+  if (result.kind == versioning::ProjectSaveResult::Kind::Branched)
+    pushLogMessage("<b>[Save]</b> Created branch: " + juce::String(result.branchName));
+  else if (result.kind == versioning::ProjectSaveResult::Kind::Committed)
+    pushLogMessage("<b>[Save]</b> Committed to branch");
+  else
+    pushLogMessage("<b>[Save]</b> Unchanged; retained saved version");
+
+  // WebKit updates are deferred until after the save callback unwinds.
+  safeCallAsync([this]() {
+    pushBranches();
+    broadcastMessage("setCurrentBranch", juce::String(currentBranchId_));
+    pushDagHistory();
+    pushCurrentVersion();
   });
+  scheduleStateRebuild(); // Unchanged historical saves keep their exact identity.
+  return true;
 }
 
 void MainComponent::handleDoricoSaveRequest(uint64_t requestId) {
@@ -1328,16 +1335,15 @@ void MainComponent::handleDoricoSaveRequest(uint64_t requestId) {
   for (auto *strip : mixer_.getAllStrips())
     strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
 
-  if (stateManager_.isDirty())
-    saveConfig();
+  const bool saveSucceeded = !stateManager_.isDirty() || saveConfig();
 
   fiddle::MidiEvent response;
   response.set_timestamp_samples(0);
   auto *saved = response.mutable_save_config_response();
   saved->set_request_id(requestId);
 
-  const bool success = versionStore_ && !currentBranchId_.empty() &&
-                       !currentVersionId_.empty() &&
+  const bool success = saveSucceeded && versionStore_ &&
+                       !currentBranchId_.empty() && !currentVersionId_.empty() &&
                        !stateManager_.isDirty();
   saved->set_success(success);
   saved->set_branch_id(currentBranchId_);
@@ -1444,9 +1450,8 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
 }
 
 void MainComponent::scheduleStateRebuild() {
-  // While viewing a historical version, do not update the Dorico shared-
-  // memory blob — the current mixer state is read-only and must not be
-  // committed as an ancestor of the live branch.
+  // Historical edits are unpublished until saved onto their own branch. The
+  // shadow blob uses branch-head ancestry, which would be wrong while detached.
   if (isDetached_)
     return;
 
@@ -1467,6 +1472,16 @@ void MainComponent::setupStripPluginSlot(MixerStrip &strip) {
   strip.updatePluginSlotId();
   const auto stripId = strip.id;
   juce::Component::SafePointer<MainComponent> safeThis(this);
+  strip.onEditorVisibilityChanged = [safeThis, stripId] {
+    if (safeThis == nullptr)
+      return;
+    if (auto *current = safeThis->mixer_.getStrip(stripId)) {
+      auto *state = new juce::DynamicObject();
+      state->setProperty("stripId", stripId);
+      state->setProperty("editorOpen", current->isEditorVisible());
+      safeThis->broadcastMessage("setInstrumentEditorState", juce::var(state));
+    }
+  };
   strip.audioEngine().setOnChanged([safeThis, stripId] {
     if (safeThis != nullptr)
       safeThis->stripAudioChanged(stripId);
@@ -2148,7 +2163,6 @@ bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
   if (selectBranch)
     broadcastMessage("setCurrentBranch", juce::String(branchId));
   pushCurrentVersion();
-  broadcastMessage("setDetachedHead", isDetached_);
   if (selectBranch)
     pushConfigStatus();
   return true;
@@ -2758,6 +2772,7 @@ void MainComponent::pushDagHistory() {
 
 void MainComponent::pushCurrentVersion() {
   broadcastMessage("setCurrentVersion", juce::String(currentVersionId_));
+  broadcastMessage("setDetachedHead", isDetached_);
 }
 
 void MainComponent::broadcastMessage(const juce::String &type,
@@ -3032,6 +3047,7 @@ void MainComponent::setupJsHandlers() {
     // Push branches to main window
     if (!isHistoryWindow) {
       pushBranches();
+      pushCurrentVersion();
     }
 
     // Reveal the WebView now that it's fully loaded
@@ -4700,30 +4716,25 @@ void MainComponent::setupJsHandlers() {
     if (args.size() > 0 && versionStore_) {
       std::string branchName = args[0].toString().toStdString();
       // Optional second arg: a specific version UUID to branch from.
-      // If omitted, branches from the current head (existing behaviour).
+      // If omitted, save the working state on a named branch rooted at the
+      // loaded version, without first changing the old branch's head.
       std::string fromVersionId =
           (args.size() > 1) ? args[1].toString().toStdString() : "";
       safeCallAsync([this, branchName, fromVersionId]() {
-        std::string baseVersionId;
         if (fromVersionId.empty()) {
-          // Commit current state and get the resulting branch head VersionId.
-          stateManager_.commitCurrentState(mixer_, currentBranchId_);
-          auto headOpt = versionStore_->getBranchHead(currentBranchId_);
-          if (headOpt)
-            baseVersionId = *headOpt;
-        } else {
-          baseVersionId = fromVersionId;
+          saveConfig(branchName);
+          return;
         }
-        if (baseVersionId.empty()) {
-          std::cerr << "[createBranch] No base version to branch from"
-                    << std::endl;
+        if (branchName.empty() ||
+            versionStore_->getStorage().branchNameExists(branchName)) {
+          pushLogMessage("<b>[Branch]</b> Name is empty or already in use", true);
           return;
         }
         auto newBranchId =
-            versionStore_->createBranch(branchName, baseVersionId);
+            versionStore_->createBranch(branchName, fromVersionId);
         if (newBranchId.empty()) {
           std::cerr << "[createBranch] Failed to create branch from version: "
-                    << baseVersionId << std::endl;
+                    << fromVersionId << std::endl;
           return;
         }
         if (!checkoutBranchById(newBranchId))
@@ -4765,7 +4776,7 @@ void MainComponent::setupJsHandlers() {
                     << std::endl;
           return;
         }
-        if (!loadStoredVersion(versionHash, verOpt->branchId, false)) {
+        if (!loadStoredVersion(versionHash, verOpt->branchId, true)) {
           std::cerr << "[checkoutVersion] State not found for: " << versionHash
                     << std::endl;
         }

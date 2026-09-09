@@ -13,10 +13,14 @@ namespace fiddle {
  */
 class MidiTcpServer : public juce::Thread {
 public:
-  MidiTcpServer(int port = 5252);
+  MidiTcpServer(int port = 5252, juce::String bindAddress = {});
   ~MidiTcpServer() override;
 
   void run() override;
+
+  /// Actual port after binding (zero until ready). Port 0 in the constructor
+  /// asks the OS for an unused port, allowing isolated concurrent test hosts.
+  int listeningPort() const noexcept { return listeningPort_.load(); }
 
   /**
    * Callback for when a new MIDI event is received.
@@ -47,6 +51,8 @@ public:
 
 private:
   int port;
+  juce::String bindAddress_;
+  std::atomic<int> listeningPort_{0};
   juce::StreamingSocket listenerSocket;
   std::function<void(const fiddle::MidiEvent &)> messageCallback;
   std::function<void(juce::String)> rawActivityCallback;

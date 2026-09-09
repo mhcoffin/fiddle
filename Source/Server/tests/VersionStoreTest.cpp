@@ -880,6 +880,142 @@ void testBranchVersionsRetainIndependentRoutingTopology() {
   CHECK(savedViolinVersion->stateHash != savedBrassVersion->stateHash);
 }
 
+void testProjectSavePolicyAndAlternatingDocuments() {
+  InMemoryVersionStorage storage;
+  VersionStore store(storage);
+  const auto root = store.initializeEmpty();
+  const auto main = store.getVersion(root)->branchId;
+  const auto aState = makeState({}, -1.0f);
+  const auto bState = makeState({}, -2.0f);
+  const auto aEdited = makeState({}, -3.0f);
+
+  // Unchanged at head: do not manufacture a version.
+  auto clean = store.saveProjectState(main, root, makeState({}));
+  CHECK(clean.kind == ProjectSaveResult::Kind::Unchanged);
+  CHECK_EQ(clean.versionId, root);
+  CHECK_EQ(storage.listAllVersions().size(), 1u);
+
+  auto a = store.saveProjectState(main, root, aState);
+  CHECK(a.kind == ProjectSaveResult::Kind::Committed);
+  auto b = store.saveProjectState(main, a.versionId, bState);
+  CHECK(b.kind == ProjectSaveResult::Kind::Committed);
+  CHECK_EQ(store.getVersion(b.versionId)->parentId, a.versionId);
+
+  // Reopen A, then save only Dorico changes (or edit/undo Fiddle changes).
+  auto reopenedA = store.resolveProjectRestoreTarget(main, a.versionId, "");
+  CHECK(reopenedA && reopenedA->versionId == a.versionId);
+  clean = store.saveProjectState(main, a.versionId, aState);
+  CHECK(clean.kind == ProjectSaveResult::Kind::Unchanged);
+  CHECK_EQ(clean.versionId, a.versionId);
+  CHECK_EQ(*store.getBranchHead(main), b.versionId);
+  CHECK_EQ(storage.listBranches().size(), 1u);
+
+  // A's first edit forks directly from A, not B; no duplicate base node.
+  const auto versionCount = storage.listAllVersions().size();
+  a = store.saveProjectState(main, a.versionId, aEdited);
+  CHECK(a.kind == ProjectSaveResult::Kind::Branched);
+  CHECK(a.branchId != main);
+  CHECK_EQ(a.branchName, "Main (2)");
+  CHECK_EQ(store.getVersion(a.versionId)->parentId, clean.versionId);
+  CHECK_EQ(storage.listAllVersions().size(), versionCount + 1);
+  CHECK_EQ(*store.getBranchHead(main), b.versionId);
+  CHECK_EQ(store.getVersion(a.versionId)->stateHash, aEdited.computeHash());
+  CHECK(!store.isAncestor(b.versionId, a.versionId));
+
+  // A save retry with the returned identity is idempotent, then edits append.
+  auto retry = store.saveProjectState(a.branchId, a.versionId, aEdited);
+  CHECK(retry.kind == ProjectSaveResult::Kind::Unchanged);
+  CHECK_EQ(retry.versionId, a.versionId);
+  auto aNext = store.saveProjectState(a.branchId, a.versionId, aState);
+  CHECK(aNext.kind == ProjectSaveResult::Kind::Committed);
+  CHECK_EQ(aNext.branchId, a.branchId);
+  CHECK_EQ(store.getVersion(aNext.versionId)->parentId, a.versionId);
+
+  // B reopens exactly, and continues on Main, independently of A's fork.
+  auto reopenedB = store.resolveProjectRestoreTarget(main, b.versionId, "");
+  CHECK(reopenedB && reopenedB->versionId == b.versionId);
+  auto bNext = store.saveProjectState(main, b.versionId, makeState({}, -4.0f));
+  CHECK(bNext.kind == ProjectSaveResult::Kind::Committed);
+  CHECK_EQ(store.getVersion(bNext.versionId)->parentId, b.versionId);
+  CHECK_EQ(*store.getBranchHead(a.branchId), aNext.versionId);
+  auto restoredA = store.resolveProjectRestoreTarget(a.branchId, aNext.versionId, "");
+  CHECK(restoredA && restoredA->versionId == aNext.versionId);
+
+  // Another old document copy receives a distinct, collision-free branch.
+  auto copy = store.saveProjectState(main, clean.versionId, aEdited);
+  CHECK(copy.kind == ProjectSaveResult::Kind::Branched);
+  CHECK_EQ(copy.branchName, "Main (3)");
+  CHECK(copy.branchId != a.branchId);
+}
+
+void testProjectSaveValidationAndExplicitBranches() {
+  InMemoryVersionStorage storage;
+  VersionStore store(storage);
+  const auto root = store.initializeEmpty();
+  const auto main = store.getVersion(root)->branchId;
+  const auto original = makeState({});
+  const auto edited = makeState({}, -1.0f);
+  const auto next = store.saveProjectState(main, root, edited);
+
+  // Naming a branch from the current working state must not commit to Main.
+  const auto named = store.saveProjectState(main, root, edited, "Alternate");
+  CHECK(named.kind == ProjectSaveResult::Kind::Branched);
+  CHECK_EQ(named.branchName, "Alternate");
+  CHECK_EQ(store.getVersion(named.versionId)->parentId, root);
+  CHECK_EQ(store.getVersion(named.versionId)->stateHash, edited.computeHash());
+  CHECK_EQ(*store.getBranchHead(main), next.versionId);
+  const auto unchangedNamed = store.saveProjectState(main, root, original, "Original");
+  CHECK(unchangedNamed.kind == ProjectSaveResult::Kind::Branched);
+  CHECK_EQ(store.getVersion(unchangedNamed.versionId)->parentId, root);
+
+  const auto versionCount = storage.listAllVersions().size();
+  const auto branchCount = storage.listBranches().size();
+  CHECK(!store.saveProjectState(main, "missing", edited).succeeded());
+  CHECK(!store.saveProjectState("missing", root, edited).succeeded());
+  CHECK(!store.saveProjectState(main, named.versionId, edited).succeeded());
+  CHECK(!store.saveProjectState(main, root, edited, "Alternate").succeeded());
+  CHECK(!store.saveProjectState(main, root, edited, "  ").succeeded());
+  CHECK_EQ(storage.listAllVersions().size(), versionCount);
+  CHECK_EQ(storage.listBranches().size(), branchCount);
+  CHECK_EQ(*store.getBranchHead(main), next.versionId);
+}
+
+void testProjectSaveRejectsFailedWrites() {
+  class FailingStorage : public InMemoryVersionStorage {
+  public:
+    int failure = 0;
+    void putFiddleState(const Hash &hash, const FiddleState &state) override {
+      if (failure != 1) InMemoryVersionStorage::putFiddleState(hash, state);
+    }
+    void putVersion(const VersionId &id, const Version &version) override {
+      if (failure != 2) InMemoryVersionStorage::putVersion(id, version);
+    }
+    void putBranch(const BranchId &id, const std::string &name,
+                   const VersionId &head) override {
+      if (failure != 3) InMemoryVersionStorage::putBranch(id, name, head);
+    }
+    void updateBranchHead(const BranchId &id, const VersionId &head) override {
+      if (failure != 3) InMemoryVersionStorage::updateBranchHead(id, head);
+    }
+  };
+  for (bool fork : {false, true}) {
+    for (int stage = 1; stage <= 3; ++stage) {
+      FailingStorage storage;
+      VersionStore store(storage);
+      const auto root = store.initializeEmpty();
+      const auto main = store.getVersion(root)->branchId;
+      const auto head = fork ? store.commitVersion(main, makeState({}, -1.0f)) : root;
+      storage.failure = stage;
+      const auto failed = store.saveProjectState(main, root, makeState({}, -2.0f));
+      CHECK(!failed.succeeded());
+      CHECK(!failed.error.empty());
+      CHECK(failed.versionId.empty());
+      CHECK_EQ(*store.getBranchHead(main), head);
+      CHECK_EQ(storage.listBranches().size(), 1u);
+    }
+  }
+}
+
 // ===========================================================================
 // Main
 // ===========================================================================
@@ -913,6 +1049,9 @@ int main() {
   RUN_TEST(testMasterAudioParticipatesInVersionIdentity);
   RUN_TEST(testBranchVersionsRetainIndependentRoutingTopology);
   RUN_TEST(testDoricoProjectRestoreResolution);
+  RUN_TEST(testProjectSavePolicyAndAlternatingDocuments);
+  RUN_TEST(testProjectSaveValidationAndExplicitBranches);
+  RUN_TEST(testProjectSaveRejectsFailedWrites);
 
   std::cout << std::endl;
   std::cout << "Passed: " << gTestsPassed << std::endl;

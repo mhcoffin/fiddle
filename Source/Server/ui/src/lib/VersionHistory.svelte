@@ -1,6 +1,7 @@
 <script>
     import { onMount } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
+    import { historicalSaveNotice } from "./projectSaveUi.js";
 
     let rawVersions = $state([]);
     let layoutNodes = $state([]);
@@ -414,7 +415,7 @@
     <!-- Detached HEAD warning banner -->
     {#if isDetachedHead}
         <div class="banner banner-detached">
-            ⚡ Viewing historical version — save is disabled.
+            ⚡ {historicalSaveNotice}
         </div>
     {/if}
 

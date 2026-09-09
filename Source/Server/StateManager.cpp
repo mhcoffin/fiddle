@@ -182,6 +182,10 @@ void StateManager::initialize() {
   // std::cerr << "[StateManager] Initialized" << std::endl;
 }
 
+void StateManager::initialize(const juce::File &stateFile) {
+  sharedMemory_ = std::make_unique<StateSharedMemory>(true, stateFile);
+}
+
 void StateManager::markDirty() {
   dirty_.store(true, std::memory_order_release);
 }
@@ -361,9 +365,25 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
 
 versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
                                                   const std::string &branchId) {
-  if (!versionStore_)
+  if (!versionStore_ || branchId.empty())
     return "";
+  return versionStore_->commitVersion(branchId, captureCurrentState(mixer));
+}
 
+versioning::ProjectSaveResult StateManager::saveCurrentState(
+    MixerModel &mixer, const std::string &branchId,
+    const std::string &loadedVersionId,
+    const std::optional<std::string> &newBranchName) {
+  if (!versionStore_) {
+    versioning::ProjectSaveResult result;
+    result.error = "Version storage is unavailable";
+    return result;
+  }
+  return versionStore_->saveProjectState(
+      branchId, loadedVersionId, captureCurrentState(mixer), newBranchName);
+}
+
+versioning::FiddleState StateManager::captureCurrentState(MixerModel &mixer) {
   versioning::FiddleState state;
   state.globalState =
       makeGlobalState(mixer.masterAudio().snapshotAll(), mixer);
@@ -412,13 +432,7 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
 
   captureRoutingState(state, stripHashesById, true);
 
-  if (branchId.empty()) {
-    // std::cerr << "[StateManager] Error: Cannot commit, branch ID is empty."
-    //           << std::endl;
-    return "";
-  }
-
-  return versionStore_->commitVersion(branchId, state);
+  return state;
 }
 
 void StateManager::publishBlob(const juce::MemoryBlock &blob) {

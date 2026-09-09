@@ -52,11 +52,12 @@ bool sendEvent(juce::StreamingSocket &socket,
 }
 
 void testAdditionalConnectionIsReportedWithoutReplacingPrimary() {
-  constexpr int port = 55252;
-  fiddle::MidiTcpServer server(port);
   std::atomic<int> connected{0};
   std::atomic<int> additional{0};
   std::atomic<int> received{0};
+  // Bind atomically to a free loopback port, never the live server endpoint.
+  // Declare after callback state so the server stops before that state dies.
+  fiddle::MidiTcpServer server(0, "127.0.0.1");
 
   server.onConnectionChanged([&](bool isConnected, const juce::String &) {
     if (isConnected)
@@ -67,6 +68,12 @@ void testAdditionalConnectionIsReportedWithoutReplacingPrimary() {
   server.onMessageReceived(
       [&](const fiddle::MidiEvent &) { received.fetch_add(1); });
   server.startThread();
+
+  const bool ready = waitUntil([&] { return server.listeningPort() > 0; });
+  CHECK(ready);
+  if (!ready)
+    return;
+  const int port = server.listeningPort();
 
   juce::StreamingSocket primary;
   CHECK(connectWithRetry(primary, port));

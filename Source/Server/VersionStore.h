@@ -46,6 +46,17 @@ struct ProjectRestoreTarget {
   Match match = Match::ExactVersion;
 };
 
+/// Identity to return to the host after saving the state being edited.
+struct ProjectSaveResult {
+  enum class Kind { Error, Unchanged, Committed, Branched };
+  Kind kind = Kind::Error;
+  BranchId branchId;
+  VersionId versionId;
+  std::string branchName;
+  std::string error;
+  bool succeeded() const { return kind != Kind::Error; }
+};
+
 /// Pure-logic versioning engine. All DAG algorithms live here.
 /// No JUCE, no SQLite — operates entirely through IVersionStorage.
 class VersionStore {
@@ -102,6 +113,14 @@ public:
   /// and advances the branch head.
   /// Returns the VersionId of the new version.
   VersionId commitVersion(const BranchId &branchId, const FiddleState &state);
+
+  /// Save relative to the loaded version, not implicitly to the branch head.
+  /// Equal state retains its identity; changed historical state forks. An
+  /// explicit name always creates a new branch, including for unchanged state.
+  ProjectSaveResult saveProjectState(
+      const BranchId &branchId, const VersionId &loadedVersionId,
+      const FiddleState &state,
+      const std::optional<std::string> &newBranchName = std::nullopt);
 
   /// Create a new branch from an existing version.
   /// Returns the new branch ID.

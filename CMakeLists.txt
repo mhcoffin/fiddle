@@ -579,96 +579,16 @@ set_tests_properties(expression_map_js_handlers PROPERTIES
     LABELS "expression-map;regression;stable"
 )
 
-find_program(NODE_EXECUTABLE node)
-if(NODE_EXECUTABLE)
-    add_test(NAME mixer_ui_selection
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/mixerSelection.test.js"
-    )
-    set_tests_properties(mixer_ui_selection PROPERTIES
-        LABELS "mixer;ui;regression;stable"
-    )
-
-    add_test(NAME ui_preferences
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/uiPreferences.test.js"
-    )
-    set_tests_properties(ui_preferences PROPERTIES
-        LABELS "ui;accessibility;regression;stable"
-    )
-
-    add_test(NAME note_inspection_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/noteInspection.test.js"
-    )
-    set_tests_properties(note_inspection_ui PROPERTIES
-        LABELS "ui;inspection;regression;stable"
-    )
-
-    add_test(NAME expression_map_picker_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/expressionMapCatalog.test.js"
-    )
-    set_tests_properties(expression_map_picker_ui PROPERTIES
-        LABELS "ui;expression-map;regression;stable"
-    )
-
-    add_test(NAME master_audio_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/masterAudioUi.test.js"
-    )
-    set_tests_properties(master_audio_ui PROPERTIES
-        LABELS "audio;ui;regression;stable"
-    )
-
-    add_test(NAME branch_selector_layout
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/branchSelectorLayout.test.js"
-    )
-    set_tests_properties(branch_selector_layout PROPERTIES
-        LABELS "ui;versioning;regression;stable"
-    )
-
-    add_test(NAME chair_model_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/chairModel.test.js"
-    )
-    set_tests_properties(chair_model_ui PROPERTIES
-        LABELS "ui;routing;regression;stable"
-    )
-
-    add_test(NAME library_patch_model_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/libraryPatchModel.test.js"
-    )
-    set_tests_properties(library_patch_model_ui PROPERTIES
-        LABELS "ui;library;routing;regression;stable"
-    )
-
-    add_test(NAME layer_catalog_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/layerCatalog.test.js"
-    )
-    set_tests_properties(layer_catalog_ui PROPERTIES
-        LABELS "ui;library;routing;regression;stable"
-    )
-
-    add_test(NAME locked_group_gain_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/lockedGroupGain.test.js"
-    )
-    set_tests_properties(locked_group_gain_ui PROPERTIES
-        LABELS "mixer;ui;gain;regression;stable"
-    )
-
-    add_test(NAME connection_warning_ui
-        COMMAND "${NODE_EXECUTABLE}" --test
-                "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/connectionWarning.test.js"
-    )
-    set_tests_properties(connection_warning_ui PROPERTIES
-        LABELS "ui;connection;regression;stable"
-    )
-endif()
+find_program(NODE_EXECUTABLE node REQUIRED)
+# Discover every UI regression file, including newly added ones. These include
+# pure model tests and source-contract checks; they are not browser interaction tests.
+file(GLOB UI_TEST_FILES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/Server/ui/tests/*.test.js")
+foreach(ui_test IN LISTS UI_TEST_FILES)
+    get_filename_component(ui_name "${ui_test}" NAME_WE)
+    add_test(NAME "ui_${ui_name}" COMMAND "${NODE_EXECUTABLE}" --test "${ui_test}")
+    set_tests_properties("ui_${ui_name}" PROPERTIES LABELS "ui;regression;stable")
+endforeach()
 
 # ==============================================================================
 # HarmonicAnalyzerTest — test executable for HMM harmonic analysis engine
@@ -1096,3 +1016,56 @@ target_link_libraries(FiddleMock PRIVATE
 )
 
 target_compile_features(FiddleMock PRIVATE cxx_std_17)
+
+# Integration tests link the production mixer, command, and persistence code.
+# They do not construct MainComponent, start a server, or scan installed VSTs.
+juce_add_console_app(MixerIntegrationTest PRODUCT_NAME "MixerIntegrationTest")
+target_sources(MixerIntegrationTest PRIVATE
+    Source/Server/tests/MixerIntegrationTest.cpp
+    Source/Server/MixerModel.cpp
+    Source/Server/MixerStrip.cpp
+    Source/Server/GroupBus.cpp
+    Source/Server/GroupBusCommandService.cpp
+    Source/Server/GroupBusJsHandlers.cpp
+    Source/Server/StripAudioEngine.cpp
+    Source/Server/MasterAudioEngine.cpp
+    Source/Server/HostedPluginSlot.cpp
+    Source/Server/RealtimeMidiScheduler.cpp
+    Source/Server/NoteInspection.cpp
+    Source/Server/LuaPlugin.cpp
+    Source/Server/HarmonicAnalysisService.cpp
+    Source/Server/HarmonicAnalyzer.cpp
+    Source/Server/MasterInstrumentList.cpp
+    Source/Server/ExpressionMapParser.cpp
+    Source/Server/FiddleDatabase.cpp
+    Source/Server/LibraryRoutingRepository.cpp
+    Source/Server/SqliteVersionStorage.cpp
+    Source/Server/VersionStore.cpp
+    Source/Server/StateManager.cpp
+    Source/Server/StateBlobDeserializer.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+target_include_directories(MixerIntegrationTest PRIVATE
+    Source Source/Server "${CMAKE_CURRENT_BINARY_DIR}" "${xxhash_SOURCE_DIR}")
+target_link_libraries(MixerIntegrationTest PRIVATE
+    juce::juce_audio_utils juce::juce_gui_extra
+    libprotobuf lua_static sol2 SQLite::SQLite3)
+target_compile_definitions(MixerIntegrationTest PRIVATE JUCE_PLUGINHOST_VST3=1)
+target_compile_features(MixerIntegrationTest PRIVATE cxx_std_20)
+juce_generate_juce_header(MixerIntegrationTest)
+add_test(NAME mixer_integration COMMAND MixerIntegrationTest)
+set_tests_properties(mixer_integration PROPERTIES
+    LABELS "audio;routing;persistence;integration;regression;stable")
+
+# One build target for local testing and CI. New *Test executables are included
+# automatically, so the workflow cannot silently retain an obsolete target list.
+get_property(fiddle_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+add_custom_target(FiddleTests)
+foreach(test_target IN LISTS fiddle_targets)
+    get_target_property(target_type "${test_target}" TYPE)
+    if(target_type STREQUAL "EXECUTABLE" AND test_target MATCHES "Test$")
+        add_dependencies(FiddleTests "${test_target}")
+    endif()
+endforeach()
+get_property(fiddle_tests DIRECTORY PROPERTY TESTS)
+set_tests_properties(${fiddle_tests} PROPERTIES TIMEOUT 120)

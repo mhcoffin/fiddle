@@ -1,0 +1,490 @@
+#include "FiddleDatabase.h"
+#include "GroupBusCommandService.h"
+#include "GroupBusJsHandlers.h"
+#include "MessageRouter.h"
+#include "MixerModel.h"
+#include "PluginScanner.h"
+#include "StateManager.h"
+#include "UndoManager.h"
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstring>
+#include <iostream>
+#include <stdexcept>
+
+namespace {
+
+void require(bool condition, const char *expression, int line) {
+  if (!condition)
+    throw std::runtime_error("line " + std::to_string(line) + ": " + expression);
+}
+#define REQUIRE(condition) require(bool(condition), #condition, __LINE__)
+
+// An exact, MIDI-gated constant instrument or a gain/delay effect. The delay
+// really delays samples, so latency tests cannot pass on metadata alone.
+class SignalProcessor final : public juce::AudioProcessor {
+public:
+  SignalProcessor(bool instrument, float amount, int latency = 0)
+      : AudioProcessor(instrument
+                           ? BusesProperties().withOutput(
+                                 "Output", juce::AudioChannelSet::stereo(), true)
+                           : BusesProperties()
+                                 .withInput("Input", juce::AudioChannelSet::stereo(), true)
+                                 .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+        instrument_(instrument), amount_(amount), latency_(latency) {
+    setLatencySamples(latency);
+  }
+  const juce::String getName() const override { return "Deterministic signal"; }
+  void prepareToPlay(double, int) override {
+    delay_.setSize(2, std::max(1, latency_));
+    delay_.clear();
+    position_ = 0;
+    notes_.fill(false);
+  }
+  void releaseResources() override {}
+  void processBlock(juce::AudioBuffer<float> &audio, juce::MidiBuffer &midi) override {
+    auto event = midi.cbegin();
+    for (int sample = 0; sample < audio.getNumSamples(); ++sample) {
+      while (event != midi.cend() && (*event).samplePosition <= sample) {
+        const auto message = (*event).getMessage();
+        if (message.isNoteOn())
+          notes_[message.getNoteNumber()] = true;
+        else if (message.isNoteOff())
+          notes_[message.getNoteNumber()] = false;
+        else if (message.isAllNotesOff() || message.isAllSoundOff())
+          notes_.fill(false);
+        ++event;
+      }
+      const bool playing = std::any_of(notes_.begin(), notes_.end(),
+                                       [](bool value) { return value; });
+      for (int channel = 0; channel < audio.getNumChannels(); ++channel) {
+        float value = instrument_ ? (playing ? amount_ : 0.0f)
+                                  : audio.getSample(channel, sample) * amount_;
+        if (latency_ > 0) {
+          const float delayed = delay_.getSample(channel, position_);
+          delay_.setSample(channel, position_, value);
+          value = delayed;
+        }
+        audio.setSample(channel, sample, value);
+      }
+      if (latency_ > 0)
+        position_ = (position_ + 1) % latency_;
+    }
+  }
+  double getTailLengthSeconds() const override { return 0; }
+  bool acceptsMidi() const override { return instrument_; }
+  bool producesMidi() const override { return false; }
+  bool isMidiEffect() const override { return false; }
+  bool hasEditor() const override { return false; }
+  juce::AudioProcessorEditor *createEditor() override { return nullptr; }
+  int getNumPrograms() override { return 1; }
+  int getCurrentProgram() override { return 0; }
+  void setCurrentProgram(int) override {}
+  const juce::String getProgramName(int) override { return {}; }
+  void changeProgramName(int, const juce::String &) override {}
+  void getStateInformation(juce::MemoryBlock &state) override {
+    state.replaceAll(&amount_, sizeof(amount_));
+  }
+  void setStateInformation(const void *data, int size) override {
+    if (size == sizeof(amount_))
+      std::memcpy(&amount_, data, sizeof(amount_));
+  }
+private:
+  bool instrument_;
+  float amount_;
+  int latency_, position_ = 0;
+  std::array<bool, 128> notes_{};
+  juce::AudioBuffer<float> delay_;
+};
+
+juce::PluginDescription description(bool instrument) {
+  juce::PluginDescription result;
+  result.name = instrument ? "Test instrument" : "Test effect";
+  result.pluginFormatName = "Test";
+  result.uniqueId = instrument ? 101 : 102;
+  result.isInstrument = instrument;
+  result.numInputChannels = instrument ? 0 : 2;
+  result.numOutputChannels = 2;
+  return result;
+}
+
+void addEffect(fiddle::StripAudioEngine &engine, const juce::String &id,
+               float amount, int latency = 0,
+               fiddle::StripInsertPosition position = fiddle::StripInsertPosition::preFader) {
+  fiddle::AudioInsertSnapshot slot;
+  slot.slotId = id;
+  slot.description = description(false);
+  REQUIRE(engine.insertProcessor(slot, position, engine.insertCount(position),
+                                  std::make_unique<SignalProcessor>(false, amount, latency)));
+}
+
+struct MixerFixture {
+  static constexpr int blockSize = 64;
+  static constexpr double sampleRate = 48000;
+  fiddle::MixerModel mixer;
+  fiddle::PluginScanner scanner; // Constructor does not scan or load vendor plug-ins.
+  fiddle::UndoManager undo;
+  fiddle::GroupBusCommandService commands{mixer, scanner, undo};
+  fiddle::MessageRouter router;
+  int changes = 0;
+  fiddle::GroupBusJsHandlers handlers{
+      router, commands, {{}, [this] { ++changes; }, {}}};
+  double now = juce::Time::getMillisecondCounterHiRes();
+
+  MixerFixture() {
+    mixer.prepareToPlay(sampleRate, blockSize);
+    handlers.registerHandlers();
+  }
+  juce::String instrument(float amount, int channel) {
+    const auto id = mixer.addStrip();
+    auto *strip = mixer.getStrip(id);
+    strip->setInputAssignment(0, channel);
+    juce::String error;
+    REQUIRE(strip->installInstrumentProcessor(
+        description(true), std::make_unique<SignalProcessor>(true, amount), error));
+    return id;
+  }
+  void noteOn(int channel, double offsetMs = 0) {
+    mixer.routeNoteEvent(0, channel, juce::MidiMessage::noteOn(1, 60, 1.0f),
+                         now + offsetMs);
+  }
+  juce::AudioBuffer<float> render() {
+    juce::AudioBuffer<float> audio(2, blockSize);
+    audio.clear();
+    mixer.processBlock(audio, now);
+    now += 1000.0 * blockSize / sampleRate;
+    return audio;
+  }
+  void expectLevel(float expected) {
+    const auto audio = render();
+    for (int channel = 0; channel < 2; ++channel)
+      for (int sample = 0; sample < blockSize; ++sample)
+        REQUIRE(std::abs(audio.getSample(channel, sample) - expected) < 0.00001f);
+  }
+};
+
+void testProductionRoutingAndAudibility() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1);
+  const auto b = f.instrument(0.2f, 2);
+  const auto c = f.instrument(0.4f, 3);
+  REQUIRE(f.commands.addGroupBus("Strings", {a, b}));
+  const auto bus = f.mixer.getAllGroupBuses().front()->id;
+  addEffect(f.mixer.getGroupBus(bus)->audioEngine(), "double", 2.0f);
+  for (int channel = 1; channel <= 3; ++channel)
+    f.noteOn(channel);
+  f.expectLevel(1.0f); // (0.1 + 0.2) * 2 + 0.4: no duplicate direct path.
+  REQUIRE(!f.commands.setStripDirectOutput(a, "nonexistent"));
+  REQUIRE(f.mixer.getStrip(a)->directOutputBusId == bus);
+  REQUIRE(f.commands.setGroupBusMute(bus, true));
+  f.expectLevel(0.4f);
+  REQUIRE(f.commands.setGroupBusMute(bus, false));
+  REQUIRE(f.commands.setGroupBusSolo(bus, true));
+  f.expectLevel(0.6f);
+  REQUIRE(f.commands.setGroupBusSolo(bus, false));
+  f.mixer.getStrip(a)->setSoloed(true);
+  f.expectLevel(0.2f);
+  f.mixer.getStrip(a)->setSoloed(false);
+  f.mixer.getStrip(b)->setActive(false);
+  f.expectLevel(0.6f);
+  f.mixer.getStrip(b)->setActive(true);
+  f.mixer.getStrip(a)->setMuted(true);
+  f.expectLevel(0.8f);
+  f.mixer.getStrip(a)->setMuted(false);
+  f.mixer.masterAudio().setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  f.expectLevel(0.5f);
+  REQUIRE(f.mixer.getStrip(c)->directOutputBusId.isEmpty());
+}
+
+void testBusRemovalThroughUiCommandsAndUndo() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1);
+  const auto b = f.instrument(0.2f, 2);
+  REQUIRE(f.commands.addGroupBus("First", {}));
+  REQUIRE(f.commands.addGroupBus("Strings", {a, b}));
+  const auto bus = f.mixer.getAllGroupBuses().back()->id;
+  addEffect(f.mixer.getGroupBus(bus)->audioEngine(), "double", 2.0f);
+  f.noteOn(1);
+  f.noteOn(2);
+  f.expectLevel(0.6f);
+  // Exercise the same message -> handler -> service -> undo action used by UI.
+  for (int iteration = 0; iteration < 20; ++iteration) {
+    juce::Array<juce::var> args{bus};
+    REQUIRE(f.router.handleMessage("removeGroupBus", juce::var(args)));
+    REQUIRE(f.changes == iteration + 1);
+    REQUIRE(f.mixer.getGroupBus(bus) == nullptr);
+    REQUIRE(f.mixer.getStrip(a)->directOutputBusId.isEmpty());
+    REQUIRE(f.mixer.getStrip(b)->directOutputBusId.isEmpty());
+    f.expectLevel(0.3f);
+    REQUIRE(f.undo.undo());
+    REQUIRE(f.mixer.groupBusIndex(bus) == 1);
+    REQUIRE(f.mixer.getStrip(a)->directOutputBusId == bus);
+    REQUIRE(f.mixer.getStrip(b)->directOutputBusId == bus);
+    REQUIRE(f.mixer.getGroupBus(bus)->audioEngine().snapshot("double").has_value());
+    f.expectLevel(0.6f);
+    REQUIRE(f.undo.redo());
+    f.expectLevel(0.3f);
+    REQUIRE(f.undo.undo());
+    f.expectLevel(0.6f);
+  }
+}
+
+void testRealSampleLatencyAcrossDirectAndBusRoutes() {
+  MixerFixture f;
+  f.instrument(0.1f, 1);
+  const auto b = f.instrument(0.2f, 1);
+  REQUIRE(f.commands.addGroupBus("Delayed", {b}));
+  const auto bus = f.mixer.getAllGroupBuses().front()->id;
+  addEffect(f.mixer.getStrip(b)->audioEngine(), "strip-delay", 1.0f, 4);
+  addEffect(f.mixer.getGroupBus(bus)->audioEngine(), "bus-delay", 1.0f, 8);
+  f.mixer.refreshAudioRouting();
+  f.noteOn(1, 1.0); // Sample 48, after compensation on the delayed route.
+  const auto audio = f.render();
+  for (int channel = 0; channel < 2; ++channel)
+    for (int sample = 0; sample < MixerFixture::blockSize; ++sample)
+      REQUIRE(std::abs(audio.getSample(channel, sample) -
+                       (sample < 48 ? 0.0f : 0.3f)) < 0.00001f);
+}
+
+void testPanicClearsSoundingAndFutureNotes() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1);
+  REQUIRE(f.commands.addGroupBus("Strings", {a}));
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    f.noteOn(1);
+    f.expectLevel(0.1f);
+    f.noteOn(1, 5.0);
+    f.mixer.allNotesOff();
+    for (int block = 0; block < 8; ++block)
+      f.expectLevel(0.0f);
+  }
+}
+
+void testGracefulStopWithIncompleteNoteTracking() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1);
+  REQUIRE(f.commands.addGroupBus("Strings", {a}));
+  for (int iteration = 0; iteration < 40; ++iteration) {
+    f.noteOn(1);
+    f.expectLevel(0.1f);
+    f.noteOn(1, 500.0); // A delayed note must not sound after stopping.
+    std::vector<fiddle::Note> tracked;
+    if (iteration % 2 == 0) {
+      fiddle::Note note;
+      note.set_port(0);
+      note.set_channel(2); // Note protobuf is 1-based; strip input is 0-based.
+      note.set_note_number(60);
+      tracked.push_back(note);
+    }
+    f.mixer.gracefulStop(tracked, 20.0);
+    // Advance simulated audio time past the release, hard-kill, and queued
+    // note deadlines. No wall-clock sleeping or human listening is needed.
+    f.now = std::max(f.now, juce::Time::getMillisecondCounterHiRes()) + 1000.0;
+    for (int block = 0; block < 8; ++block)
+      f.expectLevel(0.0f);
+  }
+}
+
+struct Sandbox {
+  juce::File directory = juce::File::getSpecialLocation(juce::File::tempDirectory)
+      .getChildFile("fiddle-integration-" + juce::Uuid().toString());
+  Sandbox() { REQUIRE(directory.createDirectory().wasOk()); }
+  ~Sandbox() { directory.deleteRecursively(); }
+};
+
+void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
+  Sandbox sandbox;
+  const auto databaseFile = sandbox.directory.getChildFile("test.sqlite");
+  const auto stateFile = sandbox.directory.getChildFile("host-a/state.bin");
+  const auto otherStateFile = sandbox.directory.getChildFile("host-b/state.bin");
+  fiddle::versioning::VersionId savedVersion;
+  fiddle::versioning::Hash savedHash;
+  std::string branch;
+  std::string busId;
+  juce::MemoryBlock savedBlob;
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(databaseFile));
+    fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+    const auto root = versions.initializeEmpty();
+    branch = versions.getVersion(root)->branchId;
+    MixerFixture f;
+    const auto a = f.instrument(0.1f, 1);
+    const auto b = f.instrument(0.2f, 2);
+    REQUIRE(f.commands.addGroupBus("Saved Strings", {a, b}));
+    auto *bus = f.mixer.getAllGroupBuses().front();
+    busId = bus->id.toStdString();
+    bus->setGainDb(-3.0f);
+    bus->setMuted(true);
+    bus->setSoloed(true);
+    addEffect(bus->audioEngine(), "pre", 2.0f);
+    addEffect(bus->audioEngine(), "post", 0.25f, 0,
+               fiddle::StripInsertPosition::postFader);
+    REQUIRE(bus->audioEngine().setBypassed("post", true));
+    f.mixer.getStrip(a)->setMuted(true);
+    f.mixer.getStrip(b)->setGainDb(-9.0f);
+    f.mixer.masterAudio().setGainDb(-6.0f);
+
+    fiddle::StateManager state;
+    state.setVersionStore(&versions);
+    state.setCurrentBranchId(branch);
+    state.setConfigName("Integration");
+    state.initialize(stateFile);
+    savedVersion = state.commitCurrentState(f.mixer, branch);
+    REQUIRE(!savedVersion.empty());
+    savedHash = versions.getVersion(savedVersion)->stateHash;
+    savedBlob = state.buildStateBlob(f.mixer);
+    state.publishBlob(savedBlob);
+    fiddle::StateSharedMemory host(false, stateFile);
+    REQUIRE(host.pullState() == savedBlob);
+
+    // A second isolated endpoint must neither read nor overwrite this host.
+    fiddle::StateSharedMemory otherHost(false, otherStateFile);
+    REQUIRE(!otherHost.isReady());
+    fiddle::StateSharedMemory otherProducer(true, otherStateFile);
+    const juce::MemoryBlock sentinel("other", 5);
+    otherProducer.pushState(sentinel);
+    REQUIRE(otherHost.pullState() == sentinel);
+    REQUIRE(host.pullState() == savedBlob);
+
+    REQUIRE(f.commands.removeGroupBus(bus->id));
+    f.mixer.getStrip(a)->setMuted(false);
+    REQUIRE(state.commitCurrentState(f.mixer, branch) != savedVersion);
+  } // Close SQLite and destroy every mixer/processor before reading again.
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(databaseFile));
+    fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+    const auto target = versions.resolveProjectRestoreTarget(branch, savedVersion, "");
+    REQUIRE(target && target->versionId == savedVersion);
+    REQUIRE(versions.getVersion(savedVersion)->stateHash == savedHash);
+    const auto state = versions.getState(savedHash);
+    REQUIRE(state && state->globalState.groupBuses.size() == 1);
+    const auto &bus = state->globalState.groupBuses.front();
+    REQUIRE(bus.id == busId && bus.name == "Saved Strings");
+    REQUIRE(bus.gainDb == -3.0f && bus.muted && bus.soloed);
+    REQUIRE(state->globalState.masterGainDb == -6.0f);
+    const auto rack = fiddle::deserializeStripAudioSnapshot(
+        bus.audioInsertState.data(), bus.audioInsertState.size());
+    REQUIRE(rack.preFaderInserts.size() == 1 && rack.postFaderInserts.size() == 1);
+    REQUIRE(rack.preFaderInserts.front().slotId == "pre");
+    REQUIRE(rack.postFaderInserts.front().slotId == "post");
+    REQUIRE(rack.postFaderInserts.front().bypassed);
+    float savedAmount = 0;
+    const auto &pluginState = rack.preFaderInserts.front().pluginState;
+    REQUIRE(pluginState.getSize() == sizeof(savedAmount));
+    std::memcpy(&savedAmount, pluginState.getData(), sizeof(savedAmount));
+    REQUIRE(savedAmount == 2.0f);
+    REQUIRE(state->stripHashes.size() == 2);
+    const auto first = versions.getStripBlob(state->stripHashes[0]);
+    const auto second = versions.getStripBlob(state->stripHashes[1]);
+    REQUIRE(first && second);
+    REQUIRE(first->directOutputBusId == busId && second->directOutputBusId == busId);
+    REQUIRE(first->muted && second->gainDb == -9.0f);
+
+    const auto restored = fiddle::StateManager::deserializeBlob(
+        savedBlob.getData(), savedBlob.getSize());
+    REQUIRE(restored && restored->stateHash == savedHash);
+    REQUIRE(!restored->ancestorHashes.empty());
+    REQUIRE(restored->ancestorHashes.back() == savedVersion);
+    REQUIRE(restored->strips.size() == 2 && restored->strips.front().muted);
+  }
+}
+
+void testHistoricalMixerSaveForkSurvivesReopen() {
+  using Kind = fiddle::versioning::ProjectSaveResult::Kind;
+  Sandbox sandbox;
+  const auto databaseFile = sandbox.directory.getChildFile("fork.sqlite");
+  fiddle::versioning::ProjectSaveResult a, b, fork, continued;
+  std::string main;
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(databaseFile));
+    fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+    const auto root = versions.initializeEmpty();
+    main = versions.getVersion(root)->branchId;
+    MixerFixture f;
+    const auto strip = f.instrument(0.1f, 1);
+    REQUIRE(f.commands.addGroupBus("Strings", {strip}));
+    addEffect(f.mixer.getAllGroupBuses().front()->audioEngine(), "double", 2.0f);
+    fiddle::StateManager state;
+    state.setVersionStore(&versions);
+    state.initialize(sandbox.directory.getChildFile("state.bin"));
+    a = state.saveCurrentState(f.mixer, main, root);
+    REQUIRE(a.kind == Kind::Committed);
+    f.mixer.getStrip(strip)->setGainDb(-3.0f);
+    b = state.saveCurrentState(f.mixer, main, a.versionId);
+    REQUIRE(b.kind == Kind::Committed);
+
+    // Put the live mixer back at A. A dirty hint following edit/undo must not
+    // create a branch when the actual captured state equals A.
+    f.mixer.getStrip(strip)->setGainDb(0.0f);
+    state.markDirty();
+    const auto unchanged = state.saveCurrentState(f.mixer, main, a.versionId);
+    REQUIRE(unchanged.kind == Kind::Unchanged);
+    REQUIRE(unchanged.versionId == a.versionId);
+    REQUIRE(versions.getBranchHead(main) == b.versionId);
+
+    f.mixer.getStrip(strip)->setGainDb(-6.0f);
+    fork = state.saveCurrentState(f.mixer, main, a.versionId);
+    REQUIRE(fork.kind == Kind::Branched);
+    REQUIRE(versions.getVersion(fork.versionId)->parentId == a.versionId);
+    REQUIRE(versions.getBranchHead(main) == b.versionId);
+    REQUIRE(state.saveCurrentState(f.mixer, fork.branchId, fork.versionId).kind == Kind::Unchanged);
+    f.mixer.getStrip(strip)->setMuted(true);
+    continued = state.saveCurrentState(f.mixer, fork.branchId, fork.versionId);
+    REQUIRE(continued.kind == Kind::Committed);
+    REQUIRE(continued.branchId == fork.branchId);
+    state.setCurrentBranchId(continued.branchId);
+    state.setConfigName(juce::String(continued.branchName));
+    const auto blob = state.buildStateBlob(f.mixer);
+    state.publishBlob(blob);
+    const auto decoded = fiddle::StateManager::deserializeBlob(blob.getData(), blob.getSize());
+    REQUIRE(decoded && decoded->ancestorHashes.back() == continued.versionId);
+    REQUIRE(decoded->stateHash == versions.getVersion(continued.versionId)->stateHash);
+  }
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(databaseFile));
+    fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+    REQUIRE(versions.getBranchHead(main) == b.versionId);
+    REQUIRE(versions.getBranchHead(fork.branchId) == continued.versionId);
+    const auto restoredA = versions.resolveProjectRestoreTarget(
+        continued.branchId, continued.versionId, "");
+    const auto restoredB = versions.resolveProjectRestoreTarget(main, b.versionId, "");
+    REQUIRE(restoredA && restoredA->versionId == continued.versionId);
+    REQUIRE(restoredB && restoredB->versionId == b.versionId);
+    REQUIRE(versions.getVersion(fork.versionId)->parentId == a.versionId);
+    const auto saved = versions.getState(versions.getVersion(continued.versionId)->stateHash);
+    REQUIRE(saved && saved->globalState.groupBuses.size() == 1);
+    const auto strip = versions.getStripBlob(saved->stripHashes.front());
+    REQUIRE(strip && strip->muted && strip->gainDb == -6.0f);
+    REQUIRE(strip->directOutputBusId == saved->globalState.groupBuses.front().id);
+  }
+}
+
+} // namespace
+
+int main() {
+  juce::ScopedJuceInitialiser_GUI juce;
+  int failed = 0;
+  const auto run = [&](const char *name, auto test) {
+    try {
+      test();
+      std::cout << "PASS " << name << '\n';
+    } catch (const std::exception &error) {
+      ++failed;
+      std::cerr << "FAIL " << name << ": " << error.what() << '\n';
+    }
+  };
+  run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
+  run("sample alignment through strip and bus latency", testRealSampleLatencyAcrossDirectAndBusRoutes);
+  run("panic clears sounding and future notes", testPanicClearsSoundingAndFutureNotes);
+  run("graceful stop tolerates incomplete note tracking", testGracefulStopWithIncompleteNoteTracking);
+  run("saved routing survives database reopen", testSnapshotSurvivesDatabaseReopenAndStateExchange);
+  run("historical mixer save forks and survives reopen", testHistoricalMixerSaveForkSurvivesReopen);
+  return failed == 0 ? 0 : 1;
+}

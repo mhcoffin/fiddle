@@ -454,6 +454,17 @@ void MixerStrip::loadPlugin(const juce::PluginDescription &desc,
       });
 }
 
+bool MixerStrip::installInstrumentProcessor(
+    const juce::PluginDescription &description,
+    std::unique_ptr<juce::AudioProcessor> processor, juce::String &error) {
+  if (!instrumentSlot_.installProcessor(
+          description, std::move(processor), currentSampleRate_.load(),
+          currentBlockSize_.load(), error))
+    return false;
+  pluginUid = description.uniqueId;
+  return true;
+}
+
 void MixerStrip::markPluginMissing(int uid, const juce::MemoryBlock &state,
                                    const juce::String &error) {
   juce::PluginDescription description;
@@ -482,7 +493,26 @@ void MixerStrip::showEditor() {
   const auto title = library.isNotEmpty()
                          ? library
                          : instrumentSlot_.description().name;
-  instrumentSlot_.showEditor(title);
+  instrumentSlot_.showEditor(title, [this] {
+    if (onEditorVisibilityChanged)
+      onEditorVisibilityChanged();
+  });
+  if (onEditorVisibilityChanged)
+    onEditorVisibilityChanged();
+}
+
+bool MixerStrip::isEditorVisible() const noexcept {
+  return instrumentSlot_.isEditorVisible();
+}
+
+void MixerStrip::toggleEditor() {
+  if (!isEditorVisible()) {
+    showEditor();
+    return;
+  }
+  instrumentSlot_.closeEditor();
+  if (onEditorVisibilityChanged)
+    onEditorVisibilityChanged();
 }
 
 juce::var MixerStrip::toJson() const {
@@ -504,6 +534,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("inputChannel", state.inputChannel);
   obj->setProperty("pluginUid", pluginUid);
   obj->setProperty("hasPlugin", hasPlugin());
+  obj->setProperty("instrumentEditorOpen", isEditorVisible());
   obj->setProperty("pluginSlotId", instrumentSlot_.id().value);
   obj->setProperty("pluginStatus",
                    HostedPluginSlot::statusName(instrumentSlot_.status()));

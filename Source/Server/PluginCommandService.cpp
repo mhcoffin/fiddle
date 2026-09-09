@@ -98,6 +98,14 @@ bool PluginCommandService::showEditor(const juce::String &stripId) {
   return true;
 }
 
+bool PluginCommandService::toggleEditor(const juce::String &stripId) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (strip == nullptr)
+    return false;
+  strip->toggleEditor();
+  return true;
+}
+
 bool PluginCommandService::restoreLibraryState(
     const juce::String &stripId, const juce::String &libraryId,
     const juce::String &entityId, int instanceNumber) {

@@ -84,6 +84,12 @@ public:
     return commandResult;
   }
 
+  bool toggleEditor(const juce::String &id) override {
+    calls.emplace_back("toggle-editor");
+    stripId = id;
+    return commandResult;
+  }
+
   bool restoreLibraryState(const juce::String &id,
                            const juce::String &targetLibraryId,
                            const juce::String &targetEntityId,
@@ -253,6 +259,29 @@ void testEditorRestoreAndPayloadValidation() {
   CHECK(pending.size() == pendingCount);
 }
 
+void testEditorToggleDoesNotDirtyMixer() {
+  fiddle::MessageRouter router;
+  FakePluginCommands commands;
+  int changed = 0;
+  std::vector<fiddle::PluginJsHandlers::Task> pending;
+  fiddle::PluginJsHandlers handlers(router, commands,
+      {[&](auto task) { pending.push_back(std::move(task)); },
+       {}, {}, {}, [&] { ++changed; }});
+  handlers.registerHandlers();
+  CHECK(router.handleMessage("toggleStripEditor", payload({})));
+  CHECK(pending.empty());
+  CHECK(router.handleMessage("toggleStripEditor", payload({"strip-a"})));
+  CHECK(commands.calls.empty());
+  CHECK(pending.size() == 1);
+  pending.back()();
+  CHECK(commands.calls.back() == "toggle-editor");
+  CHECK(commands.stripId == "strip-a");
+  CHECK(router.handleMessage("toggleStripEditor", payload({"strip-a"})));
+  pending.back()();
+  CHECK(commands.calls.size() == 2);
+  CHECK(changed == 0);
+}
+
 } // namespace
 
 int main() {
@@ -261,6 +290,7 @@ int main() {
   testScanAndCatalogMessages();
   testAssignmentAndCompletionMessages();
   testEditorRestoreAndPayloadValidation();
+  testEditorToggleDoesNotDirtyMixer();
 
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;

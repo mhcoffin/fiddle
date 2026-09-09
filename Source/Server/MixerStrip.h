@@ -204,6 +204,12 @@ struct MixerStrip {
                   juce::AudioPluginFormatManager &formatManager,
                   std::function<void(bool)> onComplete = nullptr);
 
+  /// Install an already-created instrument through the normal hosted-slot
+  /// lifecycle. Enables deterministic offline rendering without a vendor VST.
+  bool installInstrumentProcessor(const juce::PluginDescription &description,
+                                  std::unique_ptr<juce::AudioProcessor> processor,
+                                  juce::String &error);
+
   /// Preserve an unavailable instrument's identity and serialized state.
   void markPluginMissing(int uid, const juce::MemoryBlock &state,
                          const juce::String &error);
@@ -222,6 +228,10 @@ struct MixerStrip {
 
   /// Show the editor window (create if needed).
   void showEditor();
+  void toggleEditor();
+  [[nodiscard]] bool isEditorVisible() const noexcept;
+  /// Presentation-only callback; must not mark the project dirty.
+  std::function<void()> onEditorVisibilityChanged;
 
   /// Serialize to JSON var.
   juce::var toJson() const;

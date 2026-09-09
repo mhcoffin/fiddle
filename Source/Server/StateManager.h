@@ -34,6 +34,7 @@ public:
 
   /// Initialize: open shared memory as producer
   void initialize();
+  void initialize(const juce::File &stateFile);
 
   /// Mark state as dirty. Will schedule a background rebuild.
   void markDirty();
@@ -92,6 +93,13 @@ public:
   versioning::Hash commitCurrentState(MixerModel &mixer,
                                       const std::string &branchId);
 
+  /// Shared save policy for Fiddle UI and Dorico. Snapshot equality, not just
+  /// the dirty hint, determines whether to append, fork, or retain identity.
+  versioning::ProjectSaveResult saveCurrentState(
+      MixerModel &mixer, const std::string &branchId,
+      const std::string &loadedVersionId,
+      const std::optional<std::string> &newBranchName = std::nullopt);
+
   /// Push a pre-built blob to shared memory.
   void publishBlob(const juce::MemoryBlock &blob);
 
@@ -109,6 +117,7 @@ public:
   }
 
 private:
+  versioning::FiddleState captureCurrentState(MixerModel &mixer);
   void captureRoutingState(
       versioning::FiddleState &state,
       const std::map<std::string, versioning::Hash> &stripHashesById,

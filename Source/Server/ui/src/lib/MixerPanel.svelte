@@ -28,6 +28,7 @@
         writeStripSize,
     } from "./uiPreferences.js";
     import { planLockedActivationChange } from "./lockedGroupGain.js";
+    import { projectSaveButton } from "./projectSaveUi.js";
 
     let {
         uiZoom = 1,
@@ -74,6 +75,7 @@
     let editingDelay = $state(false);
     let dirty = $state(false);
     let isDetachedHead = $state(false);
+    let saveButton = $derived(projectSaveButton(dirty, isDetachedHead));
 
     /** @type {any} */
     const w = window;
@@ -159,6 +161,11 @@
                 : strip,
         );
         if (data.stripId === channelAudioStripId) channelAudio = data;
+    });
+    onFromCpp("setInstrumentEditorState", (data) => {
+        if (!data?.stripId) return;
+        strips = strips.map((strip) => strip.id === data.stripId
+            ? { ...strip, instrumentEditorOpen: Boolean(data.editorOpen) } : strip);
     });
     onFromCpp("setExpressionMaps", (data) => {
         try {
@@ -1059,7 +1066,7 @@
 
 <div
     class="mixer-container"
-    style="--strip-width: {stripWidth}px; --strip-pre-fader-height: {stripSize === "large" ? 288 : 140}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 276 : 128}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1209,10 +1216,8 @@
             <button
                 class="toolbar-btn save-btn"
                 onclick={doSaveConfig}
-                disabled={!dirty || isDetachedHead}
-                title={isDetachedHead
-                    ? "Cannot save while viewing a historical version"
-                    : "Save config (creates a new version)"}
+                disabled={saveButton.disabled}
+                title={saveButton.title}
             >
                 💾 Save
             </button>
@@ -1302,16 +1307,20 @@
                                         class="bridge-header"
                                         class:bridge-multi={instrGroup.strips.length > 1}
                                     >
-                                        <span class="bridge-icon">{(instrGroup.chair?.role === "solo" || instInput?.isSolo) ? "👤" : "👥"}</span>
-                                        <span class="bridge-label">{instrGroup.label}</span>
+                                        <div class="bridge-identity" title={instrGroup.label}>
+                                            <span class="bridge-icon">{(instrGroup.chair?.role === "solo" || instInput?.isSolo) ? "👤" : "👥"}</span>
+                                            <span class="bridge-label">{instrGroup.label}</span>
+                                        </div>
                                         {#if instrGroup.portLabel}
-                                            <span class="bridge-port">{instrGroup.portLabel}</span>
+                                            <span class="bridge-port" title={instrGroup.portLabel}>{instrGroup.portLabel}</span>
                                         {/if}
                                         {#if instrGroup.chairId}
                                             <button
                                                 class="bridge-add-layer"
+                                                title={`Add a layer to ${instrGroup.label}`}
+                                                aria-label={`Add a layer to ${instrGroup.label}`}
                                                 onclick={() => { layerPickerChair = instrGroup.chair; }}
-                                            >Add Layer</button>
+                                            >{stripSize === "compact" ? "+ Layer" : "Add Layer"}</button>
                                         {/if}
                                     </div>
                                     <!-- inst-body: master-strip + strips-row side by side -->
@@ -1401,17 +1410,31 @@
                                                 ></div>
 
                                                 <div class="ch-strip-identity" title={`${strip.layerName || "Layer"} — ${strip.library || "Unknown library"}`}>
-                                                    <strong>{strip.layerName || strip.library || "Layer"}</strong>
-                                                    <span>{strip.chairId ? (strip.library || "Unknown library") : (getInputName(strip) || "Free-standing strip")}</span>
+                                                    <strong>{strip.library || "Unknown library"}</strong>
                                                 </div>
 
                                                 <div class="ch-instrument-summary">
-                                                    <div title={getPluginName(strip) || "No VST instrument assigned"}>
-                                                        <span>VSTi</span>
-                                                        <strong>{getPluginName(strip) || "No instrument"}</strong>
-                                                    </div>
                                                     {#if strip.hasPlugin}
-                                                        <button onclick={() => showEditor(strip.id)} title="Open the VST instrument editor">Edit</button>
+                                                        <button
+                                                            onclick={() => dispatchCpp("toggleStripEditor", strip.id)}
+                                                            aria-pressed={Boolean(strip.instrumentEditorOpen)}
+                                                            title={`${strip.instrumentEditorOpen ? "Hide" : "Edit"} ${getPluginName(strip) || "VST instrument"}; use Edit details to change the player`}
+                                                        >{strip.instrumentEditorOpen ? "Hide VSTi" : "Edit VSTi"}</button>
+                                                    {:else}
+                                                        <select
+                                                            aria-label="Choose VSTi"
+                                                            title="Choose a VST instrument"
+                                                            value={strip.pluginUid || 0}
+                                                            onchange={(event) => setPlugin(strip.id, Number(event.currentTarget.value))}
+                                                        >
+                                                            <option value={0}>{stripSize === "compact" ? "+ VSTi" : "Choose VSTi…"}</option>
+                                                            {#if strip.pluginUid && !scannedPlugins.some((plugin) => Number(plugin.uid) === Number(strip.pluginUid) && plugin.valid !== false)}
+                                                                <option value={strip.pluginUid} disabled>Unavailable VSTi</option>
+                                                            {/if}
+                                                            {#each scannedPlugins.filter((plugin) => plugin.valid !== false) as plugin}
+                                                                <option value={plugin.uid}>{plugin.name}</option>
+                                                            {/each}
+                                                        </select>
                                                     {/if}
                                                 </div>
 
@@ -2104,7 +2127,8 @@
     .inst-group {
         display: flex;
         flex-direction: column;
-        flex: 1;
+        flex: 0 0 auto;
+        min-width: 0;
         min-height: 0;
         border-left: 2px solid var(--accent, #334155);
         margin-left: -1px; /* center the 2px divider in the 1px+2px gap between groups */
@@ -2121,28 +2145,33 @@
     .strips-row {
         display: flex;
         flex-direction: row;
-        justify-content: center; /* center strips when header is wider than strip(s) */
-        flex: 1;
+        flex: 0 0 auto;
         min-height: 0;
     }
     .empty-chair {
-        width: max(220px, var(--strip-width, 120px));
-        min-width: max(220px, var(--strip-width, 120px));
+        width: var(--strip-width, 120px);
+        min-width: var(--strip-width, 120px);
         align-self: stretch;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 12px;
-        padding: 24px;
-        box-sizing: border-box;
+        padding: 24px 8px;
+        box-sizing: content-box; /* same outer width as one channel-strip */
+        text-align: center;
+        overflow-wrap: anywhere;
+        font-size: 0.78rem;
         color: #64748b;
         background: rgba(15, 23, 42, 0.55);
         border-right: 1px solid #1e293b;
     }
     .empty-chair button {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
         min-height: 36px;
-        padding: 7px 12px;
+        padding: 7px 4px;
         border: 1px solid rgba(52, 211, 153, 0.55);
         border-radius: 6px;
         background: rgba(20, 83, 45, 0.45);
@@ -2199,7 +2228,7 @@
     .master-strip-top-spacer {
         flex-shrink: 0;
         /* Mirrors the fixed operational area above every channel fader. */
-        height: var(--strip-pre-fader-height, 140px);
+        height: var(--strip-pre-fader-height, 128px);
     }
     /* Mirrors the enlarged controls below each channel fader. */
     .master-strip-bot-spacer {
@@ -2272,19 +2301,27 @@
     }
 
     /* Instrument group bridge header */
-    .inst-group {
-        display: flex;
-        flex-direction: column;
-    }
     .bridge-header {
-        display: flex;
+        /* Only the strip body determines chair width. Header labels/buttons
+           must not contribute an intrinsic minimum width to the chair. */
+        contain: inline-size;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-rows: 20px 28px;
         align-items: center;
-        gap: 5px;
-        padding: 4px 6px;
+        gap: 4px;
+        padding: 4px;
         border-bottom: 2px solid var(--accent, #3b82f6);
         background: rgba(0,0,0,0.25);
-        min-height: 34px;
+        flex-shrink: 0;
         overflow: hidden;
+    }
+    .bridge-identity {
+        grid-column: 1 / -1;
+        min-width: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
     }
     .bridge-header.bridge-multi {
         background: rgba(59,130,246,0.08);
@@ -2301,16 +2338,25 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        min-width: 0;
         flex: 1;
     }
     .bridge-port {
+        grid-column: 1;
+        grid-row: 2;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         font-size: 0.65rem;
         color: #94a3b8;
         flex-shrink: 0;
     }
     .bridge-add-layer {
+        grid-column: 2;
+        grid-row: 2;
         min-height: 28px;
-        padding: 4px 10px;
+        padding: 4px 6px;
         border: 1px solid rgba(52, 211, 153, 0.55);
         border-radius: 5px;
         background: rgba(20, 83, 45, 0.5);
@@ -2548,8 +2594,13 @@
 
     .ch-audio-fx {
         width: 100%;
-        min-height: 32px;
-        padding: 5px 8px;
+        height: var(--strip-control-height, 32px);
+        min-height: var(--strip-control-height, 32px);
+        box-sizing: border-box;
+        padding: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         border: 1px solid #334155;
         border-radius: 4px;
         background: #111c2e;
@@ -2573,61 +2624,39 @@
         gap: 2px;
         text-align: center;
     }
-    .ch-strip-identity strong,
-    .ch-strip-identity span {
+    .ch-strip-identity strong {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+        color: #cbd5e1;
+        font-size: 0.73rem;
     }
-    .ch-strip-identity strong { color: #e2e8f0; font-size: 0.73rem; }
-    .ch-strip-identity span { color: #94a3b8; font-size: 0.64rem; }
     .ch-instrument-summary {
         display: flex;
-        align-items: center;
-        gap: 6px;
-        height: 44px;
-        flex-shrink: 0;
-        padding: 5px 6px;
-        box-sizing: border-box;
-        border: 1px solid #29384f;
-        border-radius: 5px;
-        background: #0d1728;
-    }
-    .ch-instrument-summary > div {
-        display: flex;
+        height: var(--strip-control-height, 32px);
         min-width: 0;
-        flex: 1;
-        flex-direction: column;
-        gap: 2px;
-    }
-    .ch-instrument-summary span {
-        color: #64748b;
-        font-size: 0.58rem;
-        font-weight: 700;
-        text-transform: uppercase;
-    }
-    .ch-instrument-summary strong {
-        overflow: hidden;
-        color: #dbeafe;
-        font-size: 0.69rem;
-        font-weight: 600;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-    .ch-instrument-summary button {
-        min-width: 42px;
-        min-height: 28px;
-        padding: 3px 6px;
         flex-shrink: 0;
+    }
+    .ch-instrument-summary button,
+    .ch-instrument-summary select {
+        width: 100%;
+        min-width: 0;
+        height: 100%;
+        box-sizing: border-box;
+        padding: 4px 6px;
         border: 1px solid #3d4c62;
-        border-radius: 4px;
+        border-radius: 5px;
         background: #172337;
         color: #cbd5e1;
-        font-size: 0.67rem;
+        font-size: 0.7rem;
         font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         cursor: pointer;
     }
-    .ch-instrument-summary button:hover {
+    .ch-instrument-summary button:hover,
+    .ch-instrument-summary select:hover {
         border-color: #7dd3fc;
         color: #e0f2fe;
     }

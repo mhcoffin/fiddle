@@ -53,8 +53,8 @@ public:
   MainComponent();
   ~MainComponent() override;
 
-  /// Save current state (commit to current branch)
-  void saveConfig();
+  /// Save relative to the loaded version; historical edits fork automatically.
+  bool saveConfig(const std::optional<std::string> &newBranchName = std::nullopt);
 
   /// Toggle debug window visibility.
   void toggleDebugWindow();

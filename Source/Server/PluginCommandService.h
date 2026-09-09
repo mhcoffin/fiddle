@@ -24,6 +24,7 @@ public:
   bool setGroupPlugin(const std::vector<juce::String> &stripIds, int pluginUid,
                       LoadCompletion completion) override;
   bool showEditor(const juce::String &stripId) override;
+  bool toggleEditor(const juce::String &stripId) override;
   bool restoreLibraryState(const juce::String &stripId,
                            const juce::String &libraryId,
                            const juce::String &entityId,

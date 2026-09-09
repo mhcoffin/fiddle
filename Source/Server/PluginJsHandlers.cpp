@@ -97,6 +97,14 @@ void PluginJsHandlers::registerHandlers() {
     dispatch([this, stripId] { commands_.showEditor(stripId); });
   });
 
+  router_.registerHandler("toggleStripEditor", [this](const juce::var &payload) {
+    const auto arguments = payloadArguments(payload);
+    if (arguments.size() < 1)
+      return;
+    const auto stripId = arguments[0].toString();
+    dispatch([this, stripId] { commands_.toggleEditor(stripId); });
+  });
+
   router_.registerHandler("restoreLibraryPluginState",
                           [this](const juce::var &payload) {
     const auto arguments = payloadArguments(payload);
