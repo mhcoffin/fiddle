@@ -128,6 +128,8 @@ private:
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
+  void pushUndoState();
+  void pushProjectSettings();
   std::unique_ptr<MixerCommandService> mixerCommandService_;
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
   std::unique_ptr<GroupBusCommandService> groupBusCommandService_;
@@ -275,8 +277,8 @@ private:
   void pushCurrentVersion();
 
   /// Save all strips to SQLite (called after every mutation).
-  void saveAllStripsToDB();
-  void saveMasterAudioToDB();
+  void saveAllStripsToDB(bool captureLiveState = true);
+  void saveMasterAudioToDB(bool captureLiveState = true);
 
   /// Load strips from SQLite into the mixer.
   void loadStripsFromDB();

@@ -41,7 +41,7 @@ private:
   juce::String busId_;
   std::vector<juce::String> stripIds_;
   std::vector<std::pair<juce::String, juce::String>> previousOutputs_;
-  std::unique_ptr<GroupBus> removedBus_;
+  std::shared_ptr<GroupBus> removedBus_;
   int index_ = 0;
 };
 
@@ -73,7 +73,7 @@ private:
   MixerModel &mixer_;
   juce::String busId_;
   std::vector<juce::String> affectedRoutes_;
-  std::unique_ptr<GroupBus> removedBus_;
+  std::shared_ptr<GroupBus> removedBus_;
   int index_ = 0;
 };
 

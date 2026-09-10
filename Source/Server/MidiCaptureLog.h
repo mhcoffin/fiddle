@@ -96,9 +96,13 @@ public:
 
   /** Serialize the entire log to a juce::var (array of event objects). */
   juce::var toVar() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<CapturedMidiEvent> snapshot;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      snapshot = events_;
+    }
     juce::Array<juce::var> arr;
-    for (const auto &e : events_)
+    for (const auto &e : snapshot)
       arr.add(e.toVar());
     return juce::var(arr);
   }
@@ -106,12 +110,15 @@ public:
   /** Deserialize from a juce::var (array of event objects).
    *  Populates this log, replacing any existing events. */
   void loadFromVar(const juce::var &v) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    events_.clear();
-    capturing_ = false;
+    std::vector<CapturedMidiEvent> replacement;
     if (auto *arr = v.getArray()) {
       for (const auto &item : *arr)
-        events_.push_back(CapturedMidiEvent::fromVar(item));
+        replacement.push_back(CapturedMidiEvent::fromVar(item));
+    }
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      events_.swap(replacement);
+      capturing_ = false;
     }
   }
 

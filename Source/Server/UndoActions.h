@@ -88,6 +88,7 @@ public:
     // Keep our oldGain_ (original before-drag value), update newGain_
     newGain_ = static_cast<const SetGainAction &>(newer).newGain_;
   }
+  bool isNoOp() const override { return oldGain_ == newGain_; }
 
 private:
   MixerModel &mixer_;
@@ -235,7 +236,7 @@ private:
   MixerModel &mixer_;
   juce::String stripId_;
   int index_ = 0;
-  std::unique_ptr<MixerStrip> removedStrip_;
+  std::shared_ptr<MixerStrip> removedStrip_;
 };
 
 /// Undo/redo for duplicateStripInput.
@@ -420,15 +421,46 @@ public:
         coalesceId_(std::move(coalesceId)) {}
 
   void execute() override {
-    for (auto &a : actions_)
-      a->execute();
+    success_ = false;
+    for (size_t i = 0; i < actions_.size(); ++i) {
+      actions_[i]->execute();
+      if (!actions_[i]->succeeded()) {
+        while (i > 0) actions_[--i]->undo();
+        return;
+      }
+    }
+    success_ = true;
   }
   void undo() override {
-    for (int i = (int)actions_.size() - 1; i >= 0; --i)
-      actions_[(size_t)i]->undo();
+    success_ = false;
+    for (size_t i = actions_.size(); i > 0; --i) {
+      actions_[i - 1]->undo();
+      if (!actions_[i - 1]->succeeded()) {
+        for (size_t j = i; j < actions_.size(); ++j) actions_[j]->execute();
+        return;
+      }
+    }
+    success_ = true;
   }
+  bool succeeded() const override { return success_; }
   juce::String getDescription() const override { return description_; }
   juce::String getCoalesceId() const override { return coalesceId_; }
+
+  bool canCoalesceWith(const UndoableAction &newer) const override {
+    if (!UndoableAction::canCoalesceWith(newer))
+      return false;
+    const auto &other = static_cast<const CompoundAction &>(newer);
+    if (actions_.size() != other.actions_.size())
+      return false;
+    for (size_t i = 0; i < actions_.size(); ++i)
+      if (!actions_[i]->canCoalesceWith(*other.actions_[i]))
+        return false;
+    return true;
+  }
+  bool isNoOp() const override {
+    return std::all_of(actions_.begin(), actions_.end(),
+                       [](const auto &action) { return action->isNoOp(); });
+  }
 
   void coalesceWith(const UndoableAction &newer) override {
     auto &other = static_cast<const CompoundAction &>(newer);
@@ -443,6 +475,7 @@ private:
   juce::String description_;
   std::vector<std::unique_ptr<UndoableAction>> actions_;
   juce::String coalesceId_;
+  bool success_ = false;
 };
 
 } // namespace fiddle

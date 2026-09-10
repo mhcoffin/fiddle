@@ -74,6 +74,8 @@ void RenderAheadEngine::run() {
       wait(1);
       continue;
     }
+    AudioProcessingGate::Render render;
+    if (!render) { wait(1); continue; }
     const auto start = juce::Time::getMillisecondCounterHiRes();
     if (previousEndMs > 0 && std::abs(plan.presentationTimeMs - previousEndMs) > 100.0)
       s.clockJumps.fetch_add(1, std::memory_order_relaxed);
@@ -103,6 +105,8 @@ double RenderAheadEngine::reserveMs() const noexcept {
 juce::var RenderAheadEngine::diagnostics() const {
   auto *data = new juce::DynamicObject();
   data->setProperty("enabled", true);
+  data->setProperty("controlOperations", static_cast<juce::int64>(AudioProcessingGate::controlCount()));
+  data->setProperty("longestControlPauseMs", AudioProcessingGate::longestControlMs());
   data->setProperty("realtimeScheduling", realtime_.load(std::memory_order_relaxed));
   auto s = stream_.read();
   if (s.get()) {

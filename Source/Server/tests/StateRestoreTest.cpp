@@ -176,6 +176,26 @@ void testMasterAudioRoundTripsAndV3DefaultsRemainCompatible() {
   CHECK(v3 && v3->strips.size() == 1);
 }
 
+void testProjectSettingsExtensionAndLegacyDefaults() {
+  auto blob = makeBlobWithActive(true);
+  const auto legacy = fiddle::deserializeStateBlob(blob.getData(), blob.getSize());
+  CHECK(legacy && legacy->projectSettings == fiddle::ProjectSettings{});
+  fiddle::ProjectSettings expected;
+  expected.playbackDelayMs = 750;
+  expected.lockedChairIds = {"chair-a", "chair with spaces and \"quotes\""};
+  CHECK(fiddle::ProjectSettings::deserialize(expected.serialize()) == expected);
+  CHECK(fiddle::ProjectSettings::deserialize("garbage").playbackDelayMs == 1000);
+  CHECK(fiddle::ProjectSettings::deserialize("-1").playbackDelayMs == 0);
+  CHECK(fiddle::ProjectSettings::deserialize("99999").playbackDelayMs == 5000);
+  append<uint32_t>(blob, 0x50534554);
+  appendString(blob, expected.serialize());
+  auto restored = fiddle::deserializeStateBlob(blob.getData(), blob.getSize());
+  CHECK(restored && restored->projectSettings == expected);
+  // An incomplete optional extension must not invent settings.
+  restored = fiddle::deserializeStateBlob(blob.getData(), blob.getSize() - 1);
+  CHECK(restored && restored->projectSettings == fiddle::ProjectSettings{});
+}
+
 } // namespace
 
 int main() {
@@ -184,6 +204,7 @@ int main() {
   testMuteAndSoloRoundTripWithLegacyDefaults();
   testMasterAudioRoundTripsAndV3DefaultsRemainCompatible();
   testStripAudioStateRoundTripsAndDefaultsEmpty();
+  testProjectSettingsExtensionAndLegacyDefaults();
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;
   return failed == 0 ? 0 : 1;

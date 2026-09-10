@@ -3,6 +3,7 @@
 #include "MixerModel.h"
 #include "UndoActions.h"
 #include "UndoManager.h"
+#include "MixerControlActions.h"
 
 #include <memory>
 
@@ -69,11 +70,23 @@ bool MixerCommandService::setGain(const juce::String &stripId, float gainDb) {
 }
 
 bool MixerCommandService::setMute(const juce::String &stripId, bool muted) {
-  return mixer_.setStripMute(stripId, muted);
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip) return false;
+  const auto before = SetMixerControlsAction::Values::of(*strip);
+  auto after = before;
+  after.muted = muted;
+  return undoManager_.perform(std::make_unique<SetMixerControlsAction>(
+      mixer_, std::vector<SetMixerControlsAction::Change>{{stripId, before, after}}, "Mute layer"));
 }
 
 bool MixerCommandService::setSolo(const juce::String &stripId, bool soloed) {
-  return mixer_.setStripSolo(stripId, soloed);
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip) return false;
+  const auto before = SetMixerControlsAction::Values::of(*strip);
+  auto after = before;
+  after.soloed = soloed;
+  return undoManager_.perform(std::make_unique<SetMixerControlsAction>(
+      mixer_, std::vector<SetMixerControlsAction::Change>{{stripId, before, after}}, "Solo layer"));
 }
 
 bool MixerCommandService::toggleLibraryActive(const juce::String &library) {

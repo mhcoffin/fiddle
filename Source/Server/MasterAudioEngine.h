@@ -46,8 +46,8 @@ public:
   [[nodiscard]] int insertCount() const noexcept;
   [[nodiscard]] int indexOf(const juce::String &slotId) const noexcept;
   [[nodiscard]] std::optional<MasterInsertSnapshot>
-  snapshot(const juce::String &slotId) const;
-  [[nodiscard]] MasterAudioSnapshot snapshotAll() const;
+  snapshot(const juce::String &slotId, bool captureLiveState = true) const;
+  [[nodiscard]] MasterAudioSnapshot snapshotAll(bool captureLiveState = true) const;
 
   /// Inserts the slot immediately in loading/pass-through state, then creates
   /// the processor asynchronously. The stable slot ID is preserved on undo,
@@ -109,7 +109,7 @@ private:
   std::atomic<float> gainDb_{0.0f};
   std::atomic<float> peakDb_{-120.0f};
   std::atomic<int> latencySamples_{0};
-  double sampleRate_ = 44100.0;
+  std::atomic<double> sampleRate_{44100.0};
   int blockSize_ = 512;
   std::atomic<bool> prepared_{false};
   juce::MidiBuffer midiScratch_;

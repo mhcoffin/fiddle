@@ -175,6 +175,44 @@ try {
     }
     assert.ok(sizes[0].scrollWidth < sizes[1].scrollWidth);
     assert.ok(sizes[1].scrollWidth < sizes[2].scrollWidth);
+    // Exercise real DOM gestures and bridge payloads, not source-text matches.
+    await page.evaluate(() => {
+        window.__dispatchFromCpp({ type: "setProjectSettings", data: {
+            playbackDelayMs: 750, lockedChairIds: ["chair-8"],
+        } });
+        window.__dispatchFromCpp({ type: "setUndoState", data: {
+            canUndo: true, canRedo: false, undoDescription: "Mute layer", redoDescription: "",
+        } });
+        window.fixtureMessages = [];
+    });
+    assert.equal(await page.locator("#delay-slider").inputValue(), "750");
+    const layeredChair = page.locator(".inst-group").nth(8);
+    assert.equal(await layeredChair.locator(".sum-lock-active").count(), 1);
+    await layeredChair.locator(".channel-strip .mute-btn").first().click();
+    const muteMessages = await page.evaluate(() => window.fixtureMessages.filter(x => x.type === "setMixerControls"));
+    assert.equal(muteMessages.length, 1, "locked mute is a single native command");
+    assert.equal(muteMessages[0].payload[0].length, 2, "command includes compensating sibling");
+    assert.equal(muteMessages[0].payload[0].find(x => x.id === "chair-8-0").muted, true);
+    assert.ok(Math.abs(muteMessages[0].payload[0].find(x => x.id === "chair-8-1").gainDb - 3.0103) < 0.01);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
+    assert.equal(await page.getByRole("button", { name: "Redo", exact: true }).isDisabled(), true);
+    // Native state after Undo must replace optimistic gain shadows.
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+    assert.equal(Number(await layeredChair.locator('.channel-strip input[type="number"]').nth(1).inputValue()), 0);
+    await page.locator("#delay-slider").focus();
+    await page.keyboard.down("ArrowRight");
+    await page.keyboard.up("ArrowRight");
+    const delayMessages = await page.evaluate(() => window.fixtureMessages.slice(-3).map(x => x.type));
+    assert.deepEqual(delayMessages, ["beginHistoryGesture", "setPlaybackDelay", "endHistoryGesture"]);
+    await layeredChair.locator('.channel-strip input[type="number"]').first().focus();
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    await page.keyboard.press("Meta+z");
+    assert.equal(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "undo")), false,
+        "text-field Undo must not undo the project");
+    await page.locator("#delay-slider").focus();
+    await page.keyboard.press("Meta+Shift+z");
+    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "redo");
     // Audio diagnostics use isolated fixtures, never the live server/device.
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
         running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,
@@ -219,7 +257,7 @@ try {
     await performance.waitFor({ state: "hidden" });
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "showAudioSettings")));
     assert.deepEqual(errors, [], "no browser runtime errors");
-    console.log("PASS: chair density/controls and audio diagnostics table, fixed actions, copy and settings dispatch");
+    console.log("PASS: chair layout, atomic locked mute, Undo controls/keyboard, project settings, and audio diagnostics");
 } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));

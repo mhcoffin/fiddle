@@ -31,6 +31,7 @@ makePluginSlotBlob(const MasterInsertSnapshot &snapshot) {
 versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master,
                                         MixerModel &mixer) {
   versioning::GlobalState result;
+  result.projectSettings = mixer.projectSettings();
   result.audioSchemaVersion = 2;
   result.masterGainDb = master.gainDb;
   result.masterInserts.reserve(master.inserts.size());
@@ -352,6 +353,15 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     if (blobSize > 0)
       blob.append(cached.getData(), blobSize);
   }
+
+  // Optional trailing v4 extension. Older readers stop after strips; newer
+  // readers restore project settings even for an empty mixer.
+  const uint32_t settingsMagic = 0x50534554; // PSET
+  const auto settings = mixer.projectSettings().serialize();
+  const auto settingsSize = static_cast<uint32_t>(settings.size());
+  blob.append(&settingsMagic, 4);
+  blob.append(&settingsSize, 4);
+  blob.append(settings.data(), settings.size());
 
   // Fill in total size (excluding the 12-byte header)
   uint32_t totalSize = (uint32_t)(blob.getSize() - 12);

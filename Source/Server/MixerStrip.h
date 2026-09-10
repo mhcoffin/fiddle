@@ -140,6 +140,9 @@ struct MixerStrip {
   /// Lua plugins run first (in order), then the ExpressionMapAnnotator.
   void rebuildAnnotatorChain();
 
+private:
+  friend class MixerModel;
+  // MIDI/control domain, guarded by midiStateMutex_. Never accessed by DSP.
   // Annotator chain: Lua plugins → ExpressionMapAnnotator.
   // Defaults to a chain with just a PassthroughAnnotator.
   std::unique_ptr<AnnotatorChain> annotator;
@@ -151,9 +154,16 @@ struct MixerStrip {
   std::deque<AnnotationRecord> recentAnnotations_;
   static constexpr size_t kMaxAnnotations = 64;
 
+public:
   void pushAnnotation(const AnnotationRecord &rec);
 
   void clearAnnotations();
+
+  // Serializes only MIDI annotation/control work, never sample rendering.
+  // Inspector formatting operates on a detached copy after releasing this lock.
+  [[nodiscard]] auto lockMidiState() const {
+    return std::unique_lock<std::recursive_mutex>(midiStateMutex_);
+  }
 
   // MIDI capture logs for expression map comparison.
   // incomingCapture: raw MIDI from Dorico (ground truth when EM is in Dorico).
@@ -161,6 +171,7 @@ struct MixerStrip {
   MidiCaptureLog incomingCapture;
   MidiCaptureLog emittedCapture;
 
+private:
   /// Currently held (latching) keyswitch notes per channel.
   /// Key: {channel, noteNumber}. Keyswitches are held until articulation
   /// changes, matching Dorico's latching behavior for VSTs.
@@ -175,6 +186,7 @@ struct MixerStrip {
   };
   std::set<HeldKS> heldKeyswitchNotes;
 
+public:
   /// Serialize one AnnotationRecord to a juce::var (DynamicObject).
   static juce::var annotationRecordToVar(const AnnotationRecord &r);
 
@@ -182,6 +194,10 @@ struct MixerStrip {
   juce::String getAnnotationRecordsAsJson() const;
 
   void prepareToPlay(double sampleRate, int blockSize);
+  void prepareIfNeeded(double sampleRate, int blockSize) {
+    if (!prepared_ || currentSampleRate_.load() != sampleRate || currentBlockSize_.load() != blockSize)
+      prepareToPlay(sampleRate, blockSize);
+  }
 
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg);
 
@@ -200,9 +216,12 @@ struct MixerStrip {
                     bool anySoloed = false, bool routeAudible = true);
 
   /// Load a plugin from a description. Must be called on the message thread.
+  /// Initial state belongs to the strip, even if it leaves the mixer while
+  /// asynchronous creation is pending (e.g. Undo Add Layer).
   void loadPlugin(const juce::PluginDescription &desc,
                   juce::AudioPluginFormatManager &formatManager,
-                  std::function<void(bool)> onComplete = nullptr);
+                  std::function<void(bool)> onComplete = nullptr,
+                  const juce::MemoryBlock &initialState = {});
 
   /// Install an already-created instrument through the normal hosted-slot
   /// lifecycle. Enables deterministic offline rendering without a vendor VST.
@@ -242,6 +261,8 @@ struct MixerStrip {
   juce::var toJson() const;
 
 private:
+  mutable std::recursive_mutex midiStateMutex_;
+  bool prepared_ = false; // lifecycle owner only
   static constexpr uint64_t packInputAssignment(int port,
                                                 int channel) noexcept {
     return (static_cast<uint64_t>(static_cast<uint32_t>(port)) << 32) |

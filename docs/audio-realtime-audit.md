@@ -1,5 +1,9 @@
 # Audio real-time and synchronization audit
 
+Follow-up: [audio-safety-results.md](audio-safety-results.md) records the implemented
+frame-length, MIDI/inspection and lifecycle/undo repairs and their boundaries.
+The observations below describe the earlier code, not a fresh audit of those repairs.
+
 Date: 2026-09-09. Scope: current working tree, including the uncommitted restore-service work. This is a diagnostic review, not a claim that the reported intermittent crackling has been reproduced or its single cause identified. No production code or project settings were changed during the audit.
 
 ## Conclusion

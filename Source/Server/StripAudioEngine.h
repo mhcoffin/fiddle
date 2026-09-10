@@ -46,8 +46,8 @@ public:
   [[nodiscard]] std::optional<StripInsertPosition>
   positionOf(const juce::String &slotId) const;
   [[nodiscard]] std::optional<AudioInsertSnapshot>
-  snapshot(const juce::String &slotId) const;
-  [[nodiscard]] StripAudioSnapshot snapshotAll() const;
+  snapshot(const juce::String &slotId, bool captureLiveState = true) const;
+  [[nodiscard]] StripAudioSnapshot snapshotAll(bool captureLiveState = true) const;
 
   bool insert(const AudioInsertSnapshot &snapshot, StripInsertPosition position,
               int index, juce::AudioPluginFormatManager &formatManager,
@@ -106,7 +106,7 @@ private:
   std::shared_ptr<std::atomic<float>> gainLinear_;
   std::atomic<int> latencySamples_{0};
   std::atomic<bool> prepared_{false};
-  double sampleRate_ = 44100.0;
+  std::atomic<double> sampleRate_{44100.0};
   int blockSize_ = 512;
   juce::MidiBuffer midiScratch_;
   ChangeCallback onChanged_;

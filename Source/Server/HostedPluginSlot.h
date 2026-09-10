@@ -2,6 +2,7 @@
 
 #include "../RealtimeObjectPublisher.h"
 #include "../AudioDiagnostics.h"
+#include "../AudioProcessingGate.h"
 
 #include <atomic>
 #include <cstdint>
@@ -62,6 +63,8 @@ public:
     PluginRenderDiagnostics timing;
     PluginRenderDiagnostics::Snapshot latestTiming; // message thread only
     void processBlock(juce::AudioBuffer<float> &audio, juce::MidiBuffer &midi) {
+      AudioProcessingGate::Render render;
+      if (!render) return;
       const auto start = juce::Time::getMillisecondCounterHiRes();
       processor->processBlock(audio, midi);
       const auto end = juce::Time::getMillisecondCounterHiRes();

@@ -10,6 +10,7 @@
   import MixerPanel from "./lib/MixerPanel.svelte";
   import LibraryManager from "./lib/LibraryManager.svelte";
   import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
+  import { historyShortcut, installHistoryGestures } from "./lib/historyGestures.js";
   import {
     DEFAULT_UI_ZOOM,
     UI_ZOOM_STEP,
@@ -336,17 +337,19 @@
     signalReady();
 
     // Global keyboard shortcuts (Undo/Redo, Zoom)
+    const releaseHistoryGestures = viewMode === "library" ? () => {} :
+        installHistoryGestures(window, dispatchCpp);
     const handleKeyDown = (e) => {
+      const history = historyShortcut(e);
+      if (history) {
+        e.preventDefault();
+        if (viewMode === "library")
+          window.dispatchEvent(new CustomEvent("libraryHistory", { detail: history }));
+        else
+          dispatchCpp(history);
+        return;
+      }
       if (e.metaKey || e.ctrlKey) {
-        if (e.key === "z") {
-          e.preventDefault();
-          if (e.shiftKey) {
-            dispatchCpp("redo");
-          } else {
-            dispatchCpp("undo");
-          }
-          return;
-        }
         if (e.key === "=" || e.key === "+") {
           e.preventDefault();
           zoomIn();
@@ -367,6 +370,7 @@
     window.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      releaseHistoryGestures();
       window.removeEventListener("keydown", handleKeyDown);
     };
   });

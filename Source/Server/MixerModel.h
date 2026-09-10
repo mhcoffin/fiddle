@@ -4,6 +4,7 @@
 #include "MasterAudioEngine.h"
 #include "GroupBus.h"
 #include "MixerStrip.h"
+#include "ProjectSettings.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
@@ -38,6 +39,11 @@ class MixerModel : public juce::Timer {
   };
 
   struct ActiveAudioGraph {
+    // Graphs are reclaimed on the message thread after every reader leaves.
+    // Undo history may release its copy at any time without deleting an object
+    // still referenced by a retired graph. No shared_ptr copies on rendering.
+    std::vector<std::shared_ptr<MixerStrip>> stripOwners;
+    std::vector<std::shared_ptr<GroupBus>> busOwners;
     // Flat strip list serves MIDI routing; stripRoutes adds resolved audio
     // destinations without making the audio thread inspect mutable strings.
     std::vector<MixerStrip *> strips;
@@ -58,12 +64,12 @@ public:
   /// Remove a strip by ID.
   bool removeStrip(const juce::String &id);
 
-  /// Remove a strip by ID, returning its ownership (for undo).
-  /// Does NOT unload the plugin. Caller is responsible.
-  std::unique_ptr<MixerStrip> removeStripKeepAlive(const juce::String &id);
+  /// Remove a strip by ID, retaining shared ownership for undo and in-flight
+  /// graphs. Does NOT unload the plugin. Release undo handles on the message thread.
+  std::shared_ptr<MixerStrip> removeStripKeepAlive(const juce::String &id);
 
   /// Insert a strip at a specific index (for undo of remove).
-  void insertStripAt(std::unique_ptr<MixerStrip> strip, int index);
+  void insertStripAt(std::shared_ptr<MixerStrip> strip, int index);
 
   /// Get the index of a strip by ID (-1 if not found).
   [[nodiscard]] int stripIndex(const juce::String &id) const;
@@ -85,14 +91,14 @@ public:
   juce::String addGroupBus(const juce::String &name);
 
   /// Restore/undo a fully constructed bus at a stable order position.
-  void insertGroupBusAt(std::unique_ptr<GroupBus> bus, int index);
+  void insertGroupBusAt(std::shared_ptr<GroupBus> bus, int index);
 
   /// Remove a group bus and repair every affected strip route to Master.
   bool removeGroupBus(const juce::String &id);
 
   /// Remove a bus without destroying it, for exact undo restoration. Routes
   /// targeting it are repaired to Master.
-  std::unique_ptr<GroupBus>
+  std::shared_ptr<GroupBus>
   removeGroupBusKeepAlive(const juce::String &id);
 
   [[nodiscard]] int groupBusIndex(const juce::String &id) const;
@@ -224,30 +230,38 @@ public:
 private:
   // Only the main thread accesses these UI representations
   mutable std::mutex stripsMutex_;
-  std::vector<std::unique_ptr<MixerStrip>> strips_;
-  std::vector<std::unique_ptr<GroupBus>> groupBuses_;
+  std::vector<std::shared_ptr<MixerStrip>> strips_;
+  std::vector<std::shared_ptr<GroupBus>> groupBuses_;
 
   RealtimeObjectPublisher<ActiveAudioGraph> audioGraph_;
 
   // Garbage bin emptied by timer
   mutable std::mutex retiredStripMutex_;
-  std::vector<std::unique_ptr<MixerStrip>> trashStrips_;
-  std::vector<std::unique_ptr<GroupBus>> trashGroupBuses_;
+  std::vector<std::shared_ptr<MixerStrip>> trashStrips_;
+  std::vector<std::shared_ptr<GroupBus>> trashGroupBuses_;
 
   void commitAudioGraph();
 
   void timerCallback() override;
   juce::AudioPluginFormatManager formatManager_;
   MasterAudioEngine masterAudio_;
-  double currentSampleRate_ = 44100.0;
+  std::atomic<double> currentSampleRate_{44100.0};
   int currentBlockSize_ = 512;
-  int playbackDelayMs_ = 1000;
+  std::atomic<int> playbackDelayMs_{1000};
+  std::set<std::string> lockedChairIds_; // message-thread project metadata
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
 
 public:
   int getPlaybackDelayMs() const;
+  ProjectSettings projectSettings() const {
+    return {getPlaybackDelayMs(), lockedChairIds_};
+  }
+  void setProjectSettings(const ProjectSettings &settings) {
+    lockedChairIds_ = settings.lockedChairIds;
+    setPlaybackDelayMs(settings.playbackDelayMs);
+  }
   void setPlaybackDelayMs(int ms);
 };
 

@@ -34,6 +34,10 @@ public:
   [[nodiscard]] float peakHoldDb() const noexcept;
 
   void prepareToPlay(double sampleRate, int blockSize);
+  void prepareIfNeeded(double sampleRate, int blockSize) {
+    if (sampleRate_.load() != sampleRate || inputStorage_.getNumSamples() != blockSize)
+      prepareToPlay(sampleRate, blockSize);
+  }
 
   /// Clear the preallocated input sum for a new device block.
   void beginBlock(int numSamples) noexcept;
@@ -60,6 +64,7 @@ private:
   std::atomic<float> peakHoldDb_{-120.0f};
   std::atomic<double> sampleRate_{44100.0};
   juce::AudioBuffer<float> inputBuffer_;
+  juce::AudioBuffer<float> inputStorage_;
   StripAudioEngine audioEngine_;
 };
 

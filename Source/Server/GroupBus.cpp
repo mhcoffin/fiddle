@@ -39,19 +39,20 @@ float GroupBus::peakHoldDb() const noexcept {
 }
 
 void GroupBus::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
   sampleRate = sampleRate > 0.0 ? sampleRate : 44100.0;
   blockSize = juce::jmax(1, blockSize);
   sampleRate_.store(sampleRate, std::memory_order_relaxed);
-  inputBuffer_.setSize(2, blockSize, false, true, false);
-  inputBuffer_.clear();
+  inputStorage_.setSize(2, blockSize, false, true, false);
+  inputStorage_.clear();
+  inputBuffer_.setDataToReferTo(inputStorage_.getArrayOfWritePointers(), 2, blockSize);
   audioEngine_.prepareToPlay(sampleRate, blockSize);
 }
 
 void GroupBus::beginBlock(int numSamples) noexcept {
-  jassert(numSamples <= inputBuffer_.getNumSamples());
-  if (numSamples <= 0 || numSamples > inputBuffer_.getNumSamples())
-    return;
-  inputBuffer_.clear(0, numSamples);
+  const auto size = juce::jlimit(0, inputStorage_.getNumSamples(), numSamples);
+  inputBuffer_.setDataToReferTo(inputStorage_.getArrayOfWritePointers(), 2, size);
+  inputBuffer_.clear();
 }
 
 void GroupBus::processTo(juce::AudioBuffer<float> &destination,

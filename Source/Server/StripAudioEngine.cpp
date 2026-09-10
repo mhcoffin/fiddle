@@ -230,6 +230,7 @@ StripAudioEngine::~StripAudioEngine() {
 }
 
 void StripAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
   sampleRate_ = sampleRate > 0.0 ? sampleRate : 44100.0;
   blockSize_ = juce::jmax(1, blockSize);
   midiScratch_.ensureSize(1024);
@@ -244,12 +245,15 @@ void StripAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
 }
 
 void StripAudioEngine::releaseResources() {
+  AudioProcessingGate::Control control;
   prepared_.store(false, std::memory_order_release);
   graph_.releaseResources();
 }
 
 void StripAudioEngine::processBlock(juce::AudioBuffer<float> &audio,
                                     float effectiveGain) {
+  AudioProcessingGate::Render render;
+  if (!render) return;
   gainLinear_->store(effectiveGain, std::memory_order_release);
   if (!prepared_.load(std::memory_order_acquire) ||
       audio.getNumChannels() < 2)
@@ -317,7 +321,7 @@ StripAudioEngine::positionOf(const juce::String &slotId) const {
 }
 
 std::optional<AudioInsertSnapshot>
-StripAudioEngine::snapshot(const juce::String &slotId) const {
+StripAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) const {
   const auto entry = find(slotId);
   if (!entry)
     return std::nullopt;
@@ -325,18 +329,18 @@ StripAudioEngine::snapshot(const juce::String &slotId) const {
   result.slotId = entry->id;
   result.description = entry->description;
   result.bypassed = entry->hosted->isBypassed();
-  if (!entry->hosted->captureState(result.pluginState))
+  if (!captureLiveState || !entry->hosted->captureState(result.pluginState))
     result.pluginState = entry->hosted->cachedState();
   return result;
 }
 
-StripAudioSnapshot StripAudioEngine::snapshotAll() const {
+StripAudioSnapshot StripAudioEngine::snapshotAll(bool captureLiveState) const {
   StripAudioSnapshot result;
-  const auto append = [this](const Rack &entries,
+  const auto append = [this, captureLiveState](const Rack &entries,
                              std::vector<AudioInsertSnapshot> &destination) {
     destination.reserve(entries.size());
     for (const auto &entry : entries)
-      if (const auto value = snapshot(entry->id))
+      if (const auto value = snapshot(entry->id, captureLiveState))
         destination.push_back(*value);
   };
   append(preFaderInserts_, result.preFaderInserts);

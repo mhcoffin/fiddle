@@ -1083,9 +1083,25 @@ target_compile_definitions(MixerIntegrationTest PRIVATE
     JUCE_PLUGINHOST_VST3=1 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_compile_features(MixerIntegrationTest PRIVATE cxx_std_20)
 juce_generate_juce_header(MixerIntegrationTest)
+option(FIDDLE_TEST_THREAD_SANITIZER "Instrument mixer/hosted-slot concurrency tests with TSan" OFF)
+if(FIDDLE_TEST_THREAD_SANITIZER)
+    foreach(safety_target MixerIntegrationTest HostedPluginSlotTest)
+        target_compile_options(${safety_target} PRIVATE -fsanitize=thread -g)
+        target_link_options(${safety_target} PRIVATE -fsanitize=thread)
+    endforeach()
+endif()
 add_test(NAME mixer_integration COMMAND MixerIntegrationTest)
 set_tests_properties(mixer_integration PROPERTIES
     LABELS "audio;routing;persistence;integration;regression;stable")
+
+# One build target for local testing and CI. New *Test executables are included
+juce_add_console_app(UndoManagerTest PRODUCT_NAME "UndoManagerTest")
+target_sources(UndoManagerTest PRIVATE Source/Server/tests/UndoManagerTest.cpp)
+target_include_directories(UndoManagerTest PRIVATE Source/Server)
+target_link_libraries(UndoManagerTest PRIVATE juce::juce_core)
+target_compile_features(UndoManagerTest PRIVATE cxx_std_17)
+add_test(NAME undo_manager COMMAND UndoManagerTest)
+set_tests_properties(undo_manager PROPERTIES LABELS "undo;regression;stable")
 
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.

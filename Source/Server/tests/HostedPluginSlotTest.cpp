@@ -42,6 +42,8 @@ public:
   }
 
   const juce::String getName() const override { return "Stateful test"; }
+  std::atomic<bool> inProcess{false};
+  std::function<void()> onCapture;
   void prepareToPlay(double sampleRate, int blockSize) override {
     preparedSampleRate = sampleRate;
     preparedBlockSize = blockSize;
@@ -63,11 +65,14 @@ public:
 
   void processBlock(juce::AudioBuffer<float> &audio,
                     juce::MidiBuffer &) override {
+    inProcess.store(true);
     playbackCounter_.fetch_add(1, std::memory_order_relaxed);
     audio.applyGain(gain_->get());
+    inProcess.store(false);
   }
 
   void getStateInformation(juce::MemoryBlock &destination) override {
+    if (onCapture) onCapture();
     const float value = gain_->get();
     destination.append(&value, sizeof(value));
     const auto playbackCounter =
@@ -486,6 +491,43 @@ void testInstalledInstrument(const juce::String &pluginPath) {
   slot.reclaimRetiredRuntimes();
 }
 
+void testStateCaptureQuiescesRendering() {
+  fiddle::HostedPluginSlot slot(fiddle::PluginSlotRole::effect);
+  auto processor = std::make_unique<StatefulTestProcessor>(StatefulTestProcessor::Kind::effect);
+  auto *raw = processor.get();
+  juce::String error;
+  CHECK(slot.installProcessor(makeDescription(987, false, 2, 2), std::move(processor), 48000, 64, error));
+  const auto messageThread = std::this_thread::get_id();
+  std::atomic<bool> stop{false}, overlap{false}, wrongThread{false};
+  std::atomic<int> renders{0}, deferred{0};
+  raw->onCapture = [&] {
+    if (raw->inProcess.load()) overlap.store(true);
+    if (std::this_thread::get_id() != messageThread) wrongThread.store(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (raw->inProcess.load()) overlap.store(true);
+  };
+  std::thread audio([&] {
+    juce::AudioBuffer<float> buffer(2, 64); juce::MidiBuffer midi;
+    while (!stop.load()) {
+      fiddle::AudioProcessingGate::Render render;
+      if (!render) { ++deferred; std::this_thread::yield(); continue; }
+      buffer.clear(); slot.processBlock(buffer, midi); ++renders;
+    }
+  });
+  while (renders.load() < 10) std::this_thread::yield();
+  for (int i = 0; i < 30; ++i) {
+    juce::MemoryBlock state;
+    CHECK(slot.captureState(state));
+    CHECK(slot.applyState(state.getData(), int(state.getSize())));
+    CHECK(slot.setProgram(0));
+    slot.prepareToPlay(48000, 64);
+  }
+  stop.store(true); audio.join();
+  CHECK(!overlap.load() && !wrongThread.load());
+  CHECK(renders.load() >= 10 && deferred.load() > 0);
+  CHECK(!fiddle::AudioProcessingGate::controlPending());
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -495,6 +537,7 @@ int main(int argc, char **argv) {
   testParameterFingerprintIgnoresVolatilePlaybackState();
   testLayoutRejectionAndDeferredReclamation();
   testMultiOutputInstrumentLayoutIsPreserved();
+  testStateCaptureQuiescesRendering();
   if (argc >= 2) {
     const bool instrument =
         argc >= 3 && juce::String(argv[2]) == "--instrument";

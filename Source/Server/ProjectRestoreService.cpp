@@ -124,6 +124,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   session->mixer = &mixer_;
   session->callbacks = callbacks_;
   mixer_.clear();
+  mixer_.setProjectSettings(state.globalState.projectSettings);
   mixer_.masterAudio().clear(false);
 
   auto restoreRack = [&](StripAudioEngine &engine,

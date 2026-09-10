@@ -136,6 +136,7 @@ MasterAudioEngine::~MasterAudioEngine() {
 }
 
 void MasterAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
   sampleRate_ = sampleRate > 0.0 ? sampleRate : 44100.0;
   blockSize_ = juce::jmax(1, blockSize);
   midiScratch_.ensureSize(4096);
@@ -148,11 +149,14 @@ void MasterAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
 }
 
 void MasterAudioEngine::releaseResources() {
+  AudioProcessingGate::Control control;
   prepared_.store(false, std::memory_order_release);
   graph_.releaseResources();
 }
 
 void MasterAudioEngine::processBlock(juce::AudioBuffer<float> &audio) {
+  AudioProcessingGate::Render render;
+  if (!render) return;
   if (!prepared_.load(std::memory_order_acquire) || audio.getNumChannels() < 2)
     return;
 
@@ -203,7 +207,7 @@ MasterAudioEngine::find(const juce::String &slotId) const {
 }
 
 std::optional<MasterInsertSnapshot>
-MasterAudioEngine::snapshot(const juce::String &slotId) const {
+MasterAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) const {
   const auto entry = find(slotId);
   if (!entry)
     return std::nullopt;
@@ -212,17 +216,17 @@ MasterAudioEngine::snapshot(const juce::String &slotId) const {
   result.slotId = entry->id;
   result.description = entry->description;
   result.bypassed = entry->hosted->isBypassed();
-  if (!entry->hosted->captureState(result.pluginState))
+  if (!captureLiveState || !entry->hosted->captureState(result.pluginState))
     result.pluginState = entry->hosted->cachedState();
   return result;
 }
 
-MasterAudioSnapshot MasterAudioEngine::snapshotAll() const {
+MasterAudioSnapshot MasterAudioEngine::snapshotAll(bool captureLiveState) const {
   MasterAudioSnapshot result;
   result.gainDb = gainDb();
   result.inserts.reserve(inserts_.size());
   for (const auto &entry : inserts_) {
-    if (const auto value = snapshot(entry->id))
+    if (const auto value = snapshot(entry->id, captureLiveState))
       result.inserts.push_back(*value);
   }
   return result;

@@ -1,4 +1,5 @@
 #include "FiddleDatabase.h"
+#include "ChairLayerActions.h"
 #include "GroupBusCommandService.h"
 #include "GroupBusJsHandlers.h"
 #include "MessageRouter.h"
@@ -7,6 +8,9 @@
 #include "ProjectRestoreService.h"
 #include "StateManager.h"
 #include "UndoManager.h"
+#include "UndoActions.h"
+#include "ProjectSettingsAction.h"
+#include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
 #include "NativePlugin/AudioConsumer.h"
 
@@ -34,6 +38,10 @@ public:
   inline static int programQueries = 0;
   inline static int stateCaptures = 0;
   inline static std::vector<std::pair<double, int>> preparations;
+  bool counting = false;
+  uint64_t frames = 0;
+  std::function<void()> onProcess, onDestroy;
+  ~SignalProcessor() override { if (onDestroy) onDestroy(); }
   SignalProcessor(bool instrument, float amount, int latency = 0)
       : AudioPluginInstance(instrument
                            ? BusesProperties().withOutput(
@@ -57,6 +65,7 @@ public:
   }
   void releaseResources() override {}
   void processBlock(juce::AudioBuffer<float> &audio, juce::MidiBuffer &midi) override {
+    if (onProcess) onProcess();
     auto event = midi.cbegin();
     for (int sample = 0; sample < audio.getNumSamples(); ++sample) {
       while (event != midi.cend() && (*event).samplePosition <= sample) {
@@ -72,7 +81,7 @@ public:
       const bool playing = std::any_of(notes_.begin(), notes_.end(),
                                        [](bool value) { return value; });
       for (int channel = 0; channel < audio.getNumChannels(); ++channel) {
-        float value = instrument_ ? (playing ? amount_ : 0.0f)
+        float value = instrument_ ? (counting ? amount_ * float(frames + sample + 1) : playing ? amount_ : 0.0f)
                                   : audio.getSample(channel, sample) * amount_;
         if (latency_ > 0) {
           const float delayed = delay_.getSample(channel, position_);
@@ -84,6 +93,7 @@ public:
       if (latency_ > 0)
         position_ = (position_ + 1) % latency_;
     }
+    frames += audio.getNumSamples();
   }
   double getTailLengthSeconds() const override { return 0; }
   bool acceptsMidi() const override { return instrument_; }
@@ -293,6 +303,12 @@ void testPluginTimingAndReprepare() {
   for (int i = 0; i < 100; ++i)
     REQUIRE(juce::JSON::toString(f.mixer.pluginTimings(f.now)).isNotEmpty());
   REQUIRE(SignalProcessor::programQueries == programs && SignalProcessor::stateCaptures == captures);
+  // Scalar/session persistence may use cached bytes. Explicit saves retain the
+  // default fresh-capture path and are protected by the processing gate.
+  (void)f.mixer.masterAudio().snapshotAll(false);
+  (void)f.mixer.getStrip(a)->audioEngine().snapshotAll(false);
+  (void)bus->audioEngine().snapshotAll(false);
+  REQUIRE(SignalProcessor::stateCaptures == captures);
 
   SignalProcessor::preparations.clear();
   f.mixer.prepareToPlay(96000, 1024);
@@ -450,6 +466,251 @@ struct Sandbox {
   ~Sandbox() { directory.deleteRecursively(); }
 };
 
+void testChairLayerRemovalUndo() {
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("layer-undo.sqlite");
+  juce::String removedId;
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(file));
+    auto &repository = *db.getLibraryRoutingRepository();
+    MixerFixture f;
+    fiddle::ChairRow chair;
+    chair.id = "violin-1";
+    chair.name = "Violin 1";
+    chair.instrumentEntityId = "test.violin";
+    chair.family = "strings";
+    chair.role = fiddle::DoricoRole::section;
+    chair.flatIndex = 1;
+    REQUIRE(repository.upsertChair(chair));
+    std::vector<juce::String> ids;
+    for (int i = 0; i < 3; ++i) {
+      const auto id = f.instrument(0.2f, 1);
+      ids.push_back(id);
+      fiddle::LayerRow layer;
+      layer.id = id.toStdString();
+      layer.chairId = chair.id;
+      layer.patchId = "historical-patch-" + std::to_string(i);
+      layer.patchName = "Violin layer " + std::to_string(i);
+      layer.libraryName = "Test strings";
+      layer.position = i;
+      layer.sourcePatchRevision = 7;
+      layer.pluginStateEdited = true;
+      REQUIRE(repository.upsertLayer(layer));
+      auto *strip = f.mixer.getStrip(id);
+      strip->chairId = chair.id;
+      strip->patchId = layer.patchId;
+      strip->layerName = layer.patchName;
+      strip->library = layer.libraryName;
+    }
+    removedId = ids[1];
+    auto *original = f.mixer.getStrip(removedId);
+    const float gain = juce::Decibels::gainToDecibels(0.5f);
+    original->setGainDb(gain); // Live edit newer than the database row.
+    addEffect(original->audioEngine(), "retained-fx", 2.0f);
+    REQUIRE(f.commands.addGroupBus("Strings", {removedId}));
+    const auto busId = original->directOutputBusId;
+    f.undo.clear();
+    f.undo.markSavePoint();
+    int notifications = 0;
+    auto changed = [&](bool success) {
+      REQUIRE(success);
+      ++notifications;
+      // Same persistence contract as the UI callback: the restored instance
+      // is authoritative, not the stale catalog/database defaults.
+      db.clearStrips();
+      int index = 0;
+      for (auto *strip : f.mixer.getAllStrips()) {
+        db.saveStrip(*strip, index++);
+        db.saveStripAudio(strip->id, strip->audioEngine().snapshotAll());
+        auto row = repository.getLayer(strip->id.toStdString());
+        REQUIRE(row);
+        row->gainDb = strip->gainDb();
+        REQUIRE(repository.upsertLayer(*row));
+      }
+    };
+    const auto preparationCount = SignalProcessor::preparations.size();
+    f.noteOn(1);
+    f.expectLevel(0.6f);
+    f.undo.perform(std::make_unique<fiddle::RemoveChairLayerAction>(
+        repository, f.mixer, *repository.getLayer(removedId.toStdString()), changed));
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      REQUIRE(!repository.getLayer(removedId.toStdString()));
+      REQUIRE(!f.mixer.getStrip(removedId));
+      REQUIRE(repository.listLayers(chair.id).size() == 2);
+      REQUIRE(db.loadAllStrips().size() == 2);
+      REQUIRE(!f.undo.isAtSavePoint());
+      f.expectLevel(0.4f);
+      REQUIRE(f.undo.undo());
+      REQUIRE(f.undo.isAtSavePoint());
+      REQUIRE(f.mixer.getStrip(removedId) == original);
+      REQUIRE(f.mixer.stripIndex(removedId) == 1);
+      REQUIRE(original->hasPlugin());
+      REQUIRE(original->gainDb() == gain);
+      REQUIRE(original->directOutputBusId == busId);
+      REQUIRE(original->audioEngine().snapshotAll().preFaderInserts.size() == 1);
+      const auto rows = repository.listLayers(chair.id);
+      REQUIRE(rows.size() == 3 && rows[1].id == removedId.toStdString());
+      REQUIRE(rows[1].sourcePatchRevision == 7 && rows[1].pluginStateEdited);
+      REQUIRE(rows[1].gainDb == gain);
+      REQUIRE(SignalProcessor::preparations.size() == preparationCount);
+      f.expectLevel(0.4f); // No resurrected held note on the restored player.
+      f.noteOn(1);
+      f.expectLevel(0.6f); // It plays again, including its retained FX/gain.
+      if (cycle < 2)
+        REQUIRE(f.undo.redo());
+    }
+    REQUIRE(notifications == 6);
+    REQUIRE(db.loadAllStrips().size() == 3);
+  }
+  fiddle::FiddleDatabase reopened;
+  REQUIRE(reopened.open(file));
+  const auto layer = reopened.getLibraryRoutingRepository()->getLayer(removedId.toStdString());
+  REQUIRE(layer && layer->position == 1 && layer->sourcePatchRevision == 7);
+  REQUIRE(reopened.loadAllStrips().size() == 3);
+}
+
+void testChairLayerAdditionUndo() {
+  // Exercise ordinary loading, Undo before async creation finishes, and an
+  // unavailable player. None may cause Redo to make a fresh catalog copy.
+  for (int mode = 0; mode < 3; ++mode) {
+    Sandbox sandbox;
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(sandbox.directory.getChildFile("layer-add.sqlite")));
+    REQUIRE(db.saveLibraryMetadata({"library", "Test strings", "Test", ""}));
+    auto &repository = *db.getLibraryRoutingRepository();
+    fiddle::ChairRow chair;
+    chair.id = "violin-1";
+    chair.name = "Violin 1";
+    chair.instrumentEntityId = "test.violin";
+    chair.flatIndex = 1;
+    REQUIRE(repository.upsertChair(chair));
+    fiddle::LibraryPatchRow patch;
+    patch.id = "violin-patch";
+    patch.libraryId = "library";
+    patch.name = "Original violin";
+    patch.pluginUid = description(true).uniqueId;
+    const float amount = 0.2f;
+    patch.pluginState.resize(sizeof(amount));
+    std::memcpy(patch.pluginState.data(), &amount, sizeof(amount));
+    REQUIRE(repository.upsertPatch(patch));
+    MixerFixture f;
+    auto ownedFormat = std::make_unique<TestPluginFormat>();
+    auto *format = ownedFormat.get();
+    format->defer = mode == 1;
+    format->missingInstruments = mode == 2;
+    f.mixer.getFormatManager().addFormat(std::move(ownedFormat));
+    const auto existingId = f.instrument(0.1f, 2);
+    f.mixer.getStrip(existingId)->setGainDb(-7.0f);
+    REQUIRE(f.commands.addGroupBus("Strings", {}));
+    const auto busId = f.mixer.getAllGroupBuses().front()->id;
+    f.undo.clear();
+    f.undo.markSavePoint();
+    int creations = 0, notifications = 0;
+    bool completed = false;
+    juce::String id;
+    fiddle::MixerStrip *original = nullptr;
+    auto instantiate = [&](const fiddle::LayerRow &layer) {
+      ++creations;
+      id = layer.id;
+      auto strip = std::make_shared<fiddle::MixerStrip>();
+      original = strip.get();
+      strip->id = id;
+      strip->chairId = layer.chairId;
+      strip->patchId = layer.patchId;
+      strip->layerName = layer.patchName;
+      strip->library = layer.libraryName;
+      strip->setInputAssignment(0, 1);
+      f.mixer.insertStripAt(strip, f.mixer.size());
+      juce::MemoryBlock initialState(layer.pluginState.data(), layer.pluginState.size());
+      strip->loadPlugin(description(true), f.mixer.getFormatManager(),
+                        [&](bool success) {
+                          REQUIRE(success == (mode != 2));
+                          completed = true;
+                        }, initialState);
+      return true;
+    };
+    auto changed = [&](bool success) {
+      REQUIRE(success);
+      ++notifications;
+      db.clearStrips();
+      int index = 0;
+      for (auto *strip : f.mixer.getAllStrips()) {
+        db.saveStrip(*strip, index++);
+        db.saveStripAudio(strip->id, strip->audioEngine().snapshotAll());
+        if (auto layer = repository.getLayer(strip->id.toStdString())) {
+          layer->gainDb = strip->gainDb();
+          REQUIRE(repository.upsertLayer(*layer));
+        }
+      }
+    };
+    f.undo.perform(std::make_unique<fiddle::AddChairLayerAction>(
+        repository, f.mixer, chair.id, patch.id, 0, instantiate, changed));
+    REQUIRE(f.undo.canUndo() && !f.undo.isAtSavePoint());
+    REQUIRE(repository.listLayers(chair.id).size() == 1);
+    if (mode == 1) {
+      pumpUntil([&] { return !format->pending.empty(); });
+      REQUIRE(!completed);
+      REQUIRE(f.undo.undo());
+      REQUIRE(!f.mixer.getStrip(id));
+      format->completeAll(); // Apply saved state while retained only by undo.
+      pumpUntil([&] { return completed; });
+      REQUIRE(f.undo.redo());
+    } else {
+      pumpUntil([&] { return completed; });
+    }
+    REQUIRE(original->cachedPluginState().getSize() == sizeof(amount));
+    float restored = 0;
+    std::memcpy(&restored, original->cachedPluginState().getData(), sizeof(restored));
+    REQUIRE(restored == amount);
+    const float gain = juce::Decibels::gainToDecibels(0.5f);
+    original->setGainDb(gain);
+    REQUIRE(f.mixer.setStripDirectOutput(id, busId));
+    addEffect(original->audioEngine(), "added-layer-fx", 2.0f);
+    const auto preparations = SignalProcessor::preparations.size();
+    for (int cycle = 0; cycle < 3; ++cycle) {
+      REQUIRE(f.undo.undo());
+      REQUIRE(f.undo.isAtSavePoint());
+      REQUIRE(!f.mixer.getStrip(id));
+      REQUIRE(!repository.getLayer(id.toStdString()));
+      REQUIRE(db.loadAllStrips().size() == 1);
+      patch.name = "Changed catalog patch";
+      patch.pluginState.assign(sizeof(float), 0);
+      REQUIRE(repository.upsertPatch(patch));
+      REQUIRE(f.undo.redo());
+      REQUIRE(!f.undo.isAtSavePoint());
+      REQUIRE(creations == 1);
+      REQUIRE(f.mixer.getStrip(id) == original);
+      REQUIRE(f.mixer.stripIndex(id) == 1);
+      REQUIRE(original->layerName == "Original violin");
+      REQUIRE(original->gainDb() == gain);
+      REQUIRE(original->directOutputBusId == busId);
+      REQUIRE(original->audioEngine().snapshotAll().preFaderInserts.size() == 1);
+      REQUIRE(repository.getLayer(id.toStdString())->patchName == "Original violin");
+      REQUIRE(repository.getLayer(id.toStdString())->gainDb == gain);
+      REQUIRE(db.loadAllStrips().size() == 2);
+      REQUIRE(f.mixer.getStrip(existingId)->gainDb() == -7.0f);
+      REQUIRE(SignalProcessor::preparations.size() == preparations);
+      f.expectLevel(0.0f); // Clear queued panic before a new note.
+      f.noteOn(1);
+      f.expectLevel(mode == 2 ? 0.0f : 0.2f);
+    }
+    REQUIRE(notifications == (mode == 1 ? 9 : 7));
+    // Removing an added layer and undoing both actions must also compose.
+    f.undo.perform(std::make_unique<fiddle::RemoveChairLayerAction>(
+        repository, f.mixer, *repository.getLayer(id.toStdString()), changed));
+    REQUIRE(f.undo.undo());
+    REQUIRE(f.mixer.getStrip(id) == original);
+    REQUIRE(f.undo.undo());
+    REQUIRE(!f.mixer.getStrip(id));
+    REQUIRE(f.undo.isAtSavePoint());
+    REQUIRE(f.undo.redo());
+    REQUIRE(f.mixer.getStrip(id) == original);
+    REQUIRE(f.undo.redo());
+    REQUIRE(!f.mixer.getStrip(id));
+  }
+}
+
 void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
   Sandbox sandbox;
   const auto databaseFile = sandbox.directory.getChildFile("test.sqlite");
@@ -482,6 +743,7 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     f.mixer.getStrip(a)->setMuted(true);
     f.mixer.getStrip(b)->setGainDb(-9.0f);
     f.mixer.masterAudio().setGainDb(-6.0f);
+    f.mixer.setProjectSettings({725, {"chair-a", "chair-b"}});
 
     fiddle::StateManager state;
     state.setVersionStore(&versions);
@@ -522,6 +784,8 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     REQUIRE(bus.id == busId && bus.name == "Saved Strings");
     REQUIRE(bus.gainDb == -3.0f && bus.muted && bus.soloed);
     REQUIRE(state->globalState.masterGainDb == -6.0f);
+    const fiddle::ProjectSettings settings{725, {"chair-a", "chair-b"}};
+    REQUIRE(state->globalState.projectSettings == settings);
     const auto rack = fiddle::deserializeStripAudioSnapshot(
         bus.audioInsertState.data(), bus.audioInsertState.size());
     REQUIRE(rack.preFaderInserts.size() == 1 && rack.postFaderInserts.size() == 1);
@@ -543,10 +807,66 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     const auto restored = fiddle::StateManager::deserializeBlob(
         savedBlob.getData(), savedBlob.getSize());
     REQUIRE(restored && restored->stateHash == savedHash);
+    REQUIRE(restored->projectSettings == settings);
     REQUIRE(!restored->ancestorHashes.empty());
     REQUIRE(restored->ancestorHashes.back() == savedVersion);
     REQUIRE(restored->strips.size() == 2 && restored->strips.front().muted);
   }
+}
+
+void testProjectSettingsAndAtomicMixerUndo() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1), b = f.instrument(0.2f, 2);
+  const fiddle::ProjectSettings initial = f.mixer.projectSettings();
+  const fiddle::ProjectSettings edited{650, {"chair-a"}};
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetProjectSettingsAction>(f.mixer, edited, "Project settings")));
+  REQUIRE(f.mixer.projectSettings() == edited);
+  REQUIRE(f.undo.undo() && f.mixer.projectSettings() == initial);
+  REQUIRE(f.undo.redo() && f.mixer.projectSettings() == edited);
+
+  using Action = fiddle::SetMixerControlsAction;
+  const auto beforeA = Action::Values::of(*f.mixer.getStrip(a));
+  const auto beforeB = Action::Values::of(*f.mixer.getStrip(b));
+  auto afterA = beforeA, afterB = beforeB;
+  afterA.muted = true;
+  afterB.gainDb = 3;
+  f.undo.clear();
+  REQUIRE(f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, beforeA, afterA}, {b, beforeB, afterB}}, "Mute layer")));
+  REQUIRE(f.mixer.getStrip(a)->isMuted() && f.mixer.getStrip(b)->gainDb() == 3);
+  REQUIRE(f.undo.undo());
+  REQUIRE(Action::Values::of(*f.mixer.getStrip(a)) == beforeA);
+  REQUIRE(Action::Values::of(*f.mixer.getStrip(b)) == beforeB);
+  REQUIRE(!f.undo.canUndo());
+  REQUIRE(f.undo.redo());
+
+  // A missing target rejects the complete edit, preserving model and history.
+  REQUIRE(!f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, afterA, beforeA}, {"missing", beforeB, afterB}}, "Invalid batch")));
+  REQUIRE(f.mixer.getStrip(a)->isMuted());
+  REQUIRE(f.undo.undo());
+
+  // Identically named gain edits for different target sets must not merge.
+  f.undo.clear();
+  afterA = beforeA; afterA.gainDb = -2;
+  afterB = beforeB; afterB.gainDb = -4;
+  f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, beforeA, afterA}}, "Adjust layer gains", true));
+  f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{b, beforeB, afterB}}, "Adjust layer gains", true));
+  REQUIRE(f.undo.undo() && f.mixer.getStrip(b)->gainDb() == beforeB.gainDb);
+  REQUIRE(f.mixer.getStrip(a)->gainDb() == -2);
+  REQUIRE(f.undo.undo() && f.mixer.getStrip(a)->gainDb() == beforeA.gainDb);
+
+  // A compound command rolls back earlier children if a later child rejects.
+  std::vector<std::unique_ptr<fiddle::UndoableAction>> children;
+  children.push_back(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, beforeA, afterA}}, "First child"));
+  children.push_back(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{"missing", beforeB, afterB}}, "Rejected child"));
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::CompoundAction>("Rejected compound", std::move(children))));
+  REQUIRE(Action::Values::of(*f.mixer.getStrip(a)) == beforeA);
+  REQUIRE(!f.undo.canUndo() && f.undo.canRedo());
 }
 
 void testHistoricalMixerSaveForkSurvivesReopen() {
@@ -714,6 +1034,7 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     fiddle::StateManager state;
     state.setVersionStore(&versions);
     state.setRoutingRepository(repository);
+    f.mixer.setProjectSettings({825, {"historical-chair"}});
     version = state.commitCurrentState(f.mixer, branch);
   }
   {
@@ -737,6 +1058,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     pumpUntil([&] { return !restore.isLoading(); });
     REQUIRE(finished == 1);
     REQUIRE(f.mixer.size() == 3);
+    const fiddle::ProjectSettings expectedSettings{825, {"historical-chair"}};
+    REQUIRE(f.mixer.projectSettings() == expectedSettings);
     REQUIRE(f.mixer.getStrip(ids[0])->directOutputBusId.toStdString() == busId);
     REQUIRE(f.mixer.getStrip(ids[0])->layerName == "Historical violin");
     REQUIRE(f.mixer.getStrip(ids[0])->library == "Saved library");
@@ -881,6 +1204,126 @@ void testCancelledStateRebuildRetainsPublishedBlob() {
   pumpUntil([&] { return host.pullState() == replacement; });
 }
 
+void testVariableBlockContinuity() {
+  for (const bool grouped : {false, true}) {
+    MixerFixture f;
+    const auto id = f.mixer.addStrip();
+    auto *strip = f.mixer.getStrip(id);
+    auto instrument = std::make_unique<SignalProcessor>(true, 0.00001f);
+    instrument->counting = true;
+    auto *counter = instrument.get();
+    juce::String error;
+    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(instrument), error));
+    addEffect(strip->audioEngine(), "delay-strip", 1.0f, 5);
+    if (grouped) {
+      REQUIRE(f.commands.addGroupBus("Group", {id}));
+      addEffect(f.mixer.getAllGroupBuses().front()->audioEngine(), "delay-bus", 1.0f, 7);
+    }
+    fiddle::MasterInsertSnapshot master;
+    master.slotId = "delay-master"; master.description = description(false);
+    REQUIRE(f.mixer.masterAudio().insertProcessor(master, 0, std::make_unique<SignalProcessor>(false, 1.0f, 3)));
+    const int delay = grouped ? 15 : 8;
+    int frames = 0;
+    for (int cycle = 0; cycle < 30; ++cycle) {
+      for (const int size : {0, 1, 16, 3, 64, 7, 32, 65}) {
+        juce::AudioBuffer<float> audio(2, size); audio.clear();
+        f.mixer.processBlock(audio, f.now + 1000.0 * frames / f.sampleRate);
+        if (size > 64) {
+          REQUIRE(audio.getMagnitude(0, size) == 0);
+        } else {
+          for (int i = 0; i < size; ++i) {
+            const auto expected = frames + i < delay ? 0.0f : 0.00001f * (frames + i - delay + 1);
+            REQUIRE(std::abs(audio.getSample(0, i) - expected) < 0.000001f);
+            REQUIRE(audio.getSample(0, i) == audio.getSample(1, i));
+          }
+          frames += size;
+        }
+        REQUIRE(counter->frames == static_cast<uint64_t>(frames));
+      }
+    }
+  }
+}
+
+void testVariableBlockMidiTiming() {
+  for (const bool grouped : {false, true}) {
+    MixerFixture f;
+    const auto id = f.instrument(0.1f, 1);
+    if (grouped) REQUIRE(f.commands.addGroupBus("Group", {id}));
+    f.now = 1000;
+    f.noteOn(1, 7.0 * 1000 / f.sampleRate);
+    f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60),
+                          f.now + 80.0 * 1000 / f.sampleRate);
+    int frame = 0, first = -1, last = -1;
+    for (const auto count : {3, 0, 16, 1, 64, 7, 32}) {
+      juce::AudioBuffer<float> out(2, count); out.clear();
+      f.mixer.processBlock(out, f.now + frame * 1000.0 / f.sampleRate);
+      for (int i = 0; i < count; ++i) if (out.getSample(0, i) != 0) {
+        if (first < 0) first = frame + i;
+        last = frame + i;
+      }
+      frame += count;
+    }
+    REQUIRE(std::abs(first - 7) <= 1 && std::abs(last - 79) <= 1);
+  }
+}
+
+void testUndoRetainsInFlightGraph() {
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  auto instrument = std::make_unique<SignalProcessor>(true, 0.1f);
+  std::atomic<bool> entered{false}, release{false}, destroyed{false};
+  instrument->onProcess = [&] { entered.store(true); while (!release.load()) std::this_thread::yield(); };
+  instrument->onDestroy = [&] { destroyed.store(true); };
+  juce::String error;
+  REQUIRE(f.mixer.getStrip(id)->installInstrumentProcessor(description(true), std::move(instrument), error));
+  REQUIRE(f.commands.addGroupBus("Group", {id}));
+  const auto busId = f.mixer.getAllGroupBuses().front()->id;
+  std::thread audio([&] { f.render(); });
+  while (!entered.load()) std::this_thread::yield();
+  const auto preparations = SignalProcessor::preparations.size();
+  auto strip = f.mixer.removeStripKeepAlive(id);
+  auto bus = f.mixer.removeGroupBusKeepAlive(busId);
+  f.mixer.insertGroupBusAt(std::move(bus), 0);
+  f.mixer.insertStripAt(std::move(strip), 0);
+  const bool unchanged = SignalProcessor::preparations.size() == preparations;
+  f.undo.perform(std::make_unique<fiddle::RemoveStripAction>(f.mixer, id));
+  f.mixer.removeGroupBus(busId);
+  f.undo.clear(); // used to delete the strip while the render was inside it
+  static_cast<juce::Timer &>(f.mixer).timerCallback();
+  const bool retained = !destroyed.load();
+  release.store(true); audio.join();
+  REQUIRE(unchanged && retained);
+  static_cast<juce::Timer &>(f.mixer).timerCallback();
+  REQUIRE(destroyed.load());
+}
+
+void testConcurrentMidiInspectorChanges() {
+  MixerFixture f;
+  const auto id = f.instrument(0.1f, 0);
+  auto *strip = f.mixer.getStrip(id);
+  std::atomic<bool> finished{false};
+  std::thread midi([&] {
+    for (int i = 0; i < 1000; ++i) {
+      fiddle::Note note; note.set_note_number(60); note.set_channel(1); note.set_start_velocity(80);
+      f.mixer.routeAnnotatedNoteOn(0, 0, note, 0);
+      f.mixer.routeAnnotatedNoteOff(0, 0, note, 0);
+      f.mixer.recordIncomingMidi(0, 0, fiddle::CapturedMidiEvent::NoteOn, 60, 80, f.now);
+    }
+    finished.store(true);
+  });
+  int snapshots = 0;
+  do {
+    strip->setExpressionMap(std::make_shared<fiddle::ExpressionMapData>());
+    strip->clearAnnotations();
+    strip->getAnnotationRecordsAsJson();
+    strip->setExpressionMap(nullptr);
+    f.mixer.allNotesOff();
+    ++snapshots;
+  } while (!finished.load());
+  midi.join();
+  REQUIRE(snapshots > 0);
+}
+
 void testRenderAheadWorkerAndRemapping() {
   Sandbox sandbox;
   MixerFixture f;
@@ -920,6 +1363,16 @@ void testRenderAheadWorkerAndRemapping() {
   }
   REQUIRE(std::abs(firstSound - 48000) <= 1);
   REQUIRE(std::abs(lastSound - 57599) <= 1);
+  {
+    fiddle::AudioProcessingGate::Control control;
+    const auto written = ring.writeFrame.load();
+    // Consume queued audio during state work. The worker must not publish a
+    // fabricated silent block or advance DSP while its control gate is closed.
+    (void)ring.pull(out.getArrayOfWritePointers(), 2, 512, 48000,
+                    base + 1500);
+    juce::Thread::sleep(5);
+    REQUIRE(ring.writeFrame.load() == written);
+  }
   worker.stop();
   REQUIRE(ring.active.load() == 0);
   REQUIRE(worker.start(44100, 1024).isEmpty());
@@ -953,14 +1406,21 @@ int main() {
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
+  run("chair layer removal restores assignment, live player and FX on undo", testChairLayerRemovalUndo);
+  run("chair layer addition undo/redo retains original and asynchronously loaded players", testChairLayerAdditionUndo);
   run("sample alignment through strip and bus latency", testRealSampleLatencyAcrossDirectAndBusRoutes);
   run("panic clears sounding and future notes", testPanicClearsSoundingAndFutureNotes);
   run("graceful stop tolerates incomplete note tracking", testGracefulStopWithIncompleteNoteTracking);
   run("saved routing survives database reopen", testSnapshotSurvivesDatabaseReopenAndStateExchange);
+  run("project settings and atomic compensated mixer undo", testProjectSettingsAndAtomicMixerUndo);
   run("historical mixer save forks and survives reopen", testHistoricalMixerSaveForkSurvivesReopen);
   run("restore recreates audio after database reopen", testRestoreRecreatesAudioAfterDatabaseReopen);
   run("missing plug-ins and superseded restore", testMissingPluginsAndSupersededRestore);
   run("cancelled rebuild retains published host state", testCancelledStateRebuildRetainsPublishedBlob);
   run("render-ahead worker preserves note deadlines and remaps generations", testRenderAheadWorkerAndRemapping);
+  run("variable block lengths preserve instrument and FX samples", testVariableBlockContinuity);
+  run("variable block lengths preserve MIDI note deadlines", testVariableBlockMidiTiming);
+  run("undo disposal retains in-flight graphs without re-preparing", testUndoRetainsInFlightGraph);
+  run("concurrent MIDI, expression-map edits and inspector snapshots", testConcurrentMidiInspectorChanges);
   return failed == 0 ? 0 : 1;
 }

@@ -145,6 +145,7 @@ void MixerStrip::refreshPluginStateCache() {
 }
 
 void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
+  auto lock = lockMidiState();
   expressionMap = std::move(em);
   if (expressionMap) {
     incomingTracker = std::make_unique<IncomingSwitchTracker>(expressionMap);
@@ -155,6 +156,7 @@ void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
 }
 
 void MixerStrip::addLuaPlugin(std::shared_ptr<LuaPlugin> plugin) {
+  auto lock = lockMidiState();
   if (plugin) {
     luaPlugins.push_back(std::move(plugin));
     rebuildAnnotatorChain();
@@ -162,6 +164,7 @@ void MixerStrip::addLuaPlugin(std::shared_ptr<LuaPlugin> plugin) {
 }
 
 void MixerStrip::removeLuaPlugin(size_t index) {
+  auto lock = lockMidiState();
   if (index < luaPlugins.size()) {
     luaPlugins.erase(luaPlugins.begin() + (ptrdiff_t)index);
     rebuildAnnotatorChain();
@@ -170,6 +173,7 @@ void MixerStrip::removeLuaPlugin(size_t index) {
 
 void MixerStrip::insertLuaPlugin(size_t index,
                                  std::shared_ptr<LuaPlugin> plugin) {
+  auto lock = lockMidiState();
   if (plugin) {
     if (index >= luaPlugins.size())
       luaPlugins.push_back(std::move(plugin));
@@ -190,6 +194,7 @@ std::vector<std::string> MixerStrip::getLuaPluginFileNames() const {
 }
 
 void MixerStrip::rebuildAnnotatorChain() {
+  auto lock = lockMidiState();
   auto chain = std::make_unique<AnnotatorChain>();
   for (auto &plugin : luaPlugins)
     chain->add(std::make_unique<LuaAnnotator>(plugin));
@@ -201,12 +206,14 @@ void MixerStrip::rebuildAnnotatorChain() {
 }
 
 void MixerStrip::pushAnnotation(const AnnotationRecord &rec) {
+  auto lock = lockMidiState();
   recentAnnotations_.push_back(rec);
   while (recentAnnotations_.size() > kMaxAnnotations)
     recentAnnotations_.pop_front();
 }
 
 void MixerStrip::clearAnnotations() {
+  auto lock = lockMidiState();
   recentAnnotations_.clear();
   if (annotator)
     annotator->resetState();
@@ -313,13 +320,20 @@ juce::var MixerStrip::annotationRecordToVar(const AnnotationRecord &r) {
 }
 
 juce::String MixerStrip::getAnnotationRecordsAsJson() const {
+  std::deque<AnnotationRecord> snapshot;
+  {
+    auto lock = lockMidiState();
+    snapshot = recentAnnotations_;
+  }
   juce::Array<juce::var> arr;
-  for (const auto &rec : recentAnnotations_)
+  for (const auto &rec : snapshot)
     arr.add(annotationRecordToVar(rec));
   return juce::JSON::toString(juce::var(arr), true);
 }
 
 void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
+  prepared_ = true;
   currentSampleRate_.store(sampleRate, std::memory_order_relaxed);
   currentBlockSize_.store(blockSize, std::memory_order_relaxed);
   processMidiBuffer_.ensureSize(128 * 1024);
@@ -351,6 +365,7 @@ void MixerStrip::setDownstreamLatencySamples(int samples) noexcept {
 void MixerStrip::clearDelayedMessages() { midiScheduler_.requestClear(); }
 
 void MixerStrip::allNotesOff() {
+  auto lock = lockMidiState();
   heldKeyswitchNotes.clear();
   midiScheduler_.requestPanic();
 }
@@ -358,6 +373,8 @@ void MixerStrip::allNotesOff() {
 void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime, bool anySoloed,
                               bool routeAudible) {
+  AudioProcessingGate::Render render;
+  if (!render) return;
   // Effective audibility: active AND not muted AND (no solos active OR
   // this strip soloed)
   const bool audible = routeAudible &&
@@ -367,6 +384,8 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
   processMidiBuffer_.clear();
 
   const int numSamples = audioBuffer.getNumSamples();
+  if (numSamples <= 0 || numSamples > currentBlockSize_.load(std::memory_order_relaxed))
+    return; // Never advance MIDI or processor state for unsupported blocks.
   const double sampleRate = currentSampleRate_.load(std::memory_order_relaxed);
   midiScheduler_.renderBlock(currentTime, sampleRate, numSamples,
                              processMidiBuffer_);
@@ -379,13 +398,15 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
     // Safety check just in case tempBuffer isn't sized
     if (runtime->scratchBuffer.getNumChannels() > 0 &&
         runtime->scratchBuffer.getNumSamples() >= numSamples) {
-      runtime->scratchBuffer.clear();
+      juce::AudioBuffer<float> block(runtime->scratchBuffer.getArrayOfWritePointers(),
+                                     runtime->scratchBuffer.getNumChannels(), numSamples);
+      block.clear();
       // Always process plugin (MIDI stays in sync even when muted)
       if (instrumentSlot_.isBypassed()) {
         // Bypassing an instrument means silence, while consuming scheduled
         // MIDI so stale events are not replayed when it is enabled again.
       } else {
-        runtime->processBlock(runtime->scratchBuffer,
+        runtime->processBlock(block,
                                          processMidiBuffer_);
       }
 
@@ -393,7 +414,7 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
       const bool faderAudible = audible && db > -120.0f;
       const float effectiveGain =
           faderAudible ? juce::Decibels::decibelsToGain(db, -120.0f) : 0.0f;
-      audioEngine_.processBlock(runtime->scratchBuffer, effectiveGain);
+      audioEngine_.processBlock(block, effectiveGain);
 
       if (!faderAudible) {
         // Strip is muted, solo-suppressed, or at -inf: decay meters and do
@@ -439,16 +460,24 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
 
 void MixerStrip::loadPlugin(const juce::PluginDescription &desc,
                             juce::AudioPluginFormatManager &formatManager,
-                            std::function<void(bool)> onComplete) {
+                            std::function<void(bool)> onComplete,
+                            const juce::MemoryBlock &initialState) {
   instrumentSlot_.loadPlugin(
       desc, formatManager, currentSampleRate_.load(std::memory_order_relaxed),
       currentBlockSize_.load(std::memory_order_relaxed),
-      [this, desc, onComplete = std::move(onComplete)](
+      [this, desc, initialState, onComplete = std::move(onComplete)](
           bool success, const juce::String &) {
-        if (success)
+        if (success) {
           pluginUid = desc.uniqueId;
-        else if (instrumentSlot_.status() == HostedPluginStatus::missing)
+          if (!initialState.isEmpty())
+            applyPluginState(initialState.getData(),
+                             static_cast<int>(initialState.getSize()));
+        } else if (instrumentSlot_.status() == HostedPluginStatus::missing) {
           pluginUid = instrumentSlot_.pluginUid();
+          if (!initialState.isEmpty())
+            instrumentSlot_.markMissing(desc, initialState,
+                                        instrumentSlot_.lastError());
+        }
         if (onComplete)
           onComplete(success);
       });
@@ -551,6 +580,7 @@ juce::var MixerStrip::toJson() const {
                    expressionMap ? juce::String(expressionMap->entityID) : "");
 
   if (auto *processor = instrumentSlot_.activeProcessor()) {
+    AudioProcessingGate::Control control;
     int prog = processor->getCurrentProgram();
     int numProgs = processor->getNumPrograms();
     juce::String progName = processor->getProgramName(prog);

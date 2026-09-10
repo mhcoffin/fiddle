@@ -21,8 +21,8 @@ MixerModel::~MixerModel() {
 }
 
 void MixerModel::clear() {
-  std::vector<std::unique_ptr<MixerStrip>> localStrips;
-  std::vector<std::unique_ptr<GroupBus>> localBuses;
+  std::vector<std::shared_ptr<MixerStrip>> localStrips;
+  std::vector<std::shared_ptr<GroupBus>> localBuses;
   {
     std::lock_guard<std::mutex> lock(stripsMutex_);
     localStrips.swap(strips_);
@@ -55,7 +55,7 @@ juce::String MixerModel::addStrip() {
 }
 
 bool MixerModel::removeStrip(const juce::String &id) {
-  std::unique_ptr<MixerStrip> removedStrip;
+  std::shared_ptr<MixerStrip> removedStrip;
   {
     std::lock_guard<std::mutex> lock(stripsMutex_);
     for (auto it = strips_.begin(); it != strips_.end(); ++it) {
@@ -77,7 +77,7 @@ bool MixerModel::removeStrip(const juce::String &id) {
   return false;
 }
 
-std::unique_ptr<MixerStrip>
+std::shared_ptr<MixerStrip>
 MixerModel::removeStripKeepAlive(const juce::String &id) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
   for (auto it = strips_.begin(); it != strips_.end(); ++it) {
@@ -91,10 +91,10 @@ MixerModel::removeStripKeepAlive(const juce::String &id) {
   return nullptr;
 }
 
-void MixerModel::insertStripAt(std::unique_ptr<MixerStrip> strip, int index) {
+void MixerModel::insertStripAt(std::shared_ptr<MixerStrip> strip, int index) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
   strip->updatePluginSlotId();
-  strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
+  strip->prepareIfNeeded(currentSampleRate_, currentBlockSize_);
   int idx = juce::jlimit(0, (int)strips_.size(), index);
   strips_.insert(strips_.begin() + idx, std::move(strip));
   commitAudioGraph();
@@ -188,7 +188,7 @@ juce::String MixerModel::addGroupBus(const juce::String &name) {
   auto bus = std::make_unique<GroupBus>();
   bus->id = juce::Uuid().toString();
   bus->name = name.trim().isNotEmpty() ? name.trim() : "Group";
-  bus->prepareToPlay(currentSampleRate_, currentBlockSize_);
+  bus->prepareIfNeeded(currentSampleRate_, currentBlockSize_);
   const auto id = bus->id;
   std::lock_guard<std::mutex> lock(stripsMutex_);
   groupBuses_.push_back(std::move(bus));
@@ -196,10 +196,10 @@ juce::String MixerModel::addGroupBus(const juce::String &name) {
   return id;
 }
 
-void MixerModel::insertGroupBusAt(std::unique_ptr<GroupBus> bus, int index) {
+void MixerModel::insertGroupBusAt(std::shared_ptr<GroupBus> bus, int index) {
   if (!bus || bus->id.isEmpty())
     return;
-  bus->prepareToPlay(currentSampleRate_, currentBlockSize_);
+  bus->prepareIfNeeded(currentSampleRate_, currentBlockSize_);
   std::lock_guard<std::mutex> lock(stripsMutex_);
   index = juce::jlimit(0, static_cast<int>(groupBuses_.size()), index);
   groupBuses_.insert(groupBuses_.begin() + index, std::move(bus));
@@ -215,7 +215,7 @@ bool MixerModel::removeGroupBus(const juce::String &id) {
   return true;
 }
 
-std::unique_ptr<GroupBus>
+std::shared_ptr<GroupBus>
 MixerModel::removeGroupBusKeepAlive(const juce::String &id) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
   const auto found = std::find_if(
@@ -419,6 +419,12 @@ double MixerModel::maximumPathLatencyMs() const {
 
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime) {
+  AudioProcessingGate::Render render;
+  if (!render) { audioBuffer.clear(); return; }
+  if (audioBuffer.getNumSamples() <= 0 || audioBuffer.getNumSamples() > currentBlockSize_) {
+    audioBuffer.clear();
+    return;
+  }
   auto graphRead = audioGraph_.read();
   auto *graph = graphRead.get();
   if (!graph)
@@ -454,6 +460,7 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
 }
 
 void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
   std::lock_guard<std::mutex> lock(stripsMutex_);
   currentSampleRate_ = sampleRate;
   currentBlockSize_ = blockSize;
@@ -543,7 +550,7 @@ void MixerModel::captureInstruction(MidiCaptureLog &log, double timeMs,
   }
 }
 
-void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
+void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &inputNote,
                                       double triggerTimeMs) {
   // ── Read tonal context from the harmonic analysis service ─────────────
   // The service is fed by MainComponent (onNoteEvent), so we just read.
@@ -551,7 +558,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
   if (harmonicService_) {
     TonalContext keyCtx = harmonicService_->getContext();
     tonalCtx = HarmonicAnalysisService::annotateNote(
-        keyCtx, static_cast<int>(note.note_number()));
+        keyCtx, static_cast<int>(inputNote.note_number()));
   }
 
   auto graphRead = audioGraph_.read();
@@ -562,12 +569,15 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
   // Preserve Dorico's structured input before any strip-specific Lua or
   // expression-map annotator mutates the shared Note.
   const auto incomingRecord =
-      makeIncomingNoteRecord(note, currentSampleRate_, false);
+      makeIncomingNoteRecord(inputNote, currentSampleRate_, false);
 
   for (auto *strip : graph->strips) {
     if (!strip->matchesInput(port, channel))
       continue;
 
+    auto midiLock = strip->lockMidiState();
+    // Each layer gets the same original input, not a previous layer's mutation.
+    auto note = inputNote;
     // Run the annotator — it populates note.pre_note() and during_note()
     AnnotatorContext ctx;
     ctx.stripChannel = channel + 1; // convert 0-based to 1-based
@@ -656,7 +666,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &note,
 }
 
 void MixerModel::routeAnnotatedNoteOff(int port, int channel,
-                                       fiddle::Note &note,
+                                       fiddle::Note &inputNote,
                                        double triggerTimeMs) {
   // Note removal from the HMM is handled internally by the
   // HarmonicAnalysisService (via onNoteEvent called from MainComponent).
@@ -671,6 +681,8 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     if (!strip->matchesInput(port, channel))
       continue;
 
+    auto midiLock = strip->lockMidiState();
+    auto note = inputNote;
     // Run the annotator — it populates note.post_note() and durationAdjustMs()
     AnnotatorContext ctx;
     ctx.stripChannel = channel + 1;
@@ -726,6 +738,7 @@ void MixerModel::releaseAllKeyswitches(double triggerTimeMs) {
     return;
 
   for (auto *strip : graph->strips) {
+    auto midiLock = strip->lockMidiState();
     for (const auto &ks : strip->heldKeyswitchNotes) {
       juce::MidiMessage noteOffMsg = juce::MidiMessage::noteOff(
           ks.channel, ks.noteNumber, (juce::uint8)64);
@@ -756,6 +769,7 @@ void MixerModel::gracefulStop(const std::vector<fiddle::Note> &activeNotes,
 
   // 2. Release latched keyswitches immediately
   for (auto *strip : graph->strips) {
+    auto midiLock = strip->lockMidiState();
     for (const auto &ks : strip->heldKeyswitchNotes) {
       strip->addDelayedMessage(
           0.0, juce::MidiMessage::noteOff(ks.channel, ks.noteNumber,
@@ -837,6 +851,7 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
     ctx.stripChannel = channel + 1;
     ctx.currentTimeMs = triggerTimeMs;
 
+    auto midiLock = strip->lockMidiState();
     if (strip->annotator->onCC(event, ctx)) {
       strip->addDelayedMessage(triggerTimeMs, msg);
       if (event.has_cc()) {
@@ -861,6 +876,7 @@ void MixerModel::recordIncomingMidi(int port, int channel,
     if (!strip->matchesInput(port, channel))
       continue;
 
+    auto midiLock = strip->lockMidiState();
     // Feed event to the incoming switch tracker (if present)
     if (strip->incomingTracker)
       strip->incomingTracker->onMidi(type, p1, p2, timeMs);
@@ -964,7 +980,7 @@ void MixerModel::syncStripsToInstruments(
   }
 
   std::unique_lock<std::mutex> lock(stripsMutex_);
-  std::vector<std::unique_ptr<MixerStrip>> removedStrips;
+  std::vector<std::shared_ptr<MixerStrip>> removedStrips;
 
   // Remove strips whose port/channel is no longer in the expected set
   for (auto it = strips_.begin(); it != strips_.end();) {
@@ -1028,6 +1044,8 @@ void MixerModel::setHarmonicService(HarmonicAnalysisService *service) {
 
 void MixerModel::commitAudioGraph() {
   auto current = std::make_unique<ActiveAudioGraph>();
+  current->stripOwners = strips_;
+  current->busOwners = groupBuses_;
   std::map<juce::String, GroupBus *> busById;
   for (auto &bus : groupBuses_) {
     current->groupBuses.push_back(bus.get());
@@ -1051,8 +1069,8 @@ void MixerModel::commitAudioGraph() {
 }
 
 void MixerModel::timerCallback() {
-  std::vector<std::unique_ptr<MixerStrip>> stripsToDelete;
-  std::vector<std::unique_ptr<GroupBus>> busesToDelete;
+  std::vector<std::shared_ptr<MixerStrip>> stripsToDelete;
+  std::vector<std::shared_ptr<GroupBus>> busesToDelete;
 
   audioGraph_.reclaimRetiredWith(
       [this, &stripsToDelete, &busesToDelete] {
@@ -1074,6 +1092,6 @@ void MixerModel::timerCallback() {
 
 int MixerModel::getPlaybackDelayMs() const { return playbackDelayMs_; }
 
-void MixerModel::setPlaybackDelayMs(int ms) { playbackDelayMs_ = ms; }
+void MixerModel::setPlaybackDelayMs(int ms) { playbackDelayMs_ = std::clamp(ms, 0, 5000); }
 
 } // namespace fiddle

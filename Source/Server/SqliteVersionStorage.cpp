@@ -335,6 +335,8 @@ void SqliteVersionStorage::prepareStatements() {
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN group_bus_state BLOB",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN project_settings TEXT",
+               nullptr, nullptr, nullptr);
 
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
     if (sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr) != SQLITE_OK) {
@@ -361,10 +363,10 @@ void SqliteVersionStorage::prepareStatements() {
   // FiddleState
   prep("INSERT OR REPLACE INTO fiddle_states "
        "(hash, master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state, group_bus_state) VALUES (?, ?, ?, ?, ?, ?, ?)",
+       "routing_state, group_bus_state, project_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutFiddleState_);
   prep("SELECT master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state, group_bus_state "
+       "routing_state, group_bus_state, project_settings "
        "FROM fiddle_states WHERE hash = ?",
        &stmtGetFiddleState_);
   prep("SELECT 1 FROM fiddle_states WHERE hash = ?", &stmtHasFiddleState_);
@@ -575,6 +577,8 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
                     static_cast<int>(routingState.size()), SQLITE_TRANSIENT);
   sqlite3_bind_blob(stmtPutFiddleState_, 7, groupBusState.data(),
                     static_cast<int>(groupBusState.size()), SQLITE_TRANSIENT);
+  const auto settings = state.globalState.projectSettings.serialize();
+  sqlite3_bind_text(stmtPutFiddleState_, 8, settings.c_str(), -1, SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutFiddleState_);
 }
@@ -608,6 +612,9 @@ SqliteVersionStorage::getFiddleState(const Hash &hash) const {
     state.globalState.groupBuses = deserializeGroupBuses(
         sqlite3_column_blob(stmtGetFiddleState_, 5),
         sqlite3_column_bytes(stmtGetFiddleState_, 5));
+    if (const auto *settings = sqlite3_column_text(stmtGetFiddleState_, 6))
+      state.globalState.projectSettings = ProjectSettings::deserialize(
+          reinterpret_cast<const char *>(settings));
     return state;
   }
   return std::nullopt;

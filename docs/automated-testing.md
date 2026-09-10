@@ -2,7 +2,7 @@
 
 Status: testing foundation and application restore service implemented, September 2026.
 
-Validated locally: all 51 stable CTest entries pass in Release, and the updated
+Validated locally: all 53 stable CTest entries pass in Release, and the updated
 Release FiddleServer/UI and FiddleNative build. Render-ahead requires both rebuilt
 binaries; the previous native audio protocol is incompatible.
 
@@ -12,9 +12,13 @@ concurrent reads, plus the actual native audio consumer using an isolated mmap.
 The relay integration test verifies one-second telemetry delivery on a background
 thread alongside MIDI. UI tests cover absent/stale readings and bounded report
 history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
-The mixer integration executable contains thirteen scenarios, including meter-only
+The mixer integration executable contains twenty scenarios, including meter-only
 snapshots that never query plug-in programs or capture state. UI tests verify that
 meter updates cannot overwrite controls and the timer cannot rebuild full state.
+Undo coverage includes shared history identities/gesture barriers, atomic mixer
+changes, and project-setting restoration. The rendered browser fixture also
+checks compensated mute, authoritative gain updates, Undo/Redo controls and
+text-field shortcuts; see [repair status](ui-undo-repair-status.md).
 Per-plugin timing tests cover bounded queues, block/rate changes, render/gap
 accounting, and collection without program queries or state capture. An integration
 scenario covers instruments and strip/bus/Master FX across re-preparation. Audio
@@ -24,6 +28,10 @@ and fallback without overwriting an unavailable saved device.
 Render-ahead coverage adds virtual-time stall/recovery and concurrent ring tests,
 plus a production-worker test for note timing and mmap generation replacement.
 See [render-ahead design and rollout](audio-render-ahead.md).
+The safety pass adds variable-block sample/MIDI continuity, undo disposal during
+an in-flight render, concurrent inspector/map editing, cached-state snapshots,
+and concurrent hosted-state capture. See [audio-safety-results.md](audio-safety-results.md)
+for the control-boundary policy and optional ThreadSanitizer build.
 Both it and the
 version-store tests have passed 20 consecutive runs. GitHub execution remains to be
 verified after pushing.
@@ -105,6 +113,11 @@ ownership and processing paths. It checks:
 - invalid output destinations leave valid routing intact;
 - the UI's Remove message reaches the real command service and removes the bus;
 - repeated removal/undo/redo restores the same bus, position, routes, and effect;
+- chair-layer removal/undo/redo restores its persisted assignment, original live
+  player, FX, gain, strip order and bus route without resurrecting held notes;
+- chair-layer addition/undo/redo keeps its original player and copied patch even
+  after catalog edits, including Undo during asynchronous loading, missing
+  players, and interleaved add/remove undo history;
 - real delay processors on strip and bus paths align with direct-route samples;
 - panic silences current notes and clears queued future note-ons;
 - graceful stop silences notes even when the active-note tracker is incomplete,

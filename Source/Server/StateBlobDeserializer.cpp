@@ -165,6 +165,12 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
     state.strips.push_back(std::move(strip));
   }
 
+  if (offset + 8 <= size) {
+    const auto magic = readU32();
+    const auto length = readU32();
+    if (magic == 0x50534554 && length <= size - offset)
+      state.projectSettings = ProjectSettings::deserialize(readString(length));
+  }
   return state;
 }
 

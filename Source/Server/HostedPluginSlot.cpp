@@ -243,6 +243,7 @@ void HostedPluginSlot::reclaimRetiredRuntimes() {
 }
 
 void HostedPluginSlot::prepareToPlay(double sampleRate, int blockSize) {
+  AudioProcessingGate::Control control;
   if (auto *runtime = runtime_.activeForWriter()) {
     const int channels =
         juce::jmax(runtime->processor->getTotalNumInputChannels(),
@@ -308,6 +309,7 @@ void HostedPluginSlot::appendTiming(juce::Array<juce::var> &rows,
 juce::MemoryBlock HostedPluginSlot::cachedState() const { return cachedState_; }
 
 bool HostedPluginSlot::captureState(juce::MemoryBlock &destination) const {
+  AudioProcessingGate::Control control;
   destination.reset();
   if (!messageThreadProcessor_)
     return false;
@@ -316,6 +318,7 @@ bool HostedPluginSlot::captureState(juce::MemoryBlock &destination) const {
 }
 
 bool HostedPluginSlot::applyState(const void *data, int sizeInBytes) {
+  AudioProcessingGate::Control control;
   if (!messageThreadProcessor_ || data == nullptr || sizeInBytes <= 0)
     return false;
   messageThreadProcessor_->setStateInformation(data, sizeInBytes);
@@ -324,6 +327,7 @@ bool HostedPluginSlot::applyState(const void *data, int sizeInBytes) {
 }
 
 bool HostedPluginSlot::setProgram(int programIndex) {
+  AudioProcessingGate::Control control;
   if (!messageThreadProcessor_)
     return false;
   messageThreadProcessor_->setCurrentProgram(programIndex);
@@ -332,6 +336,7 @@ bool HostedPluginSlot::setProgram(int programIndex) {
 }
 
 void HostedPluginSlot::refreshStateCache() {
+  AudioProcessingGate::Control control;
   if (messageThreadProcessor_) {
     cachedState_.reset();
     messageThreadProcessor_->getStateInformation(cachedState_);
@@ -341,6 +346,7 @@ void HostedPluginSlot::refreshStateCache() {
 }
 
 uint64_t HostedPluginSlot::parameterFingerprint() const {
+  AudioProcessingGate::Control control;
   if (!messageThreadProcessor_)
     return 0;
 
@@ -384,6 +390,7 @@ bool HostedPluginSlot::isBypassed() const noexcept {
 void HostedPluginSlot::showEditor(
     const juce::String &title,
     EditorVisibilityCallback visibilityChanged) {
+  AudioProcessingGate::Control control;
   if (!messageThreadProcessor_)
     return;
   editorVisibilityChanged_ = std::move(visibilityChanged);
@@ -401,6 +408,7 @@ void HostedPluginSlot::showEditor(
 }
 
 void HostedPluginSlot::closeEditor() {
+  AudioProcessingGate::Control control;
   editorWindow_.reset();
   editorVisibilityChanged_ = nullptr;
 }

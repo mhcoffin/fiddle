@@ -1,5 +1,8 @@
 #include "MainComponent.h"
 #include "AudioDeviceSettings.h"
+#include "ChairLayerActions.h"
+#include "ProjectSettingsAction.h"
+#include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
 #include "ProjectRestoreService.h"
 #include "DoricoConfigGenerator.h"
@@ -9,6 +12,7 @@
 #include "MasterAudioCommandService.h"
 #include "MasterAudioJsHandlers.h"
 #include "GroupBusCommandService.h"
+#include "GroupBusActions.h"
 #include "GroupBusJsHandlers.h"
 #include "MixerCommandService.h"
 #include "MixerJsHandlers.h"
@@ -20,6 +24,7 @@
 
 #include "midi_event.pb.h"
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <google/protobuf/text_format.h>
@@ -793,6 +798,7 @@ void MainComponent::initMidiServer() {
 
           // Clear and rebuild mixer from blob
           mixer_.clear();
+          mixer_.setProjectSettings(restored->projectSettings);
           undoManager_.clear();
 
           for (auto &rs : restored->strips) {
@@ -1413,9 +1419,10 @@ void MainComponent::pushConfigStatus() {
   server->sendToClient(msg);
 }
 
-void MainComponent::saveAllStripsToDB() {
+void MainComponent::saveAllStripsToDB(bool captureLiveState) {
   if (projectRestoreService_ && projectRestoreService_->isLoading())
     return;
+  db_.saveSetting("project_settings", mixer_.projectSettings().serialize());
   auto strips = mixer_.getAllStrips();
   auto *routingRepository = db_.getLibraryRoutingRepository();
   // First, clear and re-save all strips with correct positions
@@ -1424,12 +1431,12 @@ void MainComponent::saveAllStripsToDB() {
     db_.saveStrip(*strips[i], i);
     // Capture once, then use the same exact bytes for both the session row
     // and the version commit that follows.
-    strips[i]->refreshPluginStateCache();
+    if (captureLiveState) strips[i]->refreshPluginStateCache();
     const auto block = strips[i]->cachedPluginState();
     if (!block.isEmpty())
       db_.savePluginBlob(strips[i]->id, block);
     db_.saveStripAudio(strips[i]->id,
-                       strips[i]->audioEngine().snapshotAll());
+                       strips[i]->audioEngine().snapshotAll(captureLiveState));
 
     // A layer row owns the durable mixer defaults for an explicitly assigned
     // patch. Transitional free-standing strips have no matching layer row.
@@ -1460,12 +1467,12 @@ void MainComponent::saveAllStripsToDB() {
   if (auto xml = pluginScanner_.getKnownPluginList().createXml()) {
     db_.saveSetting("plugin_cache", xml->toString().toStdString());
   }
-  saveMasterAudioToDB();
+  saveMasterAudioToDB(captureLiveState);
 }
 
-void MainComponent::saveMasterAudioToDB() {
+void MainComponent::saveMasterAudioToDB(bool captureLiveState) {
   if (db_.isOpen())
-    db_.saveMasterAudio(mixer_.masterAudio().snapshotAll());
+    db_.saveMasterAudio(mixer_.masterAudio().snapshotAll(captureLiveState));
 }
 
 void MainComponent::saveStripToDB(const juce::String &stripId) {
@@ -1565,9 +1572,6 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                          return;
 
                        if (success) {
-                         if (!state.isEmpty())
-                           currentStrip->applyPluginState(
-                               state.getData(), static_cast<int>(state.getSize()));
                          (void)currentStrip
                              ->consumePluginChangeNotification();
                          (void)currentStrip
@@ -1587,7 +1591,7 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                        }
                        safeThis->pushMixerState(false);
                        safeThis->scheduleStateRebuild();
-                     });
+                     }, state);
     return;
   }
 
@@ -1651,6 +1655,7 @@ void MainComponent::processPluginChangeNotifications(
       repository->markLayerPluginStateEdited(layerId);
   }
 
+  undoManager_.noteExternalChange();
   stateManager_.markDirty();
   pushConfigStatus();
   broadcastMessage("setDirtyState", true);
@@ -1755,6 +1760,7 @@ void MainComponent::pollPluginStateChanges() {
       if (auto *repository = db_.getLibraryRoutingRepository())
         repository->markLayerPluginStateEdited(strip->id.toStdString());
     }
+    undoManager_.noteExternalChange();
     stateManager_.markDirty();
     pushConfigStatus();
     broadcastMessage("setDirtyState", true);
@@ -1765,6 +1771,8 @@ void MainComponent::pollPluginStateChanges() {
 }
 
 void MainComponent::loadStripsFromDB() {
+  mixer_.setProjectSettings(ProjectSettings::deserialize(
+      db_.loadSetting("project_settings")));
   // Try new plugin_cache table first
   auto cachedPlugins = db_.loadPluginCache();
   if (!cachedPlugins.empty()) {
@@ -2138,9 +2146,30 @@ MainComponent::~MainComponent() {
   server.reset();
 }
 
+void MainComponent::pushUndoState() {
+  auto *state = new juce::DynamicObject();
+  state->setProperty("canUndo", undoManager_.canUndo());
+  state->setProperty("canRedo", undoManager_.canRedo());
+  state->setProperty("undoDescription", undoManager_.undoDescription());
+  state->setProperty("redoDescription", undoManager_.redoDescription());
+  broadcastMessage("setUndoState", juce::var(state));
+}
+
+void MainComponent::pushProjectSettings() {
+  const auto settings = mixer_.projectSettings();
+  auto *state = new juce::DynamicObject();
+  state->setProperty("playbackDelayMs", settings.playbackDelayMs);
+  juce::Array<juce::var> locks;
+  for (const auto &id : settings.lockedChairIds) locks.add(juce::String(id));
+  state->setProperty("lockedChairIds", locks);
+  broadcastMessage("setProjectSettings", juce::var(state));
+}
+
 void MainComponent::pushMixerState(bool markDirty) {
   if (!webViewBridge_.isLoaded())
     return;
+  pushUndoState();
+  pushProjectSettings();
   if (markDirty) {
     bool wasDirty = stateManager_.isDirty();
     stateManager_.markDirty();
@@ -2496,11 +2525,11 @@ void MainComponent::timerCallback() {
   const bool suppressPlaybackChanges = shouldSuppressPluginChanges(now);
 
   processPluginChangeNotifications(suppressPlaybackChanges);
-  mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
+  bool externalFxEdit = mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
   if (mixer_.masterAudio().consumeLatencyDisplayChange())
     pushMasterAudioState();
   for (auto *strip : mixer_.getAllStrips()) {
-    strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
+    externalFxEdit |= strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
     if (strip->audioEngine().consumeLatencyDisplayChange()) {
       auto state = strip->audioEngine().toJson();
       state.getDynamicObject()->setProperty("stripId", strip->id);
@@ -2509,7 +2538,7 @@ void MainComponent::timerCallback() {
   }
   bool busLatencyChanged = false;
   for (auto *bus : mixer_.getAllGroupBuses()) {
-    bus->audioEngine().consumePluginChanges(suppressPlaybackChanges);
+    externalFxEdit |= bus->audioEngine().consumePluginChanges(suppressPlaybackChanges);
     busLatencyChanged |= bus->audioEngine().consumeLatencyDisplayChange();
   }
   if (busLatencyChanged)
@@ -2517,13 +2546,15 @@ void MainComponent::timerCallback() {
   if (++pluginPollCounter_ % 100 == 0) {
     if (!suppressPlaybackChanges) {
       pollPluginStateChanges();
-      mixer_.masterAudio().refreshPluginStateCaches();
+      externalFxEdit |= mixer_.masterAudio().refreshPluginStateCaches();
       for (auto *strip : mixer_.getAllStrips())
-        strip->audioEngine().refreshPluginStateCaches();
+        externalFxEdit |= strip->audioEngine().refreshPluginStateCaches();
       for (auto *bus : mixer_.getAllGroupBuses())
-        bus->audioEngine().refreshPluginStateCaches();
+        externalFxEdit |= bus->audioEngine().refreshPluginStateCaches();
     }
   }
+  if (externalFxEdit)
+    undoManager_.noteExternalChange();
 
   // Flush any deferred state rebuild (throttled to 1/sec)
   if (stateRebuildPending_ &&
@@ -2762,6 +2793,88 @@ void MainComponent::setupJsHandlers() {
     if (payload.isArray() && payload.size() > 0)
       juce::SystemClipboard::copyTextToClipboard(payload[0].toString());
   });
+  undoManager_.onChanged = [this] {
+    safeCallAsync([this] { pushUndoState(); });
+  };
+  jsRouter_.registerHandler("beginHistoryGesture", [this](const juce::var &) {
+    safeCallAsync([this] { undoManager_.beginGesture(); });
+  });
+  jsRouter_.registerHandler("setMixerControls", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() < 2 || !payload[0].isArray()) return;
+    const auto values = payload[0];
+    const auto label = payload[1].toString();
+    safeCallAsync([this, values, label] {
+      std::vector<SetMixerControlsAction::Change> changes;
+      std::set<juce::String> seen;
+      for (const auto &value : *values.getArray()) {
+        const auto id = value["id"].toString();
+        auto *strip = mixer_.getStrip(id);
+        if (!strip || !seen.insert(id).second) return;
+        const auto before = SetMixerControlsAction::Values::of(*strip);
+        auto after = before;
+        if (value.hasProperty("gainDb")) {
+          const float gain = static_cast<float>(value["gainDb"]);
+          if (!std::isfinite(gain)) return;
+          after.gainDb = std::clamp(gain, -120.0f, 6.0f);
+        }
+        if (value.hasProperty("muted")) after.muted = value["muted"];
+        if (value.hasProperty("soloed")) after.soloed = value["soloed"];
+        if (value.hasProperty("active")) after.active = value["active"];
+        changes.push_back({id, before, after});
+      }
+      if (undoManager_.perform(std::make_unique<SetMixerControlsAction>(
+              mixer_, std::move(changes), label, label == "Adjust layer gains"))) {
+        saveAllStripsToDB(false);
+        pushMixerState();
+        scheduleStateRebuild();
+      }
+    });
+  });
+  jsRouter_.registerHandler("clearSolos", [this](const juce::var &) {
+    safeCallAsync([this] {
+      std::vector<std::unique_ptr<UndoableAction>> actions;
+      std::vector<SetMixerControlsAction::Change> changes;
+      for (auto *strip : mixer_.getAllStrips()) {
+        if (!strip->isSoloed()) continue;
+        const auto before = SetMixerControlsAction::Values::of(*strip);
+        auto after = before;
+        after.soloed = false;
+        changes.push_back({strip->id, before, after});
+      }
+      if (!changes.empty()) actions.push_back(std::make_unique<SetMixerControlsAction>(
+          mixer_, std::move(changes), "Clear layer solos"));
+      for (auto *bus : mixer_.getAllGroupBuses())
+        if (bus->isSoloed()) actions.push_back(std::make_unique<SetGroupBusSoloAction>(
+            mixer_, bus->id, true, false));
+      if (undoManager_.perform(std::make_unique<CompoundAction>("Clear solos", std::move(actions)))) {
+        saveAllStripsToDB(false);
+        pushMixerState();
+        pushGroupBusState();
+        scheduleStateRebuild();
+      }
+    });
+  });
+  jsRouter_.registerHandler("endHistoryGesture", [this](const juce::var &) {
+    safeCallAsync([this] { undoManager_.endGesture(); });
+  });
+  jsRouter_.registerHandler("setChairLevelLock", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() < 2) return;
+    const auto id = payload[0].toString().toStdString();
+    const bool locked = payload[1];
+    safeCallAsync([this, id, locked] {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository || !repository->getChair(id)) return;
+      auto settings = mixer_.projectSettings();
+      if (locked) settings.lockedChairIds.insert(id);
+      else settings.lockedChairIds.erase(id);
+      if (undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+              mixer_, std::move(settings), "Change chair level lock"))) {
+        saveAllStripsToDB(false);
+        pushMixerState();
+        scheduleStateRebuild();
+      }
+    });
+  });
   mixerCommandService_ =
       std::make_unique<MixerCommandService>(mixer_, undoManager_);
   mixerJsHandlers_ = std::make_unique<MixerJsHandlers>(
@@ -2770,7 +2883,7 @@ void MainComponent::setupJsHandlers() {
                                    safeCallAsync(std::move(task));
                                  },
                                  [this] { pushMixerState(); },
-                                 [this] { saveAllStripsToDB(); }});
+                                 [this] { saveAllStripsToDB(false); }});
   mixerJsHandlers_->registerHandlers();
 
   groupBusCommandService_ =
@@ -3466,19 +3579,26 @@ void MainComponent::setupJsHandlers() {
       int position = 0;
       for (const auto &existing : repository->listLayers(chairId))
         position = std::max(position, existing.position + 1);
-      if (!repository->createLayerFromPatch(
-              juce::Uuid().toString().toStdString(), chairId, patchId,
-              position)) {
-        broadcastMessage("layerOperationResult",
-                         juce::var("Could not assign the patch"));
-        return;
-      }
-      syncMixerToLayers();
-      saveAllStripsToDB();
-      pushChairState();
-      pushMixerState();
-      scheduleStateRebuild();
-      broadcastMessage("layerOperationResult", juce::var("Layer added"));
+      undoManager_.perform(std::make_unique<AddChairLayerAction>(
+          *repository, mixer_, chairId, patchId, position,
+          [this, repository](const LayerRow &layer) {
+            const auto chair = repository->getChair(layer.chairId);
+            const auto patch = repository->getPatch(layer.patchId);
+            return chair && patch &&
+                   instantiateLayer(layer, *chair, &*patch,
+                                    juce::String(layer.libraryName));
+          },
+          [this](bool success) {
+            if (!success) {
+              broadcastMessage("layerOperationResult",
+                               juce::var("Could not change the layer"));
+              return;
+            }
+            saveAllStripsToDB();
+            pushChairState();
+            pushMixerState();
+            scheduleStateRebuild();
+          }));
     });
     return;
   });
@@ -3492,17 +3612,28 @@ void MainComponent::setupJsHandlers() {
     const auto layerId = args[0].toString();
     safeCallAsync([this, layerId]() {
       auto *repository = db_.getLibraryRoutingRepository();
-      if (!repository ||
-          !repository->deleteLayer(layerId.toStdString())) {
+      const auto layer = repository
+                             ? repository->getLayer(layerId.toStdString())
+                             : std::nullopt;
+      if (!layer || !mixer_.getStrip(layerId)) {
         broadcastMessage("layerOperationResult",
                          juce::var("Could not remove the layer"));
         return;
       }
-      mixer_.removeStrip(layerId);
-      saveAllStripsToDB();
-      pushChairState();
-      pushMixerState();
-      scheduleStateRebuild();
+      undoManager_.perform(std::make_unique<RemoveChairLayerAction>(
+          *repository, mixer_, *layer, [this](bool success) {
+            if (!success) {
+              broadcastMessage("layerOperationResult",
+                               juce::var("Could not change the layer"));
+              return;
+            }
+            // Also run on undo/redo: persist the retained live setup and
+            // refresh chair membership, not just the visible strip list.
+            saveAllStripsToDB();
+            pushChairState();
+            pushMixerState();
+            scheduleStateRebuild();
+          }));
     });
     return;
   });
@@ -4539,6 +4670,7 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this]() {
       if (undoManager_.undo()) {
+        saveAllStripsToDB(false);
         pushMixerState();
         pushGroupBusState();
         pushMasterAudioState();
@@ -4559,6 +4691,7 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this]() {
       if (undoManager_.redo()) {
+        saveAllStripsToDB(false);
         pushMixerState();
         pushGroupBusState();
         pushMasterAudioState();
@@ -4607,7 +4740,14 @@ void MainComponent::setupJsHandlers() {
         if (args.size() >= 1) {
           int ms = static_cast<int>(args[0]);
           safeCallAsync([this, ms]() {
-            mixer_.setPlaybackDelayMs(ms);
+            auto settings = mixer_.projectSettings();
+            settings.playbackDelayMs = std::clamp(ms, 0, 5000);
+            if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+                    mixer_, settings, "Change playback delay", "playback-delay")))
+              return;
+            saveAllStripsToDB(false);
+            pushMixerState();
+            scheduleStateRebuild();
             pushConfigStatus();
             pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
                            juce::String(ms) + " ms");

@@ -42,6 +42,7 @@
     } = $props();
 
     let strips = $state([]);
+    let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
     let availableXmaps = $state([]);
@@ -105,6 +106,10 @@
     onFromCpp("setMixerState", (data) => {
         try {
             strips = data;
+            if (faderDragging.size === 0) {
+                for (const id of Object.keys(gainShadow)) delete gainShadow[id];
+                for (const id of Object.keys(gainShadowRaw)) delete gainShadowRaw[id];
+            }
         } catch (e) {
             console.error("[Mixer] setMixerState error:", e);
         }
@@ -142,6 +147,11 @@
     });
     onFromCpp("setPlaybackDelay", (ms) => {
         playbackDelay = ms;
+    });
+    onFromCpp("setUndoState", (state) => { undoState = state; });
+    onFromCpp("setProjectSettings", (state) => {
+        playbackDelay = state.playbackDelayMs;
+        groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { lockSum: true }]));
     });
     onFromCpp("setDirtyState", (d) => {
         dirty = d;
@@ -551,7 +561,7 @@
     const setGain = (stripId, db) => {
         gainShadow[stripId] = db;
         gainShadowRaw[stripId] = db; // user-dragged values are already in display range
-        dispatchCpp("setStripGain", stripId, db);
+        queueMixerControl(stripId, { gainDb: db });
     };
 
     /** Send an unconstrained raw value to a strip: store raw for math, send clamped to audio. */
@@ -559,7 +569,25 @@
         gainShadowRaw[stripId] = rawDb;
         const clamped = Math.max(FADER_MIN, Math.min(FADER_MAX, rawDb));
         gainShadow[stripId] = clamped;
-        dispatchCpp("setStripGain", stripId, clamped);
+        queueMixerControl(stripId, { gainDb: clamped });
+    };
+
+    let pendingControlBatch = null;
+    const batchMixerEdit = (label, edit) => {
+        if (pendingControlBatch) { edit(); return; }
+        pendingControlBatch = new Map();
+        try { edit(); }
+        finally {
+            const changes = [...pendingControlBatch.values()];
+            pendingControlBatch = null;
+            if (changes.length) dispatchCpp("setMixerControls", changes, label);
+        }
+    };
+    const queueMixerControl = (id, values) => {
+        if (pendingControlBatch)
+            pendingControlBatch.set(id, { ...pendingControlBatch.get(id), id, ...values });
+        else
+            dispatchCpp("setMixerControls", [{ id, ...values }], "Adjust layer gains");
     };
 
     // ── Library Activation ────────────────────────────────────────
@@ -579,7 +607,7 @@
         return [...libMap.values()];
     });
 
-    const toggleLibActive = (libraryName) => {
+    const toggleLibActive = (libraryName) => batchMixerEdit("Toggle library activation", () => {
         const libraryStrips = strips.filter((strip) => strip.library === libraryName);
         if (libraryStrips.length === 0) return;
 
@@ -625,8 +653,8 @@
         for (const instrGroup of adjustedGroups)
             easeGroupFaders(instrGroup);
 
-        dispatchCpp("toggleLibraryActive", libraryName);
-    };
+        for (const strip of libraryStrips) queueMixerControl(strip.id, { active: nextActive });
+    });
 
     // ── Mute / Solo ──────────────────────────────────────────────
     let anySoloed = $derived(strips.some((s) => s.soloed));
@@ -634,18 +662,18 @@
 
     const isAudible = (strip) => strip.active !== false && !strip.muted && (!anySoloed || strip.soloed);
 
-    const toggleMute = (stripId) => {
+    const toggleMute = (stripId) => batchMixerEdit("Mute layers", () => {
         const strip = strips.find((s) => s.id === stripId);
         if (!strip) return;
         const newVal = !strip.muted;
         if (isMultiSelected && selectedIds.has(stripId)) {
             for (const id of selectedIds) {
-                dispatchCpp("setStripMute", id, newVal);
+                queueMixerControl(id, { muted: newVal });
             }
         } else {
-            dispatchCpp("setStripMute", stripId, newVal);
+            queueMixerControl(stripId, { muted: newVal });
         }
-    };
+    });
 
     /**
      * Group-aware mute toggle. In locked mode, redistributes power to siblings
@@ -653,7 +681,7 @@
      * Muting  = treat as moving fader to -∞ (power → 0), redistribute to others.
      * Unmuting = treat as restoring remembered power, others scale down.
      */
-    const toggleMuteInGroup = (instrGroup, stripId) => {
+    const toggleMuteInGroup = (instrGroup, stripId) => batchMixerEdit("Mute layer", () => {
         const strip = strips.find((s) => s.id === stripId);
         if (!strip) return;
         const willMute = !strip.muted;
@@ -718,29 +746,24 @@
         easeGroupFaders(instrGroup);
 
         // Actually mute/unmute the strip
-        dispatchCpp("setStripMute", stripId, willMute);
-    };
+        queueMixerControl(stripId, { muted: willMute });
+    });
 
-    const toggleSolo = (stripId) => {
+    const toggleSolo = (stripId) => batchMixerEdit("Solo layers", () => {
         const strip = strips.find((s) => s.id === stripId);
         if (!strip) return;
         const newVal = !strip.soloed;
         if (isMultiSelected && selectedIds.has(stripId)) {
             for (const id of selectedIds) {
-                dispatchCpp("setStripSolo", id, newVal);
+                queueMixerControl(id, { soloed: newVal });
             }
         } else {
-            dispatchCpp("setStripSolo", stripId, newVal);
+            queueMixerControl(stripId, { soloed: newVal });
         }
-    };
+    });
 
     const clearSolos = () => {
-        for (const s of strips) {
-            if (s.soloed) dispatchCpp("setStripSolo", s.id, false);
-        }
-        for (const bus of groupBuses) {
-            if (bus.soloed) dispatchCpp("setGroupBusSolo", bus.id, false);
-        }
+        dispatchCpp("clearSolos");
     };
 
     /** Group-aware gain change: fader drag sends delta */
@@ -756,16 +779,18 @@
     };
 
     /** Group-aware gain change: typed value sets absolute */
-    const handleGainValueInput = (strip, value) => {
+    const handleGainValueInput = (strip, value) => batchMixerEdit("Adjust layer gains", () => {
         let v = parseFloat(value);
         if (isNaN(v)) v = 0;
         v = Math.max(-120, Math.min(6, v));
         if (isMultiSelected && selectedIds.has(strip.id)) {
-            dispatchCpp("setGroupGainAbsolute", selectedIdsJson(), v);
+            for (const id of selectedIds) setGain(id, v);
         } else {
-            setGain(strip.id, v);
+            const group = groupedStrips.flatMap(g => g.instrGroups).find(g => g.strips.some(s => s.id === strip.id));
+            if (group) handleGroupFaderInput(group, strip, dbToPos(v));
+            else setGain(strip.id, v);
         }
-    };
+    });
 
     // ── Power-model gain helpers ──────────────────────────────
     const MINUS_INF_DB = -120;
@@ -825,7 +850,7 @@
      * Master fader drag → scale all unmuted strip powers proportionally.
      * newGroupPower / oldGroupPower gives the scale factor for each strip's power.
      */
-    const handleMasterFaderInput = (instrGroup, pos) => {
+    const handleMasterFaderInput = (instrGroup, pos) => batchMixerEdit("Adjust layer gains", () => {
         const newGroupDb = Math.round(posToDB(pos) * 10) / 10;
         const newGroupGain = gainFromDb(newGroupDb);
         const newGroupPower = newGroupGain * newGroupGain;
@@ -851,7 +876,7 @@
             const g = Math.sqrt(p);
             setGainRaw(strip.id, dbFromGain(g));
         }
-    };
+    });
 
     /** Double-click master fader → same effect as sliding to 0 dB */
     const handleMasterFaderReset = (instrGroup) => {
@@ -864,9 +889,17 @@
      * Lock ON:  master is "locked" — redistribute power proportionally across
      *           other unmuted siblings to keep group power constant.
      */
-    const handleGroupFaderInput = (instrGroup, strip, pos) => {
+    const handleGroupFaderInput = (instrGroup, strip, pos) => batchMixerEdit("Adjust layer gains", () => {
         const gm = getGroupMaster(instrGroup.key);
         const newDb = Math.round(posToDB(pos) * 10) / 10;
+        if (isMultiSelected && selectedIds.has(strip.id)) {
+            const delta = newDb - (gainShadow[strip.id] ?? strip.gainDb ?? 0);
+            for (const id of selectedIds) {
+                const selected = strips.find(s => s.id === id);
+                if (selected) setGainRaw(id, (gainShadow[id] ?? selected.gainDb ?? 0) + delta);
+            }
+            return;
+        }
         if (gm.lockSum && instrGroup.strips.length > 1) {
             const oldGroupPower = getGroupPower(instrGroup);
             const newStripPower = strip.muted ? 0 : powerFromDb(newDb);
@@ -903,7 +936,7 @@
             }
         }
         setGain(strip.id, newDb);
-    };
+    });
 
     // ── Fader skew (JUCE-style NormalisableRange) ────────────
     // Maps slider position (0..1) ↔ dB (-120..+6) with a power curve.
@@ -1222,6 +1255,12 @@
                 {/if}
             </div>
 
+            <button class="toolbar-btn" disabled={!undoState.canUndo}
+                title={undoState.undoDescription ? `Undo: ${undoState.undoDescription}` : "Nothing to undo"}
+                onclick={() => dispatchCpp("undo")}>Undo</button>
+            <button class="toolbar-btn" disabled={!undoState.canRedo}
+                title={undoState.redoDescription ? `Redo: ${undoState.redoDescription}` : "Nothing to redo"}
+                onclick={() => dispatchCpp("redo")}>Redo</button>
             <button
                 class="toolbar-btn save-btn"
                 onclick={doSaveConfig}
@@ -1385,7 +1424,7 @@
                                                     title={gm.lockSum
                                                         ? "Sum Lock ON — individual faders keep sum constant"
                                                         : "Sum Lock OFF — master tracks sum of all faders"}
-                                                    onclick={() => (gm.lockSum = !gm.lockSum)}
+                                                    onclick={() => dispatchCpp("setChairLevelLock", instrGroup.key, !gm.lockSum)}
                                                 >{gm.lockSum ? '🔒' : '🔓'}</button>
                                             </div>
                                         </div>

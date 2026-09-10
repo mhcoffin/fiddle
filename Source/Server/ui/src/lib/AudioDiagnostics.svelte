@@ -74,6 +74,7 @@
                     Playback delay: {data.effectiveDelayMs} ms effective / {data.requestedDelayMs} ms requested</p>
                 <p>The worker follows Dorico's sample consumption. The reserve uses part of the playback delay; it is not added to it. Live control changes can take up to the queued duration to be heard.</p>
                 <p>Skipped late frames: {data.renderAhead.skippedFrames ?? 0} · Host clock age: {fixed(data.renderAhead.hostClockAgeMs)} ms</p>
+                <p>Longest state/lifecycle pause: {fixed(data.renderAhead.longestControlPauseMs)} ms. Saving or changing a player pauses new rendering safely; long operations may outlast the reserve. Stop playback for large state changes.</p>
                 {#if !data.renderAhead.realtimeScheduling}<p class="warning">Real-time scheduling was unavailable; the worker is using high priority.</p>{/if}
                 {#if data.returnFresh && data.returnProtocol !== 2}<p class="warning">The Dorico plugin uses an older audio protocol. Close Dorico and install the rebuilt Fiddle plugin.</p>{/if}
             </section>

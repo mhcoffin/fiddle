@@ -1,4 +1,5 @@
 #pragma once
+#include "ProjectSettings.h"
 
 // Define XXH_INLINE_ALL before including xxhash so it works header-only.
 #define XXH_INLINE_ALL
@@ -173,6 +174,7 @@ struct GroupBusBlob {
 };
 
 struct GlobalState {
+  ProjectSettings projectSettings;
   int audioSchemaVersion = 2;
   float masterGainDb = 0.0f;
   std::vector<PluginSlotBlob> masterInserts;
@@ -195,6 +197,11 @@ struct GlobalState {
       data.append(std::to_string(serialized.size()));
       data.push_back('\0');
       data.append(serialized);
+    }
+    // Keep existing hashes valid for older/default project settings.
+    if (!(projectSettings == ProjectSettings{})) {
+      data.append("\0project-settings\0", 18);
+      data.append(projectSettings.serialize());
     }
     return data;
   }

@@ -1,4 +1,5 @@
 #pragma once
+#include "ProjectSettings.h"
 
 #include <juce_core/juce_core.h>
 
@@ -48,6 +49,7 @@ struct RestoredStripState {
 };
 
 struct RestoredProjectState {
+  ProjectSettings projectSettings;
   juce::String configName;
   juce::String configVersion;
   bool dirty = false;
