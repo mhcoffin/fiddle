@@ -385,7 +385,7 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
         // Bypassing an instrument means silence, while consuming scheduled
         // MIDI so stale events are not replayed when it is enabled again.
       } else {
-        runtime->processor->processBlock(runtime->scratchBuffer,
+        runtime->processBlock(runtime->scratchBuffer,
                                          processMidiBuffer_);
       }
 

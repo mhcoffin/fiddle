@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../RealtimeReadGuard.h"
+#include "../AudioDiagnostics.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -42,7 +43,8 @@ public:
     float audioData[kBufferCapacity * kNumChannels];
   };
 
-  AudioConsumer() { activeMapping_.store(openMapping()); }
+  explicit AudioConsumer(std::string path = getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio.mmap")
+      : mapPath_(std::move(path)) { activeMapping_.store(openMapping()); }
 
   ~AudioConsumer() {
     delete activeMapping_.exchange(nullptr, std::memory_order_acq_rel);
@@ -72,15 +74,18 @@ public:
 
   bool buffering_ = true;
   double jitterMs_ = 40.0;
+  AudioReturnDiagnostics::Snapshot diagnostics() const noexcept { return diagnostics_.snapshot(); }
 
   /// Pull audio from the ring buffer into an interleaved output.
   /// numSamples = number of sample frames (not total floats).
   /// output must hold at least numSamples * kNumChannels floats.
   void pullAudio(float **outputChannels, int numChannels, int numSamples) {
+    if (numSamples <= 0) return;
     RealtimeReadGuard<Mapping> mappingRead(activeMapping_, readers_);
     auto *mapping = mappingRead.get();
     auto *state = mapping ? mapping->state : nullptr;
     if (!state || state->magic.load(std::memory_order_acquire) != kMagic) {
+      diagnostics_.record(AudioReturnDiagnostics::Result::unavailable, numSamples);
       // Output silence
       for (int c = 0; c < numChannels; ++c)
         if (outputChannels[c])
@@ -103,6 +108,7 @@ public:
         if (available >= targetBuffer) {
             buffering_ = false;
         } else {
+            diagnostics_.record(AudioReturnDiagnostics::Result::buffering, numSamples);
             // Output silence while filling the buffer
             for (int c = 0; c < numChannels; ++c)
               if (outputChannels[c])
@@ -113,6 +119,7 @@ public:
 
     // Check for underrun
     if (available < static_cast<uint64_t>(numSamples)) {
+        diagnostics_.record(AudioReturnDiagnostics::Result::underrun, numSamples);
         buffering_ = true; // Enter buffering mode to re-sync
         for (int c = 0; c < numChannels; ++c)
           if (outputChannels[c])
@@ -135,9 +142,12 @@ public:
     }
 
     state->readIndex.store(readPos + samplesToRead, std::memory_order_release);
+    diagnostics_.record(AudioReturnDiagnostics::Result::rendered, numSamples);
   }
 
 private:
+  const std::string mapPath_;
+  AudioReturnDiagnostics diagnostics_;
   struct Mapping {
     SharedState *state = nullptr;
     void *memory = nullptr;
@@ -160,14 +170,14 @@ private:
 
   Mapping *openMapping() {
     auto mapping = std::make_unique<Mapping>();
-    std::string path =
-        getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio.mmap";
-
-    mapping->fd = ::open(path.c_str(), O_RDWR);
+    mapping->fd = ::open(mapPath_.c_str(), O_RDWR);
     if (mapping->fd < 0)
       return nullptr;
 
     mapping->size = sizeof(SharedState);
+    struct stat fileInfo {};
+    if (::fstat(mapping->fd, &fileInfo) != 0 || fileInfo.st_size < static_cast<off_t>(mapping->size))
+      return nullptr;
 
     mapping->memory = ::mmap(nullptr, mapping->size, PROT_READ | PROT_WRITE,
                              MAP_SHARED, mapping->fd, 0);

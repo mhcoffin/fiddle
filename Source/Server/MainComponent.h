@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../AudioSharedMemory.h"
+#include "../AudioDiagnostics.h"
 #include "DebugWindow.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
@@ -45,6 +46,8 @@ class StripAudioCommandService;
 class StripAudioJsHandlers;
 class PluginCommandService;
 class PluginJsHandlers;
+class ProjectRestoreService;
+class AudioDeviceSettings;
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
@@ -73,6 +76,7 @@ public:
 
   /// Create the Library Manager if needed, otherwise unminimize and focus it.
   void showLibraryManagerWindow();
+  void showAudioSettings();
 
   /// Check if library manager window is visible.
   bool isLibraryManagerWindowVisible() const;
@@ -111,6 +115,7 @@ private:
   WebViewBridge webViewBridge_;
 
   juce::AudioDeviceManager deviceManager;
+  std::unique_ptr<AudioDeviceSettings> audioSettings_;
   DoricoInstrumentBrowser instrumentBrowser_;
   MasterInstrumentList masterList_;
   std::unique_ptr<fiddle::MidiTcpServer> server;
@@ -139,6 +144,7 @@ private:
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
   LuaPluginCatalog luaCatalog_;
+  std::unique_ptr<ProjectRestoreService> projectRestoreService_;
 
   std::atomic<bool> isTransportStarted_{false};
   juce::String connectionWarning_;
@@ -176,6 +182,17 @@ private:
 
   std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
   AudioSharedMemory audioSharedMemory_{true}; // True = Producer
+  AudioRenderDiagnostics audioDiagnostics_;
+  AudioRenderDiagnostics::Snapshot latestAudioDiagnostics_;
+  std::atomic<bool> audioDeviceRunning_{false};
+  // Accessed only on the message thread; native reports arrive via safeCallAsync.
+  MidiEvent::AudioDiagnosticsEvent returnDiagnostics_;
+  double returnDiagnosticsReceivedMs_ = 0;
+  double lastDiagnosticsPushMs_ = 0;
+  void pushAudioDiagnostics();
+  void pushMixerMeters();
+  bool meterUpdatePending_ = false; // Message-thread-only, one web evaluation in flight.
+  bool diagnosticsUpdatePending_ = false;
 
   uint64_t lastSampleTime = 0;
   uint32_t lastSystemTime = 0;
@@ -273,12 +290,8 @@ private:
   void loadStripsFromDB();
   void restoreMasterAudio(const MasterAudioSnapshot &snapshot,
                           bool publishWhenLoaded = true);
-  void restoreMasterAudio(const versioning::GlobalState &state,
-                          bool publishWhenLoaded = true);
   void restoreMasterAudio(const RestoredProjectState &state,
                           bool publishWhenLoaded = true);
-  void restoreGroupBuses(const versioning::GlobalState &state,
-                         bool publishWhenLoaded = true);
   void restoreStripAudio(MixerStrip &strip,
                          const StripAudioSnapshot &snapshot,
                          bool publishWhenLoaded = true);
@@ -286,7 +299,7 @@ private:
                          bool publishWhenLoaded = true);
 
   /// Restore a versioned mixer snapshot and its plug-in state.
-  void applyVersionState(const versioning::FiddleState &state);
+  bool applyVersionState(const versioning::FiddleState &state);
 
   /// Load one stored version. Dorico may select an older version and still
   /// associate it with its saved branch; History checkouts remain detached.

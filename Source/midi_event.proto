@@ -23,12 +23,23 @@ message MidiEvent {
         TempoEvent tempo = 18;
         SaveConfigRequest save_config_request = 19;
         SaveConfigResponse save_config_response = 20;
+        AudioDiagnosticsEvent audio_diagnostics = 21;
     }
 
     optional uint64 host_sample_position = 13;
 
     // MIDI port (1-based). 0 or absent = port 1 (backward compatible).
     uint32 port = 14;
+
+    // Plugin -> server, once/second on the relay thread. Never serialized in process().
+    message AudioDiagnosticsEvent {
+        uint64 callbacks = 1;
+        uint64 underruns = 2;
+        uint64 buffering_frames = 3;
+        uint64 unavailable_frames = 4;
+        double sample_rate = 5;
+        uint64 dropped_midi_events = 6;
+    }
 
     message LoadConfigEvent {
         string config_path = 1;

@@ -1218,10 +1218,11 @@ The following recommendations are accepted as the implementation defaults:
 
 ## 22. Recommended immediate next step
 
-Strengthen automated testing before implementing Phase 6. Bring CI and UI test
-discovery up to date, test the production mixer and version capture against
-isolated data, then extend coverage to full restoration and a host for the real
-Fiddle VST3. Keep Dorico-specific acceptance small and machine-checked where
+Strengthen automated testing before implementing Phase 6. CI/test discovery,
+isolated production-mixer tests, and the shared application restore service are
+implemented. Saved mixers are recreated and compared sample by sample, including
+missing plug-in recovery. Next broaden rendered UI interaction coverage and build
+a host for the real Fiddle VST3. Keep Dorico-specific acceptance small and machine-checked where
 possible; see [automated-testing.md](automated-testing.md).
 
 The next audio feature remains post-fader sends and shared FX buses. Parallel

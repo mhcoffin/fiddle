@@ -448,7 +448,10 @@ void StateManager::scheduleRebuild(std::function<juce::MemoryBlock()> buildFn) {
 
   juce::MessageManager::callAsync([this, fn = std::move(buildFn)]() {
     auto blob = fn();
-    publishBlob(blob);
+    // An application restore can invalidate a previously queued rebuild.
+    // An empty result means cancellation, never a new empty host state.
+    if (!blob.isEmpty())
+      publishBlob(blob);
     rebuildPending_.store(false, std::memory_order_release);
   });
 }

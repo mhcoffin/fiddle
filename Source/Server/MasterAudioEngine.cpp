@@ -4,6 +4,10 @@
 #include <utility>
 
 namespace fiddle {
+void MasterAudioEngine::appendPluginTimings(juce::Array<juce::var> &rows, double now) {
+  for (const auto &entry : inserts_)
+    entry->hosted->appendTiming(rows, "Master", "Master FX", now);
+}
 namespace {
 
 constexpr auto kNoUpdate = juce::AudioProcessorGraph::UpdateKind::none;
@@ -173,6 +177,10 @@ void MasterAudioEngine::processBlock(juce::AudioBuffer<float> &audio) {
 
 void MasterAudioEngine::setOnChanged(ChangeCallback callback) {
   onChanged_ = std::move(callback);
+}
+
+void MasterAudioEngine::setOnEditorVisibilityChanged(ChangeCallback callback) {
+  onEditorVisibilityChanged_ = std::move(callback);
 }
 
 int MasterAudioEngine::insertCount() const noexcept {
@@ -362,7 +370,12 @@ bool MasterAudioEngine::showEditor(const juce::String &slotId) {
   const auto entry = find(slotId);
   if (!entry || !entry->hosted->hasProcessor())
     return false;
-  entry->hosted->showEditor("Master - " + entry->description.name);
+  const std::weak_ptr<std::atomic<bool>> weakAlive = alive_;
+  entry->hosted->showEditor("Master - " + entry->description.name, [this, weakAlive] {
+    const auto alive = weakAlive.lock();
+    if (alive && alive->load(std::memory_order_acquire) && onEditorVisibilityChanged_)
+      onEditorVisibilityChanged_();
+  });
   return true;
 }
 
@@ -373,7 +386,7 @@ bool MasterAudioEngine::toggleEditor(const juce::String &slotId) {
   if (entry->hosted->isEditorVisible())
     entry->hosted->closeEditor();
   else
-    entry->hosted->showEditor("Master - " + entry->description.name);
+    return showEditor(slotId);
   return true;
 }
 
@@ -433,8 +446,10 @@ bool MasterAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
     entry->hosted->refreshStateCache();
     changed = true;
   }
-  if (latencyChanged)
+  if (latencyChanged) {
     rebuildGraph();
+    latencyDisplayChanged_ = true;
+  }
   if (changed)
     notifyChanged(true);
   return changed;

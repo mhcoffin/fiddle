@@ -37,7 +37,10 @@ namespace fiddle {
 //----------------------------------------------------------------------
 FiddleProcessor::FiddleProcessor() { setControllerClass(kFiddleControllerUID); }
 
-FiddleProcessor::~FiddleProcessor() = default;
+FiddleProcessor::~FiddleProcessor() {
+  // Stop/join the relay before members read by its diagnostics provider die.
+  tcpRelay_.reset();
+}
 
 //----------------------------------------------------------------------
 tresult PLUGIN_API FiddleProcessor::initialize(FUnknown *context) {
@@ -103,6 +106,18 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
         "127.0.0.1", 5252, lastKnownDelayMs_.load(std::memory_order_relaxed));
 
     tcpRelay_->setControlUpdateCallback([this]() { scheduleControlFlush(); });
+    tcpRelay_->setDiagnosticsProvider([this, relay = tcpRelay_.get()]() {
+      const auto counters = audioConsumer_.diagnostics();
+      MidiEvent event;
+      auto *data = event.mutable_audio_diagnostics();
+      data->set_callbacks(counters.callbacks);
+      data->set_underruns(counters.underruns);
+      data->set_buffering_frames(counters.bufferingFrames);
+      data->set_unavailable_frames(counters.unavailableFrames);
+      data->set_sample_rate(cachedSampleRate_.load(std::memory_order_relaxed));
+      data->set_dropped_midi_events(relay->droppedRealtimeEventCount());
+      return event;
+    });
 
     // Set up connection callback for state replay and UI notification.
     // The callback is invoked from the relay thread.

@@ -104,6 +104,8 @@ public:
   void publishBlob(const juce::MemoryBlock &blob);
 
   /// Schedule a rebuild on the message thread (coalesced).
+  /// Returning an empty block cancels a queued rebuild without replacing the
+  /// previously published host state.
   void scheduleRebuild(std::function<juce::MemoryBlock()> buildFn);
 
   // ── Restore (from Dorico setStateInformation) ───────────────────────

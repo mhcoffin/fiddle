@@ -1,10 +1,27 @@
 # Automated testing
 
-Status: initial testing foundation implemented, September 2026.
+Status: testing foundation and application restore service implemented, September 2026.
 
-Validated locally: all 45 stable CTest entries pass, and FiddleServer/UI build.
-The mixer integration executable contains seven scenarios. Both it and the
-version-store tests pass 20 consecutive runs. GitHub execution remains to be
+Validated locally: all 50 stable CTest entries pass in Release, and the updated
+Release FiddleServer/UI builds. The previously built FiddleNative remains compatible.
+
+Audio diagnostics coverage includes deterministic block-budget timing, variable
+block sizes, overrun/gap accounting, device restart, bounded queue saturation and
+concurrent reads, plus the actual native audio consumer using an isolated mmap.
+The relay integration test verifies one-second telemetry delivery on a background
+thread alongside MIDI. UI tests cover absent/stale readings and bounded report
+history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
+The mixer integration executable contains twelve scenarios, including meter-only
+snapshots that never query plug-in programs or capture state. UI tests verify that
+meter updates cannot overwrite controls and the timer cannot rebuild full state.
+Per-plugin timing tests cover bounded queues, block/rate changes, render/gap
+accounting, and collection without program queries or state capture. An integration
+scenario covers instruments and strip/bus/Master FX across re-preparation. Audio
+settings tests use temporary preference files and a fake device backend, never
+CoreAudio, to verify unchanged defaults, explicit settings, restart restoration,
+and fallback without overwriting an unavailable saved device.
+Both it and the
+version-store tests have passed 20 consecutive runs. GitHub execution remains to be
 verified after pushing.
 
 The regular regression suite runs without Dorico, an audio device, sample
@@ -66,6 +83,9 @@ messages, library visibility, and the selector-to-editor transition. It
 checks Edit/Hide updates from editor visibility notifications (including a
 simulated native-window close), unchanged Save enablement, and equal 32-pixel
 VSTi/Audio FX button heights. It
+also opens Audio Performance with 30 fixture plugins, verifies row ordering and
+fixed header/footer controls, copies a report with plugin/device metadata, and
+checks the Audio Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.
 Set `FIDDLE_LAYOUT_SCREENSHOT_DIR` to an existing directory to capture each size.
 
@@ -93,6 +113,18 @@ ownership and processing paths. It checks:
 - historical mixer saves fork from the loaded version, retain unchanged
   identity after edit/undo, and survive SQLite reopening independently of
   the original branch. See [save policy](project-save-versioning.md).
+- the application restore service rebuilds chairs, layers, group buses, and
+  strip/bus/Master effect racks after closing SQLite and destroying the original
+  processors; the restored mixer renders the same samples and an unchanged save
+  retains its version;
+- saved layer/patch display metadata survives removal of the catalog patch;
+- missing instruments retain state and remain silent; missing effects retain
+  state and pass audio through; making them available restores the original audio;
+- incomplete topology/blob references are rejected without clearing the mixer;
+- superseded restores (including reused layer IDs and out-of-order completions),
+  removed loading strips, and destruction of the restore service cannot publish
+  stale completion callbacks or leave the completion barrier stuck;
+- cancelling a queued host-state rebuild retains the previously published blob.
 
 Each persistence run creates its own temporary directory, real SQLite database,
 and state files, then removes only that directory on completion. It does not
@@ -106,24 +138,37 @@ and does not use a fixed port that could collide with another test run.
 These network tests require loopback socket permission; a restricted execution
 sandbox may block them even though they do not access the Internet.
 
-This tests the production save format and stored-version retrieval, not the
-entire MainComponent restore workflow or Dorico's actual save callbacks.
+### Application restore boundary
+
+`ProjectRestoreService` now owns version-to-mixer reconstruction. MainComponent
+supplies catalog lookups and UI callbacks; integration tests supply a deterministic
+JUCE plug-in format through the same asynchronous format-manager/hosted-slot path.
+Test processor defaults deliberately differ from saved values, so omitting state
+application fails the audio comparison.
+
+Restoration preflights blob references and routing before replacing the mixer.
+Completion waits for all asynchronous plug-in requests, including missing and
+cancelled loads. Session persistence and host-state rebuilding wait for completion;
+a dirty Save during loading fails without creating a partial version. A clean
+Dorico save can still retain its existing saved identity. Queued rebuilds recheck
+whether they became invalid before publishing.
+
+This covers the shared reconstruction path, not every MainComponent startup/import
+path, actual vendor loading behavior, or Dorico's VST3 save callbacks. Those remain
+integration/acceptance work below.
 
 ## Next stages
 
-1. Extract the remaining application-level restore orchestration into a
-   directly testable service. Recreate the mixer from a saved version and
-   compare rendered audio, including missing plug-in handling.
-2. Add rendered UI interaction tests, replacing fragile source checks where
+1. Add rendered UI interaction tests, replacing fragile source checks where
    practical. Exercise selection, button enablement, dialogs, and undo.
-3. Build a small host for the actual Fiddle VST3, with an isolated server
+2. Build a small host for the actual Fiddle VST3, with an isolated server
    profile (database, state/audio files, TCP and UI endpoints, and scanning
    disabled). Drive host transport/MIDI and save/restore callbacks, and assert
    the returned audio and project identity. The current `FiddleMock` is an
    older diagnostic utility, not this host or the acceptance runner.
-4. Add an opt-in local vendor-plug-in matrix. Use installed licensed plug-ins;
+3. Add an opt-in local vendor-plug-in matrix. Use installed licensed plug-ins;
    keep it separate from CI's deterministic, redistributable processors.
-5. Add a short Dorico suite using fixed scores and verified desktop control.
+4. Add a short Dorico suite using fixed scores and verified desktop control.
    AI may operate Dorico, but captured MIDI, audio, and saved-state assertions
    should decide pass/fail. Verify playback-template allocation and expression
    maps, repeated transport stops, and save/reopen restoration.

@@ -258,6 +258,15 @@ void testPlaybackNotificationsDoNotDirtyMasterEffects() {
   processorPointer->setParameterWithNotification(0.8f);
   CHECK(master.consumePluginChanges(false));
   CHECK(changes == 2);
+
+  CHECK(!master.consumeLatencyDisplayChange());
+  processorPointer->setLatencySamples(256);
+  // The existing engine observes latency while consuming parameter updates.
+  processorPointer->setParameterWithNotification(0.9f);
+  CHECK(!master.consumePluginChanges(true));
+  CHECK(changes == 2); // Latency display updates must not dirty the project.
+  CHECK(master.consumeLatencyDisplayChange());
+  CHECK(!master.consumeLatencyDisplayChange());
 }
 
 } // namespace

@@ -175,8 +175,44 @@ try {
     }
     assert.ok(sizes[0].scrollWidth < sizes[1].scrollWidth);
     assert.ok(sizes[1].scrollWidth < sizes[2].scrollWidth);
+    // Audio diagnostics use isolated fixtures, never the live server/device.
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
+        running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,
+        blockSize: 512, buildConfiguration: "Release", returnFresh: true, returnSampleRate: 44100,
+        device: { name: "Fixture audio interface", type: "Test audio", sampleRate: 44100, bufferSize: 512 },
+        plugins: Array.from({ length: 30 }, (_, i) => ({
+            id: `slot-${i}`, owner: `Violin ${i + 1} / A long library name`, kind: "Instrument",
+            plugin: "Vienna Synchron Player", averageMs: i / 10, peakMs: 3, maxMs: 5,
+            ageMs: 100, blockSize: 512, sampleRate: 44100,
+        })),
+    } }));
+    await page.getByRole("button", { name: "Audio CPU 70%", exact: true }).click();
+    const performance = page.getByRole("dialog", { name: "Audio performance", exact: true });
+    await performance.waitFor({ state: "visible" });
+    assert.equal(await performance.locator("tbody tr").count(), 30);
+    assert.match(await performance.locator("tbody tr").first().innerText(), /Violin 30/);
+    for (const name of ["Close", "Mark crackle", "Copy report"]) {
+        const rect = await performance.getByRole("button", { name, exact: true }).boundingBox();
+        assert.ok(rect && rect.y >= 0 && rect.y + rect.height <= 900, `${name} must stay visible with many plugins`);
+    }
+    await performance.getByRole("button", { name: "Mark crackle", exact: true }).click();
+    await performance.getByRole("button", { name: "Copy report", exact: true }).click();
+    const copied = await page.evaluate(() => window.fixtureMessages.findLast(x => x.type === "copyAudioDiagnosticsReport"));
+    assert.ok(copied, "copy button must dispatch a diagnostic report");
+    const report = JSON.parse(copied.payload[0]);
+    assert.equal(report.marks.length, 1);
+    assert.equal(report.marks[0].snapshot.plugins.length, 30);
+    assert.equal(report.samples[0].device.bufferSize, 512);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-performance.png") });
+    await performance.locator("tbody tr").first().scrollIntoViewIfNeeded();
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-plugin-timings.png") });
+    await performance.getByRole("button", { name: "Audio Settings…", exact: true }).click();
+    await performance.waitFor({ state: "hidden" });
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "showAudioSettings")));
     assert.deepEqual(errors, [], "no browser runtime errors");
-    console.log("PASS: chair width, controls, fader alignment, and horizontal density at all three sizes");
+    console.log("PASS: chair density/controls and audio diagnostics table, fixed actions, copy and settings dispatch");
 } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));

@@ -176,6 +176,7 @@ bool HostedPluginSlot::installProcessor(
                                   processor->getTotalNumOutputChannels(), 2);
   auto runtime = std::make_unique<Runtime>();
   runtime->scratchBuffer.setSize(channels, blockSize);
+  runtime->timing.prepare(sampleRate);
   processor->setNonRealtime(false);
   processor->prepareToPlay(sampleRate, blockSize);
   processor->addListener(&changeListener_);
@@ -247,6 +248,7 @@ void HostedPluginSlot::prepareToPlay(double sampleRate, int blockSize) {
         juce::jmax(runtime->processor->getTotalNumInputChannels(),
                    runtime->processor->getTotalNumOutputChannels(), 2);
     runtime->scratchBuffer.setSize(channels, blockSize);
+    runtime->timing.prepare(sampleRate);
     runtime->processor->prepareToPlay(sampleRate, blockSize);
   }
 }
@@ -274,8 +276,33 @@ bool HostedPluginSlot::processBlock(juce::AudioBuffer<float> &audio,
     return true;
   }
 
-  runtime->processor->processBlock(audio, midi);
+  runtime->processBlock(audio, midi);
   return true;
+}
+
+void HostedPluginSlot::appendTiming(juce::Array<juce::var> &rows,
+                                    const juce::String &owner,
+                                    const juce::String &kind, double now) {
+  auto *runtime = runtime_.activeForWriter();
+  if (!runtime) return;
+  runtime->timing.takeLatest(runtime->latestTiming);
+  const auto &s = runtime->latestTiming;
+  auto *row = new juce::DynamicObject();
+  row->setProperty("id", id_.value);
+  row->setProperty("owner", owner);
+  row->setProperty("kind", kind);
+  row->setProperty("plugin", description_.name);
+  row->setProperty("bypassed", isBypassed());
+  row->setProperty("ageMs", s.timestampMs > 0 ? now - s.timestampMs : -1.0);
+  row->setProperty("averageMs", s.averageMs);
+  row->setProperty("peakMs", s.peakMs);
+  row->setProperty("maxMs", s.maxMs);
+  row->setProperty("load", s.load * 100.0);
+  row->setProperty("sampleRate", s.sampleRate);
+  row->setProperty("blockSize", s.blockSize);
+  row->setProperty("calls", static_cast<juce::int64>(s.calls));
+  row->setProperty("droppedReports", static_cast<juce::int64>(s.droppedReports));
+  rows.add(juce::var(row));
 }
 
 juce::MemoryBlock HostedPluginSlot::cachedState() const { return cachedState_; }

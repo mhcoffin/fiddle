@@ -113,6 +113,11 @@ public:
   using ControlUpdateCallback = std::function<void()>;
   void setControlUpdateCallback(ControlUpdateCallback cb);
 
+  // Configure before start(). Invoked only on the relay thread, at most 1 Hz.
+  void setDiagnosticsProvider(std::function<MidiEvent()> provider) {
+    diagnosticsProvider_ = std::move(provider);
+  }
+
   /// Ask the relay thread to schedule a non-real-time controller update.
   void requestControlUpdate() noexcept {
     controlUpdateRequested_.store(true, std::memory_order_release);
@@ -164,6 +169,7 @@ private:
 
   ConnectionCallback connectionCallback_;
   ControlUpdateCallback controlUpdateCallback_;
+  std::function<MidiEvent()> diagnosticsProvider_;
 };
 
 } // namespace fiddle

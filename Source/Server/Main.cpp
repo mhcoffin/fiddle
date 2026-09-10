@@ -139,6 +139,7 @@ public:
       menu.addItem(11, "Show History Window", true, historyVisible);
 
       menu.addItem(13, "Show Library Manager", true, libraryMgrVisible);
+      menu.addItem(14, "Audio Settings...");
     }
     return menu;
   }
@@ -148,6 +149,10 @@ public:
       saveCurrentState();
     } else if (menuItemID == kRestartMenuItemId) {
       restartApplication();
+    } else if (menuItemID == 14) {
+      if (mainWindow)
+        if (auto *mc = dynamic_cast<MainComponent *>(mainWindow->getContentComponent()))
+          mc->showAudioSettings();
     } else if (menuItemID == 10) {
       // Toggle debug window
       if (mainWindow) {

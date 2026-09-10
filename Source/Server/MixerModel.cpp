@@ -367,6 +367,45 @@ juce::String MixerModel::toJson() const {
   return juce::JSON::toString(juce::var(arr), true);
 }
 
+juce::var MixerModel::meterLevels() const {
+  auto *result = new juce::DynamicObject();
+  auto *strips = new juce::DynamicObject();
+  auto *buses = new juce::DynamicObject();
+  result->setProperty("strips", juce::var(strips));
+  result->setProperty("buses", juce::var(buses));
+  // This is the message-thread collection lock, never acquired by rendering.
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &strip : strips_) {
+    juce::Array<juce::var> levels;
+    levels.add(static_cast<double>(strip->peakDb()));
+    levels.add(static_cast<double>(strip->peakHoldDb()));
+    strips->setProperty(strip->id, juce::var(levels));
+  }
+  for (const auto &bus : groupBuses_) {
+    juce::Array<juce::var> levels;
+    levels.add(static_cast<double>(bus->peakDb()));
+    levels.add(static_cast<double>(bus->peakHoldDb()));
+    buses->setProperty(bus->id, juce::var(levels));
+  }
+  result->setProperty("masterPeakDb", static_cast<double>(masterAudio_.peakDb()));
+  return juce::var(result);
+}
+
+juce::var MixerModel::pluginTimings(double now) {
+  juce::Array<juce::var> rows;
+  // Collection ownership is message-thread only; audio never takes this lock.
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &strip : strips_) {
+    const auto owner = strip->layerName + " / " + strip->library +
+                       " [" + strip->id + "]";
+    strip->appendPluginTimings(rows, owner, now);
+  }
+  for (const auto &bus : groupBuses_)
+    bus->audioEngine().appendPluginTimings(rows, "Bus: " + bus->name, now);
+  masterAudio_.appendPluginTimings(rows, now);
+  return juce::var(rows);
+}
+
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime) {
   auto graphRead = audioGraph_.read();

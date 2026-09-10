@@ -97,6 +97,7 @@ void TcpRelay::setControlUpdateCallback(ControlUpdateCallback cb) {
 
 void TcpRelay::relayThread() {
   bool preferRealtime = true;
+  auto lastDiagnostics = std::chrono::steady_clock::now();
   while (running_) {
     if (!activated_.load(std::memory_order_acquire)) {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -126,6 +127,12 @@ void TcpRelay::relayThread() {
                      [this] { return !running_.load(); });
         continue;
       }
+    }
+
+    const auto diagnosticsNow = std::chrono::steady_clock::now();
+    if (diagnosticsProvider_ && diagnosticsNow - lastDiagnostics >= std::chrono::seconds(1)) {
+      lastDiagnostics = diagnosticsNow;
+      pushMessage(diagnosticsProvider_());
     }
 
     // Alternate queue priority so sustained MIDI cannot starve controller

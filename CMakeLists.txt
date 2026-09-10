@@ -118,8 +118,10 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/ApplicationRestart.cpp
+    Source/Server/AudioDeviceSettings.cpp
     Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
+    Source/Server/ProjectRestoreService.cpp
     Source/Server/ExpressionMapCommandService.cpp
     Source/Server/ExpressionMapCommandService.h
     Source/Server/ExpressionMapCommands.h
@@ -750,6 +752,25 @@ set_tests_properties(state_restore PROPERTIES
 # ==============================================================================
 # RealtimeQueueTest — bounded SPSC/MPSC handoff and concurrent delivery
 # ==============================================================================
+add_executable(AudioDiagnosticsTest Source/tests/AudioDiagnosticsTest.cpp)
+target_include_directories(AudioDiagnosticsTest PRIVATE Source)
+target_compile_features(AudioDiagnosticsTest PRIVATE cxx_std_17)
+add_test(NAME audio_diagnostics COMMAND AudioDiagnosticsTest)
+set_tests_properties(audio_diagnostics PROPERTIES LABELS "audio;realtime;regression;stable")
+
+add_executable(AudioDeviceSettingsStoreTest Source/Server/tests/AudioDeviceSettingsStoreTest.cpp)
+target_link_libraries(AudioDeviceSettingsStoreTest PRIVATE juce::juce_core)
+target_compile_features(AudioDeviceSettingsStoreTest PRIVATE cxx_std_17)
+add_test(NAME audio_device_settings_store COMMAND AudioDeviceSettingsStoreTest)
+set_tests_properties(audio_device_settings_store PROPERTIES LABELS "audio;persistence;regression;stable")
+
+add_executable(AudioDeviceSettingsTest Source/Server/tests/AudioDeviceSettingsTest.cpp Source/Server/AudioDeviceSettings.cpp)
+target_link_libraries(AudioDeviceSettingsTest PRIVATE juce::juce_audio_utils)
+target_compile_features(AudioDeviceSettingsTest PRIVATE cxx_std_17)
+target_compile_definitions(AudioDeviceSettingsTest PRIVATE JUCE_MODAL_LOOPS_PERMITTED=1)
+add_test(NAME audio_device_settings COMMAND AudioDeviceSettingsTest)
+set_tests_properties(audio_device_settings PROPERTIES LABELS "audio;persistence;regression;stable")
+
 add_executable(RealtimeQueueTest
     Source/tests/RealtimeQueueTest.cpp
 )
@@ -1022,6 +1043,7 @@ target_compile_features(FiddleMock PRIVATE cxx_std_17)
 juce_add_console_app(MixerIntegrationTest PRODUCT_NAME "MixerIntegrationTest")
 target_sources(MixerIntegrationTest PRIVATE
     Source/Server/tests/MixerIntegrationTest.cpp
+    Source/Server/ProjectRestoreService.cpp
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/GroupBus.cpp
@@ -1050,7 +1072,8 @@ target_include_directories(MixerIntegrationTest PRIVATE
 target_link_libraries(MixerIntegrationTest PRIVATE
     juce::juce_audio_utils juce::juce_gui_extra
     libprotobuf lua_static sol2 SQLite::SQLite3)
-target_compile_definitions(MixerIntegrationTest PRIVATE JUCE_PLUGINHOST_VST3=1)
+target_compile_definitions(MixerIntegrationTest PRIVATE
+    JUCE_PLUGINHOST_VST3=1 JUCE_MODAL_LOOPS_PERMITTED=1)
 target_compile_features(MixerIntegrationTest PRIVATE cxx_std_20)
 juce_generate_juce_header(MixerIntegrationTest)
 add_test(NAME mixer_integration COMMAND MixerIntegrationTest)

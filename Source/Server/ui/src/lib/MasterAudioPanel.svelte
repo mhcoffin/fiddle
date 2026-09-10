@@ -4,6 +4,7 @@
 
     let {
         master = { gainDb: 0, peakDb: -120, latencyMs: 0, inserts: [] },
+        peakDb = -120,
         plugins = [],
         onClose = () => {},
     } = $props();
@@ -13,7 +14,7 @@
     let gainEntry = $state(false);
     let effectGroups = $derived(groupEffects(plugins, query));
     let peakPercent = $derived(
-        Math.max(0, Math.min(100, ((Number(master.peakDb) + 60) / 60) * 100)),
+        Math.max(0, Math.min(100, ((Number(peakDb) + 60) / 60) * 100)),
     );
 
     const setGain = (value) => {
@@ -89,7 +90,7 @@
                     oninput={(event) => setGain(event.currentTarget.value)}
                     aria-label="Master output gain"
                 />
-                <div class="meter" title={`${Number(master.peakDb).toFixed(1)} dB peak`}>
+                <div class="meter" title={`${Number(peakDb).toFixed(1)} dB peak`}>
                     <div class="meter-fill" style={`width: ${peakPercent}%`}></div>
                 </div>
                 <div class="scale"><span>−60</span><span>−30</span><span>−12</span><span>0</span><span>+6 dB</span></div>

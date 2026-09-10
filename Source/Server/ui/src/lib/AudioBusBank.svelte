@@ -5,6 +5,8 @@
         buses = [],
         strips = [],
         master = { gainDb: 0, peakDb: -120, inserts: [] },
+        busMeters = {},
+        masterPeakDb = -120,
         onManage = () => {},
         onOpenBusAudio = () => {},
         onOpenMasterAudio = () => {},
@@ -116,8 +118,8 @@
                                 />
                             </div>
                             <div class="meter-track">
-                                <div class="meter-fill" class:hot={bus.peakDb > 0} style="height: {dbToPos(bus.peakDb ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
-                                <div class="meter-hold" class:hot={bus.peakHoldDb > 0} style="bottom: {dbToPos(bus.peakHoldDb ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
+                                <div class="meter-fill" class:hot={busMeters[bus.id]?.[0] > 0} style="height: {dbToPos(busMeters[bus.id]?.[0] ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
+                                <div class="meter-hold" class:hot={busMeters[bus.id]?.[1] > 0} style="bottom: {dbToPos(busMeters[bus.id]?.[1] ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
                             </div>
                         </div>
                         <span class="tick">-∞</span>
@@ -198,7 +200,7 @@
                             />
                         </div>
                         <div class="meter-track">
-                            <div class="meter-fill" class:hot={master.peakDb > 0} style="height: {dbToPos(master.peakDb ?? MIN_DB) * 100}%"></div>
+                            <div class="meter-fill" class:hot={masterPeakDb > 0} style="height: {dbToPos(masterPeakDb) * 100}%"></div>
                         </div>
                     </div>
                     <span class="tick">-∞</span>

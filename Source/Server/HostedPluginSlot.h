@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../RealtimeObjectPublisher.h"
+#include "../AudioDiagnostics.h"
 
 #include <atomic>
 #include <cstdint>
@@ -58,6 +59,15 @@ public:
   struct Runtime {
     std::unique_ptr<juce::AudioProcessor> processor;
     juce::AudioBuffer<float> scratchBuffer;
+    PluginRenderDiagnostics timing;
+    PluginRenderDiagnostics::Snapshot latestTiming; // message thread only
+    void processBlock(juce::AudioBuffer<float> &audio, juce::MidiBuffer &midi) {
+      const auto start = juce::Time::getMillisecondCounterHiRes();
+      processor->processBlock(audio, midi);
+      const auto end = juce::Time::getMillisecondCounterHiRes();
+      timing.record(start, end, audio.getNumSamples());
+      PluginRenderDiagnostics::addBlockWork(end - start);
+    }
   };
 
   using RuntimeRead = RealtimeObjectPublisher<Runtime>::ReadGuard;
@@ -114,6 +124,9 @@ public:
   /// Process through the hosted processor. Effect bypass preserves input;
   /// instrument bypass emits silence.
   bool processBlock(juce::AudioBuffer<float> &audio, juce::MidiBuffer &midi);
+  /// Message-thread diagnostics only; never enumerates programs or captures state.
+  void appendTiming(juce::Array<juce::var> &rows, const juce::String &owner,
+                    const juce::String &kind, double now);
 
   [[nodiscard]] juce::MemoryBlock cachedState() const;
   bool captureState(juce::MemoryBlock &destination) const;

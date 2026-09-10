@@ -5,6 +5,13 @@
 #include <utility>
 
 namespace fiddle {
+void StripAudioEngine::appendPluginTimings(juce::Array<juce::var> &rows,
+                                           const juce::String &owner, double now) {
+  for (const auto &entry : preFaderInserts_)
+    entry->hosted->appendTiming(rows, owner, "Pre-fader FX", now);
+  for (const auto &entry : postFaderInserts_)
+    entry->hosted->appendTiming(rows, owner, "Post-fader FX", now);
+}
 namespace {
 
 constexpr auto kNoUpdate = juce::AudioProcessorGraph::UpdateKind::none;
@@ -534,8 +541,10 @@ bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
       changed = true;
     }
   }
-  if (latencyChanged)
+  if (latencyChanged) {
     rebuildGraph();
+    latencyDisplayChanged_ = true;
+  }
   if (changed)
     notifyChanged(true);
   return changed;

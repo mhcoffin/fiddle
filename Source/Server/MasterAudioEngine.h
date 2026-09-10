@@ -41,6 +41,7 @@ public:
   void processBlock(juce::AudioBuffer<float> &audio);
 
   void setOnChanged(ChangeCallback callback);
+  void setOnEditorVisibilityChanged(ChangeCallback callback);
 
   [[nodiscard]] int insertCount() const noexcept;
   [[nodiscard]] int indexOf(const juce::String &slotId) const noexcept;
@@ -74,6 +75,12 @@ public:
 
   /// Message-thread maintenance for state listeners and dynamic latency.
   bool consumePluginChanges(bool suppressPlaybackChanges = false);
+  /// Message-thread display notification, independent of persistent edits.
+  bool consumeLatencyDisplayChange() noexcept {
+    const bool changed = latencyDisplayChanged_;
+    latencyDisplayChanged_ = false;
+    return changed;
+  }
   bool refreshPluginStateCaches();
 
   /// Record current public parameter values as the clean baseline without
@@ -81,6 +88,7 @@ public:
   void captureParameterFingerprints();
 
   [[nodiscard]] juce::var toJson() const;
+  void appendPluginTimings(juce::Array<juce::var> &rows, double now);
 
 private:
   struct Entry {
@@ -106,6 +114,8 @@ private:
   std::atomic<bool> prepared_{false};
   juce::MidiBuffer midiScratch_;
   ChangeCallback onChanged_;
+  ChangeCallback onEditorVisibilityChanged_;
+  bool latencyDisplayChanged_ = false;
   std::shared_ptr<std::atomic<bool>> alive_ =
       std::make_shared<std::atomic<bool>>(true);
 };

@@ -67,10 +67,18 @@ public:
 
   /// Message-thread maintenance for state listeners and dynamic latency.
   bool consumePluginChanges(bool suppressPlaybackChanges = false);
+  /// Message-thread display notification, independent of persistent edits.
+  bool consumeLatencyDisplayChange() noexcept {
+    const bool changed = latencyDisplayChanged_;
+    latencyDisplayChanged_ = false;
+    return changed;
+  }
   bool refreshPluginStateCaches();
   void captureParameterFingerprints();
 
   [[nodiscard]] juce::var toJson() const;
+  void appendPluginTimings(juce::Array<juce::var> &rows,
+                           const juce::String &owner, double now);
 
   [[nodiscard]] int latencySamples() const noexcept;
   [[nodiscard]] double latencyMs() const noexcept;
@@ -103,6 +111,7 @@ private:
   juce::MidiBuffer midiScratch_;
   ChangeCallback onChanged_;
   ChangeCallback onEditorVisibilityChanged_;
+  bool latencyDisplayChanged_ = false;
   std::shared_ptr<std::atomic<bool>> alive_ =
       std::make_shared<std::atomic<bool>>(true);
 };

@@ -1,4 +1,6 @@
 #include "MainComponent.h"
+#include "AudioDeviceSettings.h"
+#include "ProjectRestoreService.h"
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapCommandService.h"
 #include "ExpressionMapJsHandlers.h"
@@ -576,6 +578,14 @@ void MainComponent::initMidiServer() {
 
     server = std::make_unique<fiddle::MidiTcpServer>();
     server->onMessageReceived([this](const fiddle::MidiEvent &event) {
+      if (event.has_audio_diagnostics()) {
+        const auto receivedMs = juce::Time::getMillisecondCounterHiRes();
+        safeCallAsync([this, data = event.audio_diagnostics(), receivedMs] {
+          returnDiagnostics_ = data;
+          returnDiagnosticsReceivedMs_ = receivedMs;
+        });
+        return; // Telemetry is not MIDI, performance activity, or project state.
+      }
       if (isPluginPerformanceActivity(event)) {
         lastPluginPerformanceActivityMs_.store(
             juce::Time::getMillisecondCounter(), std::memory_order_release);
@@ -839,6 +849,8 @@ void MainComponent::initMidiServer() {
 
     server->onConnectionChanged([this](bool connected, juce::String host) {
       safeCallAsync([this, connected, host]() {
+        returnDiagnosticsReceivedMs_ = 0;
+        returnDiagnostics_.Clear();
         broadcastMessage("setConnectionState", connected);
         if (connected) {
           pushConfigStatus();
@@ -891,13 +903,15 @@ void MainComponent::initAudioDevice() {
   // Initialize audio device for driving VST3 plugins
   addInitMessage("Initializing audio device...");
   {
-    juce::String err = deviceManager.initialiseWithDefaultDevices(0, 2);
+    audioSettings_ = std::make_unique<AudioDeviceSettings>(
+        deviceManager, FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"));
+    juce::String err = audioSettings_->initialise();
     if (err.isNotEmpty()) {
       std::cerr << "[Audio] Failed to initialize device manager: " << err
                 << std::endl;
-    } else {
-      deviceManager.addAudioCallback(this);
     }
+    // Also register after an initial device failure so Audio Settings can recover.
+    deviceManager.addAudioCallback(this);
   }
   safeCallAsync([this]() { initDatabase(); });
 }
@@ -1277,6 +1291,10 @@ void MainComponent::initPluginsAndStrips() {
 }
 
 bool MainComponent::saveConfig(const std::optional<std::string> &newBranchName) {
+  if (projectRestoreService_ && projectRestoreService_->isLoading()) {
+    pushLogMessage("<b>[Save]</b> Please wait for project plug-ins to finish loading.", true);
+    return false;
+  }
   versioning::ProjectSaveResult result;
   try {
     // Refresh instrument bytes before comparing the snapshot with the loaded
@@ -1390,6 +1408,8 @@ void MainComponent::pushConfigStatus() {
 }
 
 void MainComponent::saveAllStripsToDB() {
+  if (projectRestoreService_ && projectRestoreService_->isLoading())
+    return;
   auto strips = mixer_.getAllStrips();
   auto *routingRepository = db_.getLibraryRoutingRepository();
   // First, clear and re-save all strips with correct positions
@@ -1450,6 +1470,8 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
 }
 
 void MainComponent::scheduleStateRebuild() {
+  if (projectRestoreService_ && projectRestoreService_->isLoading())
+    return;
   // Historical edits are unpublished until saved onto their own branch. The
   // shadow blob uses branch-head ancestry, which would be wrong while detached.
   if (isDetached_)
@@ -1464,6 +1486,9 @@ void MainComponent::scheduleStateRebuild() {
   lastStateRebuildMs_ = now;
   stateRebuildPending_ = false;
   stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
+    // A restore may start after this rebuild was queued.
+    if (isDetached_ || (projectRestoreService_ && projectRestoreService_->isLoading()))
+      return {};
     return stateManager_.buildStateBlob(mixer_);
   });
 }
@@ -1844,31 +1869,6 @@ void MainComponent::restoreMasterAudio(const MasterAudioSnapshot &snapshot,
     pushMasterAudioState();
 }
 
-void MainComponent::restoreMasterAudio(const versioning::GlobalState &state,
-                                       bool publishWhenLoaded) {
-  MasterAudioSnapshot snapshot;
-  snapshot.gainDb = state.masterGainDb;
-  snapshot.inserts.reserve(state.masterInserts.size());
-  for (const auto &saved : state.masterInserts) {
-    MasterInsertSnapshot insert;
-    insert.slotId = saved.slotId;
-    insert.description.pluginFormatName = saved.formatName;
-    insert.description.uniqueId = saved.uniqueId;
-    insert.description.fileOrIdentifier = saved.fileOrIdentifier;
-    insert.description.manufacturerName = saved.manufacturer;
-    insert.description.name = saved.name;
-    insert.description.category = saved.category;
-    insert.description.version = saved.pluginVersion;
-    insert.description.numInputChannels = saved.numInputChannels;
-    insert.description.numOutputChannels = saved.numOutputChannels;
-    insert.bypassed = saved.bypassed;
-    if (!saved.pluginState.empty())
-      insert.pluginState.append(saved.pluginState.data(),
-                                saved.pluginState.size());
-    snapshot.inserts.push_back(std::move(insert));
-  }
-  restoreMasterAudio(snapshot, publishWhenLoaded);
-}
 
 void MainComponent::restoreMasterAudio(const RestoredProjectState &state,
                                        bool publishWhenLoaded) {
@@ -1894,50 +1894,6 @@ void MainComponent::restoreMasterAudio(const RestoredProjectState &state,
   restoreMasterAudio(snapshot, publishWhenLoaded);
 }
 
-void MainComponent::restoreGroupBuses(const versioning::GlobalState &state,
-                                      bool publishWhenLoaded) {
-  juce::Component::SafePointer<MainComponent> safeThis(this);
-  for (int index = 0; index < static_cast<int>(state.groupBuses.size());
-       ++index) {
-    const auto &saved = state.groupBuses[static_cast<std::size_t>(index)];
-    auto bus = std::make_unique<GroupBus>();
-    bus->id = saved.id;
-    bus->name = saved.name;
-    bus->setGainDb(saved.gainDb);
-    bus->setMuted(saved.muted);
-    bus->setSoloed(saved.soloed);
-    const auto busId = bus->id;
-    mixer_.insertGroupBusAt(std::move(bus), index);
-
-    auto *restored = mixer_.getGroupBus(busId);
-    if (restored)
-      setupGroupBusAudioCallbacks(*restored);
-    if (!restored || saved.audioInsertState.empty())
-      continue;
-    const auto snapshot = deserializeStripAudioSnapshot(
-        saved.audioInsertState.data(), saved.audioInsertState.size());
-    const auto restoreRack = [&](const std::vector<AudioInsertSnapshot> &rack,
-                                 StripInsertPosition position) {
-      for (int insertIndex = 0;
-           insertIndex < static_cast<int>(rack.size()); ++insertIndex) {
-        restored->audioEngine().insert(
-            rack[static_cast<std::size_t>(insertIndex)], position, insertIndex,
-            mixer_.getFormatManager(),
-            [safeThis, publishWhenLoaded](bool, const juce::String &) {
-              if (safeThis == nullptr)
-                return;
-              safeThis->mixer_.refreshAudioRouting();
-              if (publishWhenLoaded)
-                safeThis->pushMixerState(false);
-            },
-            false);
-      }
-    };
-    restoreRack(snapshot.preFaderInserts, StripInsertPosition::preFader);
-    restoreRack(snapshot.postFaderInserts, StripInsertPosition::postFader);
-  }
-  mixer_.refreshAudioRouting();
-}
 
 void MainComponent::restoreStripAudio(MixerStrip &strip,
                                       const StripAudioSnapshot &snapshot,
@@ -1981,144 +1937,50 @@ void MainComponent::restoreStripAudio(MixerStrip &strip,
                     publishWhenLoaded);
 }
 
-void MainComponent::applyVersionState(const versioning::FiddleState &state) {
-  mixer_.clear();
+bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
+  if (!projectRestoreService_) {
+    ProjectRestoreService::Callbacks callbacks;
+    callbacks.findInstrument = [this](int uid) -> std::optional<juce::PluginDescription> {
+      for (const auto &description : pluginScanner_.getKnownPluginList().getTypes())
+        if (description.uniqueId == uid)
+          return description;
+      return std::nullopt;
+    };
+    callbacks.loadMap = [this](const std::string &id) { return xmapLibrary_.load(id); };
+    callbacks.resolveLua = [this](const std::string &name) { return luaCatalog_.resolvePluginPath(name); };
+    callbacks.stripCreated = [this](MixerStrip &strip) {
+      pluginFingerprints_.erase(strip.id);
+      setupStripPluginSlot(strip);
+    };
+    callbacks.busCreated = [this](GroupBus &bus) { setupGroupBusAudioCallbacks(bus); };
+    callbacks.instrumentReady = [this](MixerStrip &strip) {
+      pluginFingerprints_[strip.id] = {strip.pluginUid, strip.pluginParameterFingerprint()};
+      pluginStateSettleUntilMs_[strip.id] =
+          juce::Time::getMillisecondCounter() + kPluginStateSettleMs;
+    };
+    callbacks.finished = [this] {
+      saveAllStripsToDB();
+      pushMixerState(false);
+      pushGroupBusState();
+      pushMasterAudioState();
+      scheduleStateRebuild();
+    };
+    projectRestoreService_ = std::make_unique<ProjectRestoreService>(
+        mixer_, *versionStore_, db_.getLibraryRoutingRepository(), std::move(callbacks));
+  }
+  const auto result = projectRestoreService_->restore(state);
+  if (!result.accepted) {
+    pushLogMessage("<b>[Restore]</b> Failed: " + juce::String(result.error), true);
+    return false;
+  }
   undoManager_.clear();
-  restoreGroupBuses(state.globalState, false);
-
-  bool restoredRouting = false;
-  if (state.routingState.schemaVersion >= 1) {
-    if (auto *repository = db_.getLibraryRoutingRepository()) {
-      std::vector<ChairRow> chairs;
-      chairs.reserve(state.routingState.chairs.size());
-      for (const auto &saved : state.routingState.chairs) {
-        ChairRow chair;
-        chair.id = saved.id;
-        chair.instrumentEntityId = saved.instrumentEntityId;
-        chair.name = saved.name;
-        chair.family = saved.family;
-        chair.role = saved.isSolo ? DoricoRole::solo : DoricoRole::section;
-        chair.ordinal = saved.ordinal;
-        chair.displayOrder = saved.displayOrder;
-        chair.flatIndex = saved.flatIndex;
-        chairs.push_back(std::move(chair));
-      }
-
-      std::vector<LayerRow> layers;
-      layers.reserve(state.routingState.layers.size());
-      for (const auto &saved : state.routingState.layers) {
-        LayerRow layer;
-        layer.id = saved.id;
-        layer.chairId = saved.chairId;
-        layer.patchId = saved.patchId;
-        layer.patchName = saved.patchName;
-        layer.libraryId = saved.libraryId;
-        layer.libraryName = saved.libraryName;
-        layer.position = saved.position;
-        layer.sourcePatchRevision = saved.sourcePatchRevision;
-        layer.pluginStateEdited = saved.pluginStateEdited;
-        if (const auto blob = versionStore_->getStripBlob(saved.stripHash)) {
-          layer.active = blob->active;
-          layer.muted = blob->muted;
-          layer.soloed = blob->soloed;
-          layer.gainDb = blob->gainDb;
-          layer.pluginUid = blob->pluginUid;
-          layer.pluginState = blob->pluginState;
-          layer.expressionMapId = blob->expressionMapEntityId;
-        }
-        layers.push_back(std::move(layer));
-      }
-      restoredRouting = repository->replaceTopology(chairs, layers);
-      if (restoredRouting) {
-        syncMixerToLayers();
-        // Lua processors remain content-addressed in strip blobs; restore them
-        // after the layer strips have been recreated from the topology.
-        for (const auto &saved : state.routingState.layers) {
-          auto *strip = mixer_.getStrip(juce::String(saved.id));
-          const auto blob = versionStore_->getStripBlob(saved.stripHash);
-          if (!strip || !blob)
-            continue;
-          strip->directOutputBusId = blob->directOutputBusId;
-          juce::MemoryBlock audioState;
-          if (!blob->audioInsertState.empty())
-            audioState.append(blob->audioInsertState.data(),
-                              blob->audioInsertState.size());
-          restoreStripAudio(*strip, audioState, false);
-          for (const auto &fileName : blob->luaPluginFileNames) {
-            const auto path = luaCatalog_.resolvePluginPath(fileName);
-            if (path.empty())
-              continue;
-            auto plugin = std::make_shared<LuaPlugin>(path);
-            if (plugin->load())
-              strip->addLuaPlugin(std::move(plugin));
-          }
-        }
-      } else {
-        pushLogMessage("<span style=\"color: red\"><b>[Restore]</b> Failed "
-                       "to restore chair/layer topology; using legacy strip "
-                       "data.</span>",
-                       true);
-      }
-    }
-  }
-
-  if (!restoredRouting) {
-    for (const auto &stripHash : state.stripHashes) {
-      auto blob = versionStore_->getStripBlob(stripHash);
-      if (!blob)
-        continue;
-
-      const juce::String newId = mixer_.addStrip();
-      auto *strip = mixer_.getStrip(newId);
-      if (!strip)
-        continue;
-
-      strip->library = blob->library;
-      strip->family = blob->family;
-      strip->isSolo = blob->isSolo;
-      strip->setActive(blob->active);
-      strip->setMuted(blob->muted);
-      strip->setSoloed(blob->soloed);
-      strip->setInputAssignment(blob->inputPort, blob->inputChannel);
-      strip->pluginUid = blob->pluginUid;
-      strip->setGainDb(blob->gainDb);
-      strip->directOutputBusId = blob->directOutputBusId;
-      setupStripPluginSlot(*strip);
-
-      if (!blob->expressionMapEntityId.empty()) {
-        if (auto expressionMap = xmapLibrary_.load(blob->expressionMapEntityId))
-          strip->setExpressionMap(expressionMap);
-      }
-
-      juce::MemoryBlock pluginState(blob->pluginState.data(),
-                                    blob->pluginState.size());
-      restoreStripPlugin(*strip, blob->pluginUid, pluginState);
-
-      juce::MemoryBlock audioState;
-      if (!blob->audioInsertState.empty())
-        audioState.append(blob->audioInsertState.data(),
-                          blob->audioInsertState.size());
-      restoreStripAudio(*strip, audioState, false);
-
-      for (const auto &fileName : blob->luaPluginFileNames) {
-        const auto path = luaCatalog_.resolvePluginPath(fileName);
-        if (path.empty())
-          continue;
-        auto plugin = std::make_shared<LuaPlugin>(path);
-        if (plugin->load())
-          strip->addLuaPlugin(std::move(plugin));
-      }
-    }
-  }
-
-  restoreMasterAudio(state.globalState);
-  mixer_.refreshAudioRouting();
-  saveAllStripsToDB();
-  if (!restoredRouting)
+  if (!result.restoredTopology)
     mixer_.syncStripsToInstruments(masterList_);
   pushMixerState(false);
   pushGroupBusState();
+  pushMasterAudioState();
   pushChairState();
+  return true;
 }
 
 bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
@@ -2134,6 +1996,9 @@ bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
   if (!version || !state || !branch)
     return false;
 
+  if (!applyVersionState(*state))
+    return false;
+
   const bool versionIsHead = branch->second == versionId;
   isDetached_ = !versionIsHead;
   currentVersionId_ = versionId;
@@ -2145,7 +2010,6 @@ bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
     stateManager_.setConfigName(juce::String(branch->first));
   }
 
-  applyVersionState(*state);
   const bool needsRoutingUpgrade =
       versionIsHead && state->routingState.schemaVersion == 0;
   if (needsRoutingUpgrade) {
@@ -2262,6 +2126,7 @@ MainComponent::~MainComponent() {
   }
 
   stopTimer();
+  audioSettings_.reset();
   deviceManager.removeAudioCallback(this);
   server.reset();
 }
@@ -2298,6 +2163,20 @@ void MainComponent::pushMixerState(bool markDirty) {
 void MainComponent::pushMasterAudioState() {
   if (webViewBridge_.isLoaded())
     broadcastMessage("setMasterAudioState", mixer_.masterAudio().toJson());
+}
+
+void MainComponent::pushMixerMeters() {
+  if (!webViewBridge_.isLoaded() || meterUpdatePending_)
+    return;
+  // No database reads, plug-in program queries, or full-state round trip.
+  const auto json = juce::JSON::toString(mixer_.meterLevels(), true);
+  meterUpdatePending_ = true;
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  webViewBridge_.getMainWebComponent().evaluateJavascript(
+      "window.__dispatchFromCpp && window.__dispatchFromCpp({type:'setMixerMeters',data:" + json + "})",
+      [safeThis](juce::WebBrowserComponent::EvaluationResult) {
+        if (safeThis != nullptr) safeThis->meterUpdatePending_ = false;
+      });
 }
 
 void MainComponent::pushGroupBusState() {
@@ -2573,6 +2452,11 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 }
 
 void MainComponent::timerCallback() {
+  const auto diagnosticsNow = juce::Time::getMillisecondCounterHiRes();
+  if (diagnosticsNow - lastDiagnosticsPushMs_ >= 250.0) {
+    lastDiagnosticsPushMs_ = diagnosticsNow;
+    pushAudioDiagnostics();
+  }
   subnoteGenerator.tick(noteTracker.getSessionSamples());
 
   // Library patch previews are not project mixer strips. Their editor changes
@@ -2581,12 +2465,11 @@ void MainComponent::timerCallback() {
        libraryPatchPreviewHost_.consumeChangedPatchIds())
     broadcastMessage("libraryPatchPreviewChanged", juce::String(patchId));
 
-  // Push meter levels to UI every ~60ms (3 × 20ms timer ticks)
+  // Only peak levels at meter frequency. Structural state is pushed by its
+  // change handlers. Do not enqueue full-state refreshes on this timer.
   static int meterCounter = 0;
   if (++meterCounter % 3 == 0) {
-    safeCallAsync([this]() { pushMixerState(false); });
-    safeCallAsync([this]() { pushMasterAudioState(); });
-    safeCallAsync([this]() { pushGroupBusState(); });
+    pushMixerMeters();
   }
 
   static int hbCounter = 0;
@@ -2605,10 +2488,23 @@ void MainComponent::timerCallback() {
 
   processPluginChangeNotifications(suppressPlaybackChanges);
   mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
-  for (auto *strip : mixer_.getAllStrips())
+  if (mixer_.masterAudio().consumeLatencyDisplayChange())
+    pushMasterAudioState();
+  for (auto *strip : mixer_.getAllStrips()) {
     strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
-  for (auto *bus : mixer_.getAllGroupBuses())
+    if (strip->audioEngine().consumeLatencyDisplayChange()) {
+      auto state = strip->audioEngine().toJson();
+      state.getDynamicObject()->setProperty("stripId", strip->id);
+      broadcastMessage("setStripAudioState", state);
+    }
+  }
+  bool busLatencyChanged = false;
+  for (auto *bus : mixer_.getAllGroupBuses()) {
     bus->audioEngine().consumePluginChanges(suppressPlaybackChanges);
+    busLatencyChanged |= bus->audioEngine().consumeLatencyDisplayChange();
+  }
+  if (busLatencyChanged)
+    pushGroupBusState();
   if (++pluginPollCounter_ % 100 == 0) {
     if (!suppressPlaybackChanges) {
       pollPluginStateChanges();
@@ -2621,12 +2517,15 @@ void MainComponent::timerCallback() {
   }
 
   // Flush any deferred state rebuild (throttled to 1/sec)
-  if (stateRebuildPending_) {
+  if (stateRebuildPending_ &&
+      !(projectRestoreService_ && projectRestoreService_->isLoading())) {
     auto now = juce::Time::getMillisecondCounter();
     if (now - lastStateRebuildMs_ >= 1000) {
       lastStateRebuildMs_ = now;
       stateRebuildPending_ = false;
       stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
+        if (isDetached_ || (projectRestoreService_ && projectRestoreService_->isLoading()))
+          return {};
         return stateManager_.buildStateBlob(mixer_);
       });
     }
@@ -2670,17 +2569,26 @@ void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice *device) {
   // Pass the actual device sample rate and block size down to the mixer and
   // plugins
   if (device) {
+    audioDiagnostics_.prepare(device->getCurrentSampleRate());
+    audioSharedMemory_.setSampleRate(device->getCurrentSampleRate());
     mixer_.prepareToPlay(device->getCurrentSampleRate(),
                          device->getCurrentBufferSizeSamples());
+    audioDeviceRunning_.store(true, std::memory_order_relaxed);
   }
 }
 
-void MainComponent::audioDeviceStopped() {}
+void MainComponent::audioDeviceStopped() {
+  audioDiagnostics_.publish();
+  audioDeviceRunning_.store(false, std::memory_order_relaxed);
+}
 
 void MainComponent::audioDeviceIOCallbackWithContext(
     const float *const *inputChannelData, int numInputChannels,
     float *const *outputChannelData, int numOutputChannels, int numSamples,
     const juce::AudioIODeviceCallbackContext &context) {
+
+  const auto diagnosticStart = juce::Time::getMillisecondCounterHiRes();
+  PluginRenderDiagnostics::beginBlock();
 
   // Clear any garbage from output buffers
   for (int i = 0; i < numOutputChannels; ++i) {
@@ -2691,37 +2599,81 @@ void MainComponent::audioDeviceIOCallbackWithContext(
 
   juce::AudioBuffer<float> audioBuffer(outputChannelData, numOutputChannels,
                                        numSamples);
-  double currentTime = juce::Time::getMillisecondCounterHiRes();
+  double currentTime = diagnosticStart;
 
   // 1. Process VST instruments and mix down to audioBuffer
   mixer_.processBlock(audioBuffer, currentTime);
 
-  // Diagnostic: check if the mixer produced any audio
-  {
-    static int diagCounter = 0;
-    if (++diagCounter % 500 == 0) {
-      float peak = 0.0f;
-      for (int ch = 0; ch < audioBuffer.getNumChannels(); ++ch) {
-        float chPeak =
-            audioBuffer.getMagnitude(ch, 0, audioBuffer.getNumSamples());
-        if (chPeak > peak)
-          peak = chPeak;
-      }
-      if (peak > 0.0f) {
-        // std::cerr << "[AudioDiag] Peak after mixer: " << peak
-        //           << " dB=" << juce::Decibels::gainToDecibels(peak)
-        //           << std::endl;
-      }
-    }
-  }
-
   // 2. Transmit the mixed audioBuffer to Dorico via Shared Memory IPC
-  audioSharedMemory_.pushAudio(audioBuffer);
+  const auto pushResult = audioSharedMemory_.pushAudio(audioBuffer);
 
   // 3. Clear the local speaker buffer so FiddleServer doesn't play directly
   // through macOS CoreAudio.
   //    This forces us to listen ONLY through the Dorico Mixer return route!
   audioBuffer.clear();
+  audioDiagnostics_.record(diagnosticStart, juce::Time::getMillisecondCounterHiRes(), numSamples,
+      pushResult == AudioSharedMemory::PushResult::overflow,
+      pushResult == AudioSharedMemory::PushResult::unavailable,
+      PluginRenderDiagnostics::blockWorkMs());
+}
+
+void MainComponent::showAudioSettings() {
+  if (audioSettings_) audioSettings_->show();
+}
+
+void MainComponent::pushAudioDiagnostics() {
+  audioDiagnostics_.takeLatest(latestAudioDiagnostics_);
+  if (!webViewBridge_.isLoaded() || diagnosticsUpdatePending_) return;
+  const auto &s = latestAudioDiagnostics_;
+  const auto now = juce::Time::getMillisecondCounterHiRes();
+  auto *data = new juce::DynamicObject();
+  data->setProperty("running", audioDeviceRunning_.load(std::memory_order_relaxed));
+#if JUCE_DEBUG
+  data->setProperty("buildConfiguration", "Debug");
+#else
+  data->setProperty("buildConfiguration", "Release");
+#endif
+  if (audioSettings_) data->setProperty("device", audioSettings_->diagnostics());
+  data->setProperty("plugins", mixer_.pluginTimings(now));
+  data->setProperty("pluginLoad", s.pluginLoad * 100.0);
+  data->setProperty("otherLoad", s.otherLoad * 100.0);
+  data->setProperty("recentMaxGapMs", s.recentMaxGapMs);
+  data->setProperty("lastLongGapMs", s.lastLongGapMs);
+  data->setProperty("renderBeforeLongGapMs", s.renderBeforeLongGapMs);
+  data->setProperty("ageMs", s.timestampMs > 0 ? now - s.timestampMs : -1.0);
+  data->setProperty("sampleRate", s.sampleRate);
+  data->setProperty("load", s.load * 100.0);
+  data->setProperty("peakLoad", s.peakLoad * 100.0);
+  data->setProperty("maxLoad", s.maxLoad * 100.0);
+  data->setProperty("maxRenderMs", s.maxRenderMs);
+  data->setProperty("maxGapMs", s.maxGapMs);
+  data->setProperty("lastOverrunAgeMs", s.lastOverrunMs > 0 ? now - s.lastOverrunMs : -1.0);
+  data->setProperty("callbacks", static_cast<juce::int64>(s.callbacks));
+  data->setProperty("overruns", static_cast<juce::int64>(s.overruns));
+  data->setProperty("longGaps", static_cast<juce::int64>(s.longGaps));
+  data->setProperty("ringOverflows", static_cast<juce::int64>(s.ringOverflows));
+  data->setProperty("unavailableBlocks", static_cast<juce::int64>(s.unavailableBlocks));
+  data->setProperty("droppedReports", static_cast<juce::int64>(s.droppedReports));
+  data->setProperty("blockSize", s.blockSize);
+  data->setProperty("minBlockSize", s.minBlockSize);
+  data->setProperty("maxBlockSize", s.maxBlockSize);
+  data->setProperty("deviceXruns", deviceManager.getXRunCount());
+  data->setProperty("returnFresh", returnDiagnosticsReceivedMs_ > 0 && now - returnDiagnosticsReceivedMs_ < 3000);
+  data->setProperty("returnSampleRate", returnDiagnostics_.sample_rate());
+  data->setProperty("returnCallbacks", static_cast<juce::int64>(returnDiagnostics_.callbacks()));
+  data->setProperty("underruns", static_cast<juce::int64>(returnDiagnostics_.underruns()));
+  data->setProperty("bufferingFrames", static_cast<juce::int64>(returnDiagnostics_.buffering_frames()));
+  data->setProperty("unavailableFrames", static_cast<juce::int64>(returnDiagnostics_.unavailable_frames()));
+  data->setProperty("droppedMidiEvents", static_cast<juce::int64>(returnDiagnostics_.dropped_midi_events()));
+  // Main mixer only: no full-state rebuild, persistence, database query or broadcast.
+  const auto json = juce::JSON::toString(juce::var(data), true);
+  diagnosticsUpdatePending_ = true;
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  webViewBridge_.getMainWebComponent().evaluateJavascript(
+      "window.__dispatchFromCpp && window.__dispatchFromCpp({type:'setAudioDiagnostics',data:" + json + "})",
+      [safeThis](juce::WebBrowserComponent::EvaluationResult) {
+        if (safeThis != nullptr) safeThis->diagnosticsUpdatePending_ = false;
+      });
 }
 
 void MainComponent::pushBranches() {
@@ -2794,6 +2746,13 @@ void MainComponent::broadcastMessage(const juce::String &type,
 }
 
 void MainComponent::setupJsHandlers() {
+  jsRouter_.registerHandler("showAudioSettings", [this](const juce::var &) {
+    safeCallAsync([this] { showAudioSettings(); });
+  });
+  jsRouter_.registerHandler("copyAudioDiagnosticsReport", [](const juce::var &payload) {
+    if (payload.isArray() && payload.size() > 0)
+      juce::SystemClipboard::copyTextToClipboard(payload[0].toString());
+  });
   mixerCommandService_ =
       std::make_unique<MixerCommandService>(mixer_, undoManager_);
   mixerJsHandlers_ = std::make_unique<MixerJsHandlers>(
@@ -2837,6 +2796,7 @@ void MainComponent::setupJsHandlers() {
           }});
   masterAudioJsHandlers_->registerHandlers();
   mixer_.masterAudio().setOnChanged([this] { masterAudioChanged(); });
+  mixer_.masterAudio().setOnEditorVisibilityChanged([this] { pushMasterAudioState(); });
 
   stripAudioCommandService_ = std::make_unique<StripAudioCommandService>(
       mixer_, pluginScanner_, undoManager_);
@@ -4572,6 +4532,7 @@ void MainComponent::setupJsHandlers() {
       if (undoManager_.undo()) {
         pushMixerState();
         pushGroupBusState();
+        pushMasterAudioState();
         scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
@@ -4591,6 +4552,7 @@ void MainComponent::setupJsHandlers() {
       if (undoManager_.redo()) {
         pushMixerState();
         pushGroupBusState();
+        pushMasterAudioState();
         scheduleStateRebuild();
         if (undoManager_.isAtSavePoint()) {
           stateManager_.clearDirty();
@@ -4607,7 +4569,12 @@ void MainComponent::setupJsHandlers() {
         if (payload.isArray())
           args = *payload.getArray();
 
-        safeCallAsync([this]() { pushMixerState(false); });
+        safeCallAsync([this]() {
+          pushMixerState(false);
+          pushGroupBusState();
+          pushMasterAudioState();
+          pushMixerMeters();
+        });
         return;
       });
   jsRouter_.registerHandler(

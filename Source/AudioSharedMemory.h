@@ -152,14 +152,10 @@ public:
    * Pushes an interleaved audio buffer into the ring.
    * Fails silently if there is not enough space (buffer full).
    */
-  void pushAudio(const AudioBuffer<float> &buffer) {
+  enum class PushResult { written, overflow, unavailable };
+  PushResult pushAudio(const AudioBuffer<float> &buffer) {
     if (!isReady() || !producer) {
-      static int skipCount = 0;
-      if (++skipCount % 5000 == 1) {
-        std::cerr << "[AudioShm] pushAudio SKIPPED: ready=" << isReady()
-                  << " producer=" << producer << std::endl;
-      }
-      return;
+      return PushResult::unavailable;
     }
 
     const int numSamples = buffer.getNumSamples();
@@ -172,7 +168,7 @@ public:
     // Check available space
     if (writePos - readPos + numSamples > kBufferCapacity) {
       // Buffer Overflow/Underrun. Consumer is too slow — drop silently.
-      return;
+      return PushResult::overflow;
     }
 
     // Interleave the juices into our flat array
@@ -185,6 +181,7 @@ public:
 
     // Publish the new write index
     state->writeIndex.store(writePos + numSamples, std::memory_order_release);
+    return PushResult::written;
   }
 
   void setSampleRate(double sampleRate) {

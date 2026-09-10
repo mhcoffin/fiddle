@@ -224,6 +224,11 @@ struct MixerStrip {
   [[nodiscard]] uint64_t droppedMidiMessageCount() const noexcept;
 
   StripAudioEngine &audioEngine() noexcept { return audioEngine_; }
+  void appendPluginTimings(juce::Array<juce::var> &rows,
+                           const juce::String &owner, double now) {
+    instrumentSlot_.appendTiming(rows, owner, "Instrument", now);
+    audioEngine_.appendPluginTimings(rows, owner, now);
+  }
   const StripAudioEngine &audioEngine() const noexcept { return audioEngine_; }
 
   /// Show the editor window (create if needed).

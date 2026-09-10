@@ -2,6 +2,8 @@
     import { onMount, onDestroy, untrack } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
+    import AudioDiagnostics from "./AudioDiagnostics.svelte";
+    import { parseMixerMeters } from "./mixerMeters.js";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
     import BusAudioPanel from "./BusAudioPanel.svelte";
@@ -29,6 +31,8 @@
     } from "./uiPreferences.js";
     import { planLockedActivationChange } from "./lockedGroupGain.js";
     import { projectSaveButton } from "./projectSaveUi.js";
+
+    let meters = $state(parseMixerMeters(null));
 
     let {
         uiZoom = 1,
@@ -105,6 +109,10 @@
             console.error("[Mixer] setMixerState error:", e);
         }
     });
+    const unsubscribeMeters = onFromCpp("setMixerMeters", (data) => {
+        meters = parseMixerMeters(data);
+    });
+    onDestroy(unsubscribeMeters);
     onFromCpp("setBranches", (data) => {
         try {
             branches = data;
@@ -1130,6 +1138,7 @@
             </button>
         </div>
         <div class="toolbar-right">
+            <AudioDiagnostics />
             <div class="display-controls" aria-label="Display settings">
                 <label class="display-control-label" for="strip-size-select">Strip size</label>
                 <select
@@ -1516,13 +1525,13 @@
                                                         <div class="meter-track">
                                                             <div
                                                                 class="meter-fill"
-                                                                class:meter-hot={strip.peakDb > 0}
-                                                                style="height: {dbToPos(strip.peakDb ?? -120) * 100}%"
+                                                                class:meter-hot={meters.strips[strip.id]?.[0] > 0}
+                                                                style="height: {dbToPos(meters.strips[strip.id]?.[0] ?? -120) * 100}%"
                                                             ></div>
                                                             <div
                                                                 class="meter-hold"
-                                                                class:meter-hot={strip.peakHoldDb > 0}
-                                                                style="bottom: {dbToPos(strip.peakHoldDb ?? -120) * 100}%"
+                                                                class:meter-hot={meters.strips[strip.id]?.[1] > 0}
+                                                                style="bottom: {dbToPos(meters.strips[strip.id]?.[1] ?? -120) * 100}%"
                                                             ></div>
                                                         </div>
                                                     </div>
@@ -1595,6 +1604,8 @@
                 buses={groupBuses}
                 strips={strips}
                 master={masterAudio}
+                busMeters={meters.buses}
+                masterPeakDb={meters.masterPeakDb}
                 onManage={() => { busManagerOpen = true; }}
                 onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
                 onOpenMasterAudio={() => { masterAudioOpen = true; }}
@@ -1622,6 +1633,7 @@
     {#if masterAudioOpen}
         <MasterAudioPanel
             master={masterAudio}
+            peakDb={meters.masterPeakDb}
             plugins={scannedPlugins}
             onClose={() => { masterAudioOpen = false; }}
         />
