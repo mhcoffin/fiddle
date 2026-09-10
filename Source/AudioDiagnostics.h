@@ -32,12 +32,12 @@ public:
 
   void record(double startMs, double endMs, int frames,
               bool overflow = false, bool unavailable = false,
-              double pluginWorkMs = 0) noexcept {
+              double pluginWorkMs = 0, bool trackCallbackGaps = true) noexcept {
     if (frames <= 0 || state_.sampleRate <= 0) return;
     const double budget = 1000.0 * frames / state_.sampleRate;
     const double elapsed = std::max(0.0, endMs - startMs);
     const double load = elapsed / budget;
-    if (previousStart_ >= 0) {
+    if (trackCallbackGaps && previousStart_ >= 0) {
       const double gap = startMs - previousStart_;
       state_.maxGapMs = std::max(state_.maxGapMs, gap);
       recentGap_ = std::max(recentGap_, gap);

@@ -116,6 +116,7 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
       data->set_unavailable_frames(counters.unavailableFrames);
       data->set_sample_rate(cachedSampleRate_.load(std::memory_order_relaxed));
       data->set_dropped_midi_events(relay->droppedRealtimeEventCount());
+      data->set_audio_protocol(AudioStreamRing::version);
       return event;
     });
 
@@ -167,8 +168,15 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
 
   // Pull audio from FiddleServer via shared memory
   if (data.numOutputs > 0 && data.outputs[0].numChannels > 0) {
-    audioConsumer_.pullAudio(data.outputs[0].channelBuffers32,
-                             data.outputs[0].numChannels, data.numSamples);
+    const auto streamId = tcpRelay_ && tcpRelay_->isConnected() ? tcpRelay_->audioStreamId() : 0;
+    if (streamId != 0)
+      audioConsumer_.pullAudio(data.outputs[0].channelBuffers32,
+                               data.outputs[0].numChannels, data.numSamples,
+                               cachedSampleRate_.load(std::memory_order_relaxed), streamId);
+    else
+      for (int ch = 0; ch < data.outputs[0].numChannels; ++ch)
+        if (data.outputs[0].channelBuffers32[ch] && data.numSamples > 0)
+          std::memset(data.outputs[0].channelBuffers32[ch], 0, size_t(data.numSamples) * sizeof(float));
     data.outputs[0].silenceFlags = 0;
   }
 
@@ -595,6 +603,7 @@ void FiddleProcessor::scheduleControlFlush() {
 
 void FiddleProcessor::flushControlUpdates() {
   controlFlushScheduled_.store(false, std::memory_order_release);
+  if (tcpRelay_ && tcpRelay_->consumeAudioStreamChanged()) audioConsumer_.remap();
 
   if (connectionChanged_.exchange(false, std::memory_order_acquire)) {
     const bool connected = lastConnected_.load(std::memory_order_relaxed);

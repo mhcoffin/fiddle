@@ -179,6 +179,9 @@ try {
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
         running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,
         blockSize: 512, buildConfiguration: "Release", returnFresh: true, returnSampleRate: 44100,
+        returnProtocol: 2, requestedDelayMs: 1000, effectiveDelayMs: 1000,
+        renderAhead: { enabled: true, realtimeScheduling: true, queuedMs: 61.2, targetMs: 69.7,
+            skippedFrames: 0, hostClockAgeMs: 2.1 },
         device: { name: "Fixture audio interface", type: "Test audio", sampleRate: 44100, bufferSize: 512 },
         plugins: Array.from({ length: 30 }, (_, i) => ({
             id: `slot-${i}`, owner: `Violin ${i + 1} / A long library name`, kind: "Instrument",
@@ -189,6 +192,9 @@ try {
     await page.getByRole("button", { name: "Audio CPU 70%", exact: true }).click();
     const performance = page.getByRole("dialog", { name: "Audio performance", exact: true });
     await performance.waitFor({ state: "visible" });
+    assert.match(await performance.innerText(), /61.2 ms queued · 69.7 ms target/);
+    assert.match(await performance.innerText(), /1000 ms effective \/ 1000 ms requested/);
+    assert.doesNotMatch(await performance.innerText(), /Long callback gaps/);
     assert.equal(await performance.locator("tbody tr").count(), 30);
     assert.match(await performance.locator("tbody tr").first().innerText(), /Violin 30/);
     for (const name of ["Close", "Mark crackle", "Copy report"]) {
@@ -203,6 +209,7 @@ try {
     assert.equal(report.marks.length, 1);
     assert.equal(report.marks[0].snapshot.plugins.length, 30);
     assert.equal(report.samples[0].device.bufferSize, 512);
+    assert.equal(report.samples[0].renderAhead.targetMs, 69.7);
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-performance.png") });
     await performance.locator("tbody tr").first().scrollIntoViewIfNeeded();

@@ -107,7 +107,7 @@ static void consumerCounts() {
   void *memory = mmap(nullptr, sizeof(State), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   CHECK(memory != MAP_FAILED);
   auto *state = new (memory) State{};
-  state->sampleRate.store(1000);
+  state->sampleRate = 1000;
   state->magic.store(fiddle::AudioConsumer::kMagic);
   {
     fiddle::AudioConsumer consumer(path);
@@ -115,24 +115,26 @@ static void consumerCounts() {
     float *channels[]{left, right};
     consumer.pullAudio(channels, 2, 0);
     CHECK(consumer.diagnostics().callbacks == 0);
-    consumer.pullAudio(channels, 2, 16); // initial prefill, not underrun
+    consumer.pullAudio(channels, 2, 16); // inactive stream, not an underrun
     CHECK(consumer.diagnostics().underruns == 0);
-    for (int i = 0; i < 128; ++i) state->audioData[i] = 0.25f;
-    state->writeIndex.store(48);
+    state->active.store(1);
+    for (int i = 0; i < 256; ++i) state->samples[i] = 0.25f;
+    state->writeFrame.store(48);
     for (int i = 0; i < 3; ++i) consumer.pullAudio(channels, 2, 16);
-    CHECK(left[0] == 0.25f && state->readIndex.load() == 48);
+    CHECK(left[0] == 0.25f && state->readFrame.load() == 48);
     consumer.pullAudio(channels, 2, 16); // one underrun episode
     CHECK(left[0] == 0);
     consumer.pullAudio(channels, 2, 16); // recovery, not a second underrun
     auto s = consumer.diagnostics();
-    CHECK(s.callbacks == 6 && s.underruns == 1 && s.bufferingFrames == 48);
-    state->writeIndex.store(96);
+    CHECK(s.callbacks == 6 && s.underruns == 1 && s.bufferingFrames == 32);
+    CHECK(state->readFrame.load() == 80); // silence still consumes timeline
+    state->writeFrame.store(128);
     for (int i = 0; i < 3; ++i) consumer.pullAudio(channels, 2, 16);
     consumer.pullAudio(channels, 2, 16);
     CHECK(consumer.diagnostics().underruns == 2);
     state->magic.store(0);
     consumer.pullAudio(channels, 2, 16);
-    CHECK(consumer.diagnostics().unavailableFrames == 16);
+    CHECK(consumer.diagnostics().unavailableFrames == 32);
   }
   munmap(memory, sizeof(State));
   close(fd);

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../AudioSharedMemory.h"
 #include "../AudioDiagnostics.h"
 #include "DebugWindow.h"
 #include "DoricoInstrumentBrowser.h"
@@ -48,6 +47,7 @@ class PluginCommandService;
 class PluginJsHandlers;
 class ProjectRestoreService;
 class AudioDeviceSettings;
+class RenderAheadEngine;
 
 class MainComponent : public juce::Component,
                       private juce::Timer,
@@ -153,18 +153,8 @@ private:
   /// Owned here; MixerModel holds a raw ptr.
   HarmonicAnalysisService harmonicService_;
 
-  double getDelayedTriggerTimeMs() {
-    // If transport is stopped, trigger immediately (no delay)
-    // so any flushed NoteOffs or CCs trigger immediately instead of ghosting.
-    if (!isTransportStarted_.load(std::memory_order_relaxed)) {
-      return 0.0;
-    }
-    const double nowMs = juce::Time::getMillisecondCounterHiRes();
-    const double compensatedDelayMs =
-        juce::jmax(0.0, static_cast<double>(mixer_.getPlaybackDelayMs()) -
-                            40.0 - mixer_.masterLatencyMs());
-    return nowMs + compensatedDelayMs;
-  }
+  double getDelayedTriggerTimeMs();
+  int effectivePlaybackDelayMs() const;
 
   /// Live BPM from FiddleNative ProcessContext (arrives via TempoEvent).
   /// Default 120.0 before first TempoEvent is received.
@@ -181,8 +171,10 @@ private:
   static constexpr int kMetronomeChannel = 0;
 
   std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
-  AudioSharedMemory audioSharedMemory_{true}; // True = Producer
   AudioRenderDiagnostics audioDiagnostics_;
+  std::unique_ptr<RenderAheadEngine> renderAhead_;
+  std::atomic<int> reportedPlaybackDelayMs_{1000};
+  juce::String renderAheadError_;
   AudioRenderDiagnostics::Snapshot latestAudioDiagnostics_;
   std::atomic<bool> audioDeviceRunning_{false};
   // Accessed only on the message thread; native reports arrive via safeCallAsync.

@@ -51,7 +51,7 @@
 <dialog bind:this={dialog} onclose={() => { open = false; }} aria-labelledby="audio-diagnostics-title">
     <header>
         <div><h2 id="audio-diagnostics-title">Audio performance</h2>
-            <p>100% uses the entire audio block deadline. This is not total machine CPU.</p></div>
+            <p>100% takes one block's duration to render. A queued reserve can absorb a brief spike. This is not total machine CPU.</p></div>
         <button onclick={() => { open = false; }}>Close</button>
     </header>
     <div class="content">
@@ -66,6 +66,18 @@
             {#if data?.device?.warning}<p class="warning">{data.device.warning}</p>{/if}
         </section>
         {#if rateMismatch}<p class="warning">Sample rates differ between Fiddle and Dorico. Audio is not resampled on this connection.</p>{/if}
+        {#if data?.renderAheadError}<p class="warning">{data.renderAheadError}</p>{/if}
+        {#if data?.renderAhead?.enabled}
+            <section class="device">
+                <h3>Render-ahead reserve</h3>
+                <p>{fixed(data.renderAhead.queuedMs)} ms queued · {fixed(data.renderAhead.targetMs)} ms target<br />
+                    Playback delay: {data.effectiveDelayMs} ms effective / {data.requestedDelayMs} ms requested</p>
+                <p>The worker follows Dorico's sample consumption. The reserve uses part of the playback delay; it is not added to it. Live control changes can take up to the queued duration to be heard.</p>
+                <p>Skipped late frames: {data.renderAhead.skippedFrames ?? 0} · Host clock age: {fixed(data.renderAhead.hostClockAgeMs)} ms</p>
+                {#if !data.renderAhead.realtimeScheduling}<p class="warning">Real-time scheduling was unavailable; the worker is using high priority.</p>{/if}
+                {#if data.returnFresh && data.returnProtocol !== 2}<p class="warning">The Dorico plugin uses an older audio protocol. Close Dorico and install the rebuilt Fiddle plugin.</p>{/if}
+            </section>
+        {/if}
         <div class="columns">
             <section>
                 <h3>Fiddle rendering</h3>
@@ -77,10 +89,12 @@
                     <dt>Longest render</dt><dd>{fixed(data?.maxRenderMs, 2)} ms</dd>
                     <dt>Deadline overruns</dt><dd>{data?.overruns ?? "—"}</dd>
                     <dt>Last overrun</dt><dd>{!data ? "—" : data.lastOverrunAgeMs >= 0 ? `${fixed(data.lastOverrunAgeMs / 1000)} s ago` : "None recorded"}</dd>
+                    {#if !data?.renderAhead?.enabled}
                     <dt>Long callback gaps (&gt;1.5 blocks)</dt><dd>{data?.longGaps ?? "—"}</dd>
                     <dt>Longest callback gap</dt><dd>{fixed(data?.maxGapMs, 2)} ms</dd>
                     <dt>Recent longest callback gap</dt><dd>{fixed(data?.recentMaxGapMs, 2)} ms</dd>
                     <dt>Last long gap / preceding render</dt><dd>{fixed(data?.lastLongGapMs, 2)} / {fixed(data?.renderBeforeLongGapMs, 2)} ms</dd>
+                    {/if}
                     <dt>JUCE device xruns</dt><dd>{data?.deviceXruns ?? "—"}</dd>
                     <dt>Return-ring overflow blocks</dt><dd>{data?.ringOverflows ?? "—"}</dd>
                     <dt>Ring unavailable blocks</dt><dd>{data?.unavailableBlocks ?? "—"}</dd>
@@ -96,11 +110,11 @@
                     <dt>Host sample rate</dt><dd>{nativeValue("returnSampleRate")} Hz</dd>
                     <dt>Return callbacks</dt><dd>{nativeValue("returnCallbacks")}</dd>
                     <dt>Underrun episodes</dt><dd>{nativeValue("underruns")}</dd>
-                    <dt>Buffering silence (frames)</dt><dd>{nativeValue("bufferingFrames")}</dd>
+                    <dt>Underrun silence (frames)</dt><dd>{nativeValue("bufferingFrames")}</dd>
                     <dt>Unavailable-ring silence (frames)</dt><dd>{nativeValue("unavailableFrames")}</dd>
                     <dt>Dropped outgoing MIDI events</dt><dd>{nativeValue("droppedMidiEvents")}</dd>
                 </dl>
-                <p>Buffering silence includes initial prefill and recovery. One underrun episode can produce several silent blocks.</p>
+                <p>One underrun episode can produce several silent blocks. With render-ahead, initial priming silence is excluded; missed audio is not replayed later.</p>
                 <p>Counts and maxima accumulate while these objects live. Restart Fiddle for fresh server counters; recreate the Dorico plugin for fresh return counters. JUCE xruns may overlap our overrun count—do not add them together.</p>
             </section>
         </div>

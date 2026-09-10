@@ -2,8 +2,9 @@
 
 Status: testing foundation and application restore service implemented, September 2026.
 
-Validated locally: all 50 stable CTest entries pass in Release, and the updated
-Release FiddleServer/UI builds. The previously built FiddleNative remains compatible.
+Validated locally: all 51 stable CTest entries pass in Release, and the updated
+Release FiddleServer/UI and FiddleNative build. Render-ahead requires both rebuilt
+binaries; the previous native audio protocol is incompatible.
 
 Audio diagnostics coverage includes deterministic block-budget timing, variable
 block sizes, overrun/gap accounting, device restart, bounded queue saturation and
@@ -11,7 +12,7 @@ concurrent reads, plus the actual native audio consumer using an isolated mmap.
 The relay integration test verifies one-second telemetry delivery on a background
 thread alongside MIDI. UI tests cover absent/stale readings and bounded report
 history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
-The mixer integration executable contains twelve scenarios, including meter-only
+The mixer integration executable contains thirteen scenarios, including meter-only
 snapshots that never query plug-in programs or capture state. UI tests verify that
 meter updates cannot overwrite controls and the timer cannot rebuild full state.
 Per-plugin timing tests cover bounded queues, block/rate changes, render/gap
@@ -20,6 +21,9 @@ scenario covers instruments and strip/bus/Master FX across re-preparation. Audio
 settings tests use temporary preference files and a fake device backend, never
 CoreAudio, to verify unchanged defaults, explicit settings, restart restoration,
 and fallback without overwriting an unavailable saved device.
+Render-ahead coverage adds virtual-time stall/recovery and concurrent ring tests,
+plus a production-worker test for note timing and mmap generation replacement.
+See [render-ahead design and rollout](audio-render-ahead.md).
 Both it and the
 version-store tests have passed 20 consecutive runs. GitHub execution remains to be
 verified after pushing.

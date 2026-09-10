@@ -137,6 +137,7 @@ public:
   /// calls hosted processors or serializes configuration/state.
   [[nodiscard]] juce::var meterLevels() const;
   [[nodiscard]] juce::var pluginTimings(double now);
+  [[nodiscard]] double maximumPathLatencyMs() const;
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime);
 

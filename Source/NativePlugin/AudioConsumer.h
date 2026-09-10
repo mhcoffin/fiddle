@@ -2,6 +2,7 @@
 
 #include "../RealtimeReadGuard.h"
 #include "../AudioDiagnostics.h"
+#include "../AudioStreamRing.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -20,30 +21,18 @@ namespace fiddle {
 
 /**
  * POSIX-based consumer for the shared memory audio ring buffer.
- * Reads audio produced by FiddleServer (AudioSharedMemory producer).
- *
- * The memory layout MUST match AudioSharedMemory::SharedState exactly:
- *   - magic:      std::atomic<uint64_t>  (0xF1DD1E00A0D10000 when ready)
- *   - writeIndex: std::atomic<uint64_t>
- *   - readIndex:  std::atomic<uint64_t>
- *   - sampleRate: std::atomic<double>
- *   - audioData:  float[kBufferCapacity * kNumChannels]  (interleaved L,R)
+ * Reads the version-2 AudioStreamRing produced by RenderAheadEngine.
+ * Each stream generation has a separate inode; remapping is control-thread
+ * work and retired mappings survive any in-flight audio callback.
  */
 class AudioConsumer {
 public:
-  static constexpr size_t kBufferCapacity = 8192;
+  static constexpr size_t kBufferCapacity = AudioStreamRing::capacity;
   static constexpr size_t kNumChannels = 2;
-  static constexpr uint64_t kMagic = 0xF1DD1E00A0D10000;
+  static constexpr uint64_t kMagic = AudioStreamRing::magicValue;
+  using SharedState = AudioStreamRing;
 
-  struct SharedState {
-    std::atomic<uint64_t> magic;
-    std::atomic<uint64_t> writeIndex;
-    std::atomic<uint64_t> readIndex;
-    std::atomic<double> sampleRate;
-    float audioData[kBufferCapacity * kNumChannels];
-  };
-
-  explicit AudioConsumer(std::string path = getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio.mmap")
+  explicit AudioConsumer(std::string path = getHomeDir() + "/Library/Caches/Fiddle/fiddle_audio_v2.mmap")
       : mapPath_(std::move(path)) { activeMapping_.store(openMapping()); }
 
   ~AudioConsumer() {
@@ -57,7 +46,7 @@ public:
     {
       std::lock_guard<std::mutex> lock(retiredMutex_);
       auto *old =
-          activeMapping_.exchange(replacement, std::memory_order_acq_rel);
+          activeMapping_.exchange(replacement, std::memory_order_seq_cst);
       if (old)
         retiredMappings_.emplace_back(old);
     }
@@ -72,19 +61,19 @@ public:
            mapping->state->magic.load(std::memory_order_acquire) == kMagic;
   }
 
-  bool buffering_ = true;
-  double jitterMs_ = 40.0;
   AudioReturnDiagnostics::Snapshot diagnostics() const noexcept { return diagnostics_.snapshot(); }
 
-  /// Pull audio from the ring buffer into an interleaved output.
+  /// Pull interleaved ring audio into planar output channels.
   /// numSamples = number of sample frames (not total floats).
-  /// output must hold at least numSamples * kNumChannels floats.
-  void pullAudio(float **outputChannels, int numChannels, int numSamples) {
+  /// Each output channel must hold at least numSamples floats.
+  void pullAudio(float *const *outputChannels, int numChannels, int numSamples,
+                 double hostRate = 0, uint64_t expectedStreamId = 0) {
     if (numSamples <= 0) return;
     RealtimeReadGuard<Mapping> mappingRead(activeMapping_, readers_);
     auto *mapping = mappingRead.get();
     auto *state = mapping ? mapping->state : nullptr;
-    if (!state || state->magic.load(std::memory_order_acquire) != kMagic) {
+    if (!state || state->magic.load(std::memory_order_acquire) != kMagic ||
+        (expectedStreamId != 0 && state->streamId != expectedStreamId)) {
       diagnostics_.record(AudioReturnDiagnostics::Result::unavailable, numSamples);
       // Output silence
       for (int c = 0; c < numChannels; ++c)
@@ -93,61 +82,24 @@ public:
       return;
     }
 
-    if (resetBuffering_.exchange(false, std::memory_order_acquire))
-      buffering_ = true;
-
-    uint64_t writePos = state->writeIndex.load(std::memory_order_acquire);
-    uint64_t readPos = state->readIndex.load(std::memory_order_relaxed);
-    uint64_t available = writePos - readPos;
-
-    uint64_t targetBuffer = static_cast<uint64_t>(
-        state->sampleRate.load(std::memory_order_relaxed) * (jitterMs_ / 1000.0));
-    if (targetBuffer == 0) targetBuffer = 1764; // Fallback ~40ms at 44.1kHz
-
-    if (buffering_) {
-        if (available >= targetBuffer) {
-            buffering_ = false;
-        } else {
-            diagnostics_.record(AudioReturnDiagnostics::Result::buffering, numSamples);
-            // Output silence while filling the buffer
-            for (int c = 0; c < numChannels; ++c)
-              if (outputChannels[c])
-                std::memset(outputChannels[c], 0, numSamples * sizeof(float));
-            return;
-        }
+    if (resetBuffering_.exchange(false, std::memory_order_acquire)) inUnderrun_ = false;
+    const auto result = state->pull(outputChannels, numChannels, numSamples, hostRate, audioStreamTimeMs());
+    using Result = AudioReturnDiagnostics::Result;
+    if (result == AudioStreamRing::PullResult::audio) {
+      inUnderrun_ = false;
+      diagnostics_.record(Result::rendered, numSamples);
+    } else if (result == AudioStreamRing::PullResult::unavailable) {
+      diagnostics_.record(Result::unavailable, numSamples);
+    } else {
+      diagnostics_.record(inUnderrun_ ? Result::buffering : Result::underrun, numSamples);
+      inUnderrun_ = true;
     }
-
-    // Check for underrun
-    if (available < static_cast<uint64_t>(numSamples)) {
-        diagnostics_.record(AudioReturnDiagnostics::Result::underrun, numSamples);
-        buffering_ = true; // Enter buffering mode to re-sync
-        for (int c = 0; c < numChannels; ++c)
-          if (outputChannels[c])
-            std::memset(outputChannels[c], 0, numSamples * sizeof(float));
-        return;
-    }
-
-    int samplesToRead = numSamples;
-
-    int outCh = numChannels < static_cast<int>(kNumChannels)
-                    ? numChannels
-                    : static_cast<int>(kNumChannels);
-
-    // De-interleave from shared memory into separate channel buffers
-    for (int i = 0; i < samplesToRead; ++i) {
-      size_t index = (readPos + i) % kBufferCapacity;
-      for (int c = 0; c < outCh; ++c) {
-        outputChannels[c][i] = state->audioData[index * kNumChannels + c];
-      }
-    }
-
-    state->readIndex.store(readPos + samplesToRead, std::memory_order_release);
-    diagnostics_.record(AudioReturnDiagnostics::Result::rendered, numSamples);
   }
 
 private:
   const std::string mapPath_;
   AudioReturnDiagnostics diagnostics_;
+  bool inUnderrun_ = false; // consumer audio thread only
   struct Mapping {
     SharedState *state = nullptr;
     void *memory = nullptr;
@@ -192,7 +144,7 @@ private:
 
   void reclaimMappings() {
     std::lock_guard<std::mutex> lock(retiredMutex_);
-    if (readers_.load(std::memory_order_acquire) != 0)
+    if (readers_.load(std::memory_order_seq_cst) != 0)
       return;
     retiredMappings_.clear();
   }

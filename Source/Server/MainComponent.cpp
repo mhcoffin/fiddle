@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "AudioDeviceSettings.h"
+#include "RenderAheadEngine.h"
 #include "ProjectRestoreService.h"
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapCommandService.h"
@@ -903,6 +904,9 @@ void MainComponent::initAudioDevice() {
   // Initialize audio device for driving VST3 plugins
   addInitMessage("Initializing audio device...");
   {
+    renderAhead_ = std::make_unique<RenderAheadEngine>(mixer_, audioDiagnostics_,
+        juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+            .getChildFile("Caches/Fiddle/fiddle_audio_v2.mmap"));
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
         deviceManager, FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"));
     juce::String err = audioSettings_->initialise();
@@ -1398,7 +1402,9 @@ void MainComponent::pushConfigStatus() {
   cs->set_config_name(branchName);
   cs->set_config_version("");
   cs->set_dirty(stateManager_.isDirty());
-  cs->set_delay_ms(mixer_.getPlaybackDelayMs());
+  cs->set_delay_ms(effectivePlaybackDelayMs());
+  reportedPlaybackDelayMs_.store(cs->delay_ms(), std::memory_order_relaxed);
+  if (renderAhead_) cs->set_audio_stream_id(renderAhead_->streamId());
   cs->set_branch_id(currentBranchId_);
   cs->set_version_id(currentVersionId_);
 
@@ -2087,6 +2093,9 @@ void MainComponent::restoreDoricoProject(
 }
 
 MainComponent::~MainComponent() {
+  stopTimer();
+  deviceManager.removeAudioCallback(this);
+  renderAhead_.reset();
   mixer_.masterAudio().setOnChanged(nullptr);
   std::cerr << "[MainComponent] Destructor Invoked. Saving to SQLite..."
             << std::endl;
@@ -2125,9 +2134,7 @@ MainComponent::~MainComponent() {
     db_.saveWindowSettings(ws);
   }
 
-  stopTimer();
   audioSettings_.reset();
-  deviceManager.removeAudioCallback(this);
   server.reset();
 }
 
@@ -2456,6 +2463,8 @@ void MainComponent::timerCallback() {
   if (diagnosticsNow - lastDiagnosticsPushMs_ >= 250.0) {
     lastDiagnosticsPushMs_ = diagnosticsNow;
     pushAudioDiagnostics();
+    if (effectivePlaybackDelayMs() != reportedPlaybackDelayMs_.load(std::memory_order_relaxed))
+      pushConfigStatus();
   }
   subnoteGenerator.tick(noteTracker.getSessionSamples());
 
@@ -2569,16 +2578,17 @@ void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice *device) {
   // Pass the actual device sample rate and block size down to the mixer and
   // plugins
   if (device) {
-    audioDiagnostics_.prepare(device->getCurrentSampleRate());
-    audioSharedMemory_.setSampleRate(device->getCurrentSampleRate());
-    mixer_.prepareToPlay(device->getCurrentSampleRate(),
-                         device->getCurrentBufferSizeSamples());
-    audioDeviceRunning_.store(true, std::memory_order_relaxed);
+    const auto error = renderAhead_->start(device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
+    audioDeviceRunning_.store(error.isEmpty(), std::memory_order_relaxed);
+    safeCallAsync([this, error] {
+      renderAheadError_ = error;
+      pushConfigStatus(); // tells the native consumer to map this new generation
+    });
   }
 }
 
 void MainComponent::audioDeviceStopped() {
-  audioDiagnostics_.publish();
+  if (renderAhead_) renderAhead_->stop();
   audioDeviceRunning_.store(false, std::memory_order_relaxed);
 }
 
@@ -2587,34 +2597,28 @@ void MainComponent::audioDeviceIOCallbackWithContext(
     float *const *outputChannelData, int numOutputChannels, int numSamples,
     const juce::AudioIODeviceCallbackContext &context) {
 
-  const auto diagnosticStart = juce::Time::getMillisecondCounterHiRes();
-  PluginRenderDiagnostics::beginBlock();
-
-  // Clear any garbage from output buffers
+  // The device supplies configuration, not the render clock. Never run DSP or
+  // wait for the render worker here. Dorico consumption drives audio production.
   for (int i = 0; i < numOutputChannels; ++i) {
     if (outputChannelData[i] != nullptr) {
       juce::FloatVectorOperations::clear(outputChannelData[i], numSamples);
     }
   }
 
-  juce::AudioBuffer<float> audioBuffer(outputChannelData, numOutputChannels,
-                                       numSamples);
-  double currentTime = diagnosticStart;
+}
 
-  // 1. Process VST instruments and mix down to audioBuffer
-  mixer_.processBlock(audioBuffer, currentTime);
+int MainComponent::effectivePlaybackDelayMs() const {
+  const auto reserve = renderAhead_ ? renderAhead_->reserveMs() : 0.0;
+  return juce::jmax(mixer_.getPlaybackDelayMs(),
+                   int(std::ceil(reserve + mixer_.maximumPathLatencyMs())));
+}
 
-  // 2. Transmit the mixed audioBuffer to Dorico via Shared Memory IPC
-  const auto pushResult = audioSharedMemory_.pushAudio(audioBuffer);
-
-  // 3. Clear the local speaker buffer so FiddleServer doesn't play directly
-  // through macOS CoreAudio.
-  //    This forces us to listen ONLY through the Dorico Mixer return route!
-  audioBuffer.clear();
-  audioDiagnostics_.record(diagnosticStart, juce::Time::getMillisecondCounterHiRes(), numSamples,
-      pushResult == AudioSharedMemory::PushResult::overflow,
-      pushResult == AudioSharedMemory::PushResult::unavailable,
-      PluginRenderDiagnostics::blockWorkMs());
+double MainComponent::getDelayedTriggerTimeMs() {
+  if (!isTransportStarted_.load(std::memory_order_relaxed)) return 0.0;
+  // The renderer now uses future *presentation* time, so do NOT subtract the
+  // reserve again. It naturally consumes MIDI early while rendering ahead.
+  return audioStreamTimeMs() + reportedPlaybackDelayMs_.load(std::memory_order_relaxed)
+         - mixer_.masterLatencyMs();
 }
 
 void MainComponent::showAudioSettings() {
@@ -2634,6 +2638,11 @@ void MainComponent::pushAudioDiagnostics() {
   data->setProperty("buildConfiguration", "Release");
 #endif
   if (audioSettings_) data->setProperty("device", audioSettings_->diagnostics());
+  if (renderAhead_) data->setProperty("renderAhead", renderAhead_->diagnostics());
+  data->setProperty("renderAheadError", renderAheadError_);
+  data->setProperty("effectiveDelayMs", reportedPlaybackDelayMs_.load(std::memory_order_relaxed));
+  data->setProperty("requestedDelayMs", mixer_.getPlaybackDelayMs());
+  data->setProperty("returnProtocol", int(returnDiagnostics_.audio_protocol()));
   data->setProperty("plugins", mixer_.pluginTimings(now));
   data->setProperty("pluginLoad", s.pluginLoad * 100.0);
   data->setProperty("otherLoad", s.otherLoad * 100.0);

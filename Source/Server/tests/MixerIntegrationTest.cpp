@@ -7,6 +7,8 @@
 #include "ProjectRestoreService.h"
 #include "StateManager.h"
 #include "UndoManager.h"
+#include "RenderAheadEngine.h"
+#include "NativePlugin/AudioConsumer.h"
 
 #include <algorithm>
 #include <array>
@@ -879,6 +881,60 @@ void testCancelledStateRebuildRetainsPublishedBlob() {
   pumpUntil([&] { return host.pullState() == replacement; });
 }
 
+void testRenderAheadWorkerAndRemapping() {
+  Sandbox sandbox;
+  MixerFixture f;
+  f.instrument(0.1f, 1);
+  fiddle::AudioRenderDiagnostics recorder;
+  const auto file = sandbox.directory.getChildFile("audio-v2.mmap");
+  fiddle::RenderAheadEngine worker(f.mixer, recorder, file);
+  REQUIRE(worker.start(48000, 512).isEmpty());
+  const auto firstId = worker.streamId();
+  fiddle::AudioConsumer consumer(file.getFullPathName().toStdString());
+  juce::MemoryMappedFile mapping(file, juce::MemoryMappedFile::readWrite);
+  auto &ring = *static_cast<fiddle::AudioStreamRing *>(mapping.getData());
+  const auto base = fiddle::audioStreamTimeMs();
+  // A one-second note deadline is unchanged by a 64-ms audio reserve.
+  f.now = base;
+  f.noteOn(1, 1000);
+  f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60), base + 1200);
+  juce::AudioBuffer<float> out(2, 512);
+  int firstSound = -1, lastSound = -1;
+  for (int frame = 0; frame < 48000 * 3 / 2; frame += 512) {
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000;
+    while (ring.writeFrame.load() < ring.readFrame.load() + 512 &&
+           juce::Time::getMillisecondCounterHiRes() < deadline)
+      juce::Thread::sleep(1);
+    REQUIRE(ring.writeFrame.load() >= ring.readFrame.load() + 512);
+    // Virtual host time makes timing exact, independent of test-machine speed;
+    // the actual production worker still runs and publishes through the mmap.
+    REQUIRE(ring.pull(out.getArrayOfWritePointers(), 2, 512, 48000,
+                      base + frame * 1000.0 / 48000) == fiddle::AudioStreamRing::PullResult::audio);
+    for (int i = 0; i < 512; ++i) {
+      if (out.getSample(0, i) != 0) {
+        if (firstSound < 0) firstSound = frame + i;
+        lastSound = frame + i;
+        REQUIRE(std::abs(out.getSample(0, i) - 0.1f) < 0.00001f);
+      }
+    }
+  }
+  REQUIRE(std::abs(firstSound - 48000) <= 1);
+  REQUIRE(std::abs(lastSound - 57599) <= 1);
+  worker.stop();
+  REQUIRE(ring.active.load() == 0);
+  REQUIRE(worker.start(44100, 1024).isEmpty());
+  REQUIRE(worker.streamId() != firstId);
+  // Old inode stays valid but inactive; no cursor reset under an old reader.
+  REQUIRE(ring.active.load() == 0 && ring.sampleRate == 48000);
+  consumer.pullAudio(out.getArrayOfWritePointers(), 2, 512, 44100, worker.streamId());
+  REQUIRE(consumer.diagnostics().unavailableFrames == 512);
+  consumer.remap();
+  consumer.pullAudio(out.getArrayOfWritePointers(), 2, 512, 44100, worker.streamId());
+  REQUIRE(consumer.diagnostics().unavailableFrames == 512);
+  REQUIRE(out.getMagnitude(0, 512) == 0); // freshly primed generation
+  worker.stop();
+}
+
 } // namespace
 
 int main() {
@@ -905,5 +961,6 @@ int main() {
   run("restore recreates audio after database reopen", testRestoreRecreatesAudioAfterDatabaseReopen);
   run("missing plug-ins and superseded restore", testMissingPluginsAndSupersededRestore);
   run("cancelled rebuild retains published host state", testCancelledStateRebuildRetainsPublishedBlob);
+  run("render-ahead worker preserves note deadlines and remaps generations", testRenderAheadWorkerAndRemapping);
   return failed == 0 ? 0 : 1;
 }

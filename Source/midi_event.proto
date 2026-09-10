@@ -39,6 +39,7 @@ message MidiEvent {
         uint64 unavailable_frames = 4;
         double sample_rate = 5;
         uint64 dropped_midi_events = 6;
+        uint32 audio_protocol = 7;
     }
 
     message LoadConfigEvent {
@@ -64,6 +65,7 @@ message MidiEvent {
         int32 delay_ms = 4;
         string branch_id = 5;
         string version_id = 6;
+        uint64 audio_stream_id = 7;
     }
 
     // Correlated request/response used when Dorico calls the VST3 getState

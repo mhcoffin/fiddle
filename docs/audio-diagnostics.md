@@ -1,6 +1,11 @@
 # Lightweight audio diagnostics
 
-The main mixer toolbar's **Audio CPU** button reports callback wall time divided
+The current experimental engine uses [host-driven render ahead](audio-render-ahead.md).
+Its Audio performance panel shows queued/target reserve, effective playback delay,
+and skipped frames. Both the server and native plugin must now be updated together.
+Historical comparison sections below describe the earlier callback-driven engine.
+
+The main mixer toolbar's **Audio CPU** button reports render wall time divided
 by audio block duration. At 48 kHz, a 480-frame block has 10 ms to complete; 5 ms
 of work is 50%, and 12 ms is 120%. It is not whole-machine CPU utilization and
 does not show how many cores are busy. It includes waiting inside instruments.
@@ -12,11 +17,11 @@ scrolls. Escape closes the modal and returns focus to the toolbar.
 ## Using it for a listening test
 
 1. Build/restart FiddleServer. Install the rebuilt Fiddle native VST3 while Dorico
-   is closed, then reopen Dorico and the test score. Older native plugins still
-   work, but cannot supply the new return diagnostics.
+   is closed, then reopen Dorico and the test score. Version-1 native plugins
+   cannot consume the new version-2 audio stream.
 2. Open Audio CPU and check that the Dorico return fields show numbers, not an
    unavailable/stale warning. Confirm that sample rates agree.
-3. Loop the score. A nonzero initial buffering-silence count is normal. Note the
+3. Loop the score. Priming silence is excluded from underrun-silence counts. Note the
    starting counts: measurements are cumulative, not reset for each transport
    start or loop boundary.
 4. When a crackle occurs, click **Mark crackle** as soon as convenient. The button
@@ -34,20 +39,19 @@ scrolls. Escape closes the modal and returns focus to the toolbar.
   100% are not clamped. Stopped, missing and stale are shown explicitly.
 - **Highest block load / longest render:** lifetime maxima, retained across
   audio-device restarts. Server restart creates fresh counters.
-- **Deadline overruns:** completed callbacks whose measured work exceeded their
-  block duration. Last-overrun age is measured from callback completion.
+- **Deadline overruns:** completed renders whose measured work exceeded their
+  block duration. With a reserve this does not necessarily cause an audible gap.
 - **Long callback gaps:** starts separated by more than 1.5 times the previous
   block's duration. A clue to scheduling/overload, not a precise driver xrun
-  count. Intentional device-stop intervals are excluded.
+  count. Hidden for the render-ahead worker, whose waits for consumption are intentional.
 - **JUCE device xruns:** JUCE's device/native and load-measurer accounting. It can
   overlap the separate overrun counter; do not add the counts together.
 - **Return-ring overflow blocks:** server blocks rejected because the shared
   ring lacked space. Ring-unavailable blocks are counted separately.
-- **Underrun episodes:** the native consumer could not satisfy a block while in
-  its normal consuming state and entered rebuffering. It counts the transition
-  once, not every following silent block.
-- **Buffering silence:** frames replaced by silence during initial prefill,
-  underrun and recovery. **Unavailable-ring silence** is separate. These do not
+- **Underrun episodes:** the native consumer could not satisfy a block. It counts
+  consecutive silent blocks as one episode, advancing the cursor through them.
+- **Underrun silence** (JSON `bufferingFrames`): frames replaced by silence during
+  underrun and recovery, excluding initial priming. **Unavailable-ring silence** is separate. These do not
   count silence genuinely produced by instruments or the score.
 - **Dropped outgoing MIDI events:** native relay queue overloads.
 - **Dropped diagnostic reports:** a stalled UI filled the fixed reporting queue.
@@ -72,7 +76,7 @@ only to the main mixer at most four times per second.
 The native consumer increments lock-free atomic counters. A provider on the
 existing TCP relay thread serializes them at most once per second. The server
 handles these as telemetry, not MIDI or project edits. The shared audio-ring ABI
-is unchanged. The previous callback-side diagnostic logging path was removed.
+is now version 2. The previous callback-side diagnostic logging path was removed.
 
 ## Meter-only refresh comparison
 

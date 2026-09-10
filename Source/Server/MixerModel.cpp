@@ -406,6 +406,17 @@ juce::var MixerModel::pluginTimings(double now) {
   return juce::var(rows);
 }
 
+double MixerModel::maximumPathLatencyMs() const {
+  auto graph = audioGraph_.read();
+  double longest = 0;
+  if (graph.get()) for (const auto &route : graph.get()->stripRoutes) {
+    const auto path = route.strip->audioEngine().latencyMs() +
+        (route.destination ? route.destination->audioEngine().latencyMs() : 0.0);
+    longest = std::max(longest, path);
+  }
+  return longest + masterAudio_.latencyMs();
+}
+
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime) {
   auto graphRead = audioGraph_.read();

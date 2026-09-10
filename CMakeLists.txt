@@ -119,6 +119,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/ApplicationRestart.cpp
     Source/Server/AudioDeviceSettings.cpp
+    Source/Server/RenderAheadEngine.cpp
     Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
@@ -753,6 +754,11 @@ set_tests_properties(state_restore PROPERTIES
 # RealtimeQueueTest — bounded SPSC/MPSC handoff and concurrent delivery
 # ==============================================================================
 add_executable(AudioDiagnosticsTest Source/tests/AudioDiagnosticsTest.cpp)
+add_executable(RenderAheadTest Source/tests/RenderAheadTest.cpp)
+target_include_directories(RenderAheadTest PRIVATE Source)
+target_compile_features(RenderAheadTest PRIVATE cxx_std_17)
+add_test(NAME render_ahead COMMAND RenderAheadTest)
+set_tests_properties(render_ahead PROPERTIES LABELS "audio;realtime;regression;stable")
 target_include_directories(AudioDiagnosticsTest PRIVATE Source)
 target_compile_features(AudioDiagnosticsTest PRIVATE cxx_std_17)
 add_test(NAME audio_diagnostics COMMAND AudioDiagnosticsTest)
@@ -1043,6 +1049,7 @@ target_compile_features(FiddleMock PRIVATE cxx_std_17)
 juce_add_console_app(MixerIntegrationTest PRODUCT_NAME "MixerIntegrationTest")
 target_sources(MixerIntegrationTest PRIVATE
     Source/Server/tests/MixerIntegrationTest.cpp
+    Source/Server/RenderAheadEngine.cpp
     Source/Server/ProjectRestoreService.cpp
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp

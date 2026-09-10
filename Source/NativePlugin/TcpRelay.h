@@ -71,6 +71,8 @@ public:
 
   /// Returns the current playback delay in ms (lock-free, audio-thread safe).
   int getDelayMs() const { return delayMs_.load(std::memory_order_relaxed); }
+  uint64_t audioStreamId() const { return audioStreamId_.load(std::memory_order_acquire); }
+  bool consumeAudioStreamChanged() { return audioStreamChanged_.exchange(false); }
 
   /// Returns true once when the delay value has changed. Resets the flag.
   bool consumeLatencyChanged() {
@@ -143,6 +145,8 @@ private:
   std::atomic<bool> activated_{false};
   std::atomic<int> delayMs_;
   std::atomic<bool> latencyChanged_{false};
+  std::atomic<uint64_t> audioStreamId_{0};
+  std::atomic<bool> audioStreamChanged_{false};
   std::atomic<bool> configChanged_{false};
   std::atomic<bool> configDirty_{false};
   std::atomic<uint64_t> nextSaveRequestId_{1};

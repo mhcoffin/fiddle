@@ -274,6 +274,7 @@ bool TcpRelay::tryConnect() {
 }
 
 void TcpRelay::disconnect() {
+  audioStreamId_.store(0, std::memory_order_release);
   if (socketFd_ >= 0) {
     ::close(socketFd_);
     socketFd_ = -1;
@@ -368,6 +369,8 @@ void TcpRelay::receiveMessages() {
     if (event.ParseFromString(payload)) {
       if (event.has_config_status()) {
         auto &cs = event.config_status();
+        if (audioStreamId_.exchange(cs.audio_stream_id(), std::memory_order_acq_rel) != cs.audio_stream_id())
+          audioStreamChanged_.store(true, std::memory_order_release);
         int newDelay = cs.delay_ms();
         int oldDelay = delayMs_.exchange(newDelay, std::memory_order_relaxed);
         if (oldDelay != newDelay) {
