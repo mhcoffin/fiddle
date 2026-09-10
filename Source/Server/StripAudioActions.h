@@ -20,17 +20,24 @@ public:
   }
 
   void execute() override {
+    success_ = false;
     if (auto *strip = mixer_.getStrip(stripId_))
-      strip->audioEngine().insert(snapshot_, position_, index_,
+      success_ = strip->audioEngine().insert(snapshot_, position_, index_,
                                   mixer_.getFormatManager());
   }
   void undo() override {
-    if (auto *strip = mixer_.getStrip(stripId_))
-      strip->audioEngine().remove(snapshot_.slotId);
+    success_ = false;
+    if (auto *strip = mixer_.getStrip(stripId_)) {
+      if (const auto state = strip->audioEngine().snapshot(snapshot_.slotId)) {
+        snapshot_ = *state;
+        success_ = strip->audioEngine().remove(snapshot_.slotId);
+      }
+    }
   }
   juce::String getDescription() const override {
     return "Add " + snapshot_.description.name + " to strip";
   }
+  bool succeeded() const override { return success_; }
 
 private:
   MixerModel &mixer_;
@@ -38,6 +45,7 @@ private:
   StripInsertPosition position_;
   AudioInsertSnapshot snapshot_;
   int index_ = 0;
+  bool success_ = false;
 };
 
 class RemoveStripInsertAction final : public UndoableAction {
@@ -56,17 +64,24 @@ public:
   }
 
   void execute() override {
-    if (auto *strip = mixer_.getStrip(stripId_))
-      strip->audioEngine().remove(snapshot_.slotId);
+    success_ = false;
+    if (auto *strip = mixer_.getStrip(stripId_)) {
+      if (const auto state = strip->audioEngine().snapshot(snapshot_.slotId)) {
+        snapshot_ = *state;
+        success_ = strip->audioEngine().remove(snapshot_.slotId);
+      }
+    }
   }
   void undo() override {
+    success_ = false;
     if (auto *strip = mixer_.getStrip(stripId_))
-      strip->audioEngine().insert(snapshot_, position_, index_,
+      success_ = strip->audioEngine().insert(snapshot_, position_, index_,
                                   mixer_.getFormatManager());
   }
   juce::String getDescription() const override {
     return "Remove " + snapshot_.description.name + " from strip";
   }
+  bool succeeded() const override { return success_; }
 
 private:
   MixerModel &mixer_;
@@ -74,6 +89,7 @@ private:
   StripInsertPosition position_ = StripInsertPosition::preFader;
   AudioInsertSnapshot snapshot_;
   int index_ = 0;
+  bool success_ = false;
 };
 
 class MoveStripInsertAction final : public UndoableAction {

@@ -218,6 +218,10 @@ MasterAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) c
   result.bypassed = entry->hosted->isBypassed();
   if (!captureLiveState || !entry->hosted->captureState(result.pluginState))
     result.pluginState = entry->hosted->cachedState();
+  if (!entry->hosted->hasProcessor() &&
+      (entry->hosted->status() == HostedPluginStatus::loading ||
+       entry->hosted->status() == HostedPluginStatus::empty))
+    result.pluginState = entry->pendingState;
   return result;
 }
 
@@ -247,6 +251,8 @@ bool MasterAudioEngine::insert(const MasterInsertSnapshot &snapshot, int index,
   }
 
   auto entry = std::make_shared<Entry>();
+  entry->pendingState = snapshot.pluginState;
+  entry->requestedBypassed = snapshot.bypassed;
   entry->id = snapshot.slotId;
   entry->description = snapshot.description;
   entry->hosted = std::make_shared<HostedPluginSlot>(PluginSlotRole::effect);
@@ -262,7 +268,7 @@ bool MasterAudioEngine::insert(const MasterInsertSnapshot &snapshot, int index,
   entry->hosted->loadPlugin(
       snapshot.description, formatManager, sampleRate_, blockSize_,
       [this, weakAlive, entry, state = snapshot.pluginState,
-       bypassed = snapshot.bypassed, completion = std::move(completion),
+       completion = std::move(completion),
        notify](bool success, const juce::String &error) mutable {
         const auto alive = weakAlive.lock();
         if (!alive || !alive->load(std::memory_order_acquire))
@@ -272,10 +278,10 @@ bool MasterAudioEngine::insert(const MasterInsertSnapshot &snapshot, int index,
           if (!state.isEmpty())
             entry->hosted->applyState(state.getData(),
                                       static_cast<int>(state.getSize()));
-          entry->hosted->setBypassed(bypassed);
+          entry->hosted->setBypassed(entry->requestedBypassed);
         } else {
           entry->hosted->markMissing(entry->description, state, error);
-          entry->hosted->setBypassed(bypassed);
+          entry->hosted->setBypassed(entry->requestedBypassed);
         }
         entry->parameterFingerprint = entry->hosted->parameterFingerprint();
 
@@ -366,6 +372,7 @@ bool MasterAudioEngine::setBypassed(const juce::String &slotId, bool bypassed,
   if (!entry)
     return false;
   entry->hosted->setBypassed(bypassed);
+  entry->requestedBypassed = bypassed;
   notifyChanged(notify);
   return true;
 }

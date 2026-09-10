@@ -1,6 +1,9 @@
 #include "FiddleDatabase.h"
 #include "ChairLayerActions.h"
 #include "ChairActions.h"
+#include "StripAudioActions.h"
+#include "MasterAudioActions.h"
+#include "GroupBusActions.h"
 #include "GroupBusCommandService.h"
 #include "GroupBusJsHandlers.h"
 #include "MessageRouter.h"
@@ -36,10 +39,12 @@ juce::PluginDescription description(bool instrument);
 
 class SignalProcessor final : public juce::AudioPluginInstance {
 public:
+  inline static std::atomic<SignalProcessor *> lastCreated{nullptr};
   inline static int programQueries = 0;
   inline static int stateCaptures = 0;
   inline static std::vector<std::pair<double, int>> preparations;
   bool counting = false;
+  std::optional<juce::PluginDescription> requestedDescription;
   uint64_t frames = 0;
   std::function<void()> onProcess, onDestroy;
   ~SignalProcessor() override { if (onDestroy) onDestroy(); }
@@ -51,11 +56,12 @@ public:
                                  .withInput("Input", juce::AudioChannelSet::stereo(), true)
                                  .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
         instrument_(instrument), amount_(amount), latency_(latency) {
+    lastCreated.store(this);
     setLatencySamples(latency);
   }
   const juce::String getName() const override { return "Deterministic signal"; }
   void fillInPluginDescription(juce::PluginDescription &result) const override {
-    result = description(instrument_);
+    result = requestedDescription.value_or(description(instrument_));
   }
   void prepareToPlay(double rate, int block) override {
     preparations.emplace_back(rate, block);
@@ -168,8 +174,11 @@ private:
       // makes the rendered-audio comparisons fail.
       if (missing)
         callback(nullptr, "Intentionally unavailable test plug-in");
-      else
-        callback(std::make_unique<SignalProcessor>(desc.isInstrument, 0.9375f), {});
+      else {
+        auto processor = std::make_unique<SignalProcessor>(desc.isInstrument, 0.9375f);
+        processor->requestedDescription = desc;
+        callback(std::move(processor), {});
+      }
     };
     if (defer)
       pending.push_back(std::move(create));
@@ -466,6 +475,153 @@ struct Sandbox {
   Sandbox() { REQUIRE(directory.createDirectory().wasOk()); }
   ~Sandbox() { directory.deleteRecursively(); }
 };
+
+float stateAmount(const juce::MemoryBlock &state) {
+  REQUIRE(state.getSize() == sizeof(float));
+  float result = 0; std::memcpy(&result, state.getData(), sizeof(result));
+  return result;
+}
+
+void testInstrumentReplacementStateUndo() {
+  MixerFixture f;
+  auto format = std::make_unique<TestPluginFormat>();
+  auto *factory = format.get();
+  f.mixer.getFormatManager().addFormat(std::move(format));
+  f.scanner.getKnownPluginListMutable().addType(description(true));
+  const auto id = f.instrument(0.1f, 1);
+  auto *strip = f.mixer.getStrip(id);
+  strip->setPluginBypassed(true);
+  auto settle = [&] { pumpUntil([&] { return strip->pluginStatus() != fiddle::HostedPluginStatus::loading; }); };
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetPluginAction>(f.mixer, f.scanner, id, 101, 0)));
+  REQUIRE(!strip->hasPlugin());
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == 0.1f && strip->isPluginBypassed());
+  float edited = 0.25f;
+  REQUIRE(strip->applyPluginState(&edited, sizeof(edited)));
+  REQUIRE(f.undo.redo() && !strip->hasPlugin());
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+
+  // Replacing with another UID preserves both independently edited sides.
+  auto other = description(true); other.uniqueId = 201; other.name = "Other instrument";
+  f.scanner.getKnownPluginListMutable().addType(other);
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetPluginAction>(f.mixer, f.scanner, id, 101, 201)));
+  settle();
+  float otherAmount = 0.375f;
+  REQUIRE(strip->applyPluginState(&otherAmount, sizeof(otherAmount)));
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+  edited = 0.5f; REQUIRE(strip->applyPluginState(&edited, sizeof(edited)));
+  REQUIRE(f.undo.redo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == otherAmount);
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+  REQUIRE(strip->pluginUid == 101);
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::SetPluginAction>(f.mixer, f.scanner, id, 101, 101)));
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::SetPluginAction>(f.mixer, f.scanner, id, 101, 999)));
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+
+  // Capture a pending restoration, cancel it, and complete stale callbacks.
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetPluginAction>(f.mixer, f.scanner, id, 101, 0)));
+  factory->defer = true;
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return !factory->pending.empty(); });
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+  REQUIRE(f.undo.redo() && !strip->hasPlugin());
+  factory->completeAll();
+  REQUIRE(strip->pluginUid == 0 && !strip->hasPlugin());
+  factory->defer = false;
+  factory->missingInstruments = true;
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(strip->pluginStatus() == fiddle::HostedPluginStatus::missing);
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+  REQUIRE(f.undo.redo());
+  factory->missingInstruments = false;
+  f.scanner.getKnownPluginListMutable().clear(); // Undo does not depend on today's catalog.
+  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
+}
+
+void testFxStateUndo() {
+  // Same production add/remove contract on layers, group buses and Master.
+  for (int kind = 0; kind < 3; ++kind) {
+    MixerFixture f;
+    auto format = std::make_unique<TestPluginFormat>();
+    auto *factory = format.get();
+    f.mixer.getFormatManager().addFormat(std::move(format));
+    const auto id = f.instrument(0.1f, 1);
+    REQUIRE(f.commands.addGroupBus("Bus", {}));
+    const auto bus = f.mixer.getAllGroupBuses().front()->id;
+    f.undo.clear();
+    auto *engine = kind == 0 ? &f.mixer.getStrip(id)->audioEngine() : &f.mixer.getGroupBus(bus)->audioEngine();
+    auto snapshots = [&] {
+      return kind == 2 ? f.mixer.masterAudio().snapshotAll().inserts : engine->snapshotAll().preFaderInserts;
+    };
+    std::unique_ptr<fiddle::UndoableAction> add;
+    if (kind == 0) add = std::make_unique<fiddle::AddStripInsertAction>(f.mixer, id, description(false), fiddle::StripInsertPosition::preFader);
+    if (kind == 1) add = std::make_unique<fiddle::AddGroupBusInsertAction>(f.mixer, bus, description(false), fiddle::StripInsertPosition::preFader);
+    if (kind == 2) add = std::make_unique<fiddle::AddMasterInsertAction>(f.mixer, description(false));
+    REQUIRE(f.undo.perform(std::move(add)));
+    auto settle = [&] { pumpUntil([&] {
+      return (kind == 2 ? f.mixer.masterAudio().toJson()["inserts"][0]["status"].toString() :
+                         engine->toJson()["preFaderInserts"][0]["status"].toString()) == "loaded";
+    }); };
+    settle();
+    const auto slot = snapshots()[0].slotId;
+    float edited = 0.25f;
+    SignalProcessor::lastCreated.load()->setStateInformation(&edited, sizeof(edited));
+    REQUIRE(f.undo.undo() && snapshots().empty());
+    REQUIRE(f.undo.redo());
+    // Cached input bytes are present even BEFORE the async reload completes.
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+    settle();
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+    edited = 0.375f;
+    SignalProcessor::lastCreated.load()->setStateInformation(&edited, sizeof(edited));
+    REQUIRE(f.undo.undo() && snapshots().empty());
+    REQUIRE(f.undo.redo()); settle();
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+
+    std::unique_ptr<fiddle::UndoableAction> remove;
+    if (kind == 0) remove = std::make_unique<fiddle::RemoveStripInsertAction>(f.mixer, id, slot);
+    if (kind == 1) remove = std::make_unique<fiddle::RemoveGroupBusInsertAction>(f.mixer, bus, slot);
+    if (kind == 2) remove = std::make_unique<fiddle::RemoveMasterInsertAction>(f.mixer, slot);
+    REQUIRE(f.undo.perform(std::move(remove)));
+    REQUIRE(f.undo.undo());
+    // Wait on the test factory's actual completion by draining message work.
+    settle();
+    edited = 0.5f;
+    SignalProcessor::lastCreated.load()->setStateInformation(&edited, sizeof(edited));
+    REQUIRE(f.undo.redo() && snapshots().empty());
+    factory->defer = true;
+    REQUIRE(f.undo.undo());
+    pumpUntil([&] { return !factory->pending.empty(); });
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+    REQUIRE(f.undo.redo()); // Remove again while restoration is still loading.
+    factory->completeAll();
+    REQUIRE(snapshots().empty());
+    factory->defer = false;
+    REQUIRE(f.undo.undo());
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+    settle();
+    REQUIRE(f.undo.redo());
+    factory->missingEffects = true;
+    REQUIRE(f.undo.undo());
+    pumpUntil([&] {
+      return (kind == 2 ? f.mixer.masterAudio().toJson()["inserts"][0]["status"].toString() :
+                         engine->toJson()["preFaderInserts"][0]["status"].toString()) == "missing";
+    });
+    REQUIRE(stateAmount(snapshots()[0].pluginState) == edited);
+    REQUIRE(f.undo.redo());
+    factory->missingEffects = false;
+    factory->defer = true;
+    REQUIRE(f.undo.undo());
+    pumpUntil([&] { return !factory->pending.empty(); });
+    REQUIRE(kind == 2 ? f.mixer.masterAudio().setBypassed(slot, true) : engine->setBypassed(slot, true));
+    factory->completeAll(); settle();
+    REQUIRE(snapshots()[0].bypassed && stateAmount(snapshots()[0].pluginState) == edited);
+  }
+}
 
 void testChairCommandsUndo() {
   Sandbox sandbox;
@@ -1555,6 +1711,8 @@ int main() {
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
+  run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
+  run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);
   run("chair create and atomic metadata edit undo", testChairCommandsUndo);
   run("chair deletion retains live layers, locks, FX and assignments", testChairDeletionRetainsLayers);
   run("chair layer removal restores assignment, live player and FX on undo", testChairLayerRemovalUndo);

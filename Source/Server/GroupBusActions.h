@@ -179,8 +179,9 @@ public:
   }
 
   void execute() override {
+    success_ = false;
     if (auto *bus = mixer_.getGroupBus(busId_))
-      bus->audioEngine().insert(
+      success_ = bus->audioEngine().insert(
           snapshot_, position_, index_, mixer_.getFormatManager(),
           [mixer = &mixer_](bool, const juce::String &) {
             mixer->refreshAudioRouting();
@@ -189,14 +190,20 @@ public:
   }
 
   void undo() override {
-    if (auto *bus = mixer_.getGroupBus(busId_))
-      bus->audioEngine().remove(snapshot_.slotId);
+    success_ = false;
+    if (auto *bus = mixer_.getGroupBus(busId_)) {
+      if (const auto state = bus->audioEngine().snapshot(snapshot_.slotId)) {
+        snapshot_ = *state;
+        success_ = bus->audioEngine().remove(snapshot_.slotId);
+      }
+    }
     mixer_.refreshAudioRouting();
   }
 
   juce::String getDescription() const override {
     return "Add " + snapshot_.description.name + " to group bus";
   }
+  bool succeeded() const override { return success_; }
 
 private:
   MixerModel &mixer_;
@@ -204,6 +211,7 @@ private:
   StripInsertPosition position_;
   AudioInsertSnapshot snapshot_;
   int index_ = 0;
+  bool success_ = false;
 };
 
 class RemoveGroupBusInsertAction final : public UndoableAction {
@@ -222,14 +230,20 @@ public:
   }
 
   void execute() override {
-    if (auto *bus = mixer_.getGroupBus(busId_))
-      bus->audioEngine().remove(snapshot_.slotId);
+    success_ = false;
+    if (auto *bus = mixer_.getGroupBus(busId_)) {
+      if (const auto state = bus->audioEngine().snapshot(snapshot_.slotId)) {
+        snapshot_ = *state;
+        success_ = bus->audioEngine().remove(snapshot_.slotId);
+      }
+    }
     mixer_.refreshAudioRouting();
   }
 
   void undo() override {
+    success_ = false;
     if (auto *bus = mixer_.getGroupBus(busId_))
-      bus->audioEngine().insert(
+      success_ = bus->audioEngine().insert(
           snapshot_, position_, index_, mixer_.getFormatManager(),
           [mixer = &mixer_](bool, const juce::String &) {
             mixer->refreshAudioRouting();
@@ -240,6 +254,7 @@ public:
   juce::String getDescription() const override {
     return "Remove " + snapshot_.description.name + " from group bus";
   }
+  bool succeeded() const override { return success_; }
 
 private:
   MixerModel &mixer_;
@@ -247,6 +262,7 @@ private:
   StripInsertPosition position_ = StripInsertPosition::preFader;
   AudioInsertSnapshot snapshot_;
   int index_ = 0;
+  bool success_ = false;
 };
 
 class MoveGroupBusInsertAction final : public UndoableAction {

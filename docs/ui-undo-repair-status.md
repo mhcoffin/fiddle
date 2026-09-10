@@ -55,8 +55,7 @@ in the working tree; see [audio safety results](audio-safety-results.md).
 
 ## Still to implement
 
-1. Complete plugin state retention for VSTi replacement/program selection and
-   repeated FX add/remove cycles; expression-map provenance/import and Lua
+1. VSTi program-selection Undo; expression-map provenance/import and Lua
    loading failure handling. Preserve vendor edits without recording their
    individual editor gestures.
 2. Update Layers as one project command with each layer's live before-state.
@@ -114,4 +113,42 @@ restored name; it is not a claim of a live Dorico end-to-end test.
 Manual check after restarting Release: add an empty chair and Undo/Redo; rename
 and change its player type and Undo each; delete a populated chair and Undo once.
 Check its layers, levels, lock, MIDI destination and playback are restored. The
-chair-management smoke test passed; this pass is ready to commit. No push was requested.
+chair-management smoke test passed; committed as `63e947c`. No push was requested.
+
+## Plugin-state follow-up
+
+10 September 2026; uncommitted, awaiting smoke test.
+
+- VSTi replacement/removal retains full plugin description, serialized state
+  and bypass state on both sides. Every direction captures the departing
+  state again, preserving vendor edits made after an earlier Undo or Redo.
+  Restoration does not depend on the current scanner catalog. Selecting an
+  already assigned working player is a no-op; retrying a missing player retains
+  its patch state.
+- Strip, group-bus and Master FX add/remove commands capture live state before
+  every removal. Redo of Add no longer restores an empty/default effect, and
+  repeated Remove/Undo cycles do not revert later vendor edits.
+- Pending instrument and FX restores retain their input state before loading
+  completes. Superseded load callbacks cannot replace the current choice;
+  missing/incompatible players retain state for recovery. FX bypass edits made
+  while loading survive completion.
+- The processor installation and restored-state application share one control
+  gate, preventing the audio renderer from briefly processing a default preset.
+  The audio thread does not wait for that gate. Plugin completion after Undo
+  respects the history save point instead of unconditionally enabling Save.
+
+These commands restore serialized plugin state by **reloading** the plugin;
+large sample libraries can take time. This is not retention of sample-engine
+runtime/tails, nor recording individual vendor-editor gestures. Chair deletion
+still retains live instances as documented above.
+
+New deterministic mixer tests cover edits on both sides of VSTi replacement,
+repeated add/remove FX cycles on all three destinations, removal during pending
+restoration, stale completions, missing binaries, catalog changes, no-op/invalid
+selection and bypass changes while loading. State values are asserted directly;
+tests require no vendor plugins or Dorico.
+
+Smoke check after restarting Release: configure a VSTi, clear/replace it, Undo,
+and verify the patch returns. Edit it again and repeat Redo/Undo. For a strip,
+bus and Master FX, edit a parameter, Undo Add and Redo; then remove/Undo, edit
+again, and Redo-remove/Undo. The latest settings should survive each cycle.

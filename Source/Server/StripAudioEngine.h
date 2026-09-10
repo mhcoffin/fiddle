@@ -86,6 +86,8 @@ public:
 
 private:
   struct Entry {
+    juce::MemoryBlock pendingState;
+    bool requestedBypassed = false;
     juce::String id;
     juce::PluginDescription description;
     std::shared_ptr<HostedPluginSlot> hosted;

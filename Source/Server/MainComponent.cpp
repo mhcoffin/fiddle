@@ -2956,8 +2956,21 @@ void MainComponent::setupJsHandlers() {
               safeThis->broadcastMessage("setPluginList", plugins);
           },
           [safeThis] {
-            if (safeThis != nullptr)
-              safeThis->pushMixerState();
+            if (safeThis != nullptr) {
+              safeThis->safeCallAsync([safeThis] {
+                if (safeThis == nullptr) return;
+                // Completion can occur after Undo has returned to the saved
+                // state. Loading that state is not a new user edit.
+                const bool dirty = !safeThis->undoManager_.isAtSavePoint();
+                safeThis->saveAllStripsToDB(false);
+                safeThis->pushMixerState(dirty);
+                if (!dirty) {
+                  safeThis->stateManager_.clearDirty();
+                  safeThis->broadcastMessage("setDirtyState", false);
+                }
+                safeThis->scheduleStateRebuild();
+              });
+            }
           }});
   pluginJsHandlers_->registerHandlers();
 

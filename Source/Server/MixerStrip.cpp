@@ -85,6 +85,7 @@ float MixerStrip::peakHoldDb() const noexcept {
 }
 
 juce::MemoryBlock MixerStrip::cachedPluginState() const {
+  if (pendingInstrument_) return pendingInstrument_->state;
   return instrumentSlot_.cachedState();
 }
 
@@ -93,6 +94,7 @@ bool MixerStrip::hasPlugin() const noexcept {
 }
 
 bool MixerStrip::capturePluginState(juce::MemoryBlock &destination) const {
+  if (pendingInstrument_) { destination = pendingInstrument_->state; return true; }
   return instrumentSlot_.captureState(destination);
 }
 
@@ -458,25 +460,38 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
   }
 }
 
+MixerStrip::InstrumentSnapshot MixerStrip::snapshotInstrument() const {
+  if (pendingInstrument_) {
+    auto result = *pendingInstrument_;
+    result.bypassed = instrumentSlot_.isBypassed();
+    return result;
+  }
+  InstrumentSnapshot result{instrumentSlot_.description(), {}};
+  result.bypassed = instrumentSlot_.isBypassed();
+  if (!instrumentSlot_.captureState(result.state))
+    result.state = instrumentSlot_.cachedState();
+  return result;
+}
+
 void MixerStrip::loadPlugin(const juce::PluginDescription &desc,
                             juce::AudioPluginFormatManager &formatManager,
                             std::function<void(bool)> onComplete,
                             const juce::MemoryBlock &initialState) {
+  pendingInstrument_ = InstrumentSnapshot{desc, initialState};
   instrumentSlot_.loadPlugin(
       desc, formatManager, currentSampleRate_.load(std::memory_order_relaxed),
       currentBlockSize_.load(std::memory_order_relaxed),
       [this, desc, initialState, onComplete = std::move(onComplete)](
-          bool success, const juce::String &) {
+          bool success, const juce::String &error) {
+        pendingInstrument_.reset();
         if (success) {
           pluginUid = desc.uniqueId;
           if (!initialState.isEmpty())
             applyPluginState(initialState.getData(),
                              static_cast<int>(initialState.getSize()));
-        } else if (instrumentSlot_.status() == HostedPluginStatus::missing) {
-          pluginUid = instrumentSlot_.pluginUid();
-          if (!initialState.isEmpty())
-            instrumentSlot_.markMissing(desc, initialState,
-                                        instrumentSlot_.lastError());
+        } else if (!instrumentSlot_.hasProcessor()) {
+          pluginUid = desc.uniqueId;
+          instrumentSlot_.markMissing(desc, initialState, error);
         }
         if (onComplete)
           onComplete(success);
@@ -491,11 +506,13 @@ bool MixerStrip::installInstrumentProcessor(
           currentBlockSize_.load(), error))
     return false;
   pluginUid = description.uniqueId;
+  pendingInstrument_.reset();
   return true;
 }
 
 void MixerStrip::markPluginMissing(int uid, const juce::MemoryBlock &state,
                                    const juce::String &error) {
+  pendingInstrument_.reset();
   juce::PluginDescription description;
   description.name = "Missing plug-in " + juce::String(uid);
   description.pluginFormatName = "VST3";
@@ -506,6 +523,7 @@ void MixerStrip::markPluginMissing(int uid, const juce::MemoryBlock &state,
 }
 
 void MixerStrip::unloadPlugin() {
+  pendingInstrument_.reset();
   instrumentSlot_.unload();
   pluginUid = 0;
 }

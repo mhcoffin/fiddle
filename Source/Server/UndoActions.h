@@ -140,46 +140,67 @@ private:
 class SetPluginAction : public UndoableAction {
 public:
   SetPluginAction(MixerModel &mixer, PluginScanner &scanner,
-                  const juce::String &stripId, int oldUid, int newUid,
+                  const juce::String &stripId, int /*oldUid*/, int newUid,
                   std::function<void()> onComplete = nullptr)
-      : mixer_(mixer), scanner_(scanner), stripId_(stripId), oldUid_(oldUid),
-        newUid_(newUid), onComplete_(std::move(onComplete)) {}
+      : mixer_(mixer), stripId_(stripId),
+        newUid_(newUid), onComplete_(std::move(onComplete)) {
+    for (const auto &d : scanner.getKnownPluginList().getTypes())
+      if (d.uniqueId == newUid) after_.description = d;
+    valid_ = newUid == 0 || (after_.description.uniqueId == newUid &&
+        PluginCompatibility::fromDescription(after_.description, PluginSlotRole::instrument).compatible);
+    if (auto *strip = mixer_.getStrip(stripId_);
+        strip && strip->pluginStatus() == HostedPluginStatus::missing &&
+        strip->requestedPluginUid() == newUid) {
+      const auto missing = strip->snapshotInstrument();
+      after_.state = missing.state; // Retry availability, not reset the patch.
+      after_.bypassed = missing.bypassed;
+    }
+  }
 
-  void execute() override { loadPluginByUid(newUid_); }
-  void undo() override { loadPluginByUid(oldUid_); }
+  void execute() override { swapTo(after_, before_); }
+  void undo() override { swapTo(before_, after_); }
+  bool succeeded() const override { return success_; }
+  bool isNoOp() const override {
+    auto *strip = mixer_.getStrip(stripId_);
+    return valid_ && strip && strip->pluginStatus() != HostedPluginStatus::missing &&
+           strip->pluginStatus() != HostedPluginStatus::failed &&
+           strip->requestedPluginUid() == newUid_;
+  }
   juce::String getDescription() const override {
     return "Set plugin UID " + juce::String(newUid_);
   }
 
 private:
-  void loadPluginByUid(int uid) {
+  void swapTo(const MixerStrip::InstrumentSnapshot &target,
+              MixerStrip::InstrumentSnapshot &departing) {
+    success_ = false;
     auto *s = mixer_.getStrip(stripId_);
-    if (!s)
-      return;
-    if (uid == 0) {
-      s->unloadPlugin();
-      s->pluginUid = 0;
+    if (!s || !valid_) return;
+    departing = s->snapshotInstrument(); // Includes latest vendor edits, every cycle.
+    s->allNotesOff();
+    s->unloadPlugin(); // Cancels any superseded asynchronous request.
+    success_ = true;
+    if (target.description.uniqueId == 0) {
       if (onComplete_)
         onComplete_();
       return;
     }
-    for (const auto &d : scanner_.getKnownPluginList().getTypes()) {
-      if (d.uniqueId == uid) {
-        auto cb = onComplete_;
-        s->loadPlugin(d, mixer_.getFormatManager(), [cb](bool) {
-          if (cb)
-            cb();
-        });
-        return;
-      }
-    }
+    s->pluginUid = target.description.uniqueId;
+    auto cb = onComplete_;
+    s->loadPlugin(target.description, mixer_.getFormatManager(),
+                  [s, cb, bypassed = target.bypassed](bool) {
+                    s->setPluginBypassed(bypassed);
+                    if (cb) cb();
+                  }, target.state);
+    s->setPluginBypassed(target.bypassed);
   }
 
   MixerModel &mixer_;
-  PluginScanner &scanner_;
   juce::String stripId_;
-  int oldUid_, newUid_;
+  int newUid_;
   std::function<void()> onComplete_;
+  MixerStrip::InstrumentSnapshot before_, after_;
+  bool valid_ = false, success_ = false;
 };
 
 // ─── Structural actions ──────────────────────────────────────────────

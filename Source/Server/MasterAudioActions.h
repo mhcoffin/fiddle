@@ -19,9 +19,16 @@ public:
   }
 
   void execute() override {
-    mixer_.masterAudio().insert(snapshot_, index_, mixer_.getFormatManager());
+    success_ = mixer_.masterAudio().insert(snapshot_, index_, mixer_.getFormatManager());
   }
-  void undo() override { mixer_.masterAudio().remove(snapshot_.slotId); }
+  void undo() override {
+    success_ = false;
+    if (const auto state = mixer_.masterAudio().snapshot(snapshot_.slotId)) {
+      snapshot_ = *state;
+      success_ = mixer_.masterAudio().remove(snapshot_.slotId);
+    }
+  }
+  bool succeeded() const override { return success_; }
   juce::String getDescription() const override {
     return "Add " + snapshot_.description.name + " to Master";
   }
@@ -30,6 +37,7 @@ private:
   MixerModel &mixer_;
   MasterInsertSnapshot snapshot_;
   int index_ = 0;
+  bool success_ = false;
 };
 
 class RemoveMasterInsertAction final : public UndoableAction {
@@ -41,13 +49,17 @@ public:
   }
 
   void execute() override {
-    if (snapshot_.slotId.isNotEmpty())
-      mixer_.masterAudio().remove(snapshot_.slotId);
+    success_ = false;
+    if (const auto state = mixer_.masterAudio().snapshot(snapshot_.slotId)) {
+      snapshot_ = *state;
+      success_ = mixer_.masterAudio().remove(snapshot_.slotId);
+    }
   }
   void undo() override {
-    if (snapshot_.slotId.isNotEmpty())
+    success_ = snapshot_.slotId.isNotEmpty() &&
       mixer_.masterAudio().insert(snapshot_, index_, mixer_.getFormatManager());
   }
+  bool succeeded() const override { return success_; }
   juce::String getDescription() const override {
     return "Remove " + snapshot_.description.name + " from Master";
   }
@@ -56,6 +68,7 @@ private:
   MixerModel &mixer_;
   MasterInsertSnapshot snapshot_;
   int index_ = -1;
+  bool success_ = false;
 };
 
 class MoveMasterInsertAction final : public UndoableAction {

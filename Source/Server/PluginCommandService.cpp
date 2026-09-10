@@ -8,6 +8,7 @@
 
 #include <iostream>
 #include <memory>
+#include <set>
 #include <utility>
 
 namespace fiddle {
@@ -61,10 +62,9 @@ bool PluginCommandService::setPlugin(const juce::String &stripId,
   if (strip == nullptr || !isPluginAvailable(pluginUid))
     return false;
 
-  undoManager_.perform(std::make_unique<SetPluginAction>(
+  return undoManager_.perform(std::make_unique<SetPluginAction>(
       mixer_, scanner_, stripId, strip->pluginUid, pluginUid,
       std::move(completion)));
-  return true;
 }
 
 bool PluginCommandService::setGroupPlugin(
@@ -74,19 +74,21 @@ bool PluginCommandService::setGroupPlugin(
     return false;
 
   std::vector<std::unique_ptr<UndoableAction>> actions;
+  std::set<juce::String> targets;
   for (const auto &stripId : stripIds) {
+    if (!targets.insert(stripId).second || !mixer_.getStrip(stripId)) return false;
     if (auto *strip = mixer_.getStrip(stripId)) {
-      actions.push_back(std::make_unique<SetPluginAction>(
-          mixer_, scanner_, stripId, strip->pluginUid, pluginUid, completion));
+      auto action = std::make_unique<SetPluginAction>(
+          mixer_, scanner_, stripId, strip->pluginUid, pluginUid, completion);
+      if (!action->isNoOp()) actions.push_back(std::move(action));
     }
   }
 
   if (actions.empty())
     return false;
 
-  undoManager_.perform(std::make_unique<CompoundAction>(
+  return undoManager_.perform(std::make_unique<CompoundAction>(
       "Group set plugin", std::move(actions)));
-  return true;
 }
 
 bool PluginCommandService::showEditor(const juce::String &stripId) {

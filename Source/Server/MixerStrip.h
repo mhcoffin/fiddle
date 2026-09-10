@@ -74,6 +74,16 @@ struct MixerStrip {
 
   // Plugin
   int pluginUid = 0; // scanned plugin uniqueId (0 = none)
+  struct InstrumentSnapshot {
+    juce::PluginDescription description;
+    juce::MemoryBlock state;
+    bool bypassed = false;
+  };
+  /// Message-thread snapshot of the requested setup, including pending loads.
+  InstrumentSnapshot snapshotInstrument() const;
+  int requestedPluginUid() const {
+    return pendingInstrument_ ? pendingInstrument_->description.uniqueId : instrumentSlot_.pluginUid();
+  }
 
   /// Cached serialized plugin state. Updated on load, restore, and change
   /// detection. Used by buildStateBlob() to avoid calling getStateInformation()
@@ -275,6 +285,7 @@ private:
   std::atomic<uint64_t> inputAssignment_{packInputAssignment(-1, -1)};
 
   HostedPluginSlot instrumentSlot_{PluginSlotRole::instrument};
+  std::optional<InstrumentSnapshot> pendingInstrument_;
   StripAudioEngine audioEngine_;
 
   RealtimeMidiScheduler midiScheduler_;

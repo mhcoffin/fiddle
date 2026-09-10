@@ -112,6 +112,10 @@ void HostedPluginSlot::loadPlugin(const juce::PluginDescription &description,
             generation != loadGeneration_)
           return;
 
+        // Publish the processor and apply the caller's restored state as one
+        // control operation. Undo must not briefly render the default preset.
+        AudioProcessingGate::Control control;
+
         if (!instance) {
           if (messageThreadProcessor_ == nullptr)
             markMissing(description, cachedState_, creationError);
