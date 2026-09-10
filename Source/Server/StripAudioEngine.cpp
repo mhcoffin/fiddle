@@ -516,6 +516,11 @@ bool StripAudioEngine::toggleEditor(const juce::String &slotId,
   return true;
 }
 
+void StripAudioEngine::closeEditors() {
+  for (const auto position : {StripInsertPosition::preFader, StripInsertPosition::postFader})
+    for (const auto &entry : rack(position)) entry->hosted->closeEditor();
+}
+
 bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
   bool changed = false;
   bool latencyChanged = false;

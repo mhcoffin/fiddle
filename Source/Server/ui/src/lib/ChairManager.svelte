@@ -16,6 +16,7 @@
     let templateDirty = $state(true);
     let installing = $state(false);
     let message = $state("");
+    let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
     let groups = $derived(groupChairs(chairs));
     let roleWarnings = $derived(likelySectionRoleMistakes(chairs));
     let results = $derived(searchDoricoInstruments(instruments, query));
@@ -23,6 +24,7 @@
     const clearMessageLater = () => setTimeout(() => { message = ""; }, 5000);
 
     const unsubscribers = [];
+    unsubscribers.push(onFromCpp("setUndoState", (data) => { undoState = data; }));
     unsubscribers.push(onFromCpp("setChairState", (data) => {
         chairs = Array.isArray(data) ? data : [];
     }));
@@ -121,6 +123,12 @@
                 <p>Define the destinations Dorico sends to. Sound layers are assigned separately.</p>
             </div>
             <div class="header-actions">
+                <button disabled={!undoState.canUndo}
+                    title={undoState.undoDescription ? `Undo: ${undoState.undoDescription}` : "Nothing to undo"}
+                    onclick={() => dispatchCpp("undo")}>Undo</button>
+                <button disabled={!undoState.canRedo}
+                    title={undoState.redoDescription ? `Redo: ${undoState.redoDescription}` : "Nothing to redo"}
+                    onclick={() => dispatchCpp("redo")}>Redo</button>
                 <button
                     class="install"
                     onclick={installTemplate}

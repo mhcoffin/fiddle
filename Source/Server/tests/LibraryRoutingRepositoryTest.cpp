@@ -74,6 +74,42 @@ fiddle::ChairRow makeChair(std::string id, fiddle::DoricoRole role,
   return chair;
 }
 
+void testAtomicChairEditsAndRestoration() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto a = makeChair("a", fiddle::DoricoRole::section, 1, 1);
+  auto b = makeChair("b", fiddle::DoricoRole::section, 2, 2);
+  CHECK(repository.upsertChair(a) && repository.upsertChair(b));
+  auto edited = a;
+  edited.name = "Edited";
+  auto invalid = b;
+  invalid.flatIndex = a.flatIndex;
+  CHECK(!repository.updateChairs({edited, invalid}));
+  CHECK(repository.getChair(a.id)->name == a.name);
+  CHECK(repository.getChair(b.id)->flatIndex == b.flatIndex);
+  CHECK(repository.updateChairs({edited, b}));
+  CHECK(repository.getChair(a.id)->name == "Edited");
+
+  fiddle::LayerRow first, rejected;
+  first.id = "first"; first.chairId = a.id; first.patchId = "missing-patch";
+  rejected = first; rejected.id = "reject";
+  CHECK(repository.upsertLayer(first));
+  CHECK(repository.deleteChairAndLayers(a.id));
+  CHECK(execute(fixture.database, R"(
+    CREATE TRIGGER reject_test_layer BEFORE INSERT ON layers WHEN NEW.id = 'reject'
+    BEGIN SELECT RAISE(ABORT, 'test restoration failure'); END
+  )"));
+  CHECK(!repository.restoreChairAndLayers(a, {first, rejected}));
+  CHECK(!repository.getChair(a.id) && !repository.getLayer(first.id));
+  // Entire failed restore rolled back, including insertion of the first child.
+  CHECK(repository.restoreChairAndLayers(a, {first}));
+  CHECK(repository.getLayer(first.id).has_value());
+  CHECK(!repository.restoreChairAndLayers(a, {first})); // Never overwrite.
+  auto next = a; next.id = "next";
+  CHECK(repository.insertChairWithStableAssignment(next));
+  CHECK(next.flatIndex == 3 && next.ordinal == 3); // No stale tombstone.
+}
+
 void testPatchCanCreateIndependentLayersOnDifferentChairs() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
@@ -478,6 +514,7 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
+  testAtomicChairEditsAndRestoration();
   testPatchCanCreateIndependentLayersOnDifferentChairs();
   testOneChairAcceptsSeveralPatchesFromOneLibrary();
   testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix();

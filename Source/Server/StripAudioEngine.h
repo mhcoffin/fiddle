@@ -64,6 +64,7 @@ public:
                    bool notify = true);
   bool showEditor(const juce::String &slotId, const juce::String &stripName);
   bool toggleEditor(const juce::String &slotId, const juce::String &stripName);
+  void closeEditors();
 
   /// Message-thread maintenance for state listeners and dynamic latency.
   bool consumePluginChanges(bool suppressPlaybackChanges = false);

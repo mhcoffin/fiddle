@@ -114,6 +114,12 @@ public:
   std::optional<ChairRow> getChair(const std::string &chairId) const;
   std::vector<ChairRow> listChairs() const;
   bool deleteChairAndLayers(const std::string &chairId);
+  /// Undo restoration: insert the exact chair/children and release its MIDI
+  /// graveyard entry in one transaction. Existing IDs/destinations are rejected.
+  bool restoreChairAndLayers(const ChairRow &chair,
+                            const std::vector<LayerRow> &layers);
+  /// Update existing chair rows atomically, without touching their layers.
+  bool updateChairs(const std::vector<ChairRow> &chairs);
 
   bool upsertLayer(const LayerRow &layer);
   bool createLayerFromPatch(const std::string &layerId,
@@ -133,6 +139,8 @@ public:
                        const std::vector<LayerRow> &layers);
 
 private:
+  bool upsertChairUnlocked(const ChairRow &chair);
+  bool upsertLayerUnlocked(const LayerRow &layer);
   sqlite3 *database_;
   std::mutex &databaseMutex_;
 };

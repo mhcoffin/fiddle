@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "AudioDeviceSettings.h"
 #include "ChairLayerActions.h"
+#include "ChairActions.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
@@ -3538,6 +3539,7 @@ void MainComponent::setupJsHandlers() {
   jsRouter_.registerHandler("requestChairs", [this](const juce::var &) {
     safeCallAsync([this]() {
       pushChairState();
+      pushUndoState();
       pushLayerCatalog();
       broadcastTemplateDirty();
     });
@@ -3728,13 +3730,10 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this, chair = std::move(chair)]() mutable {
       auto *repository = db_.getLibraryRoutingRepository();
-      if (!repository || !repository->insertChairWithStableAssignment(chair)) {
-        broadcastMessage("chairOperationResult",
-                         juce::var("Could not create the chair"));
-        return;
-      }
-      pushChairState();
-      broadcastTemplateDirty();
+      if (!repository) { chairEditChanged(false); return; }
+      undoManager_.perform(std::make_unique<AddChairAction>(
+          *repository, mixer_, std::move(chair),
+          [this](bool success) { chairEditChanged(success); }));
     });
     return;
   });
@@ -3756,41 +3755,13 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this, chairId, name, updateRole, requestedRole]() {
       auto *repository = db_.getLibraryRoutingRepository();
-      auto chair = repository ? repository->getChair(chairId) : std::nullopt;
-      if (!chair) {
-        broadcastMessage("chairOperationResult",
-                         juce::var("Could not find the chair"));
-        return;
-      }
-      const bool roleChanged = updateRole && chair->role != requestedRole;
-      if (roleChanged &&
-          !repository->changeChairRole(chairId, requestedRole)) {
-        broadcastMessage("chairOperationResult",
-                         juce::var("Could not change the chair's player type"));
-        return;
-      }
-      if (!name.empty() && name != chair->name) {
-        chair = repository->getChair(chairId);
-        if (!chair) {
-          broadcastMessage("chairOperationResult",
-                           juce::var("Could not find the updated chair"));
-          return;
-        }
-        chair->name = name;
-        if (!repository->upsertChair(*chair)) {
-          broadcastMessage("chairOperationResult",
-                           juce::var("Could not rename the chair"));
-          return;
-        }
-      }
-      if (roleChanged) {
-        syncMixerToLayers();
-        saveAllStripsToDB();
-        pushMixerState();
-      }
-      pushChairState();
-      broadcastTemplateDirty();
-      scheduleStateRebuild();
+      if (!repository) { chairEditChanged(false); return; }
+      EditChairsAction::Edit edit{chairId, std::nullopt, std::nullopt};
+      if (!name.empty()) edit.name = name;
+      if (updateRole) edit.role = requestedRole;
+      undoManager_.perform(std::make_unique<EditChairsAction>(
+          *repository, mixer_, std::vector<EditChairsAction::Edit>{edit},
+          [this](bool success) { chairEditChanged(success); }));
     });
     return;
   });
@@ -3820,33 +3791,14 @@ void MainComponent::setupJsHandlers() {
 
     safeCallAsync([this, chairIds = std::move(chairIds), requestedRole]() {
       auto *repository = db_.getLibraryRoutingRepository();
-      if (!repository) {
-        broadcastMessage("chairOperationResult",
-                         juce::var("Could not update chair player types"));
-        return;
-      }
-      int changed = 0;
+      if (!repository) { chairEditChanged(false); return; }
+      std::vector<EditChairsAction::Edit> edits;
       for (const auto &chairId : chairIds) {
-        const auto chair = repository->getChair(chairId);
-        if (chair && chair->role == requestedRole)
-          continue;
-        if (!chair || !repository->changeChairRole(chairId, requestedRole)) {
-          broadcastMessage("chairOperationResult",
-                           juce::var("Could not update all chair player types"));
-          return;
-        }
-        ++changed;
+        edits.push_back({chairId, std::nullopt, requestedRole});
       }
-      syncMixerToLayers();
-      saveAllStripsToDB();
-      pushChairState();
-      pushMixerState();
-      broadcastTemplateDirty();
-      scheduleStateRebuild();
-      broadcastMessage("chairOperationResult",
-                       juce::var("Changed " + juce::String(changed) +
-                                 (changed == 1 ? " chair" : " chairs") +
-                                 " to Solo player"));
+      undoManager_.perform(std::make_unique<EditChairsAction>(
+          *repository, mixer_, edits,
+          [this](bool success) { chairEditChanged(success); }));
     });
     return;
   });
@@ -3859,19 +3811,10 @@ void MainComponent::setupJsHandlers() {
     const auto chairId = args[0].toString().toStdString();
     safeCallAsync([this, chairId]() {
       auto *repository = db_.getLibraryRoutingRepository();
-      const auto layers = repository ? repository->listLayers(chairId)
-                                     : std::vector<LayerRow>{};
-      if (!repository || !repository->deleteChairAndLayers(chairId)) {
-        broadcastMessage("chairOperationResult",
-                         juce::var("Could not delete the chair"));
-        return;
-      }
-      for (const auto &layer : layers)
-        mixer_.removeStrip(juce::String(layer.id));
-      saveAllStripsToDB();
-      pushChairState();
-      pushMixerState();
-      broadcastTemplateDirty();
+      if (!repository) { chairEditChanged(false); return; }
+      undoManager_.perform(std::make_unique<RemoveChairAction>(
+          *repository, mixer_, chairId,
+          [this](bool success) { chairEditChanged(success); }));
     });
     return;
   });
@@ -4976,6 +4919,20 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() { saveConfig(); });
     return;
   });
+}
+
+void MainComponent::chairEditChanged(bool success) {
+  if (!success) {
+    broadcastMessage("chairOperationResult", juce::var("Could not change the chair; no edit was applied"));
+    return;
+  }
+  // Also run on Undo/Redo. Preserve live layer settings rather than reloading
+  // possibly stale catalog/session rows after a metadata-only chair edit.
+  saveAllStripsToDB(false);
+  pushChairState();
+  pushMixerState();
+  broadcastTemplateDirty();
+  scheduleStateRebuild();
 }
 
 void MainComponent::pushChairState() {

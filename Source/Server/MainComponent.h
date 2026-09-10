@@ -255,6 +255,7 @@ private:
   void pushMasterAudioState();
   void pushGroupBusState();
   void pushChairState();
+  void chairEditChanged(bool success);
   void pushLayerCatalog();
   void syncMixerToLayers();
   bool instantiateLayer(const LayerRow &layer, const ChairRow &chair,

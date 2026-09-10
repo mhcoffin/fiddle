@@ -53,6 +53,7 @@ try {
                 hasPlugin: index !== 2 && index % 2 === 0,
             })));
         window.fixtureStrips = strips;
+        window.fixtureChairs = chairs;
         window.fixtureMessages = [];
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
             window.fixtureMessages.push(request.params[0]);
@@ -213,6 +214,35 @@ try {
     await page.locator("#delay-slider").focus();
     await page.keyboard.press("Meta+Shift+z");
     assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "redo");
+    await page.getByRole("button", { name: "Manage Chairs", exact: true }).click();
+    const manager = page.getByRole("dialog", { name: "Chair Manager", exact: true });
+    await page.evaluate(() => {
+        window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
+        window.__dispatchFromCpp({ type: "setUndoState", data: {
+            canUndo: true, canRedo: false, undoDescription: "Edit chair 'New flute'", redoDescription: "",
+        } });
+    });
+    const firstName = manager.getByRole("textbox", { name: "Name for Flute 1", exact: true });
+    await firstName.fill("New flute");
+    await firstName.press("Enter");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "updateChair", payload: [{ id: "chair-0", name: "New flute" }] });
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setChairState",
+        data: window.fixtureChairs.map(c => c.id === "chair-0" ? { ...c, name: "New flute" } : c) }));
+    await manager.getByRole("button", { name: "Undo", exact: true }).click();
+    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs }));
+    assert.equal(await firstName.inputValue(), "Flute 1");
+    await manager.getByRole("combobox", { name: "Player type for Flute 1", exact: true }).selectOption("section");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "updateChair", payload: [{ id: "chair-0", name: "Flute 1", role: "section" }] });
+    const firstRow = manager.locator(".chair-row").first();
+    await firstRow.getByRole("button", { name: "Delete", exact: true }).click();
+    await firstRow.getByRole("button", { name: "Confirm delete", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "deleteChair", payload: ["chair-0"] });
+    assert.equal(await manager.getByRole("button", { name: "Redo", exact: true }).isDisabled(), true);
+    await manager.getByRole("button", { name: "Close", exact: true }).click();
     // Audio diagnostics use isolated fixtures, never the live server/device.
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
         running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,

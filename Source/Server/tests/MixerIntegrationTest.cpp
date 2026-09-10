@@ -1,5 +1,6 @@
 #include "FiddleDatabase.h"
 #include "ChairLayerActions.h"
+#include "ChairActions.h"
 #include "GroupBusCommandService.h"
 #include "GroupBusJsHandlers.h"
 #include "MessageRouter.h"
@@ -466,6 +467,148 @@ struct Sandbox {
   ~Sandbox() { directory.deleteRecursively(); }
 };
 
+void testChairCommandsUndo() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("chair-undo.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  MixerFixture f;
+  int successes = 0, failures = 0;
+  auto changed = [&](bool success) {
+    if (success) ++successes; else ++failures;
+  };
+  auto add = [&](const std::string &id, fiddle::DoricoRole role) {
+    fiddle::ChairRow row;
+    row.id = id; row.name = id; row.instrumentEntityId = "test.violin";
+    row.family = "strings"; row.role = role;
+    REQUIRE(f.undo.perform(std::make_unique<fiddle::AddChairAction>(repository, f.mixer, row, changed)));
+    return *repository.getChair(id);
+  };
+  const auto solo = add("solo", fiddle::DoricoRole::solo);
+  const auto section = add("section", fiddle::DoricoRole::section);
+  const auto second = add("section-2", fiddle::DoricoRole::section);
+  REQUIRE(f.undo.undo() && !repository.getChair(second.id));
+  REQUIRE(f.undo.redo());
+  REQUIRE(repository.getChair(second.id)->flatIndex == second.flatIndex);
+  REQUIRE(repository.getChair(second.id)->ordinal == second.ordinal);
+  REQUIRE(repository.getChair(second.id)->displayOrder == second.displayOrder);
+  // A restored chair must have consumed its tombstone, not collide with the
+  // next new chair which asks for the same instrument and player type.
+  const auto third = add("section-3", fiddle::DoricoRole::section);
+  REQUIRE(third.flatIndex != second.flatIndex && third.ordinal > second.ordinal);
+
+  // Empty chairs still belong to saved project topology. A rename creates a
+  // distinct version; Undo returns to the exact original saved identity.
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.setRoutingRepository(&repository);
+  const auto saved = state.commitCurrentState(f.mixer, branch);
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<fiddle::EditChairsAction::Edit>{{section.id, "Temporary name", std::nullopt}}, changed)));
+  REQUIRE(state.commitCurrentState(f.mixer, branch) != saved);
+  REQUIRE(f.undo.undo());
+  REQUIRE(state.saveCurrentState(f.mixer, branch, saved).kind ==
+          fiddle::versioning::ProjectSaveResult::Kind::Unchanged);
+
+  const auto id = f.instrument(0.1f, section.flatIndex % 16);
+  auto *original = f.mixer.getStrip(id);
+  original->chairId = section.id;
+  original->isSolo = false;
+  original->setGainDb(-7);
+  original->setMuted(true);
+  addEffect(original->audioEngine(), "unchanged-fx", 2.0f);
+  f.undo.clear();
+  using Edit = fiddle::EditChairsAction::Edit;
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<Edit>{{section.id, "Renamed", fiddle::DoricoRole::solo},
+                        {second.id, std::nullopt, fiddle::DoricoRole::solo}}, changed)));
+  REQUIRE(repository.getChair(section.id)->ordinal == 2);
+  REQUIRE(repository.getChair(second.id)->ordinal == 3);
+  REQUIRE(repository.getChair(section.id)->flatIndex == section.flatIndex);
+  REQUIRE(original->isSolo && original->gainDb() == -7 && original->isMuted());
+  REQUIRE(f.mixer.getStrip(id) == original && original->audioEngine().snapshot("unchanged-fx"));
+  REQUIRE(f.undo.undo() && !f.undo.canUndo()); // Both roles/name in one step.
+  REQUIRE(repository.getChair(section.id)->name == section.name);
+  REQUIRE(repository.getChair(section.id)->ordinal == section.ordinal);
+  REQUIRE(repository.getChair(second.id)->ordinal == second.ordinal);
+  REQUIRE(!original->isSolo && original->gainDb() == -7);
+  REQUIRE(f.undo.redo() && repository.getChair(section.id)->name == "Renamed");
+  const auto count = successes;
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<Edit>{{section.id, "Renamed", fiddle::DoricoRole::solo}}, changed)));
+  REQUIRE(successes == count); // No-op does not dirty/persist or enter history.
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<Edit>{{section.id, "Should not apply", std::nullopt},
+                        {"absent", std::nullopt, fiddle::DoricoRole::solo}}, changed)));
+  REQUIRE(failures == 1 && repository.getChair(section.id)->name == "Renamed");
+  REQUIRE(repository.getChair(solo.id)->flatIndex == solo.flatIndex);
+}
+
+void testChairDeletionRetainsLayers() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("chair-delete.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  MixerFixture f;
+  fiddle::ChairRow chair;
+  chair.id = "violin"; chair.name = "Violin"; chair.instrumentEntityId = "test.violin";
+  REQUIRE(repository.insertChairWithStableAssignment(chair));
+  std::vector<juce::String> ids;
+  std::vector<fiddle::MixerStrip *> originals;
+  for (int i = 0; i < 3; ++i) {
+    const auto id = f.instrument(0.1f, 1);
+    ids.push_back(id);
+    originals.push_back(f.mixer.getStrip(id));
+    if (i == 1) continue; // An unrelated strip interleaved in mixer order.
+    auto *strip = originals.back();
+    strip->chairId = chair.id;
+    strip->setGainDb(-6);
+    fiddle::LayerRow layer;
+    layer.id = id.toStdString(); layer.chairId = chair.id;
+    layer.position = i; layer.patchId = "missing-catalog"; layer.patchName = "Historical violin";
+    REQUIRE(repository.upsertLayer(layer));
+    addEffect(strip->audioEngine(), "fx", 2.0f);
+  }
+  REQUIRE(f.commands.addGroupBus("Strings", {ids[0], ids[2]}));
+  const auto busId = originals[0]->directOutputBusId;
+  auto settings = f.mixer.projectSettings();
+  settings.lockedChairIds.insert(chair.id); settings.playbackDelayMs = 850;
+  f.mixer.setProjectSettings(settings);
+  f.undo.clear();
+  auto changed = [&](bool success) { REQUIRE(success); };
+  f.noteOn(1);
+  const auto preparations = SignalProcessor::preparations.size();
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::RemoveChairAction>(repository, f.mixer, chair.id, changed)));
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    REQUIRE(!repository.getChair(chair.id) && repository.listLayers(chair.id).empty());
+    REQUIRE(f.mixer.size() == 1 && f.mixer.getStrip(ids[1]) == originals[1]);
+    REQUIRE(!f.mixer.projectSettings().lockedChairIds.count(chair.id));
+    f.expectLevel(0.1f);
+    REQUIRE(f.undo.undo() && f.undo.isAtSavePoint());
+    REQUIRE(repository.getChair(chair.id)->flatIndex == chair.flatIndex);
+    REQUIRE(repository.listLayers(chair.id).size() == 2);
+    REQUIRE(f.mixer.projectSettings() == settings);
+    for (int i : {0, 2}) {
+      REQUIRE(f.mixer.getStrip(ids[i]) == originals[i]);
+      REQUIRE(f.mixer.stripIndex(ids[i]) == i);
+      REQUIRE(originals[i]->directOutputBusId == busId && originals[i]->gainDb() == -6);
+      REQUIRE(originals[i]->audioEngine().snapshot("fx"));
+    }
+    REQUIRE(SignalProcessor::preparations.size() == preparations);
+    f.expectLevel(0.1f); // Undo does not resurrect held or future notes.
+    f.noteOn(1);
+    f.expectLevel(0.1f + 0.4f * juce::Decibels::decibelsToGain(-6.0f));
+    if (cycle != 2) REQUIRE(f.undo.redo());
+  }
+  // The next matching chair uses a new MIDI assignment, not the restored one.
+  auto next = chair; next.id = "new-violin";
+  REQUIRE(repository.insertChairWithStableAssignment(next));
+  REQUIRE(next.flatIndex != chair.flatIndex);
+}
+
 void testChairLayerRemovalUndo() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("layer-undo.sqlite");
@@ -573,7 +716,7 @@ void testChairLayerRemovalUndo() {
 void testChairLayerAdditionUndo() {
   // Exercise ordinary loading, Undo before async creation finishes, and an
   // unavailable player. None may cause Redo to make a fresh catalog copy.
-  for (int mode = 0; mode < 3; ++mode) {
+  for (int mode = 0; mode < 4; ++mode) {
     Sandbox sandbox;
     fiddle::FiddleDatabase db;
     REQUIRE(db.open(sandbox.directory.getChildFile("layer-add.sqlite")));
@@ -597,7 +740,7 @@ void testChairLayerAdditionUndo() {
     MixerFixture f;
     auto ownedFormat = std::make_unique<TestPluginFormat>();
     auto *format = ownedFormat.get();
-    format->defer = mode == 1;
+    format->defer = mode == 1 || mode == 3;
     format->missingInstruments = mode == 2;
     f.mixer.getFormatManager().addFormat(std::move(ownedFormat));
     const auto existingId = f.instrument(0.1f, 2);
@@ -648,14 +791,20 @@ void testChairLayerAdditionUndo() {
         repository, f.mixer, chair.id, patch.id, 0, instantiate, changed));
     REQUIRE(f.undo.canUndo() && !f.undo.isAtSavePoint());
     REQUIRE(repository.listLayers(chair.id).size() == 1);
-    if (mode == 1) {
+    if (mode == 1 || mode == 3) {
       pumpUntil([&] { return !format->pending.empty(); });
       REQUIRE(!completed);
-      REQUIRE(f.undo.undo());
+      if (mode == 3)
+        REQUIRE(f.undo.perform(std::make_unique<fiddle::RemoveChairAction>(repository, f.mixer, chair.id, changed)));
+      else
+        REQUIRE(f.undo.undo());
       REQUIRE(!f.mixer.getStrip(id));
       format->completeAll(); // Apply saved state while retained only by undo.
       pumpUntil([&] { return completed; });
-      REQUIRE(f.undo.redo());
+      if (mode == 3)
+        REQUIRE(f.undo.undo()); // Restore the whole chair after its load completed off-mixer.
+      else
+        REQUIRE(f.undo.redo());
     } else {
       pumpUntil([&] { return completed; });
     }
@@ -695,7 +844,7 @@ void testChairLayerAdditionUndo() {
       f.noteOn(1);
       f.expectLevel(mode == 2 ? 0.0f : 0.2f);
     }
-    REQUIRE(notifications == (mode == 1 ? 9 : 7));
+    REQUIRE(notifications == (mode == 1 || mode == 3 ? 9 : 7));
     // Removing an added layer and undoing both actions must also compose.
     f.undo.perform(std::make_unique<fiddle::RemoveChairLayerAction>(
         repository, f.mixer, *repository.getLayer(id.toStdString()), changed));
@@ -1406,6 +1555,8 @@ int main() {
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
+  run("chair create and atomic metadata edit undo", testChairCommandsUndo);
+  run("chair deletion retains live layers, locks, FX and assignments", testChairDeletionRetainsLayers);
   run("chair layer removal restores assignment, live player and FX on undo", testChairLayerRemovalUndo);
   run("chair layer addition undo/redo retains original and asynchronously loaded players", testChairLayerAdditionUndo);
   run("sample alignment through strip and bus latency", testRealSampleLatencyAcrossDirectAndBusRoutes);

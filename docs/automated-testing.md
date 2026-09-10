@@ -12,7 +12,7 @@ concurrent reads, plus the actual native audio consumer using an isolated mmap.
 The relay integration test verifies one-second telemetry delivery on a background
 thread alongside MIDI. UI tests cover absent/stale readings and bounded report
 history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
-The mixer integration executable contains twenty scenarios, including meter-only
+The mixer integration executable contains twenty-two scenarios, including meter-only
 snapshots that never query plug-in programs or capture state. UI tests verify that
 meter updates cannot overwrite controls and the timer cannot rebuild full state.
 Undo coverage includes shared history identities/gesture barriers, atomic mixer

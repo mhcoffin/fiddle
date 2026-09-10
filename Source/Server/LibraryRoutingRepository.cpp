@@ -779,6 +779,10 @@ bool LibraryRoutingRepository::insertChairWithStableAssignment(
 
 bool LibraryRoutingRepository::upsertChair(const ChairRow &chair) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
+  return upsertChairUnlocked(chair);
+}
+
+bool LibraryRoutingRepository::upsertChairUnlocked(const ChairRow &chair) {
   Statement statement(database_, R"(
     INSERT INTO chairs
       (id, instrument_entity_id, name, family, dorico_role, ordinal,
@@ -970,6 +974,71 @@ bool LibraryRoutingRepository::deleteChairAndLayers(
 
 bool LibraryRoutingRepository::upsertLayer(const LayerRow &layer) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
+  return upsertLayerUnlocked(layer);
+}
+
+bool LibraryRoutingRepository::restoreChairAndLayers(
+    const ChairRow &chair, const std::vector<LayerRow> &layers) {
+  if (chair.id.empty() || chair.name.empty() || chair.instrumentEntityId.empty() ||
+      chair.flatIndex <= 0 || chair.flatIndex >= 240)
+    return false;
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  if (!execute(database_, "BEGIN IMMEDIATE")) return false;
+  Statement exists(database_, "SELECT 1 FROM chairs WHERE id = ?");
+  Statement layerExists(database_, "SELECT 1 FROM layers WHERE id = ?");
+  Statement release(database_, "DELETE FROM chair_midi_graveyard WHERE flat_index = ?");
+  bool ok = exists && layerExists && release;
+  if (ok) {
+    bindText(exists.get(), 1, chair.id);
+    ok = sqlite3_step(exists.get()) == SQLITE_DONE;
+  }
+  std::set<std::string> ids;
+  for (const auto &layer : layers) {
+    if (!ok) break;
+    ok = layer.chairId == chair.id && !layer.id.empty() && ids.insert(layer.id).second;
+    sqlite3_reset(layerExists.get());
+    sqlite3_clear_bindings(layerExists.get());
+    bindText(layerExists.get(), 1, layer.id);
+    ok = ok && sqlite3_step(layerExists.get()) == SQLITE_DONE;
+  }
+  ok = ok && upsertChairUnlocked(chair);
+  for (const auto &layer : layers) ok = ok && upsertLayerUnlocked(layer);
+  if (ok) {
+    sqlite3_bind_int(release.get(), 1, chair.flatIndex);
+    ok = sqlite3_step(release.get()) == SQLITE_DONE;
+  }
+  if (!ok || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  return true;
+}
+
+bool LibraryRoutingRepository::updateChairs(const std::vector<ChairRow> &chairs) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  if (!execute(database_, "BEGIN IMMEDIATE")) return false;
+  Statement exists(database_, "SELECT 1 FROM chairs WHERE id = ?");
+  bool ok = bool(exists);
+  std::set<std::string> ids;
+  for (const auto &chair : chairs) {
+    if (!ok) break;
+    ok = !chair.name.empty() && ids.insert(chair.id).second;
+    sqlite3_reset(exists.get());
+    sqlite3_clear_bindings(exists.get());
+    bindText(exists.get(), 1, chair.id);
+    ok = ok && sqlite3_step(exists.get()) == SQLITE_ROW;
+    // Reset the reader before updating/committing the transaction.
+    sqlite3_reset(exists.get());
+    ok = ok && upsertChairUnlocked(chair);
+  }
+  if (!ok || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  return true;
+}
+
+bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
   Statement statement(database_, R"(
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,

@@ -55,17 +55,15 @@ in the working tree; see [audio safety results](audio-safety-results.md).
 
 ## Still to implement
 
-1. Chair create/delete/name/role commands, including atomic batch role edits,
-   retained child players and exact MIDI assignments on Undo/Redo.
-2. Complete plugin state retention for VSTi replacement/program selection and
+1. Complete plugin state retention for VSTi replacement/program selection and
    repeated FX add/remove cycles; expression-map provenance/import and Lua
    loading failure handling. Preserve vendor edits without recording their
    individual editor gestures.
-3. Update Layers as one project command with each layer's live before-state.
-4. Separate Library Manager history: draft edits, row operations, batches,
+2. Update Layers as one project command with each layer's live before-state.
+3. Separate Library Manager history: draft edits, row operations, batches,
    preview-player state, save checkpoints and recoverable catalog changes.
    History lifetime across closing/restarting still needs an explicit policy.
-5. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
+4. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
    plus native menu integration where appropriate.
 
 ## Short manual check after restarting the rebuilt Release server
@@ -82,3 +80,38 @@ in the working tree; see [audio safety results](audio-safety-results.md).
 
 No native Fiddle plugin rebuild/install is required for this checkpoint's
 additive host-state extension. Continue using the Release server.
+
+## Chair-management follow-up
+
+The first checkpoint was committed as `6866ac4`. The subsequent, uncommitted
+chair-management pass adds:
+
+- Undo/Redo for creating, deleting, renaming and changing a chair's player type.
+  Batch role corrections are one command and one database transaction.
+- Exact IDs, MIDI destinations, ordinals and placement on restoration; undoing
+  deletion releases the matching MIDI tombstone so new chairs cannot reclaim
+  an occupied destination.
+- Deleted chairs retain their live layers, instrument/FX instances, direct
+  output assignments, current mixing controls and chair lock. Pending player
+  loads may complete while retained by history. Deletion closes player/FX
+  windows and clears held/future notes; Undo does not resurrect old notes.
+- Metadata edits update only chair metadata on live strips, never stale layer
+  controls or catalog presets. Invalid batches roll back without a history step;
+  unchanged edits neither dirty the project nor add history.
+- Chair Manager has project Undo/Redo buttons with action descriptions. Save,
+  version state and playback-template-dirty status update in both directions.
+  Installing a template in Dorico remains outside Undo; Undo only updates the
+  local definition and installation-needed indicator.
+
+Offline integration tests cover repeated create/delete/restore, layer ordering
+around unrelated strips, role/ordinal conflicts, live FX/gain/audio preservation,
+missing-catalog references, pending loading, lock restoration, rejected edits,
+and version identity after renaming/undoing empty chairs. Repository tests force
+failures halfway through batch updates and child restoration to verify rollback.
+The browser fixture exercises rename, role, delete and Undo UI dispatch and the
+restored name; it is not a claim of a live Dorico end-to-end test.
+
+Manual check after restarting Release: add an empty chair and Undo/Redo; rename
+and change its player type and Undo each; delete a populated chair and Undo once.
+Check its layers, levels, lock, MIDI destination and playback are restored. The
+chair-management smoke test passed; this pass is ready to commit. No push was requested.

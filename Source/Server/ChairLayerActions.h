@@ -37,6 +37,7 @@ public:
     removedStrip_->allNotesOff();
     if (removedStrip_->isEditorVisible())
       removedStrip_->toggleEditor();
+    removedStrip_->audioEngine().closeEditors();
     success_ = true;
     changed_(true);
   }
