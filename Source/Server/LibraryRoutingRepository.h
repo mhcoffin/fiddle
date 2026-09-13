@@ -94,6 +94,10 @@ public:
   /// updated layers, or std::nullopt on failure/missing patch.
   std::optional<int>
   updateLayersFromPatch(const std::string &patchId);
+
+  // Atomically replace only library-owned setup fields. Reject missing or
+  // reassigned layers; never overwrite routing, position or mixer controls.
+  bool updateLayerSetups(const std::vector<LayerRow> &layers);
   PatchDeleteResult deletePatch(const std::string &patchId);
   /// Atomically replace one library's catalog rows. Removing a patch used by
   /// any current layer is rejected without changing the catalog.

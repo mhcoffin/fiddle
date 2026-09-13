@@ -110,6 +110,53 @@ void testAtomicChairEditsAndRestoration() {
   CHECK(next.flatIndex == 3 && next.ordinal == 3); // No stale tombstone.
 }
 
+void testLayerSetupBatchIsAtomicAndPreservesMix() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  CHECK(repository.upsertChair(makeChair("chair", fiddle::DoricoRole::solo, 1, 1)));
+  fiddle::LayerRow a;
+  a.id = "a"; a.chairId = "chair"; a.patchId = "historical-patch";
+  a.patchName = "Original"; a.pluginState = {1, 2};
+  a.position = 4; a.gainDb = -7.5f; a.active = false;
+  a.muted = true; a.soloed = true; a.pluginStateEdited = true;
+  auto b = a; b.id = "b"; b.position = 5;
+  CHECK(repository.upsertLayer(a) && repository.upsertLayer(b));
+  auto nextA = a, nextB = b;
+  for (auto *row : {&nextA, &nextB}) {
+    row->patchName = "Updated"; row->pluginUid = 410;
+    row->pluginState = {3, 4}; row->expressionMapId = "new-map";
+    row->sourcePatchRevision = 2; row->pluginStateEdited = false;
+    // Setup updates must ignore stale mixer fields in the supplied snapshots.
+    row->position = 0; row->gainDb = 0; row->active = true;
+    row->muted = false; row->soloed = false;
+  }
+  CHECK(execute(fixture.database, R"(
+    CREATE TRIGGER reject_setup BEFORE UPDATE ON layers WHEN NEW.id = 'b'
+    BEGIN SELECT RAISE(ABORT, 'test setup failure'); END
+  )"));
+  CHECK(!repository.updateLayerSetups({nextA, nextB}));
+  CHECK(repository.getLayer("a")->patchName == "Original");
+  CHECK(repository.getLayer("a")->pluginState == a.pluginState);
+  CHECK(repository.getLayer("b")->pluginStateEdited);
+  CHECK(execute(fixture.database, "DROP TRIGGER reject_setup"));
+  auto invalid = nextB; invalid.id = "missing";
+  CHECK(!repository.updateLayerSetups({nextA, invalid}));
+  invalid = nextB; invalid.patchId = "reassigned";
+  CHECK(!repository.updateLayerSetups({nextA, invalid}));
+  invalid = nextB; invalid.chairId = "other-chair";
+  CHECK(!repository.updateLayerSetups({nextA, invalid}));
+  CHECK(!repository.updateLayerSetups({nextA, nextA}));
+  CHECK(repository.getLayer("a")->patchName == "Original");
+  CHECK(repository.updateLayerSetups({nextA, nextB}));
+  const auto updated = *repository.getLayer("a");
+  CHECK(updated.pluginState == nextA.pluginState);
+  CHECK(updated.expressionMapId == "new-map" && updated.sourcePatchRevision == 2);
+  CHECK(!updated.pluginStateEdited && updated.pluginUid == 410);
+  CHECK(updated.position == 4 && updated.gainDb == -7.5f);
+  CHECK(!updated.active && updated.muted && updated.soloed);
+  CHECK(repository.getLayer("b")->position == 5);
+}
+
 void testPatchCanCreateIndependentLayersOnDifferentChairs() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
@@ -515,6 +562,7 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
   testAtomicChairEditsAndRestoration();
+  testLayerSetupBatchIsAtomicAndPreservesMix();
   testPatchCanCreateIndependentLayersOnDifferentChairs();
   testOneChairAcceptsSeveralPatchesFromOneLibrary();
   testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix();

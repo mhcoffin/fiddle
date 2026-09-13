@@ -286,8 +286,60 @@ try {
     await performance.getByRole("button", { name: "Audio Settings…", exact: true }).click();
     await performance.waitFor({ state: "hidden" });
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "showAudioSettings")));
+    // Use the real Library Manager in its own window mode. Native integration
+    // tests execute the command; this fixture checks dispatch and status rendering.
+    const libraryPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    libraryPage.setDefaultTimeout(10000);
+    libraryPage.on("pageerror", error => errors.push(error.message));
+    await libraryPage.goto(`http://127.0.0.1:${server.address().port}/?view=library`);
+    await libraryPage.waitForSelector(".lm-root");
+    await libraryPage.evaluate(() => {
+        window.fixtureMessages = [];
+        window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
+            window.fixtureMessages.push(request.params[0]);
+        } } };
+        window.__dispatchFromCpp({ type: "setLibraryData", data: {
+            id: "test-library", name: "Test library", patches: [
+                { id: "used", name: "Linked patch", usageCount: 2, outOfDateLayerCount: 2 },
+                { id: "unused", name: "Unused patch", usageCount: 0, outOfDateLayerCount: 0 },
+            ],
+        } });
+    });
+    const libraryEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
+    const linked = libraryEditor.locator(".inst-row").first();
+    const update = linked.getByRole("button", { name: "Update Layers", exact: true });
+    assert.equal(await update.isEnabled(), true);
+    assert.equal(await libraryEditor.locator(".inst-row").nth(1)
+        .getByRole("button", { name: "Update Layers", exact: true }).isDisabled(), true);
+    await update.click();
+    assert.deepEqual(await libraryPage.evaluate(() => window.fixtureMessages.filter(
+        x => x.type === "updateLayersFromLibraryPatch")),
+        [{ type: "updateLayersFromLibraryPatch", payload: ["used"] }]);
+    await libraryPage.evaluate(() => {
+        window.__dispatchFromCpp({ type: "setLibraryLayerStatus", data: [
+            { patchId: "used", usageCount: 2, outOfDateLayerCount: 0 },
+        ] });
+        window.__dispatchFromCpp({ type: "libraryLayersUpdateResult", data: {
+            success: true, patchId: "used", message: "OK: Updated 2 layers. Undo in the main mixer.",
+        } });
+    });
+    await update.waitFor({ state: "visible" });
+    assert.equal(await update.isDisabled(), true);
+    assert.match(await libraryEditor.getByRole("status").innerText(), /Undo in the main mixer/);
+    // Simulate main-project Undo: the library's counts must become stale again.
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryLayerStatus", data: [
+        { patchId: "used", usageCount: 2, outOfDateLayerCount: 2 },
+    ] }));
+    await libraryPage.waitForFunction(() => !document.querySelector(".action-update-layers").disabled);
+    await linked.getByRole("textbox", { name: "Patch name", exact: true }).fill("Unsaved draft");
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryLayerStatus", data: [
+        { patchId: "used", usageCount: 3, outOfDateLayerCount: 1 },
+    ] }));
+    assert.equal(await linked.getByRole("textbox", { name: "Patch name", exact: true }).inputValue(), "Unsaved draft");
+    assert.equal(await update.isDisabled(), true, "status refresh must preserve the draft/dirty guard");
+    await libraryPage.close();
     assert.deepEqual(errors, [], "no browser runtime errors");
-    console.log("PASS: chair layout, atomic locked mute, Undo controls/keyboard, project settings, and audio diagnostics");
+    console.log("PASS: chair layout, mixer Undo, project settings, audio diagnostics, and library update/status");
 } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));

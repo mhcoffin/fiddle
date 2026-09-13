@@ -129,6 +129,7 @@ private:
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
   void pushUndoState();
+  void pushLibraryLayerStatus();
   void pushProjectSettings();
   std::unique_ptr<MixerCommandService> mixerCommandService_;
   std::unique_ptr<MixerJsHandlers> mixerJsHandlers_;
@@ -263,7 +264,8 @@ private:
                         const juce::String &libraryName);
   /// Apply only the library-owned portion of a saved layer row to its live
   /// mixer strip, leaving routing and mixer controls unchanged.
-  void applyLayerLibrarySetup(const LayerRow &layer);
+  bool refreshLayersFromPatch(const LibraryPatchRow &patch, const std::vector<LayerRow> &layers);
+  void layerLibrarySetupSettled(const juce::String &stripId);
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void stripAudioChanged(const juce::String &stripId);

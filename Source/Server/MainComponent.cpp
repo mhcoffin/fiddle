@@ -1,6 +1,7 @@
 #include "MainComponent.h"
 #include "AudioDeviceSettings.h"
 #include "ChairLayerActions.h"
+#include "LayerLibrarySetupAction.h"
 #include "ChairActions.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
@@ -36,38 +37,6 @@ namespace fiddle {
 namespace {
 
 constexpr uint32_t kPluginStateSettleMs = 5000;
-
-/// One project-level edit that replaces a layer's library-owned setup. Both
-/// halves are complete LayerRows so undo/redo also keep the routing database
-/// synchronized with the live mixer.
-class RefreshLayerFromLibraryAction final : public UndoableAction {
-public:
-  using ApplyLive = std::function<void(const LayerRow &)>;
-
-  RefreshLayerFromLibraryAction(LibraryRoutingRepository &repository,
-                                LayerRow before, LayerRow after,
-                                ApplyLive applyLive)
-      : repository_(repository), before_(std::move(before)),
-        after_(std::move(after)), applyLive_(std::move(applyLive)) {}
-
-  void execute() override { apply(after_); }
-  void undo() override { apply(before_); }
-  juce::String getDescription() const override {
-    return "Refresh layer '" + juce::String(after_.patchName) +
-           "' from library";
-  }
-
-private:
-  void apply(const LayerRow &layer) {
-    if (repository_.upsertLayer(layer))
-      applyLive_(layer);
-  }
-
-  LibraryRoutingRepository &repository_;
-  LayerRow before_;
-  LayerRow after_;
-  ApplyLive applyLive_;
-};
 
 } // namespace
 
@@ -2154,6 +2123,28 @@ void MainComponent::pushUndoState() {
   state->setProperty("undoDescription", undoManager_.undoDescription());
   state->setProperty("redoDescription", undoManager_.redoDescription());
   broadcastMessage("setUndoState", juce::var(state));
+  pushLibraryLayerStatus();
+}
+
+void MainComponent::pushLibraryLayerStatus() {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository) return;
+  const auto outdated = repository->outOfDateLayerIds();
+  std::map<std::string, std::pair<int, int>> counts;
+  for (const auto &row : repository->listLayers()) {
+    auto &count = counts[row.patchId];
+    ++count.first;
+    if (std::find(outdated.begin(), outdated.end(), row.id) != outdated.end()) ++count.second;
+  }
+  juce::Array<juce::var> status;
+  for (const auto &[id, count] : counts) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("patchId", juce::String(id));
+    item->setProperty("usageCount", count.first);
+    item->setProperty("outOfDateLayerCount", count.second);
+    status.add(juce::var(item));
+  }
+  broadcastMessage("setLibraryLayerStatus", status);
 }
 
 void MainComponent::pushProjectSettings() {
@@ -3674,43 +3665,10 @@ void MainComponent::setupJsHandlers() {
         return;
       }
 
-      // Capture the live state, not merely the last database snapshot, so an
-      // immediate Undo restores unsaved edits made in the hosted player.
-      before->patchName = strip->layerName.toStdString();
-      before->libraryName = strip->library.toStdString();
-      before->pluginUid = strip->pluginUid;
-      strip->refreshPluginStateCache();
-      const auto previousPluginState = strip->cachedPluginState();
-      before->pluginState.clear();
-      if (!previousPluginState.isEmpty()) {
-        const auto *bytes = static_cast<const std::uint8_t *>(
-            previousPluginState.getData());
-        before->pluginState.assign(bytes,
-                                   bytes + previousPluginState.getSize());
+      if (!refreshLayersFromPatch(*patch, {*before})) {
+        broadcastMessage("layerOperationResult", juce::var("Could not refresh the layer"));
+        return;
       }
-      before->expressionMapId =
-          strip->expressionMap ? strip->expressionMap->entityID
-                               : std::string{};
-
-      auto after = *before;
-      after.patchName = patch->name;
-      after.libraryId = patch->libraryId;
-      after.libraryName.clear();
-      for (const auto &library : db_.listLibraries()) {
-        if (library.id.toStdString() == patch->libraryId) {
-          after.libraryName = library.name.toStdString();
-          break;
-        }
-      }
-      after.pluginUid = patch->pluginUid;
-      after.pluginState = patch->pluginState;
-      after.expressionMapId = patch->expressionMapId;
-      after.sourcePatchRevision = patch->revision;
-      after.pluginStateEdited = false;
-
-      undoManager_.perform(std::make_unique<RefreshLayerFromLibraryAction>(
-          *repository, std::move(*before), std::move(after),
-          [this](const LayerRow &layer) { applyLayerLibrarySetup(layer); }));
       pushMixerState();
       scheduleStateRebuild();
 
@@ -4220,33 +4178,33 @@ void MainComponent::setupJsHandlers() {
       auto *repository = db_.getLibraryRoutingRepository();
       const auto patch = repository ? repository->getPatch(patchId)
                                     : std::nullopt;
-      const auto updatedCount =
-          repository ? repository->updateLayersFromPatch(patchId)
-                     : std::nullopt;
-      if (!patch || !updatedCount) {
+      if (!patch) {
         broadcastMessage("libraryLayersUpdateResult",
                          juce::var("Could not update layers from the patch"));
         return;
       }
 
-      for (const auto &layer : repository->listLayers()) {
-        if (layer.patchId != patchId)
-          continue;
-        applyLayerLibrarySetup(layer);
+      std::vector<LayerRow> layers;
+      for (const auto &layer : repository->listLayers())
+        if (layer.patchId == patchId) layers.push_back(layer);
+      const int updatedCount = (int)layers.size();
+      if (updatedCount > 0 && !refreshLayersFromPatch(*patch, layers)) {
+        broadcastMessage("libraryLayersUpdateResult",
+                         juce::var("Could not update layers; no changes were applied"));
+        return;
       }
-
-      if (*updatedCount > 0) {
+      if (updatedCount > 0) {
         pushMixerState();
         scheduleStateRebuild();
       }
-      const auto noun = *updatedCount == 1 ? " layer" : " layers";
+      const auto noun = updatedCount == 1 ? " layer" : " layers";
       auto *result = new juce::DynamicObject();
       result->setProperty("success", true);
       result->setProperty("patchId", juce::String(patchId));
-      result->setProperty("updatedCount", *updatedCount);
+      result->setProperty("updatedCount", updatedCount);
       result->setProperty("message",
-                          "OK: Updated " + juce::String(*updatedCount) + noun +
-                              " from " + juce::String(patch->name));
+                          "OK: Updated " + juce::String(updatedCount) + noun +
+                              " from " + juce::String(patch->name) + ". Undo in the main mixer.");
       broadcastMessage("libraryLayersUpdateResult", juce::var(result));
     });
     return;
@@ -5007,52 +4965,69 @@ void MainComponent::pushLayerCatalog() {
   broadcastMessage("setLayerCatalog", juce::var(result));
 }
 
-void MainComponent::applyLayerLibrarySetup(const LayerRow &layer) {
-  auto *strip = mixer_.getStrip(juce::String(layer.id));
-  if (!strip)
-    return;
-
-  strip->layerName = juce::String(layer.patchName);
-  strip->library = juce::String(layer.libraryName);
-  strip->missingPatchReference = false;
-
-  strip->setExpressionMap(nullptr);
-  if (!layer.expressionMapId.empty()) {
-    if (auto map = xmapLibrary_.load(layer.expressionMapId))
-      strip->setExpressionMap(std::move(map));
+bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
+                                          const std::vector<LayerRow> &layers) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository || layers.empty()) return false;
+  LayerLibrarySetup setup;
+  setup.row.patchName = patch.name;
+  setup.row.libraryId = patch.libraryId;
+  for (const auto &library : db_.listLibraries())
+    if (library.id.toStdString() == patch.libraryId)
+      setup.row.libraryName = library.name.toStdString();
+  setup.row.pluginUid = patch.pluginUid;
+  setup.row.pluginState = patch.pluginState;
+  setup.row.expressionMapId = patch.expressionMapId;
+  setup.row.sourcePatchRevision = patch.revision;
+  // Keep a missing player's identity/state even if it isn't in today's scan.
+  setup.instrument.description.uniqueId = patch.pluginUid;
+  for (const auto &desc : pluginScanner_.getKnownPluginList().getTypes())
+    if (desc.uniqueId == patch.pluginUid) setup.instrument.description = desc;
+  if (!patch.pluginState.empty())
+    setup.instrument.state.append(patch.pluginState.data(), patch.pluginState.size());
+  if (!patch.expressionMapId.empty()) setup.expressionMap = xmapLibrary_.load(patch.expressionMapId);
+  std::vector<LayerLibrarySetup> targets;
+  for (const auto &layer : layers) {
+    auto target = setup;
+    target.row.id = layer.id;
+    target.row.chairId = layer.chairId;
+    target.row.patchId = layer.patchId;
+    // Bypass is a layer control, not a library default.
+    if (auto *strip = mixer_.getStrip(juce::String(layer.id)))
+      target.instrument.bypassed = strip->isPluginBypassed();
+    targets.push_back(std::move(target));
   }
+  const auto description = layers.size() == 1
+      ? "Refresh layer '" + juce::String(patch.name) + "' from library"
+      : "Update " + juce::String((int)layers.size()) + " layers from '" + juce::String(patch.name) + "'";
+  return undoManager_.perform(std::make_unique<LayerLibrarySetupAction>(
+      *repository, mixer_, std::move(targets), description,
+      [safeThis = juce::Component::SafePointer<MainComponent>(this)](const juce::String &id) {
+        if (safeThis) safeThis->layerLibrarySetupSettled(id);
+      }));
+}
 
-  if (layer.pluginUid == 0) {
-    strip->unloadPlugin();
-    strip->pluginUid = 0;
-    pluginFingerprints_.erase(strip->id);
-    pluginStateSettleUntilMs_.erase(strip->id);
-    return;
-  }
-
-  juce::MemoryBlock pluginState;
-  if (!layer.pluginState.empty())
-    pluginState.append(layer.pluginState.data(), layer.pluginState.size());
-  const bool canApplyToCurrentInstance =
-      strip->pluginUid == layer.pluginUid && strip->hasPlugin() &&
-      !pluginState.isEmpty();
-  if (canApplyToCurrentInstance &&
-      strip->applyPluginState(pluginState.getData(),
-                              static_cast<int>(pluginState.getSize()))) {
-    strip->refreshPluginStateCache();
+void MainComponent::layerLibrarySetupSettled(const juce::String &stripId) {
+  if (auto *strip = mixer_.getStrip(stripId)) {
     (void)strip->consumePluginChangeNotification();
     (void)strip->consumePluginExplicitEditNotification();
     (void)strip->consumePluginNonParameterStateChangeNotification();
-    pluginFingerprints_[strip->id] = {
-        strip->pluginUid, strip->pluginParameterFingerprint()};
-    pluginStateSettleUntilMs_[strip->id] =
-        juce::Time::getMillisecondCounter() + kPluginStateSettleMs;
-    return;
+    pluginFingerprints_[stripId] = {strip->pluginUid, strip->pluginParameterFingerprint()};
+    pluginStateSettleUntilMs_[stripId] = juce::Time::getMillisecondCounter() + kPluginStateSettleMs;
   }
-
-  if (strip->pluginUid == layer.pluginUid)
-    strip->unloadPlugin();
-  restoreStripPlugin(*strip, layer.pluginUid, pluginState);
+  // UndoManager advances its saved identity after the action returns. Defer
+  // persistence/UI so an async completion cannot dirty a restored save point.
+  safeCallAsync([this] {
+    saveAllStripsToDB(false);
+    const bool dirty = !undoManager_.isAtSavePoint();
+    pushMixerState(dirty);
+    if (!dirty) {
+      stateManager_.clearDirty();
+      broadcastMessage("setDirtyState", false);
+      pushConfigStatus();
+    }
+    scheduleStateRebuild();
+  });
 }
 
 bool MainComponent::instantiateLayer(const LayerRow &layer,

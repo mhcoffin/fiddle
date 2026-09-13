@@ -1,5 +1,6 @@
 #include "FiddleDatabase.h"
 #include "ChairLayerActions.h"
+#include "LayerLibrarySetupAction.h"
 #include "ChairActions.h"
 #include "StripAudioActions.h"
 #include "MasterAudioActions.h"
@@ -480,6 +481,179 @@ float stateAmount(const juce::MemoryBlock &state) {
   REQUIRE(state.getSize() == sizeof(float));
   float result = 0; std::memcpy(&result, state.getData(), sizeof(result));
   return result;
+}
+
+void testLayerLibrarySetupUndo() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("layer-refresh.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  MixerFixture f;
+  auto format = std::make_unique<TestPluginFormat>();
+  auto *factory = format.get();
+  f.mixer.getFormatManager().addFormat(std::move(format));
+  const auto a = f.instrument(0.125f, 1), b = f.instrument(0.25f, 2);
+  const auto unrelated = f.instrument(0.375f, 3);
+  auto *first = f.mixer.getStrip(a);
+  auto *second = f.mixer.getStrip(b);
+  std::vector<fiddle::LayerLibrarySetup> targets;
+  for (const auto &id : {a, b}) {
+    fiddle::ChairRow chair;
+    chair.id = "chair-" + id.toStdString(); chair.name = "Violin";
+    chair.instrumentEntityId = "test.violin";
+    REQUIRE(repository.insertChairWithStableAssignment(chair));
+    auto *strip = f.mixer.getStrip(id);
+    strip->chairId = chair.id; strip->patchId = "patch";
+    strip->layerName = "Original " + id; strip->library = "Original library";
+    fiddle::LayerRow row;
+    row.id = id.toStdString(); row.chairId = chair.id; row.patchId = "patch";
+    row.patchName = strip->layerName.toStdString(); row.sourcePatchRevision = 1;
+    row.pluginUid = 101; row.pluginStateEdited = true;
+    REQUIRE(repository.upsertLayer(row)); // Deliberately no cached plugin bytes.
+    fiddle::LayerLibrarySetup target;
+    target.row = row; target.row.patchName = "Updated patch";
+    target.row.libraryName = "Updated library"; target.row.sourcePatchRevision = 2;
+    target.row.pluginStateEdited = false;
+    target.instrument.description = description(true);
+    float amount = 0.5f;
+    target.instrument.state.append(&amount, sizeof(amount));
+    const auto *bytes = static_cast<const uint8_t *>(target.instrument.state.getData());
+    target.row.pluginState.assign(bytes, bytes + sizeof(amount));
+    targets.push_back(target);
+  }
+  first->setExpressionMap(std::make_shared<fiddle::ExpressionMapData>());
+  const auto originalMap = first->expressionMap;
+  first->expressionMapPath = "/historical/imported.doricolib";
+  first->setGainDb(-7); first->setMuted(true); second->setActive(false);
+  addEffect(first->audioEngine(), "unchanged-fx", 2.0f);
+  REQUIRE(f.commands.addGroupBus("Strings", {a}));
+  const auto output = first->directOutputBusId;
+  f.undo.clear();
+  int settled = 0;
+  auto action = [&](std::vector<fiddle::LayerLibrarySetup> rows) {
+    return std::make_unique<fiddle::LayerLibrarySetupAction>(repository, f.mixer,
+        std::move(rows), "Update layers", [&](const juce::String &) { ++settled; });
+  };
+  REQUIRE(f.undo.perform(action(targets)));
+  REQUIRE(settled == 2 && first == f.mixer.getStrip(a));
+  REQUIRE(stateAmount(first->cachedPluginState()) == 0.5f);
+  REQUIRE(stateAmount(second->cachedPluginState()) == 0.5f);
+  REQUIRE(!first->expressionMap && first->expressionMapPath.isEmpty());
+  REQUIRE(first->gainDb() == -7 && first->isMuted() && !second->isActive());
+  REQUIRE(first->directOutputBusId == output && first->audioEngine().snapshot("unchanged-fx"));
+  REQUIRE(repository.getLayer(a.toStdString())->sourcePatchRevision == 2);
+  REQUIRE(f.undo.undo() && !f.undo.canUndo() && f.undo.isAtSavePoint());
+  REQUIRE(stateAmount(first->cachedPluginState()) == 0.125f);
+  REQUIRE(stateAmount(second->cachedPluginState()) == 0.25f);
+  REQUIRE(first->expressionMap == originalMap && first->expressionMapPath == "/historical/imported.doricolib");
+  REQUIRE(repository.getLayer(a.toStdString())->pluginStateEdited);
+  REQUIRE(repository.getLayer(a.toStdString())->sourcePatchRevision == 1);
+  // Redo never consults the source catalog. The action also captures departing
+  // vendor edits afresh, rather than freezing the first Undo snapshot forever.
+  float edited = 0.1875f;
+  REQUIRE(first->applyPluginState(&edited, sizeof(edited)));
+  REQUIRE(f.undo.redo());
+  REQUIRE(stateAmount(first->cachedPluginState()) == 0.5f);
+  edited = 0.625f;
+  REQUIRE(second->applyPluginState(&edited, sizeof(edited)));
+  REQUIRE(f.undo.undo());
+  REQUIRE(stateAmount(first->cachedPluginState()) == 0.1875f);
+  REQUIRE(f.undo.redo());
+  REQUIRE(stateAmount(second->cachedPluginState()) == 0.625f);
+  REQUIRE(stateAmount(f.mixer.getStrip(unrelated)->snapshotInstrument().state) == 0.375f);
+
+  // Preflight rejects the whole command when one target disappeared.
+  auto bad = targets;
+  bad.back().row.id = "absent";
+  const auto beforeRejected = first->snapshotInstrument().state;
+  const int previousSettled = settled;
+  REQUIRE(!f.undo.perform(action(bad)));
+  REQUIRE(settled == previousSettled && first->snapshotInstrument().state == beforeRejected);
+  REQUIRE(!f.undo.perform(action({})));
+
+  // A failure on the second SQL update rolls back the first and never applies
+  // either live preset, including when the failing operation is Undo.
+  sqlite3 *raw = nullptr;
+  REQUIRE(sqlite3_open(sandbox.directory.getChildFile("layer-refresh.sqlite")
+                          .getFullPathName().toRawUTF8(), &raw) == SQLITE_OK);
+  std::unique_ptr<sqlite3, decltype(&sqlite3_close)> connection(raw, sqlite3_close);
+  const auto trigger = "CREATE TRIGGER reject_setup BEFORE UPDATE ON layers WHEN NEW.id = '" +
+      b.toStdString() + "' BEGIN SELECT RAISE(ABORT, 'test failure'); END";
+  REQUIRE(sqlite3_exec(raw, trigger.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK);
+  const auto otherBeforeRejected = second->snapshotInstrument().state;
+  REQUIRE(!f.undo.undo());
+  REQUIRE(f.undo.canUndo() && !f.undo.canRedo() && !f.undo.isAtSavePoint());
+  REQUIRE(!f.undo.perform(action(targets)));
+  REQUIRE(settled == previousSettled);
+  REQUIRE(first->snapshotInstrument().state == beforeRejected);
+  REQUIRE(second->snapshotInstrument().state == otherBeforeRejected);
+  REQUIRE(repository.getLayer(a.toStdString())->sourcePatchRevision == 2);
+  REQUIRE(repository.getLayer(b.toStdString())->sourcePatchRevision == 2);
+  REQUIRE(sqlite3_exec(raw, "DROP TRIGGER reject_setup", nullptr, nullptr, nullptr) == SQLITE_OK);
+  REQUIRE(f.undo.undo() && f.undo.isAtSavePoint());
+  REQUIRE(f.undo.redo());
+
+  // Changing player type uses real asynchronous hosting, with pending state
+  // preserved when Undo arrives before instantiation completes.
+  f.undo.clear();
+  factory->defer = true;
+  auto replacement = targets.front();
+  replacement.instrument.description.uniqueId = 303;
+  replacement.row.pluginUid = 303;
+  REQUIRE(f.undo.perform(action({replacement})));
+  pumpUntil([&] { return !factory->pending.empty(); });
+  REQUIRE(first->requestedPluginUid() == 303);
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return factory->pending.size() == 2; });
+  factory->completeAll();
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(first->pluginUid == 101 && stateAmount(first->snapshotInstrument().state) == 0.5f);
+  factory->defer = false;
+  REQUIRE(f.undo.redo());
+  pumpUntil([&] { return first->pluginStatus() != fiddle::HostedPluginStatus::loading; });
+  REQUIRE(first->pluginUid == 303 && stateAmount(first->snapshotInstrument().state) == 0.5f);
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return first->hasPlugin(); });
+  // Failed plugin creation is an undoable missing placeholder, not state loss.
+  factory->missingInstruments = true;
+  REQUIRE(f.undo.redo());
+  pumpUntil([&] { return first->pluginStatus() != fiddle::HostedPluginStatus::loading; });
+  REQUIRE(!first->hasPlugin() && first->requestedPluginUid() == 303);
+  REQUIRE(stateAmount(first->snapshotInstrument().state) == 0.5f);
+  factory->missingInstruments = false;
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(first->pluginUid == 101);
+
+  // An update that intentionally clears the instrument remains reversible.
+  f.undo.clear();
+  auto empty = targets.front();
+  empty.instrument = {};
+  empty.row.pluginUid = 0;
+  empty.row.pluginState.clear();
+  REQUIRE(f.undo.perform(action({empty})));
+  REQUIRE(!first->hasPlugin() && first->requestedPluginUid() == 0);
+  REQUIRE(first->cachedPluginState().isEmpty());
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(first->pluginUid == 101 && stateAmount(first->snapshotInstrument().state) == 0.5f);
+
+  // Bypass remains a live layer control even while its new player is loading.
+  f.undo.clear();
+  factory->defer = true;
+  REQUIRE(f.undo.perform(action({replacement})));
+  pumpUntil([&] { return !factory->pending.empty(); });
+  first->setPluginBypassed(true);
+  factory->completeAll();
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(first->isPluginBypassed());
+  factory->defer = false;
+  REQUIRE(f.undo.undo());
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(!first->isPluginBypassed());
+  REQUIRE(f.undo.redo());
+  pumpUntil([&] { return first->hasPlugin(); });
+  REQUIRE(first->isPluginBypassed());
 }
 
 void testInstrumentReplacementStateUndo() {
@@ -1712,6 +1886,7 @@ int main() {
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
+  run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);
   run("chair create and atomic metadata edit undo", testChairCommandsUndo);
   run("chair deletion retains live layers, locks, FX and assignments", testChairDeletionRetainsLayers);

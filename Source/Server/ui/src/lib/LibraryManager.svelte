@@ -152,7 +152,6 @@
   /** @type {LibraryPatch[]} */
   let patches = $state([]);
   /** @type {string} */ let pendingDeleteId = $state("");
-  /** @type {string} */ let pendingLayerUpdateId = $state("");
   let layerUpdateResult = $state("");
 
   // ── Portal container for modals ───────────────────────
@@ -206,15 +205,15 @@
     layerUpdateResult = typeof result === "string"
       ? result
       : result?.message || "Could not update layers from the patch";
-    if (result?.success && result.patchId) {
-      patches = patches.map((patch) =>
-        patch.id === result.patchId
-          ? { ...patch, outOfDateLayerCount: 0 }
-          : patch
-      );
-    }
-    pendingLayerUpdateId = "";
     setTimeout(() => { layerUpdateResult = ""; }, 5000);
+  });
+  onFromCpp("setLibraryLayerStatus", (status) => {
+    // Project Undo/Redo updates linkage status without discarding library drafts.
+    const byId = new Map((status || []).map((item) => [item.patchId, item]));
+    patches = patches.map((patch) => ({ ...patch,
+      usageCount: byId.get(patch.id)?.usageCount || 0,
+      outOfDateLayerCount: byId.get(patch.id)?.outOfDateLayerCount || 0,
+    }));
   });
 
   const handleInitialize = () => {
@@ -321,11 +320,6 @@
 
   const updateLayersFromPatch = (row) => {
     if (editorDirty || !row.outOfDateLayerCount) return;
-    if (pendingLayerUpdateId !== row.id) {
-      pendingLayerUpdateId = row.id;
-      return;
-    }
-    pendingLayerUpdateId = "";
     dispatchCpp("updateLayersFromLibraryPatch", row.id);
   };
 
@@ -770,7 +764,6 @@
                 <div class="ir-actions">
                   <button
                     class="action-update-layers"
-                    class:confirm={pendingLayerUpdateId === row.id}
                     disabled={editorDirty || !row.outOfDateLayerCount}
                     title={editorDirty
                       ? "Save and reopen the library before updating layers"
@@ -778,9 +771,9 @@
                         ? "This patch is not used by any current layer"
                         : !row.outOfDateLayerCount
                           ? "All linked layers already match this patch"
-                          : `Replace the saved setup in ${row.usageCount} linked ${row.usageCount === 1 ? "layer" : "layers"}; ${row.outOfDateLayerCount} currently differ`}
+                          : `Update ${row.usageCount} linked ${row.usageCount === 1 ? "layer" : "layers"}; ${row.outOfDateLayerCount} currently differ. Undo in the main mixer.`}
                     onclick={() => updateLayersFromPatch(row)}
-                  >{pendingLayerUpdateId === row.id ? `Confirm ${row.usageCount}` : "Update Layers"}</button>
+                  >{"Update Layers"}</button>
                   <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
                   <button class="action-delete" onclick={() => removePatch(row.id)}>Delete</button>
                 </div>

@@ -92,7 +92,7 @@ test("chair layers expose a one-click, undoable refresh from their source patch"
     assert.doesNotMatch(mixerPanelSource, /pendingLayerRefreshId/);
     assert.match(
         mainComponentSource,
-        /undoManager_\.perform\(std::make_unique<RefreshLayerFromLibraryAction>/,
+        /undoManager_\.perform\(std::make_unique<LayerLibrarySetupAction>/,
     );
 });
 

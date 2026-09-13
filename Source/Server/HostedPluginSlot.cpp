@@ -130,9 +130,13 @@ void HostedPluginSlot::loadPlugin(const juce::PluginDescription &description,
         auto actualDescription = description;
         instance->fillInPluginDescription(actualDescription);
         juce::String error;
+        // Installation starts with the processor's default controls. Preserve
+        // host bypass edits made while asynchronous creation was outstanding.
+        const bool requestedBypass = isBypassed();
         const bool installed =
             installProcessor(actualDescription, std::move(instance), sampleRate,
                              blockSize, error);
+        setBypassed(requestedBypass);
         if (onComplete)
           onComplete(installed, error);
       });

@@ -1,9 +1,9 @@
 # Undo/redo repair status
 
-9 September 2026. First implementation checkpoint; the broader inventory is
-**not yet fully repaired**. The user smoke-tested this checkpoint without finding
-issues. No running server, installed
-plugin, Dorico project, or user library was changed during verification.
+Updated 13 September 2026. The first three checkpoints are committed and
+smoke-tested; the layer-refresh follow-up below also passed automated testing
+and the user's smoke check. The broader inventory is
+**not yet fully repaired**. Verification used isolated fixtures.
 
 ## Implemented in this checkpoint
 
@@ -34,8 +34,8 @@ plugin, Dorico project, or user library was changed during verification.
   a Fiddle command cannot falsely clear their dirty status. Individual vendor
   gestures remain outside Fiddle Undo as agreed.
 
-The previously implemented chair-layer add/remove and audio-safety work remains
-in the working tree; see [audio safety results](audio-safety-results.md).
+The chair-layer add/remove and audio-safety work is included in `6866ac4`;
+see [audio safety results](audio-safety-results.md).
 
 ## Verification
 
@@ -58,11 +58,10 @@ in the working tree; see [audio safety results](audio-safety-results.md).
 1. VSTi program-selection Undo; expression-map provenance/import and Lua
    loading failure handling. Preserve vendor edits without recording their
    individual editor gestures.
-2. Update Layers as one project command with each layer's live before-state.
-3. Separate Library Manager history: draft edits, row operations, batches,
+2. Separate Library Manager history: draft edits, row operations, batches,
    preview-player state, save checkpoints and recoverable catalog changes.
    History lifetime across closing/restarting still needs an explicit policy.
-4. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
+3. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
    plus native menu integration where appropriate.
 
 ## Short manual check after restarting the rebuilt Release server
@@ -82,8 +81,8 @@ additive host-state extension. Continue using the Release server.
 
 ## Chair-management follow-up
 
-The first checkpoint was committed as `6866ac4`. The subsequent, uncommitted
-chair-management pass adds:
+The first checkpoint was committed as `6866ac4`. The subsequent
+chair-management pass, committed as `63e947c`, adds:
 
 - Undo/Redo for creating, deleting, renaming and changing a chair's player type.
   Batch role corrections are one command and one database transaction.
@@ -117,7 +116,7 @@ chair-management smoke test passed; committed as `63e947c`. No push was requeste
 
 ## Plugin-state follow-up
 
-10 September 2026; uncommitted, awaiting smoke test.
+10 September 2026; smoke test passed, committed as `1ccd4c9`.
 
 - VSTi replacement/removal retains full plugin description, serialized state
   and bypass state on both sides. Every direction captures the departing
@@ -152,3 +151,45 @@ Smoke check after restarting Release: configure a VSTi, clear/replace it, Undo,
 and verify the patch returns. Edit it again and repeat Redo/Undo. For a strip,
 bus and Master FX, edit a parameter, Undo Add and Redo; then remove/Undo, edit
 again, and Redo-remove/Undo. The latest settings should survive each cycle.
+
+## Layer-refresh follow-up
+
+13 September 2026; resumed after the usage-limit interruption. Release build,
+automated tests and the user's smoke check passed. Included in the checkpoint
+"Make library layer updates undoable as one project edit".
+
+- Library Manager's Update Layers and the strip's Refresh Library share
+  `LayerLibrarySetupAction`. A batch is one project-history step. It updates
+  all linked layers and captures each layer's independent live player state,
+  expression-map object/import path, patch revision and edited flag.
+- Undo/Redo captures departing player state on each cycle and does not consult
+  the current catalog. Gain, mute, solo, activity, routing, position, Lua and
+  effect racks remain outside the fields replaced by the refresh.
+- All target rows are preflighted and their setup fields committed in one SQL
+  transaction before live presets change. Missing/reassigned/duplicate targets
+  or a database failure reject the command without advancing history. Failed
+  Undo retains its history entry so it can be retried.
+- Pending or missing players retain their serialized state. Immediate Undo
+  cancels superseded loads. Empty instrument setups are reversible. Bypass
+  changes made during a library-triggered load survive its completion.
+- Update Layers needs one click. Library linkage counts refresh after project
+  Undo/Redo without replacing unsaved library drafts. The result identifies the
+  main mixer as the place to undo the operation. Library edits themselves still
+  await their separate history implementation.
+
+Verification: Release FiddleServer and FiddleTests built. All 53 stable CTest
+entries passed, with the two socket tests rerun with localhost permission after
+the sandbox blocked binding. The old source-contract test was updated for the
+shared action name. New repository tests force a second-row SQL error and verify
+rollback and unchanged mix fields. Mixer tests cover failed Execute/Undo, distinct
+presets, imported maps, repeated edits, pending/missing/empty players and bypass
+changes during loading. The rendered Chrome fixture verifies one-click dispatch,
+disabled states, count changes after Undo and preservation of dirty library drafts.
+
+Smoke check: restart the rebuilt Release server, update a library patch used by
+two layers with different presets, save/reopen the library, then click Update
+Layers. Undo once in the mixer should restore both individual presets; Redo
+should reapply the library setup. Check that levels/routing/FX stay unchanged
+and that the Library Manager's update availability follows Undo/Redo. Also try
+Refresh Library on one layer. A large player may need time to reload. This pass
+does not require rebuilding or reinstalling the native Fiddle VST3.

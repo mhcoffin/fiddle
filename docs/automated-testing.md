@@ -12,9 +12,13 @@ concurrent reads, plus the actual native audio consumer using an isolated mmap.
 The relay integration test verifies one-second telemetry delivery on a background
 thread alongside MIDI. UI tests cover absent/stale readings and bounded report
 history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
-The mixer integration executable contains twenty-four scenarios, including meter-only
+The mixer integration executable contains twenty-five scenarios, including meter-only
 snapshots that never query plug-in programs or capture state. UI tests verify that
 meter updates cannot overwrite controls and the timer cannot rebuild full state.
+The library-refresh scenario checks batch/single-layer Undo with independent live
+presets, imported maps, pending/missing/empty players and bypass edits during
+loading. Forced second-row database failures must leave live state, rows and
+history unchanged; repository tests also reject reassigned and duplicate targets.
 Undo coverage includes shared history identities/gesture barriers, atomic mixer
 changes, and project-setting restoration. The rendered browser fixture also
 checks compensated mute, authoritative gain updates, Undo/Redo controls and
@@ -99,6 +103,9 @@ also opens Audio Performance with 30 fixture plugins, verifies row ordering and
 fixed header/footer controls, copies a report with plugin/device metadata, and
 checks the Audio Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.
+It also opens the Library Manager with fixture data, clicks Update Layers once,
+checks the project command dispatch and linkage counts after simulated Undo,
+and verifies that status updates preserve unsaved drafts and their disabled guard.
 Set `FIDDLE_LAYOUT_SCREENSHOT_DIR` to an existing directory to capture each size.
 
 ## Production mixer integration

@@ -519,6 +519,42 @@ LibraryRoutingRepository::updateLayersFromPatch(
   return sqlite3_changes(database_);
 }
 
+bool LibraryRoutingRepository::updateLayerSetups(const std::vector<LayerRow> &layers) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  if (!execute(database_, "BEGIN IMMEDIATE")) return false;
+  Statement update(database_, R"(
+    UPDATE layers SET patch_name = ?, library_id = ?, library_name = ?,
+      plugin_uid = ?, plugin_state = ?, expression_map_id = ?,
+      source_patch_revision = ?, plugin_state_edited = ?
+    WHERE id = ? AND chair_id = ? AND patch_id = ?
+  )");
+  bool ok = bool(update);
+  std::set<std::string> ids;
+  for (const auto &layer : layers) {
+    if (!ok) break;
+    ok = ids.insert(layer.id).second;
+    sqlite3_reset(update.get());
+    sqlite3_clear_bindings(update.get());
+    bindText(update.get(), 1, layer.patchName);
+    bindText(update.get(), 2, layer.libraryId);
+    bindText(update.get(), 3, layer.libraryName);
+    sqlite3_bind_int(update.get(), 4, layer.pluginUid);
+    bindBlob(update.get(), 5, layer.pluginState);
+    bindText(update.get(), 6, layer.expressionMapId);
+    sqlite3_bind_int(update.get(), 7, layer.sourcePatchRevision);
+    sqlite3_bind_int(update.get(), 8, layer.pluginStateEdited ? 1 : 0);
+    bindText(update.get(), 9, layer.id);
+    bindText(update.get(), 10, layer.chairId);
+    bindText(update.get(), 11, layer.patchId);
+    ok = ok && sqlite3_step(update.get()) == SQLITE_DONE && sqlite3_changes(database_) == 1;
+  }
+  if (!ok || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return false;
+  }
+  return true;
+}
+
 PatchDeleteResult
 LibraryRoutingRepository::deletePatch(const std::string &patchId) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
