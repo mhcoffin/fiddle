@@ -25,6 +25,14 @@ struct LibraryPatchRow {
   int revision = 1;
 };
 
+// A complete modern catalog entry; absent headers represent deletion. Layer
+// rows belong to the project and are deliberately never included.
+struct LibraryCatalogSnapshot {
+  std::string id, name, vendor, variant;
+  bool exists = false;
+  std::vector<LibraryPatchRow> patches;
+};
+
 struct ChairRow {
   std::string id;
   std::string instrumentEntityId;
@@ -78,6 +86,9 @@ public:
   static bool ensureSchema(sqlite3 *database);
 
   bool upsertPatch(const LibraryPatchRow &patch);
+  std::optional<LibraryCatalogSnapshot> captureLibrary(const std::string &id) const;
+  PatchReplaceResult restoreLibrary(const LibraryCatalogSnapshot &snapshot,
+                                    bool restoreRevisions = true);
   std::optional<LibraryPatchRow> getPatch(const std::string &patchId) const;
   std::vector<LibraryPatchRow>
   listPatches(const std::string &libraryId = {}) const;
@@ -143,6 +154,8 @@ public:
                        const std::vector<LayerRow> &layers);
 
 private:
+  PatchReplaceResult replaceLibraryPatchesUnlocked(const std::string &libraryId,
+      const std::vector<LibraryPatchRow> &patches);
   bool upsertChairUnlocked(const ChairRow &chair);
   bool upsertLayerUnlocked(const LayerRow &layer);
   sqlite3 *database_;

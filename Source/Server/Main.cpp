@@ -101,7 +101,7 @@ public:
     mainWindow.reset();
   }
 
-  void systemRequestedQuit() override { quit(); }
+  void systemRequestedQuit() override { confirmLibraryDiscard([this] { quit(); }); }
 
   void anotherInstanceStarted(const juce::String &commandLine) override {}
 
@@ -191,6 +191,10 @@ public:
   }
 
   void restartApplication() {
+    confirmLibraryDiscard([this] { restartAfterConfirmation(); });
+  }
+
+  void restartAfterConfirmation() {
     if (restartPending_)
       return;
 
@@ -208,6 +212,24 @@ public:
   }
 
 private:
+  void confirmLibraryDiscard(std::function<void()> proceed) {
+    auto *component = mainWindow ? dynamic_cast<MainComponent *>(mainWindow->getContentComponent()) : nullptr;
+    if (!component || !component->hasUnsavedLibraryDraft()) { proceed(); return; }
+    if (libraryQuitPromptPending_) return;
+    libraryQuitPromptPending_ = true;
+    juce::AlertWindow::showOkCancelBox(
+      juce::MessageBoxIconType::WarningIcon, "Unsaved Library Changes",
+      "The Library Manager has unsaved changes. Discard them and continue?",
+      "Discard changes", "Keep editing", nullptr,
+      juce::ModalCallbackFunction::create([this, proceed = std::move(proceed)](int result) {
+        libraryQuitPromptPending_ = false;
+        if (result != 0) proceed();
+        else if (mainWindow)
+          if (auto *component = dynamic_cast<MainComponent *>(mainWindow->getContentComponent()))
+            component->showLibraryManagerWindow();
+      }));
+  }
+  bool libraryQuitPromptPending_ = false;
   juce::PopupMenu applicationMenu_;
   std::unique_ptr<MainWindow> mainWindow;
   bool restartPending_ = false;

@@ -6,6 +6,7 @@
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
+  import { LibraryHistory } from "./libraryHistory.js";
   import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, moveLibraryPatch, moveLibraryPatchByOffset, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
@@ -35,6 +36,7 @@
       editorLibVariant = data.variant ?? "";
       patches = (data.patches || []).map((patch) => ({
         id:        patch.id || crypto.randomUUID(),
+        previewId: patch.id,
         entityID:  patch.entityID || "",
         instrumentName: patch.instrumentName || "",
         name:      patch.name || "",
@@ -53,6 +55,7 @@
       instrumentChooserPatchId = "";
       modalView = "editor";
       editorDirty = false;
+      resetDraftHistory(true);
     } catch (e) { /* ignore */ }
   });
 
@@ -86,6 +89,81 @@
 
   // ── Editor dirty tracking ─────────────────────────────
   let editorDirty = $state(false);
+  $effect(() => { dispatchCpp("setLibraryDraftDirty", modalView === "editor" && editorDirty); });
+  const draftHistory = new LibraryHistory();
+  let draftUndoLabel = $state("");
+  let draftRedoLabel = $state("");
+  let saving = $state(false);
+  let confirmDiscard = $state(false);
+  let catalogHistory = $state({ canUndo: false, canRedo: false });
+  const playerFlags = new Map();
+  const layerStatus = new Map();
+  const syncPreviewHistory = () => dispatchCpp("showLibraryDraftPreviews",
+    patches.map(p => p.previewId || p.id), draftHistory.retainedPreviewIds);
+  const syncHistory = () => {
+    const pendingText = JSON.stringify(draftHistory.snapshot(patches)) !== JSON.stringify(draftHistory.current);
+    draftUndoLabel = pendingText ? "Rename patch" : draftHistory.undoLabel;
+    draftRedoLabel = pendingText ? "" : draftHistory.redoLabel;
+    editorDirty = pendingText || draftHistory.dirty;
+  };
+  const resetDraftHistory = (saved) => {
+    playerFlags.clear();
+    layerStatus.clear();
+    for (const patch of patches) layerStatus.set(patch.id, {
+      usageCount: patch.usageCount, outOfDateLayerCount: patch.outOfDateLayerCount,
+    });
+    for (const patch of patches) playerFlags.set(patch.previewId || patch.id, {
+      hasPluginState: patch.hasPluginState, pluginStatePending: false,
+    });
+    draftHistory.reset(patches, saved);
+    saving = false; confirmDiscard = false;
+    buildResult = ""; layerUpdateResult = "";
+    syncHistory();
+  };
+  const recordEdit = (label) => {
+    for (const patch of patches) {
+      const key = patch.previewId || patch.id;
+      if (!playerFlags.has(key)) playerFlags.set(key, {
+        hasPluginState: patch.hasPluginState, pluginStatePending: patch.pluginStatePending,
+      });
+    }
+    draftHistory.record(patches, label); syncHistory(); syncPreviewHistory();
+  };
+  const travelHistory = (direction) => {
+    if (saving || confirmDiscard || modalView === "create") return;
+    if (modalView !== "editor") {
+      if (direction === "undo" ? catalogHistory.canUndo : catalogHistory.canRedo)
+        dispatchCpp(direction === "undo" ? "undoLibraryCatalog" : "redoLibraryCatalog");
+      return;
+    }
+    recordEdit("Rename patch"); // Commit any focused text field before a toolbar click.
+    const restored = draftHistory.travel(direction);
+    if (!restored) return;
+    patches = restored.map(patch => ({ ...patch,
+      ...playerFlags.get(patch.previewId || patch.id),
+      usageCount: layerStatus.get(patch.id)?.usageCount || 0,
+      outOfDateLayerCount: layerStatus.get(patch.id)?.outOfDateLayerCount || 0,
+    }));
+    instrumentChooserPatchId = "";
+    selectedPatchIds = new Set([...selectedPatchIds].filter(id => patches.some(p => p.id === id)));
+    syncHistory();
+    syncPreviewHistory();
+  };
+  onFromCpp("setLibraryCatalogHistory", data => { catalogHistory = data; });
+  onFromCpp("librarySaveResult", result => {
+    if (result.id !== editorLibId || !saving) return;
+    saving = false;
+    if (!result.success) { buildResult = result.message || "Could not save the library"; return; }
+    draftHistory.markSaved();
+    for (const patch of patches) {
+      const key = patch.previewId || patch.id;
+      const hasPluginState = result.patches?.find(p => p.id === patch.id)?.hasPluginState ?? patch.hasPluginState;
+      playerFlags.set(key, { hasPluginState, pluginStatePending: false });
+    }
+    patches = patches.map(patch => ({ ...patch, ...playerFlags.get(patch.previewId || patch.id) }));
+    syncHistory();
+    buildResult = "OK: Library saved. Draft undo is still available.";
+  });
   let selectedPatchIds = $state(new Set());
   let selectionAnchorId = $state("");
   let batchPluginUid = $state(0);
@@ -162,12 +240,16 @@
     dispatchCpp("requestExpressionMaps");
     dispatchCpp("requestPluginsState");
     dispatchCpp("requestLibraries");
+    dispatchCpp("requestLibraryCatalogHistory");
     dispatchCpp("requestDoricoInstruments");
     const el = document.createElement("div");
     el.id = "lm-portal";
     document.body.appendChild(el);
     portalTarget = el;
+    const onHistory = event => travelHistory(event.detail);
+    window.addEventListener("libraryHistory", onHistory);
     return () => {
+      window.removeEventListener("libraryHistory", onHistory);
       dispatchCpp("closeLibraryPatchPreviews");
       el.remove();
     };
@@ -192,14 +274,17 @@
     setTimeout(() => { buildResult = ""; }, 5000);
   });
   onFromCpp("libraryPatchPreviewChanged", (patchId) => {
-    if (shouldMarkLibraryEditorDirtyForPreviewChange(modalView)) editorDirty = true;
+    if (!playerFlags.has(patchId) && !patches.some(patch => (patch.previewId || patch.id) === patchId)) return;
+    if (shouldMarkLibraryEditorDirtyForPreviewChange(modalView)) draftHistory.playerChanged();
+    playerFlags.set(patchId, { hasPluginState: true, pluginStatePending: true });
     if (patchId) {
       patches = patches.map((patch) =>
-        patch.id === patchId
+        (patch.previewId || patch.id) === patchId
           ? { ...patch, hasPluginState: true, pluginStatePending: true }
           : patch
       );
     }
+    syncHistory();
   });
   onFromCpp("libraryLayersUpdateResult", (result) => {
     layerUpdateResult = typeof result === "string"
@@ -210,6 +295,8 @@
   onFromCpp("setLibraryLayerStatus", (status) => {
     // Project Undo/Redo updates linkage status without discarding library drafts.
     const byId = new Map((status || []).map((item) => [item.patchId, item]));
+    layerStatus.clear();
+    for (const [id, item] of byId) layerStatus.set(id, item);
     patches = patches.map((patch) => ({ ...patch,
       usageCount: byId.get(patch.id)?.usageCount || 0,
       outOfDateLayerCount: byId.get(patch.id)?.outOfDateLayerCount || 0,
@@ -228,20 +315,20 @@
     instrumentChooserPatchId = "";
     modalView = "editor";
     editorDirty = false;
+    resetDraftHistory(false);
   };
 
   // ── Actions: editor modal ─────────────────────────────
   const closeEditor = () => {
+    if (saving) return;
+    if (editorDirty) { confirmDiscard = true; return; }
+    discardEditor();
+  };
+  const discardEditor = () => {
+    confirmDiscard = false;
     dispatchCpp("closeLibraryPatchPreviews");
     instrumentChooserPatchId = "";
     modalView = "none";
-  };
-
-  const addPatch = (/** @type {{ entityID: string, name: string, family: string }} */ inst, /** @type {string} */ character = "") => {
-    const defaults = { vstPlugin: batchPluginUid };
-    patches = [...patches,
-      createLibraryPatch(inst, character, crypto.randomUUID(), defaults)];
-    editorDirty = true;
   };
 
   const addBlankPatch = () => {
@@ -250,7 +337,7 @@
     patches = [...patches, patch];
     selectedPatchIds = new Set([id]);
     selectionAnchorId = id;
-    editorDirty = true;
+    recordEdit("Add patch");
   };
 
   const beginInstrumentChoice = (patchId) => {
@@ -275,7 +362,7 @@
           }
         : patch
     );
-    editorDirty = true;
+    recordEdit("Classify patch");
     closeInstrumentChooser();
   };
 
@@ -285,7 +372,7 @@
         ? { ...patch, entityID: "", instrumentName: "", family: "" }
         : patch
     );
-    editorDirty = true;
+    recordEdit("Clear classification");
     closeInstrumentChooser();
   };
 
@@ -301,21 +388,20 @@
     patches = patches.map((patch) =>
       patch.id === rowId ? { ...patch, exprMap: entityID } : patch
     );
-    editorDirty = true;
+    recordEdit("Set expression map");
   };
 
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
-    for (const inst of ens.instruments) {
-      addPatch(inst, inst.type || "");
-    }
+    patches = [...patches, ...ens.instruments.map(inst =>
+      createLibraryPatch(inst, inst.type || "", crypto.randomUUID(), { vstPlugin: batchPluginUid }))];
+    recordEdit("Add " + ens.name);
   };
 
   const removePatch = (/** @type {string} */ id) => {
-    dispatchCpp("discardLibraryPatchPreview", id);
     patches = patches.filter(r => r.id !== id);
     selectedPatchIds.delete(id);
     selectedPatchIds = new Set(selectedPatchIds);
-    editorDirty = true;
+    recordEdit("Delete patch");
   };
 
   const updateLayersFromPatch = (row) => {
@@ -325,31 +411,38 @@
 
   const duplicatePatch = (row) => {
     const copy = duplicateLibraryPatch(row, crypto.randomUUID());
+    copy.previewId = copy.id;
+    copy.usageCount = 0; copy.outOfDateLayerCount = 0;
+    playerFlags.set(copy.id, { hasPluginState: row.hasPluginState, pluginStatePending: row.pluginStatePending });
+    dispatchCpp("cloneLibraryPatchPreview", { previewId: copy.id,
+      sourcePreviewId: row.previewId || row.id, sourcePatchId: row.sourcePatchId || row.id,
+      useSavedState: Boolean(row.hasPluginState),
+      pluginUid: Number(row.vstPlugin) || row.pluginUid });
     patches = [...patches, copy];
     selectedPatchIds = new Set([copy.id]);
     selectionAnchorId = copy.id;
-    editorDirty = true;
+    recordEdit("Duplicate patch");
   };
 
   const reorderPatch = (patchId, targetId, insertAfter = false) => {
     const reordered = moveLibraryPatch(patches, patchId, targetId, insertAfter);
     if (reordered === patches) return;
     patches = reordered;
-    editorDirty = true;
+    recordEdit("Reorder patch");
   };
 
   const movePatchWithKeyboard = (patchId, offset) => {
     const reordered = moveLibraryPatchByOffset(patches, patchId, offset);
     if (reordered === patches) return;
     patches = reordered;
-    editorDirty = true;
+    recordEdit("Reorder patch");
   };
 
   const sortPatchesOrchestrally = () => {
     const reordered = sortLibraryPatchesOrchestrally(patches, instrumentScoreOrder);
     if (reordered === patches) return;
     patches = reordered;
-    editorDirty = true;
+    recordEdit("Sort patches");
   };
 
   const beginPatchDrag = (event, patchId) => {
@@ -388,6 +481,8 @@
     if (!uid) return;
     dispatchCpp("openLibraryPatchEditor", {
       patchId: row.id,
+      previewId: row.previewId || row.id,
+      useSavedState: Boolean(row.hasPluginState),
       sourcePatchId: row.sourcePatchId || "",
       title: `${editorLibName} — ${row.name}`,
       pluginUid: uid,
@@ -421,27 +516,23 @@
 
   const applyPluginToSelection = () => {
     if (selectedPatchIds.size === 0) return;
-    for (const patch of patches)
-      if (selectedPatchIds.has(patch.id))
-        dispatchCpp("discardLibraryPatchPreview", patch.id);
-    patches = updateSelectedPatches(patches, selectedPatchIds, {
-      vstPlugin: Number(batchPluginUid),
-      pluginUid: Number(batchPluginUid),
-      hasPluginState: false,
-      pluginStatePending: false,
-      sourcePatchId: "",
-    });
-    editorDirty = true;
+    patches = patches.map(patch => selectedPatchIds.has(patch.id)
+      ? withPlayer(patch, Number(batchPluginUid)) : patch);
+    recordEdit("Assign players");
   };
 
+  const withPlayer = (patch, uid) => {
+    if (Number(patch.vstPlugin) === uid) return patch;
+    const previewId = crypto.randomUUID();
+    playerFlags.set(previewId, { hasPluginState: false, pluginStatePending: false });
+    return { ...patch, previewId, vstPlugin: uid, pluginUid: uid,
+      hasPluginState: false, pluginStatePending: false, sourcePatchId: "" };
+  };
   const setPatchPlugin = (row, uid) => {
-    dispatchCpp("discardLibraryPatchPreview", row.id);
     patches = patches.map((patch) =>
-      patch.id === row.id
-        ? { ...patch, vstPlugin: uid, pluginUid: uid, hasPluginState: false, pluginStatePending: false, sourcePatchId: "" }
-        : patch
+      patch.id === row.id ? withPlayer(patch, uid) : patch
     );
-    editorDirty = true;
+    recordEdit("Assign player");
   };
 
   const applyExpressionMapToSelection = (entityID) => {
@@ -449,10 +540,13 @@
     patches = updateSelectedPatches(patches, selectedPatchIds, {
       exprMap: entityID,
     });
-    editorDirty = true;
+    recordEdit("Assign expression maps");
   };
 
   const commitToLibrary = () => {
+    if (saving) return;
+    recordEdit("Rename patch");
+    saving = true;
     const libData = {
       id: editorLibId,
       name: editorLibName,
@@ -460,6 +554,7 @@
       variant: editorLibVariant,
       patches: patches.map(patch => ({
         id:          patch.id,
+        previewId:   patch.previewId || patch.id,
         entityID:    patch.entityID,
         name:        patch.name,
         family:      patch.family,
@@ -471,8 +566,6 @@
       })),
     };
     dispatchCpp("saveLibrary", libData);
-    editorDirty = false;
-    modalView = "none";
   };
 
   const openLibrary = (/** @type {string} */ libraryId) => {
@@ -499,6 +592,8 @@
     <div class="lm-toolbar">
       <h2 class="lm-section-title">My Libraries</h2>
       <div class="lm-toolbar-actions">
+        <button class="lm-create-btn" disabled={!catalogHistory.canUndo} title={catalogHistory.undoDescription || "No catalog edits"} onclick={() => travelHistory("undo")}>Undo catalog</button>
+        <button class="lm-create-btn" disabled={!catalogHistory.canRedo} title={catalogHistory.redoDescription || "No catalog edits"} onclick={() => travelHistory("redo")}>Redo catalog</button>
         <button class="lm-create-btn" onclick={openCreate}>+ Add Library</button>
       </div>
     </div>
@@ -594,11 +689,15 @@
           <span class="mh-icon">▦</span>
           <span id="editor-heading" class="editor-top-title">VST LIBRARY EDITOR</span>
         </div>
-        <button class="editor-close" onclick={closeEditor}>✕</button>
+        <div class="draft-history">
+          <button disabled={saving || !draftUndoLabel} title={draftUndoLabel || "No draft edits"} onclick={() => travelHistory("undo")}>Undo draft</button>
+          <button disabled={saving || !draftRedoLabel} title={draftRedoLabel || "No draft edits"} onclick={() => travelHistory("redo")}>Redo draft</button>
+          <button class="editor-close" disabled={saving} aria-label="Close library editor" onclick={closeEditor}>✕</button>
+        </div>
       </div>
 
       <!-- Editor body: sidebar + content -->
-      <div class="editor-body">
+      <div class="editor-body" inert={saving || confirmDiscard}>
         <!-- Left: optional generic patch sets -->
         <aside class="ens-sidebar">
           <h3 class="ens-heading">QUICK-ADD PATCH SETS</h3>
@@ -620,6 +719,7 @@
             <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}>Sort Orchestrally</button>
             <span>Creates an empty catalog row. Instrument classification is optional.</span>
           </div>
+          {#if buildResult}<div class="layer-update-result" class:success={buildResult.startsWith("OK:")} role="status">{buildResult}</div>{/if}
 
           {#if layerUpdateResult}
             <div class="layer-update-result" class:success={layerUpdateResult.startsWith("OK:")} role="status">
@@ -702,10 +802,12 @@
                   <div class="ir-name-text">
                     <input class="ir-input patch-name-input" value={row.name}
                       aria-label="Patch name"
+                      onblur={() => recordEdit("Rename patch")}
+                      onkeydown={event => { if (event.key === "Enter") event.currentTarget.blur(); }}
                       oninput={(event) => {
                         const name = event.currentTarget.value;
                         patches = patches.map((patch) => patch.id === row.id ? { ...patch, name } : patch);
-                        editorDirty = true;
+                        syncHistory();
                       }} />
                     <button class="ir-instrument-name" aria-label={`Classify ${row.name}`} onclick={() => beginInstrumentChoice(row.id)}>
                       {instrumentDisplayName(row) || "Choose instrument (optional)…"}
@@ -717,7 +819,7 @@
                     onchange={(event) => {
                       const character = event.currentTarget.value;
                       patches = patches.map((patch) => patch.id === row.id ? { ...patch, character } : patch);
-                      editorDirty = true;
+                      recordEdit("Set patch character");
                     }}>
                     <option value="">Unspecified</option>
                     <option value="solo">Solo</option>
@@ -766,7 +868,7 @@
                     class="action-update-layers"
                     disabled={editorDirty || !row.outOfDateLayerCount}
                     title={editorDirty
-                      ? "Save and reopen the library before updating layers"
+                      ? "Save the library before updating layers"
                       : !row.usageCount
                         ? "This patch is not used by any current layer"
                         : !row.outOfDateLayerCount
@@ -792,8 +894,15 @@
 
       <!-- Editor footer -->
       <div class="editor-footer">
-        <button class="modal-cancel" onclick={closeEditor}><span class="cancel-x">✕</span> CANCEL</button>
-        <button class="modal-submit" disabled={!editorDirty} onclick={commitToLibrary}>Save</button>
+        {#if confirmDiscard}
+          <span class="draft-status">Discard unsaved library changes?</span>
+          <button class="lm-create-btn" onclick={() => { confirmDiscard = false; }}>Keep editing</button>
+          <button class="lm-create-btn" onclick={discardEditor}>Discard changes</button>
+        {:else}
+          <button class="modal-cancel" disabled={saving} onclick={closeEditor}>Close</button>
+          <span class="draft-status">{saving ? "Saving…" : editorDirty ? "Unsaved changes" : "Saved"} · Draft history lasts until this editor closes.</span>
+          <button class="modal-submit" disabled={saving || !editorDirty} onclick={commitToLibrary}>Save</button>
+        {/if}
       </div>
 
       {#if instrumentChooserPatchId}
@@ -842,6 +951,13 @@
 
 
 <style>
+  .draft-history { display: flex; gap: 8px; align-items: center; }
+  .draft-history button:not(.editor-close) {
+    background: transparent; border: 1px solid #555582; border-radius: 4px;
+    color: #d5d1ff; padding: 5px 10px; font: inherit; font-size: .75rem; cursor: pointer;
+  }
+  .draft-history button:disabled, .lm-create-btn:disabled { opacity: .4; cursor: default; }
+  .draft-status { color: #a8a7d5; font-size: .75rem; }
   /* ══════════════════════════════════════════════════════
      DASHBOARD
      ══════════════════════════════════════════════════════ */
@@ -1091,7 +1207,8 @@
   }
 
   /* ── Instrument content ───────────────────────────── */
-  .inst-content { flex: 1; display: flex; flex-direction: column; overflow: visible; }
+  .inst-content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
+  .inst-content > * { min-width: 1074px; box-sizing: border-box; flex-shrink: 0; }
   .patch-toolbar {
     display: flex; align-items: center; gap: 14px;
     padding: 14px 20px; background: #131342;

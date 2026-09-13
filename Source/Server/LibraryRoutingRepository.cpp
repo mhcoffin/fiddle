@@ -310,6 +310,25 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
   )"))
     return false;
 
+  // Catalog Undo restores old revision identities. Keep a durable high-water
+  // mark so a later edit cannot reuse an identity held by project Undo/Redo.
+  if (!execute(database, R"(
+    CREATE TABLE IF NOT EXISTS library_patch_revisions (
+      patch_id TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+    INSERT INTO library_patch_revisions SELECT id, revision FROM library_patches WHERE true
+      ON CONFLICT(patch_id) DO UPDATE SET revision = MAX(revision, excluded.revision);
+    INSERT INTO library_patch_revisions SELECT patch_id, MAX(source_patch_revision) FROM layers GROUP BY patch_id
+      ON CONFLICT(patch_id) DO UPDATE SET revision = MAX(revision, excluded.revision);
+    CREATE TRIGGER IF NOT EXISTS track_library_patch_insert AFTER INSERT ON library_patches BEGIN
+      INSERT INTO library_patch_revisions VALUES (NEW.id, NEW.revision)
+        ON CONFLICT(patch_id) DO UPDATE SET revision = MAX(revision, excluded.revision);
+    END;
+    CREATE TRIGGER IF NOT EXISTS track_library_patch_update AFTER UPDATE OF revision ON library_patches BEGIN
+      INSERT INTO library_patch_revisions VALUES (NEW.id, NEW.revision)
+        ON CONFLICT(patch_id) DO UPDATE SET revision = MAX(revision, excluded.revision);
+    END;
+  )")) return false;
+
   return execute(database, R"(
     CREATE INDEX IF NOT EXISTS layers_chair_position
     ON layers(chair_id, position)
@@ -325,8 +344,9 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
   Statement statement(database_, R"(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
-       character, plugin_uid, plugin_state, expression_map_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       character, plugin_uid, plugin_state, expression_map_id, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+      COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
         library_patches.library_id <> excluded.library_id OR
@@ -339,7 +359,7 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
         library_patches.expression_map_id <> excluded.expression_map_id
-        THEN library_patches.revision + 1
+        THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       library_id = excluded.library_id,
       position = excluded.position,
@@ -580,6 +600,13 @@ LibraryRoutingRepository::deletePatch(const std::string &patchId) {
 PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
     const std::string &libraryId,
     const std::vector<LibraryPatchRow> &patches) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  return replaceLibraryPatchesUnlocked(libraryId, patches);
+}
+
+PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
+    const std::string &libraryId,
+    const std::vector<LibraryPatchRow> &patches) {
   if (libraryId.empty())
     return PatchReplaceResult::error;
 
@@ -590,7 +617,6 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
       return PatchReplaceResult::error;
   }
 
-  std::lock_guard<std::mutex> lock(databaseMutex_);
   std::vector<std::string> removedIds;
   {
     Statement existing(
@@ -632,14 +658,15 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
     }
   }
 
-  if (!execute(database_, "BEGIN IMMEDIATE"))
+  if (!execute(database_, "SAVEPOINT replace_library_patches"))
     return PatchReplaceResult::error;
 
   Statement upsert(database_, R"(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
-       character, plugin_uid, plugin_state, expression_map_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       character, plugin_uid, plugin_state, expression_map_id, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+      COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
         library_patches.name <> excluded.name OR
@@ -651,7 +678,7 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
         library_patches.expression_map_id <> excluded.expression_map_id
-        THEN library_patches.revision + 1
+        THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       position = excluded.position,
       name = excluded.name,
@@ -692,9 +719,89 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatches(
     succeeded = sqlite3_step(remove.get()) == SQLITE_DONE;
   }
 
-  if (!succeeded || !execute(database_, "COMMIT")) {
-    execute(database_, "ROLLBACK");
+  if (!succeeded || !execute(database_, "RELEASE replace_library_patches")) {
+    execute(database_, "ROLLBACK TO replace_library_patches");
+    execute(database_, "RELEASE replace_library_patches");
     return PatchReplaceResult::error;
+  }
+  return PatchReplaceResult::replaced;
+}
+
+std::optional<LibraryCatalogSnapshot>
+LibraryRoutingRepository::captureLibrary(const std::string &id) const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  LibraryCatalogSnapshot result;
+  result.id = id;
+  Statement header(database_, "SELECT name, vendor, variant FROM libraries WHERE id = ?");
+  if (!header || id.empty()) return std::nullopt;
+  bindText(header.get(), 1, id);
+  const int code = sqlite3_step(header.get());
+  if (code == SQLITE_DONE) return result;
+  if (code != SQLITE_ROW) return std::nullopt;
+  result.exists = true;
+  result.name = columnText(header.get(), 0);
+  result.vendor = columnText(header.get(), 1);
+  result.variant = columnText(header.get(), 2);
+  Statement patches(database_, (std::string("SELECT ") + kPatchColumns +
+    " FROM library_patches WHERE library_id = ? ORDER BY position, id").c_str());
+  if (!patches) return std::nullopt;
+  bindText(patches.get(), 1, id);
+  int patchCode;
+  while ((patchCode = sqlite3_step(patches.get())) == SQLITE_ROW)
+    result.patches.push_back(readPatch(patches.get()));
+  if (patchCode != SQLITE_DONE) return std::nullopt;
+  return result;
+}
+
+PatchReplaceResult LibraryRoutingRepository::restoreLibrary(
+    const LibraryCatalogSnapshot &snapshot, bool restoreRevisions) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  if (snapshot.id.empty() || (!snapshot.exists && !snapshot.patches.empty()) ||
+      !execute(database_, "BEGIN IMMEDIATE")) return PatchReplaceResult::error;
+  bool ok = true;
+  if (snapshot.exists) {
+    Statement header(database_, R"(
+      INSERT INTO libraries (id, name, vendor, variant) VALUES (?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET name=excluded.name,
+        vendor=excluded.vendor, variant=excluded.variant
+    )");
+    ok = bool(header);
+    if (ok) {
+      bindText(header.get(), 1, snapshot.id); bindText(header.get(), 2, snapshot.name);
+      bindText(header.get(), 3, snapshot.vendor); bindText(header.get(), 4, snapshot.variant);
+      ok = sqlite3_step(header.get()) == SQLITE_DONE;
+    }
+  }
+  auto result = ok ? replaceLibraryPatchesUnlocked(snapshot.id, snapshot.patches)
+                   : PatchReplaceResult::error;
+  ok = result == PatchReplaceResult::replaced;
+  if (ok && restoreRevisions) {
+    Statement revision(database_, "UPDATE library_patches SET revision = ? WHERE id = ?");
+    ok = bool(revision);
+    for (const auto &patch : snapshot.patches) {
+      if (!ok) break;
+      sqlite3_reset(revision.get());
+      sqlite3_bind_int(revision.get(), 1, patch.revision);
+      bindText(revision.get(), 2, patch.id);
+      ok = sqlite3_step(revision.get()) == SQLITE_DONE;
+    }
+  }
+  // Modern rows supersede the migrated legacy representation. Remove it on a
+  // successful edit, otherwise saving an empty library resurrects old rows at
+  // the next launch. The modern snapshot retains every migrated player setup.
+  if (ok && hasColumn(database_, "library_instruments", "library_id")) {
+    Statement legacy(database_, "DELETE FROM library_instruments WHERE library_id = ?");
+    ok = bool(legacy);
+    if (ok) { bindText(legacy.get(), 1, snapshot.id); ok = sqlite3_step(legacy.get()) == SQLITE_DONE; }
+  }
+  if (ok && !snapshot.exists) {
+    Statement remove(database_, "DELETE FROM libraries WHERE id = ?");
+    ok = bool(remove);
+    if (ok) { bindText(remove.get(), 1, snapshot.id); ok = sqlite3_step(remove.get()) == SQLITE_DONE; }
+  }
+  if (!ok || !execute(database_, "COMMIT")) {
+    execute(database_, "ROLLBACK");
+    return result == PatchReplaceResult::referenced ? result : PatchReplaceResult::error;
   }
   return PatchReplaceResult::replaced;
 }

@@ -31,10 +31,15 @@ public:
             const juce::MemoryBlock &initialState,
             OpenCompletion completion = nullptr);
 
-  /// Capture the current editor state only when the preview still represents
-  /// the expected plug-in. An empty state is a valid successful capture.
+  /// Capture the live state, or retained initial state when unloaded/loading/
+  /// unavailable, only for the expected player. Empty state is valid.
   bool captureState(const std::string &patchId, int expectedPluginUid,
                     std::vector<std::uint8_t> &destination);
+  void seedState(const std::string &id, int pluginUid,
+                 std::vector<std::uint8_t> state);
+  void showOnly(const std::vector<std::string> &ids);
+  void retainOnly(const std::vector<std::string> &ids);
+  bool isLoading() const;
 
   /// Consume editor/processor notifications from every preview and return the
   /// affected catalog patch IDs. This is kept separate from MainComponent's
@@ -52,10 +57,13 @@ private:
 
     HostedPluginSlot slot{PluginSlotRole::instrument};
     int pluginUid = 0;
+    bool active = true;
   };
 
   juce::AudioPluginFormatManager &formatManager_;
   std::map<std::string, std::unique_ptr<Preview>> previews_;
+  struct Seed { int pluginUid; std::vector<std::uint8_t> state; };
+  std::map<std::string, Seed> seeds_;
 };
 
 } // namespace fiddle

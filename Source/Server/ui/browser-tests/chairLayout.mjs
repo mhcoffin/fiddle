@@ -337,9 +337,87 @@ try {
     ] }));
     assert.equal(await linked.getByRole("textbox", { name: "Patch name", exact: true }).inputValue(), "Unsaved draft");
     assert.equal(await update.isDisabled(), true, "status refresh must preserve the draft/dirty guard");
+
+    // Draft history is local, including a text commit, delete/restore, batching,
+    // player identity, save checkpoints and rejected saves.
+    const undoDraft = libraryEditor.getByRole("button", { name: "Undo draft", exact: true });
+    const redoDraft = libraryEditor.getByRole("button", { name: "Redo draft", exact: true });
+    await linked.getByRole("textbox", { name: "Patch name", exact: true }).blur();
+    await libraryPage.keyboard.press("Meta+z");
+    assert.equal(await linked.getByRole("textbox", { name: "Patch name", exact: true }).inputValue(), "Linked patch");
+    assert.equal(await update.isEnabled(), true);
+    await libraryPage.keyboard.press("Meta+Shift+z");
+    assert.equal(await linked.getByRole("textbox", { name: "Patch name", exact: true }).inputValue(), "Unsaved draft");
+    await linked.getByRole("button", { name: "Delete", exact: true }).click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 1);
+    await undoDraft.click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 2);
+    await linked.getByRole("button", { name: "Duplicate", exact: true }).click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 3);
+    await undoDraft.click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 2);
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setPluginList", data: [
+        { uid: 101, name: "Player A" }, { uid: 102, name: "Player B" },
+    ] }));
+    await linked.locator(".ir-vst select").selectOption("101");
+    await linked.getByRole("button", { name: "⚙️" }).click();
+    const firstPreview = await libraryPage.evaluate(() => window.fixtureMessages.findLast(x => x.type === "openLibraryPatchEditor").payload[0].previewId);
+    await linked.locator(".ir-vst select").selectOption("102");
+    await undoDraft.click();
+    assert.equal(await linked.locator(".ir-vst select").inputValue(), "101");
+    await linked.getByRole("button", { name: "⚙️" }).click();
+    assert.equal(await libraryPage.evaluate(() => window.fixtureMessages.findLast(x => x.type === "openLibraryPatchEditor").payload[0].previewId), firstPreview);
+    await libraryPage.evaluate(id => window.__dispatchFromCpp({ type: "libraryPatchPreviewChanged", data: id }), firstPreview);
+    await libraryEditor.getByRole("button", { name: "Save", exact: true }).click();
+    assert.equal(await libraryEditor.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "librarySaveResult", data: {
+        id: "test-library", success: false, message: "Test save failure: draft kept",
+    } }));
+    assert.equal(await libraryEditor.isVisible(), true);
+    await libraryEditor.getByRole("button", { name: "Save", exact: true }).waitFor();
+    assert.equal(await libraryEditor.getByRole("button", { name: "Save", exact: true }).isEnabled(), true);
+    await libraryEditor.getByRole("button", { name: "Save", exact: true }).click();
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "librarySaveResult", data: {
+        id: "test-library", success: true,
+    } }));
+    await undoDraft.click();
+    assert.equal(await libraryEditor.getByRole("button", { name: "Save", exact: true }).isEnabled(), true);
+    await redoDraft.click();
+    assert.equal(await libraryEditor.getByRole("button", { name: "Save", exact: true }).isDisabled(), true);
+    await libraryPage.setViewportSize({ width: 1100, height: 700 });
+    await libraryEditor.locator(".inst-content").evaluate(node => { node.scrollLeft = node.scrollWidth; });
+    const actionBounds = await linked.getByRole("button", { name: "Delete", exact: true }).boundingBox();
+    const panelBounds = await libraryEditor.boundingBox();
+    assert.ok(actionBounds.x + actionBounds.width <= panelBounds.x + panelBounds.width,
+        "right-hand patch actions must be reachable at the default window size");
+    if (process.env.FIDDLE_LIBRARY_SCREENSHOT)
+        await libraryPage.screenshot({ path: process.env.FIDDLE_LIBRARY_SCREENSHOT });
+    await libraryPage.setViewportSize({ width: 1440, height: 1000 });
+    await libraryEditor.locator(".inst-content").evaluate(node => { node.scrollLeft = 0; });
+    // One quick-add ensemble is one undo step, irrespective of its row count.
+    await libraryEditor.locator(".ens-card").first().click();
+    assert.ok(await libraryEditor.locator(".inst-row").count() > 2);
+    await undoDraft.click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 2);
+    await libraryEditor.getByRole("button", { name: "+ Add Patch", exact: true }).click();
+    await libraryEditor.getByRole("button", { name: "Close library editor", exact: true }).click();
+    await libraryEditor.getByRole("button", { name: "Keep editing", exact: true }).click();
+    assert.equal(await libraryEditor.locator(".inst-row").count(), 3);
+    await libraryEditor.getByRole("button", { name: "Close library editor", exact: true }).click();
+    await libraryPage.keyboard.press("Escape");
+    assert.equal(await libraryEditor.isVisible(), true, "Escape must not accept the discard confirmation");
+    await libraryEditor.getByRole("button", { name: "Discard changes", exact: true }).click();
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryCatalogHistory", data: {
+        canUndo: true, canRedo: false, undoDescription: "Save library: Test library",
+    } }));
+    await libraryPage.getByRole("button", { name: "Undo catalog", exact: true }).click();
+    const libraryCommands = await libraryPage.evaluate(() => window.fixtureMessages);
+    assert.ok(libraryCommands.some(x => x.type === "undoLibraryCatalog"));
+    assert.equal(libraryCommands.some(x => x.type === "undo" || x.type === "redo"), false,
+        "library operations must never dispatch project history");
     await libraryPage.close();
     assert.deepEqual(errors, [], "no browser runtime errors");
-    console.log("PASS: chair layout, mixer Undo, project settings, audio diagnostics, and library update/status");
+    console.log("PASS: chair layout, mixer Undo, project settings, audio diagnostics, library update/status, and separate library history");
 } finally {
     await browser?.close();
     await new Promise(resolve => server.close(resolve));

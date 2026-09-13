@@ -33,6 +33,8 @@ struct DatabaseFixture {
     CHECK(execute(database,
                   "INSERT INTO libraries VALUES ('vsl', 'Vienna'), "
                   "('ews', 'EastWest')"));
+    CHECK(execute(database, "ALTER TABLE libraries ADD COLUMN vendor TEXT DEFAULT ''"));
+    CHECK(execute(database, "ALTER TABLE libraries ADD COLUMN variant TEXT DEFAULT ''"));
     CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
     CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
   }
@@ -72,6 +74,53 @@ fiddle::ChairRow makeChair(std::string id, fiddle::DoricoRole role,
   chair.flatIndex = flatIndex;
   chair.displayOrder = flatIndex;
   return chair;
+}
+
+void testCatalogSnapshotsAreAtomicAndRevisionSafe() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto patch = soloViolinPatch();
+  CHECK(repository.upsertPatch(patch));
+  auto original = repository.captureLibrary("vsl");
+  CHECK(original && original->exists && original->patches.size() == 1);
+  auto edited = *original;
+  edited.name = "Edited header"; edited.vendor = "Vendor"; edited.variant = "Variant";
+  edited.patches[0].pluginState = {9, 8, 7};
+  CHECK(repository.restoreLibrary(edited, false) == fiddle::PatchReplaceResult::replaced);
+  const auto second = repository.captureLibrary("vsl");
+  CHECK(second->patches[0].revision > original->patches[0].revision);
+  CHECK(repository.restoreLibrary(*original) == fiddle::PatchReplaceResult::replaced);
+  CHECK(repository.getPatch(patch.id)->pluginState == patch.pluginState);
+  CHECK(repository.getPatch(patch.id)->revision == original->patches[0].revision);
+  // A new branch must not reuse the identity of the just-undone setup.
+  edited.patches[0].pluginState = {6, 5, 4};
+  CHECK(repository.restoreLibrary(edited, false) == fiddle::PatchReplaceResult::replaced);
+  CHECK(repository.getPatch(patch.id)->revision > second->patches[0].revision);
+  CHECK(repository.upsertChair(makeChair("chair", fiddle::DoricoRole::solo, 1, 1)));
+  CHECK(repository.createLayerFromPatch("layer", "chair", patch.id, 0));
+  const auto before = repository.captureLibrary("vsl");
+  auto rejected = *before;
+  rejected.name = "Must not leak"; rejected.patches.clear();
+  CHECK(repository.restoreLibrary(rejected) == fiddle::PatchReplaceResult::referenced);
+  CHECK(repository.captureLibrary("vsl")->name == before->name);
+  CHECK(repository.getLayer("layer")->pluginState == edited.patches[0].pluginState);
+  fiddle::LibraryCatalogSnapshot removed; removed.id = "vsl";
+  CHECK(repository.restoreLibrary(removed) == fiddle::PatchReplaceResult::referenced);
+  CHECK(repository.deleteLayer("layer"));
+  CHECK(repository.restoreLibrary(removed) == fiddle::PatchReplaceResult::replaced);
+  CHECK(!repository.captureLibrary("vsl")->exists);
+  CHECK(repository.restoreLibrary(*before) == fiddle::PatchReplaceResult::replaced);
+  CHECK(repository.captureLibrary("vsl")->vendor == "Vendor");
+  CHECK(repository.getPatch(patch.id)->pluginState == edited.patches[0].pluginState);
+  CHECK(repository.getPatch(patch.id)->revision == before->patches[0].revision);
+  // Invalid rows roll back header edits and all preceding row writes.
+  rejected = *before; rejected.name = "Invalid header";
+  rejected.patches.push_back(rejected.patches.front());
+  CHECK(repository.restoreLibrary(rejected) == fiddle::PatchReplaceResult::error);
+  CHECK(repository.captureLibrary("vsl")->name == before->name);
+  CHECK(execute(fixture.database, "CREATE TRIGGER reject_catalog_delete BEFORE DELETE ON libraries BEGIN SELECT RAISE(ABORT, 'test'); END"));
+  CHECK(repository.restoreLibrary(removed) == fiddle::PatchReplaceResult::error);
+  CHECK(repository.getPatch(patch.id)->pluginState == edited.patches[0].pluginState);
 }
 
 void testAtomicChairEditsAndRestoration() {
@@ -561,6 +610,7 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
+  testCatalogSnapshotsAreAtomicAndRevisionSafe();
   testAtomicChairEditsAndRestoration();
   testLayerSetupBatchIsAtomicAndPreservesMix();
   testPatchCanCreateIndependentLayersOnDifferentChairs();

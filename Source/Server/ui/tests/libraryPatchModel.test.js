@@ -80,7 +80,7 @@ test("the Library Manager exposes guarded propagation to linked layers", () => {
     );
     assert.match(
         libraryManagerSource,
-        /Save and reopen the library before updating layers/,
+        /Save the library before updating layers/,
     );
 });
 

@@ -24,7 +24,7 @@ and the user's smoke check. The broader inventory is
 - The mixer has Undo/Redo buttons with action descriptions. Keyboard handling
   recognizes shifted Z and leaves focused text fields' Undo to the editor.
   Library-window shortcuts no longer fall through to the project's history;
-  the separate library implementation is still pending.
+  the separate library implementation is described in the latest checkpoint below.
 - Rejected/no-op commands can explicitly report that status to the manager.
   New mixer controls and chair-layer add/remove use this seam; compounds roll
   back completed children when a subsequent child rejects. Older actions still
@@ -58,10 +58,7 @@ see [audio safety results](audio-safety-results.md).
 1. VSTi program-selection Undo; expression-map provenance/import and Lua
    loading failure handling. Preserve vendor edits without recording their
    individual editor gestures.
-2. Separate Library Manager history: draft edits, row operations, batches,
-   preview-player state, save checkpoints and recoverable catalog changes.
-   History lifetime across closing/restarting still needs an explicit policy.
-3. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
+2. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
    plus native menu integration where appropriate.
 
 ## Short manual check after restarting the rebuilt Release server
@@ -193,3 +190,52 @@ should reapply the library setup. Check that levels/routing/FX stay unchanged
 and that the Library Manager's update availability follows Undo/Redo. Also try
 Refresh Library on one layer. A large player may need time to reload. This pass
 does not require rebuilding or reinstalling the native Fiddle VST3.
+
+## Library Manager history checkpoint — 13 September 2026
+
+Implemented and automatically verified. User approved the checkpoint ("lgtm")
+after the smoke-test handoff on 13 September 2026.
+
+- The editor has **Undo draft / Redo draft**. Add/duplicate/delete, classification,
+  character, expression maps, player assignments, reordering and sorting are
+  undoable. An ensemble or batch assignment is one step. Text editing keeps
+  native text undo while focused and becomes one draft edit on blur/Enter.
+- Player setups use distinct retained preview identities. Undoing replacement
+  or deletion recovers the old live instance, including unsaved vendor settings;
+  duplicates capture the source setup at duplication time. Loading, unavailable
+  and empty-state setups are retained too. Individual vendor editor gestures
+  remain the vendor's responsibility, not extra Fiddle history entries.
+- Save stays in the editor and establishes a checkpoint only after native
+  success. Failure keeps the draft and history. Active loads block Save with
+  a retry message. New empty libraries can be saved.
+- The library list has **Undo catalog / Redo catalog** for saves, creation and
+  deletion. This is a separate native history from project Undo. Header and
+  patch writes/deletion are atomic; referenced-patch removal is rejected on
+  Execute, Undo and Redo without advancing history. Exact saved revisions are
+  restored, with a durable revision high-water mark preventing reuse on a new
+  branch. Migrated legacy rows are retired when a modern catalog edit succeeds,
+  preventing emptied libraries from resurrecting those rows on restart.
+- Project linkage counts remain live during draft Undo/Redo. Update Layers is
+  still a **project** edit and is undoable in the main mixer, not either library
+  history. Catalog edits never restore layer/mixer state.
+- The patch table scrolls horizontally at smaller window sizes instead of
+  clipping its right-hand actions; the browser fixture checks the default size.
+- Closing a dirty editor asks before discarding. Quit/Restart also asks about
+  an unsaved library draft. Closing the Library Manager's native window only
+  hides it, retaining the draft. Draft history ends on closing/discarding the
+  editor; catalog history ends on server exit. Both histories are bounded to
+  100 entries. Preview instances no longer reachable from history are released.
+
+Verification: Release server/tests build, 54 stable CTest entries, and rendered
+Chrome fixture. Coverage includes independent history, reference guards,
+transaction rollback, revision branching, retained/duplicated/pending player
+state, text commits, batch/ensemble edits, failed-save acknowledgement, saved
+checkpoints, discard confirmation and absence of project Undo dispatch.
+
+Smoke check: restart the Release server; open a library and change a real
+player's preset. Delete its row, Undo draft, and reopen the player to verify
+the preset remains. Try replacing its player and Undo/Redo. Save, then Undo
+and Redo a draft edit, and verify the unsaved indicator follows the checkpoint.
+Close the editor and try Undo catalog / Redo catalog. A scratch unused library
+can exercise deletion/restoration. Check Quit/Restart's unsaved-draft warning.
+No native Fiddle VST3 reinstall is required.

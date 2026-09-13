@@ -2,6 +2,7 @@
 #include "AudioDeviceSettings.h"
 #include "ChairLayerActions.h"
 #include "LayerLibrarySetupAction.h"
+#include "LibraryCatalogAction.h"
 #include "ChairActions.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
@@ -2777,7 +2778,44 @@ void MainComponent::broadcastMessage(const juce::String &type,
   }
 }
 
+void MainComponent::pushLibraryCatalogHistory() {
+  auto *state = new juce::DynamicObject();
+  state->setProperty("canUndo", libraryUndoManager_.canUndo());
+  state->setProperty("canRedo", libraryUndoManager_.canRedo());
+  state->setProperty("undoDescription", libraryUndoManager_.undoDescription());
+  state->setProperty("redoDescription", libraryUndoManager_.redoDescription());
+  broadcastMessage("setLibraryCatalogHistory", juce::var(state));
+  juce::Array<juce::var> libraries;
+  for (const auto &library : db_.listLibraries()) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("id", library.id); item->setProperty("name", library.name);
+    item->setProperty("vendor", library.vendor); item->setProperty("variant", library.variant);
+    libraries.add(juce::var(item));
+  }
+  broadcastMessage("setLibraryList", juce::var(libraries));
+}
+
 void MainComponent::setupJsHandlers() {
+  jsRouter_.registerHandler("setLibraryDraftDirty", [this](const juce::var &payload) {
+    if (payload.isArray() && payload.size() > 0) libraryDraftDirty_ = (bool)payload[0];
+  });
+  libraryUndoManager_.onChanged = [this] { pushLibraryCatalogHistory(); };
+  jsRouter_.registerHandler("requestLibraryCatalogHistory", [this](const juce::var &) {
+    safeCallAsync([this] { pushLibraryCatalogHistory(); });
+  });
+  for (const auto &command : {juce::String("undoLibraryCatalog"), juce::String("redoLibraryCatalog")}) {
+    jsRouter_.registerHandler(command, [this, command](const juce::var &) {
+      safeCallAsync([this, command] {
+        const bool success = command == "undoLibraryCatalog" ? libraryUndoManager_.undo() : libraryUndoManager_.redo();
+        if (!success) broadcastMessage("setLibraryDeleteResult",
+          juce::var("Catalog history could not be applied. A patch may now be used by a layer. History has been kept."));
+        pushLibraryCatalogHistory();
+        pushLayerCatalog();
+        pushMixerState(false);
+        pushLibraryLayerStatus();
+      });
+    });
+  }
   jsRouter_.registerHandler("showAudioSettings", [this](const juce::var &) {
     safeCallAsync([this] { showAudioSettings(); });
   });
@@ -3826,10 +3864,13 @@ void MainComponent::setupJsHandlers() {
         data->getProperty("patchId").toString().toStdString();
     const auto sourcePatchId =
         data->getProperty("sourcePatchId").toString().toStdString();
+    const auto previewId = data->hasProperty("previewId")
+      ? data->getProperty("previewId").toString().toStdString() : patchId;
+    const bool useSavedState = !data->hasProperty("useSavedState") || (bool)data->getProperty("useSavedState");
     const auto title = data->getProperty("title").toString();
     const int pluginUid = static_cast<int>(data->getProperty("pluginUid"));
 
-    safeCallAsync([this, patchId, sourcePatchId, title, pluginUid]() {
+    safeCallAsync([this, patchId, previewId, sourcePatchId, useSavedState, title, pluginUid]() {
       std::optional<juce::PluginDescription> description;
       for (const auto &candidate :
            pluginScanner_.getKnownPluginList().getTypes()) {
@@ -3846,15 +3887,15 @@ void MainComponent::setupJsHandlers() {
 
       juce::MemoryBlock initialState;
       std::vector<std::uint8_t> previewState;
-      bool foundState = false;
-      if (!sourcePatchId.empty()) {
+      bool foundState = libraryPatchPreviewHost_.captureState(previewId, pluginUid, previewState);
+      if (!foundState && useSavedState && !sourcePatchId.empty()) {
         foundState = libraryPatchPreviewHost_.captureState(
             sourcePatchId, pluginUid, previewState);
       }
       if (foundState) {
         if (!previewState.empty())
           initialState.append(previewState.data(), previewState.size());
-      } else if (auto *repository = db_.getLibraryRoutingRepository()) {
+      } else if (auto *repository = useSavedState ? db_.getLibraryRoutingRepository() : nullptr) {
         auto patch = repository->getPatch(patchId);
         if (!patch && !sourcePatchId.empty())
           patch = repository->getPatch(sourcePatchId);
@@ -3867,7 +3908,7 @@ void MainComponent::setupJsHandlers() {
 
       juce::Component::SafePointer<MainComponent> safeThis(this);
       if (!libraryPatchPreviewHost_.open(
-              patchId, title, *description, initialState,
+              previewId, title, *description, initialState,
               [safeThis](bool success, const juce::String &error) {
                 if (safeThis == nullptr || success)
                   return;
@@ -3894,6 +3935,37 @@ void MainComponent::setupJsHandlers() {
         [this, patchId]() { libraryPatchPreviewHost_.discard(patchId); });
     return;
   });
+  jsRouter_.registerHandler("showLibraryDraftPreviews", [this](const juce::var &payload) {
+    std::vector<std::string> ids;
+    if (payload.isArray() && payload.size() > 0 && payload[0].isArray())
+      for (const auto &id : *payload[0].getArray()) ids.push_back(id.toString().toStdString());
+    std::optional<std::vector<std::string>> retained;
+    if (payload.isArray() && payload.size() > 1 && payload[1].isArray()) {
+      retained.emplace();
+      for (const auto &id : *payload[1].getArray()) retained->push_back(id.toString().toStdString());
+    }
+    safeCallAsync([this, ids, retained] {
+      for (const auto &id : libraryPatchPreviewHost_.consumeChangedPatchIds())
+        broadcastMessage("libraryPatchPreviewChanged", juce::String(id));
+      libraryPatchPreviewHost_.showOnly(ids);
+      if (retained) libraryPatchPreviewHost_.retainOnly(*retained);
+    });
+  });
+  jsRouter_.registerHandler("cloneLibraryPatchPreview", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() == 0) return;
+    const auto data = payload[0];
+    safeCallAsync([this, data] {
+      const auto id = data["previewId"].toString().toStdString();
+      const int uid = (int)data["pluginUid"];
+      std::vector<std::uint8_t> state;
+      if (!libraryPatchPreviewHost_.captureState(data["sourcePreviewId"].toString().toStdString(), uid, state)) {
+        if (auto *repository = (bool)data["useSavedState"] ? db_.getLibraryRoutingRepository() : nullptr)
+          if (auto patch = repository->getPatch(data["sourcePatchId"].toString().toStdString()); patch && patch->pluginUid == uid)
+            state = patch->pluginState;
+      }
+      libraryPatchPreviewHost_.seedState(id, uid, std::move(state));
+    });
+  });
   jsRouter_.registerHandler("closeLibraryPatchPreviews",
                             [this](const juce::var &) {
     safeCallAsync([this]() { libraryPatchPreviewHost_.closeAll(); });
@@ -3916,8 +3988,18 @@ void MainComponent::setupJsHandlers() {
     lib.vendor = data->getProperty("vendor").toString();
     lib.variant = data->getProperty("variant").toString();
 
+    if (libraryPatchPreviewHost_.isLoading()) {
+      auto *result = new juce::DynamicObject();
+      result->setProperty("id", lib.id); result->setProperty("success", false);
+      result->setProperty("message", "A player is still loading. Wait for it to finish, then save again.");
+      broadcastMessage("librarySaveResult", juce::var(result));
+      return;
+    }
+
     std::vector<fiddle::LibraryInstrumentRow> instruments;
     std::vector<fiddle::LibraryPatchRow> patches;
+    for (const auto &id : libraryPatchPreviewHost_.consumeChangedPatchIds())
+      broadcastMessage("libraryPatchPreviewChanged", juce::String(id));
     bool usesPatchModel = false;
     if (auto *patchArr = data->getProperty("patches").getArray()) {
       usesPatchModel = true;
@@ -3941,7 +4023,8 @@ void MainComponent::setupJsHandlers() {
 
           // An isolated preview owns the newest explicitly configured state.
           if (libraryPatchPreviewHost_.captureState(
-                  patch.id, patch.pluginUid, patch.pluginState)) {
+                  patchObj->hasProperty("previewId") ? patchObj->getProperty("previewId").toString().toStdString() : patch.id,
+                  patch.pluginUid, patch.pluginState)) {
             // Captured successfully, including the valid empty-state case.
           } else if ((bool)patchObj->getProperty("hasPluginState")) {
             // Loading and saving a library without opening every plug-in must
@@ -3956,7 +4039,7 @@ void MainComponent::setupJsHandlers() {
                   existing =
                       repository->getPatch(sourcePatchId.toStdString());
               }
-              if (existing)
+              if (existing && existing->pluginUid == patch.pluginUid)
                 patch.pluginState = existing->pluginState;
             }
           }
@@ -4015,54 +4098,34 @@ void MainComponent::setupJsHandlers() {
         [this, lib = std::move(lib), instruments = std::move(instruments),
          patches = std::move(patches), usesPatchModel]() {
           if (usesPatchModel) {
-            if (auto *repository = db_.getLibraryRoutingRepository()) {
-              std::set<std::string> retainedIds;
-              for (const auto &patch : patches)
-                retainedIds.insert(patch.id);
-              for (const auto &existing :
-                   repository->listPatches(lib.id.toStdString())) {
-                if (retainedIds.count(existing.id) == 0 &&
-                    repository->patchUsageCount(existing.id) > 0) {
-                  broadcastMessage(
-                      "setLibraryDeleteResult",
-                      juce::var(
-                          "Cannot remove a patch that is assigned to a chair. "
-                          "Remove its layers first."));
-                  return;
-                }
-              }
-
-              // The library header must exist before inserting new patch rows
-              // because the catalog enforces a library foreign key.
-              if (!db_.saveLibraryMetadata(lib)) {
-                broadcastMessage("setLibraryDeleteResult",
-                                 juce::var("Could not save the library"));
-                return;
-              }
-              const auto result = repository->replaceLibraryPatches(
-                  lib.id.toStdString(), patches);
-              if (result == PatchReplaceResult::referenced) {
-                broadcastMessage(
-                    "setLibraryDeleteResult",
-                    juce::var("Cannot remove a patch that is assigned to a "
-                              "chair. Remove its layers first."));
-                return;
-              }
-              if (result != PatchReplaceResult::replaced) {
-                broadcastMessage("setLibraryDeleteResult",
-                                 juce::var("Could not save the library"));
-                return;
-              }
-            } else {
-              broadcastMessage("setLibraryDeleteResult",
-                               juce::var("Could not save the library"));
-              return;
+            auto *repository = db_.getLibraryRoutingRepository();
+            LibraryCatalogSnapshot target;
+            target.id = lib.id.toStdString(); target.name = lib.name.toStdString();
+            target.vendor = lib.vendor.toStdString(); target.variant = lib.variant.toStdString();
+            target.exists = true; target.patches = patches;
+            bool success = false;
+            if (repository) {
+              auto action = std::make_unique<LibraryCatalogAction>(*repository, std::move(target));
+              success = action->isNoOp() || libraryUndoManager_.perform(std::move(action));
             }
+            auto *result = new juce::DynamicObject();
+            result->setProperty("id", lib.id); result->setProperty("success", success);
+            juce::Array<juce::var> savedPatches;
+            for (const auto &patch : patches) {
+              auto *item = new juce::DynamicObject();
+              item->setProperty("id", juce::String(patch.id));
+              item->setProperty("hasPluginState", !patch.pluginState.empty());
+              savedPatches.add(juce::var(item));
+            }
+            result->setProperty("patches", juce::var(savedPatches));
+            result->setProperty("message", success ? "Library saved" :
+              "Could not save the library. A removed patch may still be assigned to a chair. Your draft has been kept.");
+            broadcastMessage("librarySaveResult", juce::var(result));
+            if (!success) return;
           } else {
             db_.saveLibrary(lib, instruments);
+            libraryUndoManager_.clear(); // Legacy callers cannot retain stale catalog history.
           }
-
-          libraryPatchPreviewHost_.closeAll();
 
           // Broadcast updated library list
           auto libs = db_.listLibraries();
@@ -4080,6 +4143,7 @@ void MainComponent::setupJsHandlers() {
           // Catalog edits can make individual chair layers eligible for a
           // refresh even though the project itself has not changed yet.
           pushMixerState(false);
+          pushLibraryLayerStatus();
         });
     return;
   });
@@ -4105,6 +4169,8 @@ void MainComponent::setupJsHandlers() {
       if (!found)
         return;
 
+      libraryPatchPreviewHost_.closeAll();
+
       auto instruments = db_.loadLibraryInstruments(libraryId);
       std::vector<fiddle::LibraryPatchRow> patches;
       auto *repository = db_.getLibraryRoutingRepository();
@@ -4120,6 +4186,7 @@ void MainComponent::setupJsHandlers() {
       juce::Array<juce::var> patchArr;
       if (!patches.empty()) {
         for (const auto &patch : patches) {
+          libraryPatchPreviewHost_.seedState(patch.id, patch.pluginUid, patch.pluginState);
           auto *patchObj = new juce::DynamicObject();
           patchObj->setProperty("id", juce::String(patch.id));
           patchObj->setProperty("entityID",
@@ -4551,16 +4618,15 @@ void MainComponent::setupJsHandlers() {
                         (layerReferenceCount == 1 ? " layer" : " layers")));
           return;
         }
-        for (const auto &patch : patches) {
-          if (repository->deletePatch(patch.id) !=
-              fiddle::PatchDeleteResult::deleted) {
-            broadcastMessage("setLibraryDeleteResult",
-                             juce::var("Could not delete the library"));
-            return;
-          }
-        }
       }
-      db_.deleteLibrary(libraryId);
+      auto *repository = db_.getLibraryRoutingRepository();
+      LibraryCatalogSnapshot target;
+      target.id = libraryId.toStdString();
+      if (!repository || !libraryUndoManager_.perform(
+          std::make_unique<LibraryCatalogAction>(*repository, std::move(target)))) {
+        broadcastMessage("setLibraryDeleteResult", juce::var("Could not delete the library. Nothing was changed."));
+        return;
+      }
 
       auto libs = db_.listLibraries();
       juce::Array<juce::var> arr;

@@ -80,6 +80,7 @@ public:
 
   /// Check if library manager window is visible.
   bool isLibraryManagerWindowVisible() const;
+  bool hasUnsavedLibraryDraft() const { return libraryDraftDirty_; }
 
   /// Save main window position/size to database.
   void saveMainWindowGeometry(int x, int y, int w, int h);
@@ -128,6 +129,9 @@ private:
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
+  UndoManager libraryUndoManager_;
+  bool libraryDraftDirty_ = false;
+  void pushLibraryCatalogHistory();
   void pushUndoState();
   void pushLibraryLayerStatus();
   void pushProjectSettings();

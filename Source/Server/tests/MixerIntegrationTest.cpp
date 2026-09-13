@@ -1,6 +1,8 @@
 #include "FiddleDatabase.h"
 #include "ChairLayerActions.h"
 #include "LayerLibrarySetupAction.h"
+#include "LibraryCatalogAction.h"
+#include "LibraryPatchPreviewHost.h"
 #include "ChairActions.h"
 #include "StripAudioActions.h"
 #include "MasterAudioActions.h"
@@ -481,6 +483,102 @@ float stateAmount(const juce::MemoryBlock &state) {
   REQUIRE(state.getSize() == sizeof(float));
   float result = 0; std::memcpy(&result, state.getData(), sizeof(result));
   return result;
+}
+
+void testLibraryCatalogHistory() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("catalog-history.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  fiddle::UndoManager libraryHistory, projectHistory;
+  fiddle::LibraryCatalogSnapshot snapshot;
+  snapshot.id = "catalog"; snapshot.name = "Catalog"; snapshot.vendor = "Vendor";
+  snapshot.exists = true;
+  fiddle::LibraryPatchRow patch;
+  patch.id = "patch"; patch.libraryId = snapshot.id; patch.pluginUid = 101;
+  patch.pluginState = {1, 2, 3}; patch.name = "Original";
+  snapshot.patches = {patch};
+  REQUIRE(libraryHistory.perform(std::make_unique<fiddle::LibraryCatalogAction>(repository, snapshot)));
+  REQUIRE(!libraryHistory.perform(std::make_unique<fiddle::LibraryCatalogAction>(repository, snapshot)));
+  REQUIRE(libraryHistory.undo());
+  REQUIRE(!repository.captureLibrary("catalog")->exists);
+  REQUIRE(libraryHistory.redo());
+  REQUIRE(repository.getPatch("patch")->pluginState == patch.pluginState);
+  snapshot.patches[0].pluginState = {4, 5, 6};
+  REQUIRE(libraryHistory.perform(std::make_unique<fiddle::LibraryCatalogAction>(repository, snapshot)));
+  const auto savedRevision = repository.getPatch("patch")->revision;
+  REQUIRE(libraryHistory.undo());
+  REQUIRE(repository.getPatch("patch")->pluginState == patch.pluginState);
+  REQUIRE(libraryHistory.redo());
+  REQUIRE(repository.getPatch("patch")->revision == savedRevision);
+  fiddle::LibraryCatalogSnapshot removed; removed.id = "catalog";
+  REQUIRE(libraryHistory.perform(std::make_unique<fiddle::LibraryCatalogAction>(repository, removed)));
+  REQUIRE(libraryHistory.undo());
+  fiddle::ChairRow chair;
+  chair.id = "chair"; chair.instrumentEntityId = "violin"; chair.name = "Violin"; chair.flatIndex = 1;
+  REQUIRE(repository.upsertChair(chair));
+  REQUIRE(repository.createLayerFromPatch("layer", "chair", "patch", 0));
+  REQUIRE(!libraryHistory.redo());
+  REQUIRE(libraryHistory.canRedo());
+  REQUIRE(repository.getLayer("layer")->sourcePatchRevision == savedRevision);
+  REQUIRE(repository.deleteLayer("layer"));
+  REQUIRE(libraryHistory.redo());
+  REQUIRE(libraryHistory.undo());
+  REQUIRE(repository.getPatch("patch")->pluginState == snapshot.patches[0].pluginState);
+  REQUIRE(!projectHistory.canUndo() && projectHistory.isAtSavePoint());
+}
+
+void testRetainedLibraryPreviews() {
+  juce::AudioPluginFormatManager manager;
+  auto *factory = new TestPluginFormat();
+  manager.addFormat(std::unique_ptr<juce::AudioPluginFormat>(factory));
+  fiddle::LibraryPatchPreviewHost host(manager);
+  const float original = 0.125f;
+  juce::MemoryBlock initial(&original, sizeof(original));
+  bool completed = false;
+  REQUIRE(host.open("a", "Test A", description(true), initial,
+    [&](bool success, const juce::String &) { REQUIRE(success); completed = true; }));
+  pumpUntil([&] { return completed; });
+  auto *processor = SignalProcessor::lastCreated.load();
+  const float edited = 0.75f;
+  processor->setStateInformation(&edited, sizeof(edited));
+  std::vector<std::uint8_t> captured;
+  REQUIRE(host.captureState("a", 101, captured));
+  REQUIRE(stateAmount(juce::MemoryBlock(captured.data(), captured.size())) == edited);
+  host.seedState("copy", 101, captured);
+  host.showOnly({"copy"}); // A deleted/replaced row is hidden, not destroyed.
+  REQUIRE(host.size() == 1);
+  completed = false;
+  REQUIRE(host.open("a", "Restored A", description(true), {},
+    [&](bool success, const juce::String &) { REQUIRE(success); completed = true; }));
+  REQUIRE(completed && SignalProcessor::lastCreated.load() == processor);
+  REQUIRE(host.captureState("a", 101, captured));
+  REQUIRE(stateAmount(juce::MemoryBlock(captured.data(), captured.size())) == edited);
+  const float later = 0.5f;
+  processor->setStateInformation(&later, sizeof(later));
+  REQUIRE(host.captureState("copy", 101, captured));
+  REQUIRE(stateAmount(juce::MemoryBlock(captured.data(), captured.size())) == edited);
+  REQUIRE(!host.captureState("a", 102, captured));
+  host.seedState("empty", 101, {});
+  REQUIRE(host.captureState("empty", 101, captured) && captured.empty());
+  factory->defer = true;
+  completed = false;
+  REQUIRE(host.open("pending", "Pending", description(true), initial,
+    [&](bool success, const juce::String &) { REQUIRE(success); completed = true; }));
+  pumpUntil([&] { return !factory->pending.empty(); });
+  REQUIRE(host.isLoading());
+  REQUIRE(host.captureState("pending", 101, captured));
+  REQUIRE(stateAmount(juce::MemoryBlock(captured.data(), captured.size())) == original);
+  host.showOnly({"a"});
+  REQUIRE(!host.isLoading());
+  factory->completeAll();
+  pumpUntil([&] { return completed; });
+  REQUIRE(host.captureState("pending", 101, captured));
+  REQUIRE(stateAmount(juce::MemoryBlock(captured.data(), captured.size())) == original);
+  host.retainOnly({"a"});
+  REQUIRE(host.size() == 1 && !host.captureState("copy", 101, captured));
+  host.closeAll();
+  REQUIRE(host.size() == 0 && !host.captureState("copy", 101, captured));
 }
 
 void testLayerLibrarySetupUndo() {
@@ -1882,6 +1980,8 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("separate catalog history retains data and rejected redo", testLibraryCatalogHistory);
+  run("library preview state survives structural history and duplication", testRetainedLibraryPreviews);
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);

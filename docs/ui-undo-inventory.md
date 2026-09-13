@@ -171,8 +171,10 @@ Sources: [strip actions](/Users/mhc/fiddle/Source/Server/StripAudioActions.h),
 
 ### Library Manager — separate history
 
-All draft editing below currently changes Svelte state directly. There is no
-library undo stack. Native Save/Delete/Update Layers also bypass project Undo.
+The table below records the original audit. The September 13 implementation
+now provides editor-local draft history and separate native catalog history;
+see [repair status](ui-undo-repair-status.md#library-manager-history-checkpoint--13-september-2026)
+for tested behavior and lifetime policy. Update Layers is project history.
 
 | Gesture | Current behavior / intended treatment |
 |---|---|

@@ -1049,6 +1049,7 @@ target_compile_features(FiddleMock PRIVATE cxx_std_17)
 juce_add_console_app(MixerIntegrationTest PRODUCT_NAME "MixerIntegrationTest")
 target_sources(MixerIntegrationTest PRIVATE
     Source/Server/tests/MixerIntegrationTest.cpp
+    Source/Server/LibraryPatchPreviewHost.cpp
     Source/Server/RenderAheadEngine.cpp
     Source/Server/ProjectRestoreService.cpp
     Source/Server/MixerModel.cpp
