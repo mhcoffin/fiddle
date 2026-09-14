@@ -86,6 +86,8 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.pluginUid = 876;
     strip.gainDb = -6.5f;
     strip.expressionMapEntityId = "xmap-2";
+    strip.expressionMapPath = "/removed/imported.doricolib";
+    strip.expressionMapSourceXml = "<saved-expression-map/>";
     strip.directOutputBusId = "strings-bus";
     strip.pluginState = {0, 1, 2, 255};
     strip.audioInsertState = {9, 8, 7, 6, 5};
@@ -103,6 +105,9 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored && restored->pluginState == strip.pluginState);
     CHECK(restored && restored->audioInsertState == strip.audioInsertState);
     CHECK(restored && restored->directOutputBusId == "strings-bus");
+    CHECK(restored && restored->expressionMapPath == strip.expressionMapPath);
+    CHECK(restored &&
+          restored->expressionMapSourceXml == strip.expressionMapSourceXml);
     CHECK(restored && restored->computeHash() == hash);
   }
 
@@ -123,6 +128,15 @@ void testMuteAndSoloParticipateInStripIdentity() {
   CHECK(base.computeHash() != muted.computeHash());
   CHECK(base.computeHash() != soloed.computeHash());
   CHECK(muted.computeHash() != soloed.computeHash());
+
+  auto imported = base;
+  imported.expressionMapEntityId = "map.imported";
+  imported.expressionMapPath = "/first/map.doricolib";
+  imported.expressionMapSourceXml = "<first/>";
+  auto changedImport = imported;
+  changedImport.expressionMapSourceXml = "<second/>";
+  CHECK(base.computeHash() != imported.computeHash());
+  CHECK(imported.computeHash() != changedImport.computeHash());
 }
 
 void testMasterAudioRoundTripsThroughSqlite() {

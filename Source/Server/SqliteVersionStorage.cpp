@@ -331,6 +331,14 @@ void SqliteVersionStorage::prepareStatements() {
                "ALTER TABLE strip_blobs ADD COLUMN direct_output_bus TEXT "
                "NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN expression_map_path TEXT "
+               "NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN expression_map_source TEXT "
+               "NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN routing_state BLOB",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN group_bus_state BLOB",
@@ -349,13 +357,14 @@ void SqliteVersionStorage::prepareStatements() {
   prep("INSERT OR REPLACE INTO strip_blobs (hash, library_id, library, family, "
        "is_solo, input_port, input_channel, plugin_uid, gain_db, "
        "expression_map, plugin_state, active, lua_plugins, muted, soloed, "
-       "audio_insert_state, direct_output_bus) "
-       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "audio_insert_state, direct_output_bus, expression_map_path, "
+       "expression_map_source) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
        "active, lua_plugins, muted, soloed, audio_insert_state, "
-       "direct_output_bus FROM "
+       "direct_output_bus, expression_map_path, expression_map_source FROM "
        "strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
@@ -486,6 +495,11 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
   }
   sqlite3_bind_text(stmtPutStripBlob_, 17, blob.directOutputBusId.c_str(), -1,
                     SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtPutStripBlob_, 18, blob.expressionMapPath.c_str(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtPutStripBlob_, 19,
+                    blob.expressionMapSourceXml.c_str(), -1,
+                    SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -536,6 +550,12 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
     if (const auto *output = reinterpret_cast<const char *>(
             sqlite3_column_text(stmtGetStripBlob_, 15)))
       blob.directOutputBusId = output;
+    if (const auto *path = reinterpret_cast<const char *>(
+            sqlite3_column_text(stmtGetStripBlob_, 16)))
+      blob.expressionMapPath = path;
+    if (const auto *source = reinterpret_cast<const char *>(
+            sqlite3_column_text(stmtGetStripBlob_, 17)))
+      blob.expressionMapSourceXml = source;
     return blob;
   }
   return std::nullopt;

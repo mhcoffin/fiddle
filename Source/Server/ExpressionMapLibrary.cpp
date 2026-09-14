@@ -94,6 +94,17 @@ ExpressionMapLibrary::load(const std::string &entityID) {
   return std::make_shared<ExpressionMapData>(std::move(allDefs[defIndex]));
 }
 
+std::shared_ptr<ExpressionMapData> ExpressionMapLibrary::loadPersisted(
+    const std::string &entityID, const juce::String &sourceXml) {
+  if (sourceXml.isEmpty())
+    return load(entityID);
+  auto result = std::make_shared<ExpressionMapData>();
+  if (!parseExpressionMapXml(sourceXml, *result) ||
+      result->entityID != entityID)
+    return nullptr;
+  return result;
+}
+
 juce::String ExpressionMapLibrary::toJson() const {
   auto entries = getEntries();
 

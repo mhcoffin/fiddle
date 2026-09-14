@@ -146,15 +146,27 @@ void MixerStrip::refreshPluginStateCache() {
   instrumentSlot_.refreshStateCache();
 }
 
-void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
+ExpressionMapAssignment MixerStrip::snapshotExpressionMap() const {
   auto lock = lockMidiState();
-  expressionMap = std::move(em);
+  return {expressionMap, expressionMapPath, expressionMapSourceXml};
+}
+
+void MixerStrip::setExpressionMapAssignment(
+    ExpressionMapAssignment assignment) {
+  auto lock = lockMidiState();
+  expressionMap = std::move(assignment.data);
+  expressionMapPath = std::move(assignment.sourcePath);
+  expressionMapSourceXml = std::move(assignment.sourceXml);
   if (expressionMap) {
     incomingTracker = std::make_unique<IncomingSwitchTracker>(expressionMap);
   } else {
     incomingTracker.reset();
   }
   rebuildAnnotatorChain();
+}
+
+void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
+  setExpressionMapAssignment({std::move(em), {}, {}});
 }
 
 void MixerStrip::addLuaPlugin(std::shared_ptr<LuaPlugin> plugin) {

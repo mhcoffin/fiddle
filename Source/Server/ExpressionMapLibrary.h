@@ -41,6 +41,12 @@ public:
   /// Load a full ExpressionMapData by entityID (parses on demand).
   std::shared_ptr<ExpressionMapData> load(const std::string &entityID);
 
+  /// Restore a saved assignment. Imported XML is authoritative and is parsed
+  /// from the snapshot; catalog assignments continue to resolve by entity ID.
+  std::shared_ptr<ExpressionMapData>
+  loadPersisted(const std::string &entityID,
+                const juce::String &sourceXml);
+
   /// Serialize the index to JSON for the UI.
   juce::String toJson() const;
 

@@ -43,6 +43,8 @@ struct RestoredStripState {
   int pluginUid = 0;
   float gainDb = 0.0f;
   std::string expressionMapEntityID;
+  juce::String expressionMapPath;
+  juce::String expressionMapSourceXml;
   juce::MemoryBlock pluginState;
   juce::MemoryBlock audioInsertState;
   std::vector<std::string> luaPluginFileNames;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "ExpressionMapLibrary.h"
 #include "LuaPlugin.h"
 #include "MixerModel.h"
 #include "PluginScanner.h"
@@ -99,41 +98,34 @@ private:
 /// Undo/redo for loadExpressionMap.
 class SetExpressionMapAction : public UndoableAction {
 public:
-  SetExpressionMapAction(MixerModel &mixer, ExpressionMapLibrary &library,
-                         const juce::String &stripId,
-                         const std::string &oldEntityID,
-                         const std::string &newEntityID,
-                         std::shared_ptr<ExpressionMapData> newData)
-      : mixer_(mixer), library_(library), stripId_(stripId),
-        oldEntityID_(oldEntityID), newEntityID_(newEntityID),
-        newData_(std::move(newData)) {}
+  SetExpressionMapAction(MixerModel &mixer, const juce::String &stripId,
+                         ExpressionMapAssignment before,
+                         ExpressionMapAssignment after)
+      : mixer_(mixer), stripId_(stripId), before_(std::move(before)),
+        after_(std::move(after)) {}
 
-  void execute() override {
-    if (auto *s = mixer_.getStrip(stripId_)) {
-      s->setExpressionMap(newData_);
-      s->expressionMapPath = "";
-    }
-  }
-  void undo() override {
-    if (auto *s = mixer_.getStrip(stripId_)) {
-      if (oldEntityID_.empty()) {
-        s->setExpressionMap(nullptr);
-      } else {
-        s->setExpressionMap(library_.load(oldEntityID_));
-      }
-      s->expressionMapPath = "";
-    }
-  }
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
   juce::String getDescription() const override {
-    return "Set expression map to '" + juce::String(newEntityID_) + "'";
+    if (!after_.data)
+      return "Clear expression map";
+    return "Set expression map to '" + juce::String(after_.data->name) + "'";
   }
 
 private:
+  void apply(const ExpressionMapAssignment &assignment) {
+    success_ = false;
+    if (auto *strip = mixer_.getStrip(stripId_)) {
+      strip->setExpressionMapAssignment(assignment);
+      success_ = true;
+    }
+  }
+
   MixerModel &mixer_;
-  ExpressionMapLibrary &library_;
   juce::String stripId_;
-  std::string oldEntityID_, newEntityID_;
-  std::shared_ptr<ExpressionMapData> newData_;
+  ExpressionMapAssignment before_, after_;
+  bool success_ = false;
 };
 
 /// Undo/redo for setStripPlugin.

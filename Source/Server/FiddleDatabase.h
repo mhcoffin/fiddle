@@ -25,6 +25,8 @@ struct StripRow {
   int pluginUid = 0;
   float gainDb = 0.0f;
   std::string expressionMapEntityID;
+  juce::String expressionMapPath;
+  juce::String expressionMapSourceXml;
   juce::MemoryBlock pluginState; // binary BLOB
   StripAudioSnapshot audio;
   std::vector<std::string> luaPluginFileNames; // ordered Lua plugin filenames

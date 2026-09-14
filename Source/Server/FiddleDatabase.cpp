@@ -68,6 +68,8 @@ void FiddleDatabase::createSchema() {
       plugin_uid     INTEGER NOT NULL DEFAULT 0,
       gain_db        REAL NOT NULL DEFAULT 0.0,
       expression_map TEXT NOT NULL DEFAULT '',
+      expression_map_path TEXT NOT NULL DEFAULT '',
+      expression_map_source TEXT NOT NULL DEFAULT '',
       plugin_state   BLOB,
       active         INTEGER NOT NULL DEFAULT 1,
       muted          INTEGER NOT NULL DEFAULT 0,
@@ -249,6 +251,8 @@ void FiddleDatabase::createSchema() {
       plugin_uid    INTEGER NOT NULL,
       gain_db       REAL NOT NULL,
       expression_map TEXT NOT NULL,
+      expression_map_path TEXT NOT NULL DEFAULT '',
+      expression_map_source TEXT NOT NULL DEFAULT '',
       plugin_state  BLOB,
       active        INTEGER NOT NULL DEFAULT 1,
       muted         INTEGER NOT NULL DEFAULT 0,
@@ -370,10 +374,26 @@ void FiddleDatabase::createSchema() {
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN soloed INTEGER NOT NULL DEFAULT 0",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strips ADD COLUMN expression_map_path TEXT NOT "
+               "NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strips ADD COLUMN expression_map_source TEXT NOT "
+               "NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN audio_insert_state BLOB",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_,
                "ALTER TABLE strip_blobs ADD COLUMN direct_output_bus TEXT "
+               "NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN expression_map_path TEXT "
+               "NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+  sqlite3_exec(db_,
+               "ALTER TABLE strip_blobs ADD COLUMN expression_map_source TEXT "
                "NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
@@ -396,8 +416,9 @@ void FiddleDatabase::prepareStatements() {
   prep(R"(
     INSERT OR REPLACE INTO strips
       (id, position, library, family, is_solo, input_port, input_channel,
-       plugin_uid, gain_db, expression_map, active, lua_plugins, muted, soloed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       plugin_uid, gain_db, expression_map, expression_map_path,
+       expression_map_source, active, lua_plugins, muted, soloed)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
        stmtSaveStrip_);
 
@@ -412,7 +433,7 @@ void FiddleDatabase::prepareStatements() {
 
   prep("SELECT id, position, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, active, "
-       "lua_plugins, muted, soloed "
+       "lua_plugins, muted, soloed, expression_map_path, expression_map_source "
        "FROM strips ORDER BY position",
        stmtLoadStrips_);
 
@@ -657,7 +678,12 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
 
   std::string xmapId = strip.expressionMap ? strip.expressionMap->entityID : "";
   sqlite3_bind_text(stmtSaveStrip_, 10, xmapId.c_str(), -1, SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmtSaveStrip_, 11, realtime.active ? 1 : 0);
+  sqlite3_bind_text(stmtSaveStrip_, 11, strip.expressionMapPath.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_text(stmtSaveStrip_, 12,
+                    strip.expressionMapSourceXml.toRawUTF8(), -1,
+                    SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmtSaveStrip_, 13, realtime.active ? 1 : 0);
 
   // Serialize Lua plugin filenames as comma-separated list
   auto luaNames = strip.getLuaPluginFileNames();
@@ -666,10 +692,10 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
     if (i > 0) luaPluginsStr += ',';
     luaPluginsStr += luaNames[i];
   }
-  sqlite3_bind_text(stmtSaveStrip_, 12, luaPluginsStr.c_str(), -1,
+  sqlite3_bind_text(stmtSaveStrip_, 14, luaPluginsStr.c_str(), -1,
                     SQLITE_TRANSIENT);
-  sqlite3_bind_int(stmtSaveStrip_, 13, realtime.muted ? 1 : 0);
-  sqlite3_bind_int(stmtSaveStrip_, 14, realtime.soloed ? 1 : 0);
+  sqlite3_bind_int(stmtSaveStrip_, 15, realtime.muted ? 1 : 0);
+  sqlite3_bind_int(stmtSaveStrip_, 16, realtime.soloed ? 1 : 0);
 
   if (sqlite3_step(stmtSaveStrip_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] saveStrip failed: " << sqlite3_errmsg(db_)
@@ -771,6 +797,12 @@ std::vector<StripRow> FiddleDatabase::loadAllStrips() {
 
     row.muted = sqlite3_column_int(stmtLoadStrips_, 13) != 0;
     row.soloed = sqlite3_column_int(stmtLoadStrips_, 14) != 0;
+    if (const auto *path = reinterpret_cast<const char *>(
+            sqlite3_column_text(stmtLoadStrips_, 15)))
+      row.expressionMapPath = juce::String::fromUTF8(path);
+    if (const auto *source = reinterpret_cast<const char *>(
+            sqlite3_column_text(stmtLoadStrips_, 16)))
+      row.expressionMapSourceXml = juce::String::fromUTF8(source);
 
     sqlite3_stmt *audioStatement = nullptr;
     const char *audioSql =

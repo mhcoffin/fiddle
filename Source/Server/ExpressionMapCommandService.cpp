@@ -7,13 +7,25 @@
 #include "UndoManager.h"
 
 #include <memory>
+#include <set>
 #include <utility>
 
 namespace fiddle {
 namespace {
 
-std::string currentEntityId(const MixerStrip &strip) {
-  return strip.expressionMap ? strip.expressionMap->entityID : std::string{};
+bool isCatalogAssignment(const ExpressionMapAssignment &assignment,
+                         const std::string &entityId) {
+  return assignment.data && assignment.data->entityID == entityId &&
+         assignment.sourcePath.isEmpty() && assignment.sourceXml.isEmpty();
+}
+
+bool isSameImportedAssignment(const ExpressionMapAssignment &assignment,
+                              const ExpressionMapData &data,
+                              const juce::File &file,
+                              const juce::String &sourceXml) {
+  return assignment.data && assignment.data->entityID == data.entityID &&
+         assignment.sourcePath == file.getFullPathName() &&
+         assignment.sourceXml == sourceXml;
 }
 
 } // namespace
@@ -36,13 +48,13 @@ bool ExpressionMapCommandService::assign(const juce::String &stripId,
   if (newData == nullptr)
     return false;
 
-  const auto oldEntityId = currentEntityId(*strip);
-  if (oldEntityId == entityId.toStdString())
+  auto before = strip->snapshotExpressionMap();
+  if (isCatalogAssignment(before, entityId.toStdString()))
     return false;
 
-  undoManager_.perform(std::make_unique<SetExpressionMapAction>(
-      mixer_, library_, stripId, oldEntityId, entityId.toStdString(), newData));
-  return true;
+  return undoManager_.perform(std::make_unique<SetExpressionMapAction>(
+      mixer_, stripId, std::move(before),
+      ExpressionMapAssignment{newData, {}, {}}));
 }
 
 bool ExpressionMapCommandService::clear(const juce::String &stripId) {
@@ -50,13 +62,12 @@ bool ExpressionMapCommandService::clear(const juce::String &stripId) {
   if (strip == nullptr)
     return false;
 
-  const auto oldEntityId = currentEntityId(*strip);
-  if (oldEntityId.empty())
+  auto before = strip->snapshotExpressionMap();
+  if (!before.data)
     return false;
 
-  undoManager_.perform(std::make_unique<SetExpressionMapAction>(
-      mixer_, library_, stripId, oldEntityId, "", nullptr));
-  return true;
+  return undoManager_.perform(std::make_unique<SetExpressionMapAction>(
+      mixer_, stripId, std::move(before), ExpressionMapAssignment{}));
 }
 
 bool ExpressionMapCommandService::assignGroup(
@@ -66,18 +77,25 @@ bool ExpressionMapCommandService::assignGroup(
   if (entityId.isNotEmpty() && newData == nullptr)
     return false;
 
+  std::set<juce::String> uniqueIds;
+  for (const auto &stripId : stripIds)
+    if (stripId.isEmpty() || !uniqueIds.insert(stripId).second ||
+        mixer_.getStrip(stripId) == nullptr)
+      return false;
+
   std::vector<std::unique_ptr<UndoableAction>> actions;
   for (const auto &stripId : stripIds) {
     auto *strip = mixer_.getStrip(stripId);
-    if (strip == nullptr)
-      continue;
-
-    const auto oldEntityId = currentEntityId(*strip);
-    if (oldEntityId == newEntityId)
+    auto before = strip->snapshotExpressionMap();
+    const bool alreadyAssigned = entityId.isEmpty()
+                                     ? !before.data
+                                     : isCatalogAssignment(before, newEntityId);
+    if (alreadyAssigned)
       continue;
 
     actions.push_back(std::make_unique<SetExpressionMapAction>(
-        mixer_, library_, stripId, oldEntityId, newEntityId, newData));
+        mixer_, stripId, std::move(before),
+        ExpressionMapAssignment{newData, {}, {}}));
   }
 
   if (actions.empty())
@@ -95,12 +113,17 @@ bool ExpressionMapCommandService::importFile(const juce::String &stripId,
     return false;
 
   auto data = std::make_shared<ExpressionMapData>();
-  if (!parseExpressionMap(file, *data))
+  const auto sourceXml = file.loadFileAsString();
+  if (sourceXml.isEmpty() || !parseExpressionMapXml(sourceXml, *data))
     return false;
 
-  strip->setExpressionMap(std::move(data));
-  strip->expressionMapPath = file.getFullPathName();
-  return true;
+  auto before = strip->snapshotExpressionMap();
+  if (isSameImportedAssignment(before, *data, file, sourceXml))
+    return false;
+  return undoManager_.perform(std::make_unique<SetExpressionMapAction>(
+      mixer_, stripId, std::move(before),
+      ExpressionMapAssignment{std::move(data), file.getFullPathName(),
+                              sourceXml}));
 }
 
 } // namespace fiddle

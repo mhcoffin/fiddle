@@ -19,6 +19,13 @@
 namespace fiddle {
 
 class LuaPlugin;
+
+struct ExpressionMapAssignment {
+  std::shared_ptr<ExpressionMapData> data;
+  juce::String sourcePath;
+  juce::String sourceXml;
+};
+
 /// A single mixer channel strip. Instrument plug-in lifecycle is delegated to
 /// a reusable HostedPluginSlot. Identified by a unique string ID.
 struct MixerStrip {
@@ -123,7 +130,15 @@ struct MixerStrip {
 
   // Expression map
   std::shared_ptr<ExpressionMapData> expressionMap;
-  juce::String expressionMapPath; // file path for persistence
+  juce::String expressionMapPath;
+  juce::String expressionMapSourceXml;
+
+  [[nodiscard]] ExpressionMapAssignment snapshotExpressionMap() const;
+
+  /// Apply the parsed map and its import provenance as one coherent MIDI-state
+  /// change. sourceXml keeps imported maps restorable if the original file is
+  /// moved, replaced, or deleted.
+  void setExpressionMapAssignment(ExpressionMapAssignment assignment);
 
   /// Set (or clear) the expression map for this strip.
   /// Automatically creates/destroys the ExpressionMapAnnotator

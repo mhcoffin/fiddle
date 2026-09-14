@@ -73,6 +73,8 @@ struct StripBlob {
   int pluginUid = 0;
   float gainDb = 0.0f;
   std::string expressionMapEntityId;
+  std::string expressionMapPath;
+  std::string expressionMapSourceXml;
   /// Empty routes directly to Master; otherwise references a GroupBusBlob ID.
   std::string directOutputBusId;
 
@@ -95,7 +97,8 @@ struct StripBlob {
        << (soloed ? '1' : '0') << '\0' << pluginUid << '\0';
     // Use fixed-precision for float to ensure deterministic hashing
     os << std::fixed << std::setprecision(6) << gainDb << '\0';
-    os << expressionMapEntityId << '\0' << directOutputBusId << '\0';
+    os << expressionMapEntityId << '\0' << expressionMapPath << '\0'
+       << expressionMapSourceXml << '\0' << directOutputBusId << '\0';
     // Lua plugins (ordered)
     for (const auto &name : luaPluginFileNames)
       os << name << '\0';

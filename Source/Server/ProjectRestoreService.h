@@ -17,7 +17,8 @@ class ProjectRestoreService {
 public:
   struct Callbacks {
     std::function<std::optional<juce::PluginDescription>(int)> findInstrument;
-    std::function<std::shared_ptr<ExpressionMapData>(const std::string &)> loadMap;
+    std::function<std::shared_ptr<ExpressionMapData>(
+        const std::string &, const juce::String &)> loadMap;
     std::function<std::string(const std::string &)> resolveLua;
     std::function<void(MixerStrip &)> stripCreated;
     std::function<void(GroupBus &)> busCreated;

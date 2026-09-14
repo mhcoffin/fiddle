@@ -15,6 +15,7 @@ struct LayerLibrarySetup {
   MixerStrip::InstrumentSnapshot instrument;
   std::shared_ptr<ExpressionMapData> expressionMap;
   juce::String expressionMapPath;
+  juce::String expressionMapSourceXml;
   bool missingPatchReference = false;
 };
 
@@ -57,8 +58,10 @@ private:
       LayerLibrarySetup current;
       current.row = *repository_.getLayer(target.row.id);
       current.instrument = strip.snapshotInstrument();
-      current.expressionMap = strip.expressionMap;
-      current.expressionMapPath = strip.expressionMapPath;
+      const auto map = strip.snapshotExpressionMap();
+      current.expressionMap = map.data;
+      current.expressionMapPath = map.sourcePath;
+      current.expressionMapSourceXml = map.sourceXml;
       current.missingPatchReference = strip.missingPatchReference;
       current.row.patchName = strip.layerName.toStdString();
       current.row.libraryName = strip.library.toStdString();
@@ -86,8 +89,9 @@ private:
     strip->layerName = target.row.patchName;
     strip->library = target.row.libraryName;
     strip->missingPatchReference = target.missingPatchReference;
-    strip->setExpressionMap(target.expressionMap);
-    strip->expressionMapPath = target.expressionMapPath;
+    strip->setExpressionMapAssignment(
+        {target.expressionMap, target.expressionMapPath,
+         target.expressionMapSourceXml});
     const auto &instrument = target.instrument;
     const auto uid = instrument.description.uniqueId;
     const auto settled = settled_;

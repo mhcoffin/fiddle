@@ -789,9 +789,12 @@ void MainComponent::initMidiServer() {
 
               // Restore expression map
               if (!rs.expressionMapEntityID.empty()) {
-                auto xmapData = xmapLibrary_.load(rs.expressionMapEntityID);
+                auto xmapData = xmapLibrary_.loadPersisted(
+                    rs.expressionMapEntityID, rs.expressionMapSourceXml);
                 if (xmapData)
-                  strip->setExpressionMap(xmapData);
+                  strip->setExpressionMapAssignment(
+                      {std::move(xmapData), rs.expressionMapPath,
+                       rs.expressionMapSourceXml});
               }
 
               restoreStripPlugin(*strip, rs.pluginUid, rs.pluginState);
@@ -1797,10 +1800,14 @@ void MainComponent::loadStripsFromDB() {
 
       // Restore expression map
       if (!row.expressionMapEntityID.empty()) {
-        auto data = xmapLibrary_.load(row.expressionMapEntityID);
+        auto data = xmapLibrary_.loadPersisted(row.expressionMapEntityID,
+                                               row.expressionMapSourceXml);
         if (data) {
-          strip->setExpressionMap(data);
-          std::cerr << "[loadDB] Restored xmap '" << data->name
+          const auto mapName = data->name;
+          strip->setExpressionMapAssignment(
+              {std::move(data), row.expressionMapPath,
+               row.expressionMapSourceXml});
+          std::cerr << "[loadDB] Restored xmap '" << mapName
                     << "' for strip " << strip->id << std::endl;
         }
       }
@@ -1933,7 +1940,10 @@ bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
           return description;
       return std::nullopt;
     };
-    callbacks.loadMap = [this](const std::string &id) { return xmapLibrary_.load(id); };
+    callbacks.loadMap = [this](const std::string &id,
+                               const juce::String &sourceXml) {
+      return xmapLibrary_.loadPersisted(id, sourceXml);
+    };
     callbacks.resolveLua = [this](const std::string &name) { return luaCatalog_.resolvePluginPath(name); };
     callbacks.stripCreated = [this](MixerStrip &strip) {
       pluginFingerprints_.erase(strip.id);
@@ -3039,8 +3049,11 @@ void MainComponent::setupJsHandlers() {
               safeThis->broadcastMessage("setExpressionMaps", catalog);
           },
           [safeThis] {
-            if (safeThis != nullptr)
+            if (safeThis != nullptr) {
+              safeThis->saveAllStripsToDB(false);
               safeThis->pushMixerState();
+              safeThis->scheduleStateRebuild();
+            }
           }});
   expressionMapJsHandlers_->registerHandlers();
 

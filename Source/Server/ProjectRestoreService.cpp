@@ -171,8 +171,17 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     mixer_.insertStripAt(std::move(strip), mixer_.size());
     if (callbacks_.stripCreated)
       callbacks_.stripCreated(*current);
-    if (!blob.expressionMapEntityId.empty() && callbacks_.loadMap)
-      current->setExpressionMap(callbacks_.loadMap(blob.expressionMapEntityId));
+    if (!blob.expressionMapEntityId.empty() && callbacks_.loadMap) {
+      const auto sourceXml = juce::String::fromUTF8(
+          blob.expressionMapSourceXml.data(),
+          static_cast<int>(blob.expressionMapSourceXml.size()));
+      auto map = callbacks_.loadMap(blob.expressionMapEntityId, sourceXml);
+      if (map)
+        current->setExpressionMapAssignment(
+            {std::move(map),
+             juce::String::fromUTF8(blob.expressionMapPath.c_str()),
+             sourceXml});
+    }
     for (const auto &name : blob.luaPluginFileNames) {
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
       if (path.empty())

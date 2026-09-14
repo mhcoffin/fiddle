@@ -1080,6 +1080,8 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/HarmonicAnalyzer.cpp
     Source/Server/MasterInstrumentList.cpp
     Source/Server/ExpressionMapParser.cpp
+    Source/Server/ExpressionMapLibrary.cpp
+    Source/Server/ExpressionMapCommandService.cpp
     Source/Server/FiddleDatabase.cpp
     Source/Server/LibraryRoutingRepository.cpp
     Source/Server/SqliteVersionStorage.cpp

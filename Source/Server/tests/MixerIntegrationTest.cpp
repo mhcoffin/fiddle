@@ -1,4 +1,6 @@
 #include "FiddleDatabase.h"
+#include "ExpressionMapCommandService.h"
+#include "ExpressionMapLibrary.h"
 #include "ChairLayerActions.h"
 #include "LayerLibrarySetupAction.h"
 #include "LibraryCatalogAction.h"
@@ -14,6 +16,7 @@
 #include "PluginScanner.h"
 #include "ProjectRestoreService.h"
 #include "StateManager.h"
+#include "StateBlobTypes.h"
 #include "UndoManager.h"
 #include "UndoActions.h"
 #include "ProjectSettingsAction.h"
@@ -478,6 +481,144 @@ struct Sandbox {
   Sandbox() { REQUIRE(directory.createDirectory().wasOk()); }
   ~Sandbox() { directory.deleteRecursively(); }
 };
+
+juce::String expressionMapXml(const juce::String &name,
+                              const juce::String &entityId) {
+  return "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+         "<kScoreLibrary><expressionMapDefinitions><entities array=\"true\">"
+         "<ExpressionMapDefinition><name>" + name + "</name><entityID>" +
+         entityId +
+         "</entityID><playingTechniqueCombinations array=\"true\">"
+         "<playingTechniqueCombination><name>Natural</name>"
+         "<baseSwitchID>1</baseSwitchID><techniqueIDs>pt.natural</techniqueIDs>"
+         "<switchOnActions array=\"true\"/><switchOffActions array=\"true\"/>"
+         "</playingTechniqueCombination></playingTechniqueCombinations>"
+         "</ExpressionMapDefinition></entities></expressionMapDefinitions>"
+         "</kScoreLibrary>";
+}
+
+void testExpressionMapUndoAndImportedPersistence() {
+  Sandbox sandbox;
+  const auto catalogFile = sandbox.directory.getChildFile("catalog.doricolib");
+  const auto importedFile = sandbox.directory.getChildFile("imported.doricolib");
+  const auto invalidFile = sandbox.directory.getChildFile("invalid.doricolib");
+  const auto catalogXml = expressionMapXml("Catalog map", "map.catalog");
+  const auto importedXml = expressionMapXml("Imported map", "map.imported");
+  REQUIRE(catalogFile.replaceWithText(catalogXml));
+  REQUIRE(importedFile.replaceWithText(importedXml));
+  REQUIRE(invalidFile.replaceWithText("not an expression map"));
+
+  fiddle::ExpressionMapLibrary library;
+  library.addFile(catalogFile);
+  MixerFixture f;
+  const auto firstId = f.mixer.addStrip();
+  const auto secondId = f.mixer.addStrip();
+  fiddle::ExpressionMapCommandService commands(f.mixer, library, f.undo);
+
+  REQUIRE(commands.assign(firstId, "map.catalog"));
+  auto *first = f.mixer.getStrip(firstId);
+  const auto catalogMap = first->expressionMap;
+  REQUIRE(catalogMap && catalogMap->name == "Catalog map");
+  REQUIRE(first->expressionMapPath.isEmpty());
+  f.undo.markSavePoint();
+
+  REQUIRE(commands.importFile(firstId, importedFile));
+  const auto importedMap = first->expressionMap;
+  REQUIRE(importedMap && importedMap->name == "Imported map");
+  REQUIRE(first->expressionMapPath == importedFile.getFullPathName());
+  REQUIRE(first->expressionMapSourceXml == importedXml);
+  REQUIRE(!commands.importFile(firstId, importedFile));
+
+  // History owns both sides. Neither Undo nor Redo may consult source files or
+  // a changed catalog after the command has been accepted.
+  REQUIRE(catalogFile.deleteFile());
+  REQUIRE(importedFile.deleteFile());
+  REQUIRE(f.undo.undo());
+  REQUIRE(first->expressionMap == catalogMap);
+  REQUIRE(first->expressionMapPath.isEmpty());
+  REQUIRE(first->expressionMapSourceXml.isEmpty());
+  REQUIRE(f.undo.isAtSavePoint());
+  REQUIRE(f.undo.redo());
+  REQUIRE(first->expressionMap == importedMap);
+  REQUIRE(first->expressionMapPath.endsWith("imported.doricolib"));
+  REQUIRE(first->expressionMapSourceXml == importedXml);
+
+  REQUIRE(commands.clear(firstId));
+  REQUIRE(!first->expressionMap && first->expressionMapPath.isEmpty() &&
+          first->expressionMapSourceXml.isEmpty());
+  REQUIRE(f.undo.undo());
+  REQUIRE(first->expressionMap == importedMap);
+  REQUIRE(first->expressionMapSourceXml == importedXml);
+
+  // Parse failures and an invalid group target are atomic: no state or history
+  // moves, including when another selected strip would otherwise be changed.
+  f.undo.clear();
+  REQUIRE(!commands.importFile(firstId, invalidFile));
+  REQUIRE(!f.undo.canUndo() && first->expressionMap == importedMap);
+  REQUIRE(!commands.assignGroup({firstId, "missing-strip"}, ""));
+  REQUIRE(first->expressionMap == importedMap);
+  REQUIRE(!f.undo.canUndo());
+  REQUIRE(commands.assignGroup({firstId, secondId}, ""));
+  REQUIRE(!first->expressionMap && !f.mixer.getStrip(secondId)->expressionMap);
+  REQUIRE(f.undo.undo());
+  REQUIRE(first->expressionMap == importedMap);
+
+  // Session rows, compatibility blobs, and versioned strip blobs all retain
+  // the original XML. Restoration therefore succeeds after the file is gone.
+  const auto databaseFile = sandbox.directory.getChildFile("maps.sqlite");
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(databaseFile));
+  db.saveStrip(*first, 0);
+  db.close();
+  REQUIRE(db.open(databaseFile));
+  const auto rows = db.loadAllStrips();
+  REQUIRE(rows.size() == 1);
+  REQUIRE(rows[0].expressionMapPath == first->expressionMapPath);
+  REQUIRE(rows[0].expressionMapSourceXml == importedXml);
+
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.initialize(sandbox.directory.getChildFile("state.bin"));
+  const auto saved = state.saveCurrentState(f.mixer, branch, root);
+  REQUIRE(saved.kind == fiddle::versioning::ProjectSaveResult::Kind::Committed);
+  const auto version = versions.getVersion(saved.versionId);
+  REQUIRE(version.has_value());
+  const auto savedState = versions.getState(version->stateHash);
+  REQUIRE(savedState.has_value() && !savedState->stripHashes.empty());
+  const auto blob = versions.getStripBlob(savedState->stripHashes.front());
+  REQUIRE(blob.has_value());
+  REQUIRE(blob->expressionMapPath == first->expressionMapPath.toStdString());
+  REQUIRE(blob->expressionMapSourceXml == importedXml.toStdString());
+
+  const auto compatibility = state.buildStateBlob(f.mixer);
+  const auto decoded = fiddle::deserializeStateBlob(
+      compatibility.getData(), compatibility.getSize());
+  REQUIRE(decoded.has_value() && !decoded->strips.empty());
+  REQUIRE(decoded->strips.front().expressionMapPath == first->expressionMapPath);
+  REQUIRE(decoded->strips.front().expressionMapSourceXml == importedXml);
+
+  MixerFixture restored;
+  int finished = 0;
+  fiddle::ProjectRestoreService::Callbacks callbacks;
+  callbacks.loadMap = [&library](const std::string &id,
+                                 const juce::String &sourceXml) {
+    return library.loadPersisted(id, sourceXml);
+  };
+  callbacks.finished = [&finished] { ++finished; };
+  fiddle::ProjectRestoreService restore(restored.mixer, versions, nullptr,
+                                        std::move(callbacks));
+  REQUIRE(restore.restore(*savedState).accepted);
+  pumpUntil([&] { return !restore.isLoading(); });
+  REQUIRE(finished == 1 && restored.mixer.size() == 2);
+  auto *restoredFirst = restored.mixer.getAllStrips().front();
+  REQUIRE(restoredFirst->expressionMap);
+  REQUIRE(restoredFirst->expressionMap->name == "Imported map");
+  REQUIRE(restoredFirst->expressionMapPath.endsWith("imported.doricolib"));
+  REQUIRE(restoredFirst->expressionMapSourceXml == importedXml);
+}
 
 float stateAmount(const juce::MemoryBlock &state) {
   REQUIRE(state.getSize() == sizeof(float));
@@ -2021,6 +2162,7 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("expression-map imports undo and restore without source files", testExpressionMapUndoAndImportedPersistence);
   run("separate catalog history retains data and rejected redo", testLibraryCatalogHistory);
   run("library preview state survives structural history and duplication", testRetainedLibraryPreviews);
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);

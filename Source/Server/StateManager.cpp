@@ -255,6 +255,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.expressionMapPath = strip->expressionMapPath.toStdString();
+    sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
@@ -330,6 +332,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
                      strip->expressionMap
                          ? juce::String(strip->expressionMap->entityID)
                          : juce::String());
+    obj->setProperty("expressionMapPath", strip->expressionMapPath);
+    obj->setProperty("expressionMapSource", strip->expressionMapSourceXml);
     obj->setProperty(
         "audioInserts",
         serializeStripAudioSnapshot(strip->audioEngine().snapshotAll())
@@ -424,6 +428,8 @@ versioning::FiddleState StateManager::captureCurrentState(
     sb.gainDb = realtime.gainDb;
     sb.expressionMapEntityId =
         strip->expressionMap ? strip->expressionMap->entityID : "";
+    sb.expressionMapPath = strip->expressionMapPath.toStdString();
+    sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 

@@ -1,8 +1,9 @@
 # Undo/redo repair status
 
-Updated 13 September 2026. The first three checkpoints are committed and
-smoke-tested; the layer-refresh follow-up below also passed automated testing
-and the user's smoke check. The broader inventory is
+Updated 13 September 2026. The shared-history, chair, plug-in, layer-refresh,
+and Library Manager checkpoints are committed and smoke-tested. The
+expression-map follow-up below has passed automated testing and awaits its
+smoke check. The broader inventory is
 **not yet fully repaired**. Verification used isolated fixtures.
 
 ## Implemented in this checkpoint
@@ -55,9 +56,8 @@ see [audio safety results](audio-safety-results.md).
 
 ## Still to implement
 
-1. VSTi program-selection Undo; expression-map provenance/import and Lua
-   loading failure handling. Preserve vendor edits without recording their
-   individual editor gestures.
+1. VSTi program-selection Undo and Lua loading failure handling. Preserve
+   vendor edits without recording their individual editor gestures.
 2. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
    plus native menu integration where appropriate.
 
@@ -239,3 +239,37 @@ and Redo a draft edit, and verify the unsaved indicator follows the checkpoint.
 Close the editor and try Undo catalog / Redo catalog. A scratch unused library
 can exercise deletion/restoration. Check Quit/Restart's unsaved-draft warning.
 No native Fiddle VST3 reinstall is required.
+
+## Expression-map follow-up — 13 September 2026
+
+Implemented and automatically verified; awaiting the user's smoke check.
+
+- Catalog assignment, clearing, group assignment and direct `.doricolib`
+  import all use the project Undo history. Each action owns its exact before
+  and after parsed maps, so Undo/Redo never re-reads a catalog entry that may
+  have changed or disappeared.
+- Imported assignments retain both their source path and original XML.
+  Session SQLite, content-addressed version blobs and the Dorico compatibility
+  state carry that XML, allowing restoration after the source file is moved or
+  deleted. Imported contents and provenance participate in state identity.
+- Group assignment preflights every distinct strip before changing any of
+  them. Missing or duplicate targets reject the whole command. Invalid files
+  and exact repeat imports are no-ops and do not advance history or dirty state.
+- Applying an assignment updates the parsed map, import provenance, incoming
+  switch tracker and annotator chain under one MIDI-state lock. Library-driven
+  layer refresh also preserves the imported XML on Undo.
+- Successful UI edits now persist the session row and rebuild host state at
+  the same command boundary as other project edits.
+
+The Release server and aggregate test target build, and all 56 stable CTest
+entries pass. The ThreadSanitizer mixer integration target also passes without
+a race report. The focused regression deletes both the catalog and imported
+source files before exercising Undo/Redo, reopens the session database, decodes
+the compatibility state, restores a saved version into a fresh mixer, and
+rejects malformed imports and partial group targets.
+
+Smoke check: on one layer, select a catalog expression map, then import a copy
+of a `.doricolib` file. Undo should restore the catalog map and Redo should
+restore the imported map. Save and restart Fiddle; the imported map name should
+remain. Use a disposable copy if testing deletion of the source file. No native
+Fiddle VST3 reinstall is required.
