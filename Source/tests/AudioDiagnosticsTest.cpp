@@ -141,9 +141,69 @@ static void consumerCounts() {
   unlink(path);
 }
 
+static void safetyMuteRecovery() {
+  // Production-like reserve thresholds, still using an isolated mmap.
+  char path[] = "/tmp/fiddle-safety-mute-test.XXXXXX";
+  const int fd = mkstemp(path);
+  CHECK(fd >= 0);
+  using State = fiddle::AudioConsumer::SharedState;
+  CHECK(ftruncate(fd, sizeof(State)) == 0);
+  void *memory = mmap(nullptr, sizeof(State), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  CHECK(memory != MAP_FAILED);
+  auto *state = new (memory) State{};
+  state->sampleRate = 1000;
+  state->blockSize = 16;
+  state->targetFrames = 64;
+  state->magic.store(fiddle::AudioConsumer::kMagic);
+  state->active.store(1);
+  for (auto &sample : state->samples) sample = 0.5f;
+  state->writeFrame.store(48);
+  {
+    fiddle::AudioConsumer consumer(path);
+    float left[16]{}, right[16]{};
+    float *channels[]{left, right};
+    consumer.pullAudio(channels, 2, 16, 1000);
+    CHECK(left[0] == 0.5f);
+    consumer.pullAudio(channels, 2, 16, 1000);
+    CHECK(left[0] == 0.5f);
+
+    // One block remains: suppress it before a hard underrun and latch mute.
+    consumer.pullAudio(channels, 2, 16, 1000);
+    CHECK(left[0] == 0 && state->readFrame.load() == 48);
+    auto counters = consumer.diagnostics();
+    CHECK(counters.underruns == 0 && counters.safetyMuteEpisodes == 1);
+    CHECK(counters.bufferingFrames == 16 && counters.safetyMutedFrames == 16);
+    CHECK(counters.minimumQueuedFrames == 16);
+
+    // A partial refill remains muted. Once another complete producer block no
+    // longer fits under the target, resume with a short fade. This also covers
+    // host/producer block alignment where targetFrames cannot be reached exactly.
+    state->writeFrame.store(96);
+    consumer.pullAudio(channels, 2, 16, 1000);
+    CHECK(left[0] == 0 && state->readFrame.load() == 64);
+    state->writeFrame.store(113); // 49 queued; target - producer block + 1
+    consumer.pullAudio(channels, 2, 16, 1000);
+    CHECK(left[0] > 0 && left[0] < 0.5f && left[9] == 0.5f && left[15] == 0.5f);
+    counters = consumer.diagnostics();
+    CHECK(counters.safetyMuteEpisodes == 1 && counters.safetyMutedFrames == 32);
+    CHECK(counters.bufferingFrames == 32 && counters.callbacks == 5);
+
+    // A definite empty-ring event is still counted as one underrun episode.
+    state->writeFrame.store(state->readFrame.load());
+    consumer.pullAudio(channels, 2, 16, 1000);
+    counters = consumer.diagnostics();
+    CHECK(counters.underruns == 1 && counters.safetyMuteEpisodes == 2);
+    CHECK(counters.safetyMutedFrames == 48 && left[0] == 0);
+  }
+  munmap(memory, sizeof(State));
+  close(fd);
+  unlink(path);
+}
+
 int main() {
   try {
     renderTiming(); saturatedAndConcurrent(); pluginTiming(); consumerCounts();
+    safetyMuteRecovery();
     std::cout << "Audio diagnostics: timing, bounded handoff and real consumer counters passed\n";
     return 0;
   } catch (const std::exception &e) {

@@ -12,7 +12,7 @@ export function appendDiagnosticSample(history, data, now) {
 
 export function diagnosticReport(history, marks) {
     return JSON.stringify({
-        description: "Fiddle audio diagnostics. Load is render wall time / audio block duration, not whole-machine CPU. Render-ahead uses the existing playback delay; queued/target milliseconds show the completed-audio reserve. Protocol 2 advances through underrun silence rather than rebuffering; priming silence is excluded from bufferingFrames. Plugin timings include waiting inside plugins. Per-plugin windows are independent: do not sum their peaks. Counts are cumulative; native counts may reset on plugin recreation. Sample times are UI receipt times, not exact glitch times.",
+        description: "Fiddle audio diagnostics. Load is render wall time / audio block duration, not whole-machine CPU. Render-ahead uses the existing playback delay; queued/target milliseconds show the completed-audio reserve. Protocol 2 advances through safety-muted recovery rather than replaying late audio; the mute remains latched until the reserve is effectively full and then fades in. Plugin timings include waiting inside plugins. Per-plugin windows are independent: do not sum their peaks. Counts are cumulative; native counts may reset on plugin recreation. Sample times are UI receipt times, not exact glitch times.",
         marks, samples: history,
     }, null, 2);
 }

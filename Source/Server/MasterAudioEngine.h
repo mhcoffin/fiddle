@@ -82,6 +82,8 @@ public:
     return changed;
   }
   bool refreshPluginStateCaches();
+  /// Freshly serialize every loaded insert for a frozen save snapshot.
+  void capturePluginStateCaches();
 
   /// Record current public parameter values as the clean baseline without
   /// serializing state or notifying the owner.

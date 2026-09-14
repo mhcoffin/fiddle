@@ -588,6 +588,13 @@ bool StripAudioEngine::refreshPluginStateCaches() {
   return changed;
 }
 
+void StripAudioEngine::capturePluginStateCaches() {
+  for (const auto position : {StripInsertPosition::preFader,
+                              StripInsertPosition::postFader})
+    for (const auto &entry : rack(position))
+      entry->hosted->refreshStateCache();
+}
+
 void StripAudioEngine::captureParameterFingerprints() {
   for (const auto position : {StripInsertPosition::preFader,
                               StripInsertPosition::postFader})

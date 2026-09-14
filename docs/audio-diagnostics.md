@@ -50,8 +50,12 @@ scrolls. Escape closes the modal and returns focus to the toolbar.
   ring lacked space. Ring-unavailable blocks are counted separately.
 - **Underrun episodes:** the native consumer could not satisfy a block. It counts
   consecutive silent blocks as one episode, advancing the cursor through them.
-- **Underrun silence** (JSON `bufferingFrames`): frames replaced by silence during
-  underrun and recovery, excluding initial priming. **Unavailable-ring silence** is separate. These do not
+- **Safety-mute episodes/frames:** low reserve latches silence until the reserve
+  is effectively full. `minimumQueuedFrames` records the lowest callback-time
+  occupancy seen by the Dorico plugin. A 10-ms fade follows recovery.
+- **Recovery silence** (JSON `bufferingFrames`): frames replaced by silence during
+  low-water/underrun recovery, excluding initial priming. **Unavailable-ring
+  silence** is separate. These do not
   count silence genuinely produced by instruments or the score.
 - **Dropped outgoing MIDI events:** native relay queue overloads.
 - **Dropped diagnostic reports:** a stalled UI filled the fixed reporting queue.

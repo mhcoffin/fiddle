@@ -98,7 +98,8 @@ public:
   versioning::ProjectSaveResult saveCurrentState(
       MixerModel &mixer, const std::string &branchId,
       const std::string &loadedVersionId,
-      const std::optional<std::string> &newBranchName = std::nullopt);
+      const std::optional<std::string> &newBranchName = std::nullopt,
+      bool captureLiveState = true);
 
   /// Push a pre-built blob to shared memory.
   void publishBlob(const juce::MemoryBlock &blob);
@@ -119,7 +120,8 @@ public:
   }
 
 private:
-  versioning::FiddleState captureCurrentState(MixerModel &mixer);
+  versioning::FiddleState captureCurrentState(MixerModel &mixer,
+                                              bool captureLiveState = true);
   void captureRoutingState(
       versioning::FiddleState &state,
       const std::map<std::string, versioning::Hash> &stripHashesById,

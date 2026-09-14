@@ -1278,11 +1278,13 @@ bool MainComponent::saveConfig(const std::optional<std::string> &newBranchName) 
   }
   versioning::ProjectSaveResult result;
   try {
-    // Refresh instrument bytes before comparing the snapshot with the loaded
-    // version. A dirty hint alone must not manufacture a branch after undo.
-    saveAllStripsToDB();
+    // Freeze every vendor state blob once, then reuse those exact bytes for
+    // both session persistence and the version snapshot. A dirty hint alone
+    // must not manufacture a branch after undo.
+    mixer_.capturePluginStateCachesForSave();
+    saveAllStripsToDB(false);
     result = stateManager_.saveCurrentState(
-        mixer_, currentBranchId_, currentVersionId_, newBranchName);
+        mixer_, currentBranchId_, currentVersionId_, newBranchName, false);
   } catch (const std::exception &error) {
     result.error = error.what();
   }
@@ -2697,6 +2699,10 @@ void MainComponent::pushAudioDiagnostics() {
   data->setProperty("underruns", static_cast<juce::int64>(returnDiagnostics_.underruns()));
   data->setProperty("bufferingFrames", static_cast<juce::int64>(returnDiagnostics_.buffering_frames()));
   data->setProperty("unavailableFrames", static_cast<juce::int64>(returnDiagnostics_.unavailable_frames()));
+  data->setProperty("safetyMuteEpisodes", static_cast<juce::int64>(returnDiagnostics_.safety_mute_episodes()));
+  data->setProperty("safetyMutedFrames", static_cast<juce::int64>(returnDiagnostics_.safety_muted_frames()));
+  data->setProperty("minimumQueuedFrames", static_cast<juce::int64>(returnDiagnostics_.minimum_queued_frames()));
+  data->setProperty("safetyMuteVersion", int(returnDiagnostics_.safety_mute_version()));
   data->setProperty("droppedMidiEvents", static_cast<juce::int64>(returnDiagnostics_.dropped_midi_events()));
   // Main mixer only: no full-state rebuild, persistence, database query or broadcast.
   const auto json = juce::JSON::toString(juce::var(data), true);

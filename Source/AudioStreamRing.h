@@ -1,5 +1,6 @@
 #pragma once
 
+#include "StereoBufferOps.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -88,11 +89,27 @@ struct AudioStreamRing {
     const bool enough = written >= read + uint64_t(frames) && written - read <= capacity;
     if (!enough) silence();
     else {
-      for (int ch = 0; ch < channels; ++ch) {
-        if (!output[ch]) continue;
-        if (ch >= 2) std::memset(output[ch], 0, size_t(frames) * sizeof(float));
-        else for (int i = 0; i < frames; ++i)
-          output[ch][i] = samples[((read + uint64_t(i)) % capacity) * 2 + uint64_t(ch)];
+      const auto offset = read % capacity;
+      const auto first = std::min(uint64_t(frames), capacity - offset);
+      const auto remaining = uint64_t(frames) - first;
+      auto *left = channels > 0 ? output[0] : nullptr;
+      auto *right = channels > 1 ? output[1] : nullptr;
+      // Preserve the original channel-order semantics even if a host supplies
+      // aliased output planes. The usual disjoint stereo case reads each span
+      // once, extracting both channels together.
+      const auto l = reinterpret_cast<uintptr_t>(left), r = reinterpret_cast<uintptr_t>(right);
+      const bool overlapping = left && right &&
+          (l < r ? r - l : l - r) < size_t(frames) * sizeof(float);
+      const auto copy = [&](float *a, float *b) {
+        stereo_buffer::deinterleave(a, b, samples + offset * 2, first);
+        if (remaining)
+          stereo_buffer::deinterleave(a ? a + first : nullptr, b ? b + first : nullptr,
+                                      samples, remaining);
+      };
+      if (overlapping) { copy(left, nullptr); copy(nullptr, right); }
+      else copy(left, right);
+      for (int ch = 2; ch < channels; ++ch) {
+        if (output[ch]) std::memset(output[ch], 0, size_t(frames) * sizeof(float));
       }
     }
     readFrame.store(read + uint64_t(frames), std::memory_order_release);
@@ -104,10 +121,11 @@ struct AudioStreamRing {
   bool push(uint64_t start, const float *left, const float *right, uint32_t frames) noexcept {
     const auto read = readFrame.load(std::memory_order_acquire);
     if (frames == 0 || frames > capacity || start + frames > read + capacity) return false;
-    for (uint32_t i = 0; i < frames; ++i) {
-      const auto offset = ((start + i) % capacity) * 2;
-      samples[offset] = left[i]; samples[offset + 1] = right[i];
-    }
+    const auto offset = start % capacity;
+    const auto first = std::min(uint64_t(frames), capacity - offset);
+    stereo_buffer::interleave(samples + offset * 2, left, right, first);
+    if (first < frames)
+      stereo_buffer::interleave(samples, left + first, right + first, frames - first);
     writeFrame.store(start + frames, std::memory_order_release);
     return true;
   }

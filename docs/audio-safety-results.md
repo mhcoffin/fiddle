@@ -78,8 +78,11 @@ startup and waiting for an existing render), retained for the process lifetime.
 
 Mute/solo scalar persistence can use cached instrument/effect bytes. Explicit
 saves and version snapshots retain fresh capture; stale bytes are not silently
-substituted for an exact Dorico save. Existing background snapshot rebuilds can
-still capture state, but now do so through the safe boundary.
+substituted for an exact Dorico save. A save now freezes every instrument and
+effect state once under one control interval, then reuses those exact in-memory
+bytes for both session-database persistence and the version snapshot. Existing
+background snapshot rebuilds can still capture state, but now do so through the
+safe boundary.
 
 Tests concurrently render while capturing/applying state and re-preparing,
 assert control calls stay on their owner thread, and check no state capture

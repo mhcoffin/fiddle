@@ -29,7 +29,8 @@ makePluginSlotBlob(const MasterInsertSnapshot &snapshot) {
 }
 
 versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master,
-                                        MixerModel &mixer) {
+                                        MixerModel &mixer,
+                                        bool captureLiveState) {
   versioning::GlobalState result;
   result.projectSettings = mixer.projectSettings();
   result.audioSchemaVersion = 2;
@@ -44,8 +45,8 @@ versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master,
     saved.gainDb = bus->gainDb();
     saved.muted = bus->isMuted();
     saved.soloed = bus->isSoloed();
-    const auto audio =
-        serializeStripAudioSnapshot(bus->audioEngine().snapshotAll());
+    const auto audio = serializeStripAudioSnapshot(
+        bus->audioEngine().snapshotAll(captureLiveState));
     if (!audio.isEmpty()) {
       const auto *data = static_cast<const uint8_t *>(audio.getData());
       saved.audioInsertState.assign(data, data + audio.getSize());
@@ -227,7 +228,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   // actual version commit persists this state in the version object store;
   // persisting every shadow-blob rebuild leaked thousands of transient states.
   versioning::FiddleState state;
-  state.globalState = makeGlobalState(master, mixer);
+  state.globalState = makeGlobalState(master, mixer, true);
 
   auto strips = mixer.getAllStrips();
   std::map<std::string, versioning::Hash> stripHashesById;
@@ -383,20 +384,24 @@ versioning::Hash StateManager::commitCurrentState(MixerModel &mixer,
 versioning::ProjectSaveResult StateManager::saveCurrentState(
     MixerModel &mixer, const std::string &branchId,
     const std::string &loadedVersionId,
-    const std::optional<std::string> &newBranchName) {
+    const std::optional<std::string> &newBranchName,
+    bool captureLiveState) {
   if (!versionStore_) {
     versioning::ProjectSaveResult result;
     result.error = "Version storage is unavailable";
     return result;
   }
   return versionStore_->saveProjectState(
-      branchId, loadedVersionId, captureCurrentState(mixer), newBranchName);
+      branchId, loadedVersionId, captureCurrentState(mixer, captureLiveState),
+      newBranchName);
 }
 
-versioning::FiddleState StateManager::captureCurrentState(MixerModel &mixer) {
+versioning::FiddleState StateManager::captureCurrentState(
+    MixerModel &mixer, bool captureLiveState) {
   versioning::FiddleState state;
-  state.globalState =
-      makeGlobalState(mixer.masterAudio().snapshotAll(), mixer);
+  state.globalState = makeGlobalState(
+      mixer.masterAudio().snapshotAll(captureLiveState), mixer,
+      captureLiveState);
 
   auto strips = mixer.getAllStrips();
   std::map<std::string, versioning::Hash> stripHashesById;
@@ -427,8 +432,8 @@ versioning::FiddleState StateManager::captureCurrentState(MixerModel &mixer) {
       const uint8_t *data = static_cast<const uint8_t *>(cached.getData());
       sb.pluginState.assign(data, data + cached.getSize());
     }
-    const auto audioState =
-        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll());
+    const auto audioState = serializeStripAudioSnapshot(
+        strip->audioEngine().snapshotAll(captureLiveState));
     if (!audioState.isEmpty()) {
       const auto *data = static_cast<const uint8_t *>(audioState.getData());
       sb.audioInsertState.assign(data, data + audioState.getSize());

@@ -127,6 +127,11 @@ public:
   MasterAudioEngine &masterAudio() noexcept { return masterAudio_; }
   const MasterAudioEngine &masterAudio() const noexcept { return masterAudio_; }
 
+  /// Freeze one fresh state blob for every instrument/effect under a single
+  /// processing-gate interval. Persistence can reuse the caches without
+  /// calling vendor serialization a second time.
+  void capturePluginStateCachesForSave();
+
   [[nodiscard]] int masterLatencySamples() const noexcept {
     return masterAudio_.latencySamples();
   }

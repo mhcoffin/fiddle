@@ -140,7 +140,9 @@ void testBackgroundDiagnostics() {
       if (event.has_note_on()) gotNote.store(true);
       if (event.has_audio_diagnostics())
         gotDiagnostics.store(event.audio_diagnostics().underruns() == 7 &&
-                             event.audio_diagnostics().sample_rate() == 48000);
+                             event.audio_diagnostics().sample_rate() == 48000 &&
+                             event.audio_diagnostics().safety_mute_episodes() == 3 &&
+                             event.audio_diagnostics().safety_mute_version() == 1);
     }
     ::close(client);
   });
@@ -153,6 +155,8 @@ void testBackgroundDiagnostics() {
       fiddle::MidiEvent event;
       event.mutable_audio_diagnostics()->set_underruns(7);
       event.mutable_audio_diagnostics()->set_sample_rate(48000);
+      event.mutable_audio_diagnostics()->set_safety_mute_episodes(3);
+      event.mutable_audio_diagnostics()->set_safety_mute_version(1);
       return event;
     });
     fiddle::MidiEvent note;

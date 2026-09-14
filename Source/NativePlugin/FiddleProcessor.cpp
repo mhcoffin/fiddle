@@ -117,6 +117,10 @@ tresult PLUGIN_API FiddleProcessor::setActive(TBool state) {
       data->set_sample_rate(cachedSampleRate_.load(std::memory_order_relaxed));
       data->set_dropped_midi_events(relay->droppedRealtimeEventCount());
       data->set_audio_protocol(AudioStreamRing::version);
+      data->set_safety_mute_episodes(counters.safetyMuteEpisodes);
+      data->set_safety_muted_frames(counters.safetyMutedFrames);
+      data->set_minimum_queued_frames(counters.minimumQueuedFrames);
+      data->set_safety_mute_version(1);
       return event;
     });
 

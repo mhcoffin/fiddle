@@ -32,10 +32,15 @@ already rendered: their audio response can be delayed by the queued reserve.
 
 - A short rendering stall spends the reserve; spare processing capacity refills
   it. Sustained load above real time will still underrun.
-- On underrun Dorico emits a silent block and advances its sample cursor. Missing
-  audio is not replayed late. The worker skips an obsolete unrendered interval;
-  this cannot reconstruct missed instrument/effect evolution. Skipped frames and
-  underrun silence are observable counters.
+- When the completed reserve falls below one producer block or two Dorico
+  callbacks, the native return latches a safety mute. It continues advancing the
+  sample cursor and discarding late audio until the reserve is effectively full
+  (another complete producer block cannot fit), then fades in over 10 ms. This
+  avoids alternating isolated audio and silent blocks during recovery. Missing
+  audio is not replayed late. The worker
+  skips an obsolete unrendered interval; this cannot reconstruct missed
+  instrument/effect evolution. Safety-mute episodes/frames, minimum queued
+  frames, skipped frames and definite underruns are observable counters.
 - Priming is silent audio, not an underrun. A stopped host leaves a bounded full
   reserve; rendering does not run arbitrarily far into the future.
 - Device reconfiguration stops and joins the worker before preparing processors.
@@ -66,8 +71,9 @@ Release server before reopening the unchanged score. Keep 1,024-frame settings
 for the first comparison. Check Audio performance for protocol warnings, matching
 sample rates and approximately 70 ms target reserve. Play/loop for several
 minutes, exercise the UI and stop/restart mid-note. Copy the diagnostic report;
-compare increases in underruns/skipped frames, not lifetime totals. A subsequent
-512-frame comparison should change only that setting, with playback stopped.
+compare increases in safety mutes, underruns and skipped frames, not lifetime
+totals. A subsequent 512-frame comparison should change only that setting, with
+playback stopped.
 
 ## September 9 listening results and remaining issue
 

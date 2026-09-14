@@ -316,8 +316,8 @@ void testPluginTimingAndReprepare() {
   for (int i = 0; i < 100; ++i)
     REQUIRE(juce::JSON::toString(f.mixer.pluginTimings(f.now)).isNotEmpty());
   REQUIRE(SignalProcessor::programQueries == programs && SignalProcessor::stateCaptures == captures);
-  // Scalar/session persistence may use cached bytes. Explicit saves retain the
-  // default fresh-capture path and are protected by the processing gate.
+  // Scalar/session persistence may use cached bytes. Explicit saves first
+  // refresh every cache under the processing gate, then use this path.
   (void)f.mixer.masterAudio().snapshotAll(false);
   (void)f.mixer.getStrip(a)->audioEngine().snapshotAll(false);
   (void)bus->audioEngine().snapshotAll(false);
@@ -483,6 +483,47 @@ float stateAmount(const juce::MemoryBlock &state) {
   REQUIRE(state.getSize() == sizeof(float));
   float result = 0; std::memcpy(&result, state.getData(), sizeof(result));
   return result;
+}
+
+void testFrozenSaveCapturesEachPluginOnce() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("single-capture.sqlite")));
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+
+  MixerFixture f;
+  const auto first = f.instrument(0.1f, 1);
+  (void)f.instrument(0.2f, 2);
+  REQUIRE(f.commands.addGroupBus("Frozen", {first}));
+  addEffect(f.mixer.getStrip(first)->audioEngine(), "strip-frozen", 2.0f);
+  addEffect(f.mixer.getAllGroupBuses().front()->audioEngine(), "bus-frozen", 0.5f);
+  fiddle::MasterInsertSnapshot master;
+  master.slotId = "master-frozen";
+  master.description = description(false);
+  REQUIRE(f.mixer.masterAudio().insertProcessor(
+      master, 0, std::make_unique<SignalProcessor>(false, 1.0f)));
+
+  const auto before = SignalProcessor::stateCaptures;
+  f.mixer.capturePluginStateCachesForSave();
+  REQUIRE(SignalProcessor::stateCaptures == before + 5); // two instruments, three FX
+
+  // Session/database serialization and the version commit both consume the
+  // frozen caches. Neither may re-enter vendor getStateInformation().
+  for (auto *strip : f.mixer.getAllStrips()) {
+    REQUIRE(!strip->cachedPluginState().isEmpty());
+    (void)strip->audioEngine().snapshotAll(false);
+  }
+  (void)f.mixer.getAllGroupBuses().front()->audioEngine().snapshotAll(false);
+  (void)f.mixer.masterAudio().snapshotAll(false);
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.initialize(sandbox.directory.getChildFile("state.bin"));
+  const auto saved = state.saveCurrentState(
+      f.mixer, branch, root, std::nullopt, false);
+  REQUIRE(saved.kind == fiddle::versioning::ProjectSaveResult::Kind::Committed);
+  REQUIRE(SignalProcessor::stateCaptures == before + 5);
 }
 
 void testLibraryCatalogHistory() {
@@ -1984,6 +2025,7 @@ int main() {
   run("library preview state survives structural history and duplication", testRetainedLibraryPreviews);
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
+  run("save freezes each plugin state once for session and version persistence", testFrozenSaveCapturesEachPluginOnce);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);

@@ -75,6 +75,9 @@ public:
     return changed;
   }
   bool refreshPluginStateCaches();
+  /// Freshly serialize every loaded insert. Callers can then take any number
+  /// of snapshotAll(false) copies without invoking vendor code again.
+  void capturePluginStateCaches();
   void captureParameterFingerprints();
 
   [[nodiscard]] juce::var toJson() const;

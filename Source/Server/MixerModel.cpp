@@ -417,6 +417,20 @@ double MixerModel::maximumPathLatencyMs() const {
   return longest + masterAudio_.latencyMs();
 }
 
+void MixerModel::capturePluginStateCachesForSave() {
+  // Keep the capture coherent and report its total duration as one control
+  // pause. Nested HostedPluginSlot gates are recursive on this thread.
+  AudioProcessingGate::Control control;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &strip : strips_) {
+    strip->refreshPluginStateCache();
+    strip->audioEngine().capturePluginStateCaches();
+  }
+  for (const auto &bus : groupBuses_)
+    bus->audioEngine().capturePluginStateCaches();
+  masterAudio_.capturePluginStateCaches();
+}
+
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime) {
   AudioProcessingGate::Render render;

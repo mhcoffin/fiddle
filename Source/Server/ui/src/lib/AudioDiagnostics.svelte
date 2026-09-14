@@ -111,11 +111,15 @@
                     <dt>Host sample rate</dt><dd>{nativeValue("returnSampleRate")} Hz</dd>
                     <dt>Return callbacks</dt><dd>{nativeValue("returnCallbacks")}</dd>
                     <dt>Underrun episodes</dt><dd>{nativeValue("underruns")}</dd>
-                    <dt>Underrun silence (frames)</dt><dd>{nativeValue("bufferingFrames")}</dd>
+                    <dt>Recovery silence (frames)</dt><dd>{nativeValue("bufferingFrames")}</dd>
+                    <dt>Safety-mute episodes</dt><dd>{nativeValue("safetyMuteEpisodes")}</dd>
+                    <dt>Safety-muted frames</dt><dd>{nativeValue("safetyMutedFrames")}</dd>
+                    <dt>Lowest queued reserve (frames)</dt><dd>{nativeValue("minimumQueuedFrames")}</dd>
                     <dt>Unavailable-ring silence (frames)</dt><dd>{nativeValue("unavailableFrames")}</dd>
                     <dt>Dropped outgoing MIDI events</dt><dd>{nativeValue("droppedMidiEvents")}</dd>
                 </dl>
-                <p>One underrun episode can produce several silent blocks. With render-ahead, initial priming silence is excluded; missed audio is not replayed later.</p>
+                {#if data?.returnFresh && data?.safetyMuteVersion !== 1}<p class="warning">This Dorico plugin predates recovery safety muting. Close Dorico and install the rebuilt Fiddle plugin.</p>{/if}
+                <p>Low reserve latches a safety mute until the reserve is effectively full, then fades audio back in. Missed audio is discarded rather than replayed late. One episode can therefore cover several silent blocks.</p>
                 <p>Counts and maxima accumulate while these objects live. Restart Fiddle for fresh server counters; recreate the Dorico plugin for fresh return counters. JUCE xruns may overlap our overrun count—do not add them together.</p>
             </section>
         </div>

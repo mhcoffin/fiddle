@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
 namespace fiddle {
 
@@ -166,6 +167,7 @@ public:
   enum class Result { rendered, buffering, underrun, unavailable };
   struct Snapshot {
     uint64_t callbacks, underruns, bufferingFrames, unavailableFrames;
+    uint64_t safetyMuteEpisodes, safetyMutedFrames, minimumQueuedFrames;
   };
   void record(Result result, int frames) noexcept {
     if (frames <= 0) return;
@@ -177,11 +179,29 @@ public:
       unavailableFrames_.fetch_add(static_cast<uint64_t>(frames), std::memory_order_relaxed);
   }
   Snapshot snapshot() const noexcept {
+    const auto minimum = minimumQueuedFrames_.load(std::memory_order_relaxed);
     return {callbacks_.load(std::memory_order_relaxed), underruns_.load(std::memory_order_relaxed),
-            bufferingFrames_.load(std::memory_order_relaxed), unavailableFrames_.load(std::memory_order_relaxed)};
+            bufferingFrames_.load(std::memory_order_relaxed), unavailableFrames_.load(std::memory_order_relaxed),
+            safetyMuteEpisodes_.load(std::memory_order_relaxed),
+            safetyMutedFrames_.load(std::memory_order_relaxed),
+            minimum == std::numeric_limits<uint64_t>::max() ? 0 : minimum};
+  }
+  void beginSafetyMute() noexcept {
+    safetyMuteEpisodes_.fetch_add(1, std::memory_order_relaxed);
+  }
+  void recordSafetyMutedFrames(int frames) noexcept {
+    if (frames > 0)
+      safetyMutedFrames_.fetch_add(static_cast<uint64_t>(frames), std::memory_order_relaxed);
+  }
+  void observeQueuedFrames(uint64_t frames) noexcept {
+    auto minimum = minimumQueuedFrames_.load(std::memory_order_relaxed);
+    while (frames < minimum && !minimumQueuedFrames_.compare_exchange_weak(
+             minimum, frames, std::memory_order_relaxed, std::memory_order_relaxed)) {}
   }
 private:
   static_assert(std::atomic<uint64_t>::is_always_lock_free);
   std::atomic<uint64_t> callbacks_{0}, underruns_{0}, bufferingFrames_{0}, unavailableFrames_{0};
+  std::atomic<uint64_t> safetyMuteEpisodes_{0}, safetyMutedFrames_{0};
+  std::atomic<uint64_t> minimumQueuedFrames_{std::numeric_limits<uint64_t>::max()};
 };
 } // namespace fiddle

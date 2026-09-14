@@ -32,6 +32,9 @@ test("panel uses native modal focus handling and offers marked, copyable diagnos
     assert.match(source, /showAudioSettings/);
     assert.match(source, /buildConfiguration/);
     assert.match(source, /renderBeforeLongGapMs/);
+    assert.match(source, /Safety-mute episodes/);
+    assert.match(source, /Lowest queued reserve/);
+    assert.match(source, /recovery safety muting/);
 });
 
 test("plugin costs sort without mutating reports, and stale or bypassed costs are explicit", () => {

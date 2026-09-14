@@ -485,6 +485,11 @@ bool MasterAudioEngine::refreshPluginStateCaches() {
   return changed;
 }
 
+void MasterAudioEngine::capturePluginStateCaches() {
+  for (const auto &entry : inserts_)
+    entry->hosted->refreshStateCache();
+}
+
 void MasterAudioEngine::captureParameterFingerprints() {
   for (const auto &entry : inserts_)
     entry->parameterFingerprint = entry->hosted->parameterFingerprint();
