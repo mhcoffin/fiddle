@@ -51,6 +51,7 @@ void ExpressionMapLibrary::addFile(const juce::File &file) {
     entry.entityID = meta.entityID;
     entry.version = meta.version;
     entry.creator = meta.creator;
+    entry.pluginNames = meta.pluginNames;
     entry.sourceFile = file;
     entry.definitionIndex = i;
 
@@ -115,6 +116,7 @@ juce::String ExpressionMapLibrary::toJson() const {
     obj->setProperty("entityID", juce::String(e.entityID));
     obj->setProperty("version", e.version);
     obj->setProperty("creator", juce::String(e.creator));
+    obj->setProperty("pluginNames", juce::String(e.pluginNames));
     arr.add(juce::var(obj));
   }
 

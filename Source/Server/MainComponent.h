@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../AudioDiagnostics.h"
+#include "AgentControlServer.h"
 #include "DebugWindow.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
@@ -180,6 +181,7 @@ private:
   std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
   AudioRenderDiagnostics audioDiagnostics_;
   std::unique_ptr<RenderAheadEngine> renderAhead_;
+  std::unique_ptr<AgentControlServer> agentControlServer_;
   std::atomic<int> reportedPlaybackDelayMs_{1000};
   juce::String renderAheadError_;
   AudioRenderDiagnostics::Snapshot latestAudioDiagnostics_;
@@ -226,6 +228,7 @@ private:
   /// Library Manager window (lazy instantiated)
   std::unique_ptr<LibraryManagerWindow> libraryManagerWindow_;
   bool libraryManagerWindowLoaded_ = false;
+  juce::String pendingGuidedLibraryId_;
 
   /// Throttle state for scheduleStateRebuild() — max once per second.
   uint32_t lastStateRebuildMs_ = 0;
@@ -247,9 +250,25 @@ private:
   void initDatabase();
   void migrateLegacyLibraryPatches();
   void initPluginsAndStrips();
+  void initAgentControl();
   void timerCallback() override;
 
   void setupJsHandlers();
+  AgentControlServer::Response
+  handleAgentControlRequest(const juce::String &method,
+                            const juce::var &params);
+  juce::var agentStatus() const;
+  juce::var agentLayerSnapshot(const MixerStrip &strip) const;
+  juce::var agentMixerSnapshot();
+  juce::var agentLayerResult(const juce::String &stripId,
+                             bool changed);
+  juce::var agentLibrarySetupSnapshot(const juce::String &libraryId);
+  AgentControlServer::Response
+  createAgentGuidedLibrary(const juce::var &params);
+  void scanPersistedExpressionMapSources();
+  void rememberExpressionMapSourceDirectory(const juce::File &directory);
+  void agentMixerChanged();
+  bool applyAgentUndoRedo(bool redo);
 
   /// Send a typed message to all ready WebViews via window.__dispatchFromCpp.
   /// This is the preferred API — avoid raw broadcastJavascript where possible.

@@ -30,7 +30,9 @@ public:
       if (a.id != b.id || a.libraryId != b.libraryId || a.position != b.position ||
           a.name != b.name || a.instrumentEntityId != b.instrumentEntityId ||
           a.family != b.family || a.character != b.character || a.pluginUid != b.pluginUid ||
-          a.pluginState != b.pluginState || a.expressionMapId != b.expressionMapId) return false;
+          a.pluginState != b.pluginState || a.expressionMapId != b.expressionMapId ||
+          a.expectedPresetName != b.expectedPresetName ||
+          a.setupComplete != b.setupComplete) return false;
     }
     return true;
   }

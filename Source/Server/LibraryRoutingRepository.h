@@ -22,6 +22,10 @@ struct LibraryPatchRow {
   int pluginUid = 0;
   std::vector<std::uint8_t> pluginState;
   std::string expressionMapId;
+  /// Human-readable preset the guided setup asks the user to load.
+  std::string expectedPresetName;
+  /// False while a guided-import patch still needs explicit user capture.
+  bool setupComplete = true;
   int revision = 1;
 };
 

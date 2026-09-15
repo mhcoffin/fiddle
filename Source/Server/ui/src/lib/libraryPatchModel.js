@@ -13,6 +13,8 @@ export function createLibraryPatch(instrument, character, id, defaults = {}) {
         pluginUid: Number(defaults.vstPlugin) || 0,
         hasPluginState: false,
         pluginStatePending: false,
+        expectedPresetName: defaults.expectedPresetName || "",
+        setupComplete: defaults.setupComplete !== false,
         usageCount: 0,
         outOfDateLayerCount: 0,
     };
@@ -28,7 +30,7 @@ export function pluginSetupStatus(patch) {
             label: "Player setup changed — save the library",
         };
     }
-    if (patch?.hasPluginState) {
+    if (patch?.hasPluginState && patch?.setupComplete !== false) {
         return {
             kind: "saved",
             symbol: "✓",
@@ -40,6 +42,35 @@ export function pluginSetupStatus(patch) {
         symbol: "!",
         label: "Player assigned — no setup saved",
     };
+}
+
+export function guidedSetupPatches(patches) {
+    return patches.filter((patch) => Boolean(patch.expectedPresetName));
+}
+
+export function guidedSetupProgress(patches) {
+    const guided = guidedSetupPatches(patches);
+    const configured = guided.filter((patch) => patch.setupComplete).length;
+    return { total: guided.length, configured, remaining: guided.length - configured };
+}
+
+export function nextGuidedPatch(patches, afterId = "") {
+    const guided = guidedSetupPatches(patches);
+    if (!guided.length) return null;
+    const afterIndex = guided.findIndex((patch) => patch.id === afterId);
+    for (let offset = 1; offset <= guided.length; ++offset) {
+        const patch = guided[(Math.max(afterIndex, -1) + offset) % guided.length];
+        if (!patch.setupComplete) return patch;
+    }
+    return null;
+}
+
+export function canCaptureGuidedPatch(patch) {
+    return Boolean(
+        patch?.expectedPresetName
+        && !patch.setupComplete
+        && patch.pluginStatePending,
+    );
 }
 
 export function createBlankLibraryPatch(id, defaults = {}) {

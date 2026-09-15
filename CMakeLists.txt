@@ -118,6 +118,8 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/ApplicationRestart.cpp
+    Source/Server/AgentControlServer.cpp
+    Source/Server/AgentControlServer.h
     Source/Server/AudioDeviceSettings.cpp
     Source/Server/RenderAheadEngine.cpp
     Source/Server/ApplicationRestart.h
@@ -342,6 +344,48 @@ if(TARGET FiddleServerUIBuild)
     add_dependencies(FiddleServerUI FiddleServerUIBuild)
 endif()
 add_dependencies(FiddleServer FiddleServerUI)
+
+# Build the local stdio MCP adapter with the official TypeScript SDK and ship
+# the single bundled module inside FiddleServer.app. The adapter is launched by
+# an MCP client and attaches to the running native app's loopback bridge.
+set(MCP_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/mcp")
+set(MCP_DIST_FILE "${MCP_SOURCE_DIR}/dist/fiddle-mcp.mjs")
+set(MCP_BUILD_STAMP "${CMAKE_CURRENT_BINARY_DIR}/mcp_build.stamp")
+set(MCP_BUNDLE_DIR "$<TARGET_FILE_DIR:FiddleServer>/../Resources/mcp")
+if(PNPM_EXECUTABLE)
+    file(GLOB_RECURSE MCP_SOURCE_FILES CONFIGURE_DEPENDS
+        "${MCP_SOURCE_DIR}/src/*"
+        "${MCP_SOURCE_DIR}/test/*"
+    )
+    add_custom_command(
+        OUTPUT "${MCP_BUILD_STAMP}"
+        COMMAND "${PNPM_EXECUTABLE}" run check
+        COMMAND "${PNPM_EXECUTABLE}" run build
+        COMMAND ${CMAKE_COMMAND} -E touch "${MCP_BUILD_STAMP}"
+        WORKING_DIRECTORY "${MCP_SOURCE_DIR}"
+        DEPENDS ${MCP_SOURCE_FILES}
+                "${MCP_SOURCE_DIR}/package.json"
+                "${MCP_SOURCE_DIR}/pnpm-lock.yaml"
+        COMMENT "Building Fiddle MCP adapter"
+        VERBATIM
+    )
+    add_custom_target(FiddleMcpBuild DEPENDS "${MCP_BUILD_STAMP}")
+    add_custom_target(FiddleMcp ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${MCP_BUNDLE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${MCP_BUNDLE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${MCP_DIST_FILE}" "${MCP_BUNDLE_DIR}/fiddle-mcp.mjs"
+        DEPENDS FiddleMcpBuild
+        COMMENT "Syncing MCP adapter to FiddleServer bundle"
+    )
+    add_dependencies(FiddleServer FiddleMcp)
+    add_test(NAME fiddle_mcp_adapter
+        COMMAND "${PNPM_EXECUTABLE}" run test:ci)
+    set_tests_properties(fiddle_mcp_adapter PROPERTIES
+        WORKING_DIRECTORY "${MCP_SOURCE_DIR}"
+        LABELS "agent;mcp;regression;stable"
+    )
+endif()
 
 # ==============================================================================
 # FiddleNative — Native VST3 plugin with per-channel program changes
@@ -664,6 +708,31 @@ juce_generate_juce_header(MidiTcpServerTest)
 add_test(NAME midi_tcp_server COMMAND MidiTcpServerTest)
 set_tests_properties(midi_tcp_server PROPERTIES
     LABELS "connection;regression;stable"
+)
+
+# ==============================================================================
+# AgentControlServerTest — authenticated loopback bridge for the MCP adapter
+# ==============================================================================
+juce_add_console_app(AgentControlServerTest
+    PRODUCT_NAME "AgentControlServerTest"
+)
+
+target_sources(AgentControlServerTest PRIVATE
+    Source/Server/tests/AgentControlServerTest.cpp
+    Source/Server/AgentControlServer.cpp
+)
+
+target_include_directories(AgentControlServerTest PRIVATE Source/Server)
+target_link_libraries(AgentControlServerTest PRIVATE
+    juce::juce_core
+    juce::juce_events
+)
+target_compile_features(AgentControlServerTest PRIVATE cxx_std_17)
+juce_generate_juce_header(AgentControlServerTest)
+
+add_test(NAME agent_control_server COMMAND AgentControlServerTest)
+set_tests_properties(agent_control_server PROPERTIES
+    LABELS "agent;mcp;connection;regression;stable"
 )
 
 # ==============================================================================
@@ -1130,5 +1199,8 @@ foreach(test_target IN LISTS fiddle_targets)
         add_dependencies(FiddleTests "${test_target}")
     endif()
 endforeach()
+if(TARGET FiddleMcpBuild)
+    add_dependencies(FiddleTests FiddleMcpBuild)
+endif()
 get_property(fiddle_tests DIRECTORY PROPERTY TESTS)
 set_tests_properties(${fiddle_tests} PROPERTIES TIMEOUT 120)

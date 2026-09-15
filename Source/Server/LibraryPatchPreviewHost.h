@@ -39,6 +39,8 @@ public:
                  std::vector<std::uint8_t> state);
   void showOnly(const std::vector<std::string> &ids);
   void retainOnly(const std::vector<std::string> &ids);
+  /// Close one native editor while retaining its captured preview instance.
+  void closeEditor(const std::string &patchId);
   bool isLoading() const;
 
   /// Consume editor/processor notifications from every preview and return the

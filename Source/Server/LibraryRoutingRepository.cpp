@@ -1,5 +1,6 @@
 #include "LibraryRoutingRepository.h"
 
+#include <iostream>
 #include <set>
 #include <utility>
 
@@ -9,7 +10,11 @@ namespace {
 class Statement {
 public:
   Statement(sqlite3 *database, const char *sql) {
-    sqlite3_prepare_v2(database, sql, -1, &statement_, nullptr);
+    if (sqlite3_prepare_v2(database, sql, -1, &statement_, nullptr) !=
+        SQLITE_OK)
+      std::cerr << "[LibraryRoutingRepository] Could not prepare SQL: "
+                << sqlite3_errmsg(database) << " [" << sql << "]"
+                << std::endl;
   }
   ~Statement() {
     if (statement_)
@@ -26,7 +31,16 @@ private:
 };
 
 bool execute(sqlite3 *database, const char *sql) {
-  return sqlite3_exec(database, sql, nullptr, nullptr, nullptr) == SQLITE_OK;
+  char *error = nullptr;
+  const int result = sqlite3_exec(database, sql, nullptr, nullptr, &error);
+  if (result != SQLITE_OK) {
+    std::cerr << "[LibraryRoutingRepository] SQL failed: "
+              << (error ? error : sqlite3_errmsg(database)) << " [" << sql
+              << "]" << std::endl;
+    sqlite3_free(error);
+    return false;
+  }
+  return true;
 }
 
 bool hasColumn(sqlite3 *database, const char *table, const char *column) {
@@ -151,7 +165,9 @@ LibraryPatchRow readPatch(sqlite3_stmt *statement) {
   patch.pluginUid = sqlite3_column_int(statement, 7);
   patch.pluginState = columnBlob(statement, 8);
   patch.expressionMapId = columnText(statement, 9);
-  patch.revision = sqlite3_column_int(statement, 10);
+  patch.expectedPresetName = columnText(statement, 10);
+  patch.setupComplete = sqlite3_column_int(statement, 11) != 0;
+  patch.revision = sqlite3_column_int(statement, 12);
   return patch;
 }
 
@@ -192,7 +208,8 @@ LayerRow readLayer(sqlite3_stmt *statement) {
 
 constexpr const char *kPatchColumns =
     "id, library_id, position, name, instrument_entity_id, family, "
-    "character, plugin_uid, plugin_state, expression_map_id, revision";
+    "character, plugin_uid, plugin_state, expression_map_id, "
+    "expected_preset_name, setup_complete, revision";
 constexpr const char *kChairColumns =
     "id, instrument_entity_id, name, family, dorico_role, ordinal, "
     "display_order, flat_index";
@@ -226,6 +243,8 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
       plugin_uid           INTEGER NOT NULL DEFAULT 0,
       plugin_state         BLOB,
       expression_map_id    TEXT NOT NULL DEFAULT '',
+      expected_preset_name TEXT NOT NULL DEFAULT '',
+      setup_complete       INTEGER NOT NULL DEFAULT 1,
       revision             INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY (library_id) REFERENCES libraries(id) ON DELETE RESTRICT
     )
@@ -286,6 +305,10 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
   if (!baseSchema ||
       !ensureColumn(database, "library_patches", "revision",
                     "revision INTEGER NOT NULL DEFAULT 1") ||
+      !ensureColumn(database, "library_patches", "expected_preset_name",
+                    "expected_preset_name TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "library_patches", "setup_complete",
+                    "setup_complete INTEGER NOT NULL DEFAULT 1") ||
       !ensureColumn(database, "layers", "patch_name",
                     "patch_name TEXT NOT NULL DEFAULT ''") ||
       !ensureColumn(database, "layers", "library_id",
@@ -344,8 +367,9 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
   Statement statement(database_, R"(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
-       character, plugin_uid, plugin_state, expression_map_id, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+       character, plugin_uid, plugin_state, expression_map_id,
+       expected_preset_name, setup_complete, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -369,7 +393,9 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
       character = excluded.character,
       plugin_uid = excluded.plugin_uid,
       plugin_state = excluded.plugin_state,
-      expression_map_id = excluded.expression_map_id
+      expression_map_id = excluded.expression_map_id,
+      expected_preset_name = excluded.expected_preset_name,
+      setup_complete = excluded.setup_complete
   )");
   if (!statement)
     return false;
@@ -383,6 +409,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
   sqlite3_bind_int(statement.get(), 8, patch.pluginUid);
   bindBlob(statement.get(), 9, patch.pluginState);
   bindText(statement.get(), 10, patch.expressionMapId);
+  bindText(statement.get(), 11, patch.expectedPresetName);
+  sqlite3_bind_int(statement.get(), 12, patch.setupComplete ? 1 : 0);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -664,8 +692,9 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
   Statement upsert(database_, R"(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
-       character, plugin_uid, plugin_state, expression_map_id, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
+       character, plugin_uid, plugin_state, expression_map_id,
+       expected_preset_name, setup_complete, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -687,7 +716,9 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
       character = excluded.character,
       plugin_uid = excluded.plugin_uid,
       plugin_state = excluded.plugin_state,
-      expression_map_id = excluded.expression_map_id
+      expression_map_id = excluded.expression_map_id,
+      expected_preset_name = excluded.expected_preset_name,
+      setup_complete = excluded.setup_complete
   )");
   Statement remove(database_, "DELETE FROM library_patches WHERE id = ?");
   bool succeeded = upsert && remove;
@@ -707,7 +738,13 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
     sqlite3_bind_int(upsert.get(), 8, patch.pluginUid);
     bindBlob(upsert.get(), 9, patch.pluginState);
     bindText(upsert.get(), 10, patch.expressionMapId);
+    bindText(upsert.get(), 11, patch.expectedPresetName);
+    sqlite3_bind_int(upsert.get(), 12, patch.setupComplete ? 1 : 0);
     succeeded = sqlite3_step(upsert.get()) == SQLITE_DONE;
+    if (!succeeded)
+      std::cerr << "[LibraryRoutingRepository] Could not save patch '"
+                << patch.id << "': " << sqlite3_errmsg(database_)
+                << std::endl;
   }
 
   for (const auto &id : removedIds) {
@@ -770,6 +807,10 @@ PatchReplaceResult LibraryRoutingRepository::restoreLibrary(
       bindText(header.get(), 1, snapshot.id); bindText(header.get(), 2, snapshot.name);
       bindText(header.get(), 3, snapshot.vendor); bindText(header.get(), 4, snapshot.variant);
       ok = sqlite3_step(header.get()) == SQLITE_DONE;
+      if (!ok)
+        std::cerr << "[LibraryRoutingRepository] Could not save library header '"
+                  << snapshot.id << "': " << sqlite3_errmsg(database_)
+                  << std::endl;
     }
   }
   auto result = ok ? replaceLibraryPatchesUnlocked(snapshot.id, snapshot.patches)
@@ -784,6 +825,10 @@ PatchReplaceResult LibraryRoutingRepository::restoreLibrary(
       sqlite3_bind_int(revision.get(), 1, patch.revision);
       bindText(revision.get(), 2, patch.id);
       ok = sqlite3_step(revision.get()) == SQLITE_DONE;
+      if (!ok)
+        std::cerr << "[LibraryRoutingRepository] Could not restore revision for patch '"
+                  << patch.id << "': " << sqlite3_errmsg(database_)
+                  << std::endl;
     }
   }
   // Modern rows supersede the migrated legacy representation. Remove it on a
@@ -792,7 +837,14 @@ PatchReplaceResult LibraryRoutingRepository::restoreLibrary(
   if (ok && hasColumn(database_, "library_instruments", "library_id")) {
     Statement legacy(database_, "DELETE FROM library_instruments WHERE library_id = ?");
     ok = bool(legacy);
-    if (ok) { bindText(legacy.get(), 1, snapshot.id); ok = sqlite3_step(legacy.get()) == SQLITE_DONE; }
+    if (ok) {
+      bindText(legacy.get(), 1, snapshot.id);
+      ok = sqlite3_step(legacy.get()) == SQLITE_DONE;
+      if (!ok)
+        std::cerr << "[LibraryRoutingRepository] Could not clear legacy rows for library '"
+                  << snapshot.id << "': " << sqlite3_errmsg(database_)
+                  << std::endl;
+    }
   }
   if (ok && !snapshot.exists) {
     Statement remove(database_, "DELETE FROM libraries WHERE id = ?");

@@ -59,6 +59,8 @@ fiddle::LibraryPatchRow soloViolinPatch() {
   patch.pluginUid = 410;
   patch.pluginState = {1, 2, 3, 4};
   patch.expressionMapId = "xmap.synchron-solo-violin";
+  patch.expectedPresetName = "Synchron Solo Violin 1";
+  patch.setupComplete = false;
   return patch;
 }
 
@@ -79,10 +81,29 @@ fiddle::ChairRow makeChair(std::string id, fiddle::DoricoRole role,
 void testCatalogSnapshotsAreAtomicAndRevisionSafe() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  fiddle::LibraryCatalogSnapshot created;
+  created.id = "new-library";
+  created.name = "New Library";
+  created.vendor = "Vendor";
+  created.variant = "Variant";
+  created.exists = true;
+  auto createdPatch = soloViolinPatch();
+  createdPatch.id = "new-patch";
+  createdPatch.libraryId = created.id;
+  created.patches.push_back(createdPatch);
+  CHECK(repository.restoreLibrary(created, false) ==
+        fiddle::PatchReplaceResult::replaced);
+  const auto capturedCreated = repository.captureLibrary(created.id);
+  CHECK(capturedCreated && capturedCreated->exists &&
+        capturedCreated->patches.size() == 1);
+
   auto patch = soloViolinPatch();
   CHECK(repository.upsertPatch(patch));
   auto original = repository.captureLibrary("vsl");
   CHECK(original && original->exists && original->patches.size() == 1);
+  CHECK(original->patches[0].expectedPresetName ==
+        patch.expectedPresetName);
+  CHECK(!original->patches[0].setupComplete);
   auto edited = *original;
   edited.name = "Edited header"; edited.vendor = "Vendor"; edited.variant = "Variant";
   edited.patches[0].pluginState = {9, 8, 7};
@@ -91,6 +112,9 @@ void testCatalogSnapshotsAreAtomicAndRevisionSafe() {
   CHECK(second->patches[0].revision > original->patches[0].revision);
   CHECK(repository.restoreLibrary(*original) == fiddle::PatchReplaceResult::replaced);
   CHECK(repository.getPatch(patch.id)->pluginState == patch.pluginState);
+  CHECK(repository.getPatch(patch.id)->expectedPresetName ==
+        patch.expectedPresetName);
+  CHECK(!repository.getPatch(patch.id)->setupComplete);
   CHECK(repository.getPatch(patch.id)->revision == original->patches[0].revision);
   // A new branch must not reuse the identity of the just-undone setup.
   edited.patches[0].pluginState = {6, 5, 4};

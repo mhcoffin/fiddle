@@ -16,6 +16,7 @@ struct ExpressionMapEntry {
   std::string entityID;
   int version = 0;
   std::string creator;
+  std::string pluginNames;
   juce::File sourceFile;
   int definitionIndex = 0; // index within a multi-definition file
 };

@@ -406,6 +406,7 @@ scanExpressionMapMetadata(const juce::File &file) {
     meta.entityID = getChildText(child, "entityID");
     meta.version = getChildInt(child, "version", 0);
     meta.creator = getChildText(child, "creator");
+    meta.pluginNames = getChildText(child, "pluginNames");
     if (!meta.entityID.empty())
       results.push_back(std::move(meta));
   }

@@ -26,12 +26,14 @@
 #include "StripAudioJsHandlers.h"
 
 #include "midi_event.pb.h"
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <google/protobuf/text_format.h>
 #include <memory>
+#include <set>
 #include <string>
 
 namespace fiddle {
@@ -909,6 +911,7 @@ void MainComponent::initDatabase() {
   // Open SQLite database
   auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
   db_.open(dbFile);
+  scanPersistedExpressionMapSources();
   migrateLegacyLibraryPatches();
 
   // Create the VersionStore backed by the database's SqliteVersionStorage.
@@ -1272,6 +1275,8 @@ void MainComponent::initPluginsAndStrips() {
 
   // Cache config_status so new client connections get it immediately
   pushConfigStatus();
+
+  initAgentControl();
 
   // Wait for the WebView to signal it's ready before dismissing splash
   addInitMessage("Preparing interface...");
@@ -2099,6 +2104,7 @@ void MainComponent::restoreDoricoProject(
 
 MainComponent::~MainComponent() {
   stopTimer();
+  agentControlServer_.reset();
   deviceManager.removeAudioCallback(this);
   renderAhead_.reset();
   mixer_.masterAudio().setOnChanged(nullptr);
@@ -2141,6 +2147,548 @@ MainComponent::~MainComponent() {
 
   audioSettings_.reset();
   server.reset();
+}
+
+void MainComponent::scanPersistedExpressionMapSources() {
+  const auto saved = juce::JSON::parse(
+      juce::String(db_.loadSetting("expression_map_source_dirs", "[]")));
+  if (!saved.isArray())
+    return;
+  for (const auto &item : *saved.getArray()) {
+    const juce::File directory(item.toString());
+    if (directory.isDirectory())
+      xmapLibrary_.scanDirectory(directory);
+  }
+}
+
+void MainComponent::rememberExpressionMapSourceDirectory(
+    const juce::File &directory) {
+  if (!directory.isDirectory())
+    return;
+  const auto path = directory.getFullPathName();
+  auto saved = juce::JSON::parse(
+      juce::String(db_.loadSetting("expression_map_source_dirs", "[]")));
+  juce::Array<juce::var> directories;
+  if (saved.isArray())
+    directories = *saved.getArray();
+  for (const auto &item : directories)
+    if (item.toString() == path)
+      return;
+  directories.add(path);
+  db_.saveSetting("expression_map_source_dirs",
+                  juce::JSON::toString(juce::var(directories), false)
+                      .toStdString());
+}
+
+void MainComponent::initAgentControl() {
+  if (agentControlServer_)
+    return;
+
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  agentControlServer_ = std::make_unique<AgentControlServer>(
+      FiddleConfig::getAppDataDir().getChildFile("agent-control.json"),
+      [safeThis](const juce::String &method, const juce::var &params,
+                 AgentControlServer::Completion complete) {
+        juce::MessageManager::callAsync(
+            [safeThis, method, params,
+             complete = std::move(complete)]() mutable {
+              if (safeThis == nullptr) {
+                complete(AgentControlServer::Response::failure(
+                    "Fiddle is shutting down"));
+                return;
+              }
+              complete(safeThis->handleAgentControlRequest(method, params));
+            });
+      });
+  agentControlServer_->startThread();
+}
+
+juce::var MainComponent::agentStatus() const {
+  auto *status = new juce::DynamicObject();
+  status->setProperty("application", "FiddleServer");
+  auto *application = juce::JUCEApplicationBase::getInstance();
+  status->setProperty("version", application
+                                     ? application->getApplicationVersion()
+                                     : juce::String("unknown"));
+  const bool ready = projectRestoreReady_ &&
+                     (!projectRestoreService_ ||
+                      !projectRestoreService_->isLoading());
+  status->setProperty("ready", ready);
+  status->setProperty("dirty", stateManager_.isDirty());
+  status->setProperty(
+      "transportPlaying",
+      isTransportStarted_.load(std::memory_order_relaxed));
+  status->setProperty("detached", isDetached_);
+  status->setProperty("branchId", juce::String(currentBranchId_));
+  status->setProperty("versionId", juce::String(currentVersionId_));
+  status->setProperty("layerCount", mixer_.size());
+
+  auto *history = new juce::DynamicObject();
+  history->setProperty("canUndo", undoManager_.canUndo());
+  history->setProperty("canRedo", undoManager_.canRedo());
+  history->setProperty("undoDescription", undoManager_.undoDescription());
+  history->setProperty("redoDescription", undoManager_.redoDescription());
+  status->setProperty("history", juce::var(history));
+  return juce::var(status);
+}
+
+juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
+  auto *layer = new juce::DynamicObject();
+  const auto state = strip.realtimeState();
+  layer->setProperty("id", strip.id);
+  layer->setProperty("name", strip.layerName);
+  layer->setProperty("library", strip.library);
+  layer->setProperty("family", strip.family);
+  layer->setProperty("chairId", strip.chairId);
+  layer->setProperty("patchId", strip.patchId);
+  layer->setProperty("directOutputBusId", strip.directOutputBusId);
+  layer->setProperty("active", state.active);
+  layer->setProperty("muted", state.muted);
+  layer->setProperty("soloed", state.soloed);
+  layer->setProperty("inputPort", state.inputPort);
+  layer->setProperty("inputChannel", state.inputChannel);
+  layer->setProperty("gainDb", static_cast<double>(state.gainDb));
+  layer->setProperty("peakDb", static_cast<double>(state.peakDb));
+  layer->setProperty("pluginUid", strip.pluginUid);
+  layer->setProperty("hasPlugin", strip.hasPlugin());
+  layer->setProperty("pluginStatus",
+                     HostedPluginSlot::statusName(strip.pluginStatus()));
+  layer->setProperty(
+      "expressionMap",
+      strip.expressionMap ? juce::String(strip.expressionMap->name) : "");
+
+  juce::Array<juce::var> luaProcessors;
+  for (const auto &processor : strip.luaPlugins) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("name", juce::String(processor->meta().name));
+    item->setProperty("loaded", processor->isLoaded());
+    luaProcessors.add(juce::var(item));
+  }
+  layer->setProperty("luaProcessors", juce::var(luaProcessors));
+  return juce::var(layer);
+}
+
+juce::var MainComponent::agentMixerSnapshot() {
+  auto *snapshot = new juce::DynamicObject();
+  snapshot->setProperty("status", agentStatus());
+  juce::Array<juce::var> layers;
+  for (const auto *strip : mixer_.getAllStrips())
+    layers.add(agentLayerSnapshot(*strip));
+  snapshot->setProperty("layers", juce::var(layers));
+  snapshot->setProperty("groupBuses",
+                        juce::JSON::parse(mixer_.groupBusesToJson()));
+  snapshot->setProperty("master", mixer_.masterAudio().toJson());
+  return juce::var(snapshot);
+}
+
+juce::var MainComponent::agentLayerResult(const juce::String &stripId,
+                                          bool changed) {
+  auto *result = new juce::DynamicObject();
+  result->setProperty("changed", changed);
+  result->setProperty("status", agentStatus());
+  if (const auto *strip = mixer_.getStrip(stripId))
+    result->setProperty("layer", agentLayerSnapshot(*strip));
+  return juce::var(result);
+}
+
+void MainComponent::agentMixerChanged() {
+  saveAllStripsToDB(false);
+  pushMixerState();
+  pushGroupBusState();
+  pushMasterAudioState();
+  scheduleStateRebuild();
+}
+
+bool MainComponent::applyAgentUndoRedo(bool redo) {
+  const bool changed = redo ? undoManager_.redo() : undoManager_.undo();
+  if (!changed)
+    return false;
+  agentMixerChanged();
+  if (undoManager_.isAtSavePoint()) {
+    stateManager_.clearDirty();
+    broadcastMessage("setDirtyState", false);
+    pushConfigStatus();
+  }
+  return true;
+}
+
+juce::var
+MainComponent::agentLibrarySetupSnapshot(const juce::String &libraryId) {
+  auto *result = new juce::DynamicObject();
+  result->setProperty("libraryId", libraryId);
+  auto libraries = db_.listLibraries();
+  for (const auto &library : libraries) {
+    if (library.id != libraryId)
+      continue;
+    result->setProperty("name", library.name);
+    result->setProperty("vendor", library.vendor);
+    result->setProperty("variant", library.variant);
+    break;
+  }
+
+  juce::Array<juce::var> patchValues;
+  int guidedCount = 0;
+  int configuredCount = 0;
+  if (auto *repository = db_.getLibraryRoutingRepository()) {
+    for (const auto &patch :
+         repository->listPatches(libraryId.toStdString())) {
+      auto *item = new juce::DynamicObject();
+      item->setProperty("id", juce::String(patch.id));
+      item->setProperty("name", juce::String(patch.name));
+      item->setProperty("instrumentEntityId",
+                        juce::String(patch.instrumentEntityId));
+      item->setProperty("family", juce::String(patch.family));
+      item->setProperty("character", juce::String(patch.character));
+      item->setProperty("pluginUid", patch.pluginUid);
+      item->setProperty("expressionMapId",
+                        juce::String(patch.expressionMapId));
+      item->setProperty("expectedPresetName",
+                        juce::String(patch.expectedPresetName));
+      item->setProperty("setupComplete", patch.setupComplete);
+      item->setProperty("hasPluginState", !patch.pluginState.empty());
+      if (!patch.expectedPresetName.empty()) {
+        ++guidedCount;
+        if (patch.setupComplete)
+          ++configuredCount;
+      }
+      patchValues.add(juce::var(item));
+    }
+  }
+  result->setProperty("patches", juce::var(patchValues));
+  result->setProperty("guidedPatchCount", guidedCount);
+  result->setProperty("configuredPatchCount", configuredCount);
+  result->setProperty("remainingPatchCount", guidedCount - configuredCount);
+  result->setProperty("ready", guidedCount > 0 && guidedCount == configuredCount);
+  return juce::var(result);
+}
+
+AgentControlServer::Response
+MainComponent::createAgentGuidedLibrary(const juce::var &params) {
+  if (!params.isObject())
+    return AgentControlServer::Response::failure(
+        "Library parameters must be an object");
+  if (isTransportStarted_.load(std::memory_order_relaxed))
+    return AgentControlServer::Response::failure(
+        "Stop Dorico playback before creating a library");
+
+  const auto name = params["name"].toString().trim();
+  const auto pluginValue = params["pluginUid"];
+  auto *patchArray = params["patches"].getArray();
+  if (name.isEmpty())
+    return AgentControlServer::Response::failure("Library name is required");
+  if ((!pluginValue.isInt() && !pluginValue.isInt64()) ||
+      static_cast<int>(pluginValue) == 0)
+    return AgentControlServer::Response::failure(
+        "pluginUid must identify an installed instrument plug-in");
+  if (!patchArray || patchArray->isEmpty() || patchArray->size() > 256)
+    return AgentControlServer::Response::failure(
+        "patches must contain between 1 and 256 entries");
+  const int pluginUid = static_cast<int>(pluginValue);
+  bool pluginAvailable = false;
+  for (const auto &description : pluginScanner_.getKnownPluginList().getTypes())
+    if (description.uniqueId == pluginUid && description.isInstrument) {
+      pluginAvailable = true;
+      break;
+    }
+  if (!pluginAvailable)
+    return AgentControlServer::Response::failure(
+        "The requested instrument plug-in is not available");
+
+  const auto requestedId = params["libraryId"].toString().trim();
+  const auto libraryId =
+      requestedId.isNotEmpty() ? requestedId : juce::Uuid().toString();
+  for (const auto &library : db_.listLibraries())
+    if (library.id == libraryId)
+      return AgentControlServer::Response::failure(
+          "A library with this ID already exists");
+
+  std::set<std::string> patchIds;
+  std::set<juce::String> sourceDirectories;
+  std::vector<fiddle::LibraryPatchRow> patches;
+  patches.reserve(static_cast<std::size_t>(patchArray->size()));
+  int position = 0;
+  for (const auto &value : *patchArray) {
+    auto *object = value.getDynamicObject();
+    if (!object)
+      return AgentControlServer::Response::failure(
+          "Every patch must be an object");
+    fiddle::LibraryPatchRow patch;
+    patch.id = object->getProperty("id").toString().trim().toStdString();
+    if (patch.id.empty())
+      patch.id = juce::Uuid().toString().toStdString();
+    if (!patchIds.insert(patch.id).second)
+      return AgentControlServer::Response::failure(
+          "Patch IDs must be unique");
+    patch.libraryId = libraryId.toStdString();
+    patch.position = position++;
+    patch.name =
+        object->getProperty("name").toString().trim().toStdString();
+    patch.instrumentEntityId = object->getProperty("instrumentEntityId")
+                                   .toString()
+                                   .trim()
+                                   .toStdString();
+    patch.family =
+        object->getProperty("family").toString().trim().toStdString();
+    patch.character =
+        object->getProperty("character").toString().trim().toStdString();
+    patch.pluginUid = pluginUid;
+    patch.expressionMapId = object->getProperty("expressionMapId")
+                                .toString()
+                                .trim()
+                                .toStdString();
+    patch.expectedPresetName = object->getProperty("expectedPresetName")
+                                   .toString()
+                                   .trim()
+                                   .toStdString();
+    patch.setupComplete = false;
+    const auto mapPath =
+        object->getProperty("expressionMapPath").toString().trim();
+    if (patch.name.empty() || patch.expressionMapId.empty() ||
+        patch.expectedPresetName.empty() || mapPath.isEmpty())
+      return AgentControlServer::Response::failure(
+          "Each patch needs a name, expressionMapId, expressionMapPath, and expectedPresetName");
+    if (!patch.character.empty() && patch.character != "solo" &&
+        patch.character != "section" && patch.character != "ensemble" &&
+        patch.character != "overlay")
+      return AgentControlServer::Response::failure(
+          "Patch character must be solo, section, ensemble, overlay, or empty");
+
+    if (!patch.instrumentEntityId.empty()) {
+      const bool found = std::any_of(
+          instrumentBrowser_.getInstruments().begin(),
+          instrumentBrowser_.getInstruments().end(),
+          [&patch](const auto &instrument) {
+            return instrument.entityID.toStdString() ==
+                   patch.instrumentEntityId;
+          });
+      if (!found)
+        return AgentControlServer::Response::failure(
+            "Unknown Dorico instrument ID: " +
+            juce::String(patch.instrumentEntityId));
+    }
+
+    const juce::File mapFile(mapPath);
+    if (!mapFile.existsAsFile() ||
+        !mapFile.hasFileExtension("doricolib"))
+      return AgentControlServer::Response::failure(
+          "Expression map file is unavailable: " + mapPath);
+    const auto metadata = fiddle::scanExpressionMapMetadata(mapFile);
+    const bool hasRequestedMap = std::any_of(
+        metadata.begin(), metadata.end(), [&patch](const auto &entry) {
+          return entry.entityID == patch.expressionMapId;
+        });
+    if (!hasRequestedMap)
+      return AgentControlServer::Response::failure(
+          "Expression map ID was not found in: " + mapPath);
+    sourceDirectories.insert(mapFile.getParentDirectory().getFullPathName());
+    patches.push_back(std::move(patch));
+  }
+
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return AgentControlServer::Response::failure(
+        "The library catalog is not available");
+  fiddle::LibraryCatalogSnapshot target;
+  target.id = libraryId.toStdString();
+  target.name = name.toStdString();
+  target.vendor = params["vendor"].toString().trim().toStdString();
+  target.variant = params["variant"].toString().trim().toStdString();
+  target.exists = true;
+  target.patches = patches;
+  auto action =
+      std::make_unique<fiddle::LibraryCatalogAction>(*repository, target);
+  if (!libraryUndoManager_.perform(std::move(action)))
+    return AgentControlServer::Response::failure(
+        "Fiddle could not create the guided library");
+
+  for (const auto &path : sourceDirectories) {
+    const juce::File directory(path);
+    xmapLibrary_.scanDirectory(directory);
+    rememberExpressionMapSourceDirectory(directory);
+  }
+  pushLibraryCatalogHistory();
+  pushLayerCatalog();
+  return AgentControlServer::Response::success(
+      agentLibrarySetupSnapshot(libraryId));
+}
+
+AgentControlServer::Response MainComponent::handleAgentControlRequest(
+    const juce::String &method, const juce::var &params) {
+  if (!projectRestoreReady_ ||
+      (projectRestoreService_ && projectRestoreService_->isLoading()))
+    return AgentControlServer::Response::failure(
+        "Fiddle is still initializing");
+
+  if (method == "status")
+    return AgentControlServer::Response::success(agentStatus());
+  if (method == "mixer.get")
+    return AgentControlServer::Response::success(agentMixerSnapshot());
+
+  if (method == "library.inspectSources") {
+    if (!params.isObject())
+      return AgentControlServer::Response::failure(
+          "Source parameters must be an object");
+    const juce::File directory(params["expressionMapDirectory"].toString());
+    if (!directory.isDirectory())
+      return AgentControlServer::Response::failure(
+          "Expression-map directory was not found");
+    const int requestedLimit = params["maxMaps"].isInt()
+                                   ? static_cast<int>(params["maxMaps"])
+                                   : 500;
+    const int limit = juce::jlimit(1, 500, requestedLimit);
+    auto files = directory.findChildFiles(juce::File::findFiles, true,
+                                          "*.doricolib");
+    const auto mapQuery = params["mapQuery"].toString().trim();
+    if (mapQuery.isEmpty() && files.size() > 2000)
+      return AgentControlServer::Response::failure(
+          "This directory contains " + juce::String(files.size()) +
+          " expression-map files. Supply mapQuery or choose a narrower directory.");
+    juce::Array<juce::File> candidateFiles;
+    for (const auto &file : files)
+      if (mapQuery.isEmpty() ||
+          file.getFullPathName().containsIgnoreCase(mapQuery))
+        candidateFiles.add(file);
+    juce::Array<juce::var> maps;
+    int visitedFiles = 0;
+    for (const auto &file : candidateFiles) {
+      ++visitedFiles;
+      for (const auto &metadata : scanExpressionMapMetadata(file)) {
+        if (maps.size() >= limit)
+          break;
+        auto *item = new juce::DynamicObject();
+        item->setProperty("name", juce::String(metadata.name));
+        item->setProperty("entityId", juce::String(metadata.entityID));
+        item->setProperty("version", metadata.version);
+        item->setProperty("creator", juce::String(metadata.creator));
+        item->setProperty("pluginNames", juce::String(metadata.pluginNames));
+        item->setProperty("sourcePath", file.getFullPathName());
+        maps.add(juce::var(item));
+      }
+      if (maps.size() >= limit)
+        break;
+    }
+    const auto query = params["pluginQuery"].toString().trim();
+    juce::Array<juce::var> plugins;
+    for (const auto &description :
+         pluginScanner_.getKnownPluginList().getTypes()) {
+      if (!description.isInstrument ||
+          (query.isNotEmpty() &&
+           !description.name.containsIgnoreCase(query) &&
+           !description.manufacturerName.containsIgnoreCase(query)))
+        continue;
+      auto *item = new juce::DynamicObject();
+      item->setProperty("uid", description.uniqueId);
+      item->setProperty("name", description.name);
+      item->setProperty("manufacturer", description.manufacturerName);
+      item->setProperty("format", description.pluginFormatName);
+      plugins.add(juce::var(item));
+    }
+    auto *result = new juce::DynamicObject();
+    result->setProperty("directory", directory.getFullPathName());
+    result->setProperty("mapQuery", mapQuery);
+    result->setProperty("maps", juce::var(maps));
+    result->setProperty("mapFileCount", files.size());
+    result->setProperty("matchedMapFileCount", candidateFiles.size());
+    result->setProperty("truncated",
+                        maps.size() >= limit || visitedFiles < candidateFiles.size());
+    result->setProperty("plugins", juce::var(plugins));
+    return AgentControlServer::Response::success(juce::var(result));
+  }
+
+  if (method == "library.setup.create")
+    return createAgentGuidedLibrary(params);
+
+  if (method == "library.setup.get") {
+    if (!params.isObject() || params["libraryId"].toString().trim().isEmpty())
+      return AgentControlServer::Response::failure("libraryId is required");
+    const auto libraryId = params["libraryId"].toString().trim();
+    const auto libraries = db_.listLibraries();
+    const bool exists = std::any_of(
+        libraries.begin(), libraries.end(),
+        [&libraryId](const auto &library) { return library.id == libraryId; });
+    if (!exists)
+      return AgentControlServer::Response::failure("Library not found");
+    return AgentControlServer::Response::success(
+        agentLibrarySetupSnapshot(libraryId));
+  }
+
+  if (method == "library.setup.open") {
+    if (!params.isObject() || params["libraryId"].toString().trim().isEmpty())
+      return AgentControlServer::Response::failure("libraryId is required");
+    const auto libraryId = params["libraryId"].toString().trim();
+    bool exists = false;
+    for (const auto &library : db_.listLibraries())
+      if (library.id == libraryId) {
+        exists = true;
+        break;
+      }
+    if (!exists)
+      return AgentControlServer::Response::failure("Library not found");
+    pendingGuidedLibraryId_ = libraryId;
+    showLibraryManagerWindow();
+    if (libraryManagerWindowLoaded_) {
+      broadcastMessage("openGuidedLibrary", libraryId);
+      pendingGuidedLibraryId_.clear();
+    }
+    auto *result = new juce::DynamicObject();
+    result->setProperty("opened", true);
+    result->setProperty("libraryId", libraryId);
+    return AgentControlServer::Response::success(juce::var(result));
+  }
+
+  if (method == "history.undo" || method == "history.redo") {
+    const bool changed = applyAgentUndoRedo(method == "history.redo");
+    auto *result = new juce::DynamicObject();
+    result->setProperty("changed", changed);
+    result->setProperty("mixer", agentMixerSnapshot());
+    return AgentControlServer::Response::success(juce::var(result));
+  }
+
+  if (method != "layer.setGain" && method != "layer.setMute" &&
+      method != "layer.setSolo")
+    return AgentControlServer::Response::failure("Unknown control method: " +
+                                                 method);
+  if (!params.isObject())
+    return AgentControlServer::Response::failure(
+        "Control parameters must be an object");
+
+  const auto stripId = params["stripId"].toString();
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip)
+    return AgentControlServer::Response::failure("Layer not found: " +
+                                                 stripId);
+
+  bool changed = false;
+  if (method == "layer.setGain") {
+    const auto value = params["gainDb"];
+    if (!value.isDouble() && !value.isInt() && !value.isInt64())
+      return AgentControlServer::Response::failure("gainDb must be a number");
+    const auto gainDb = static_cast<float>(static_cast<double>(value));
+    if (!std::isfinite(gainDb) || gainDb < -120.0f || gainDb > 6.0f)
+      return AgentControlServer::Response::failure(
+          "gainDb must be between -120 and 6");
+    if (strip->gainDb() != gainDb)
+      changed = mixerCommandService_->setGain(stripId, gainDb);
+  } else {
+    const auto property = method == "layer.setMute" ? "muted" : "soloed";
+    const auto value = params[property];
+    if (!value.isBool())
+      return AgentControlServer::Response::failure(juce::String(property) +
+                                                   " must be a boolean");
+    const bool target = static_cast<bool>(value);
+    const bool current = method == "layer.setMute" ? strip->isMuted()
+                                                    : strip->isSoloed();
+    if (current != target) {
+      changed = method == "layer.setMute"
+                    ? mixerCommandService_->setMute(stripId, target)
+                    : mixerCommandService_->setSolo(stripId, target);
+    }
+  }
+
+  if (changed)
+    agentMixerChanged();
+  return AgentControlServer::Response::success(
+      agentLayerResult(stripId, changed));
 }
 
 void MainComponent::pushUndoState() {
@@ -3103,6 +3651,10 @@ void MainComponent::setupJsHandlers() {
       isHistoryWindow = true; // Reuse flag to skip main-window-only init
       std::cerr << "[WebView] Handshake: Library Manager window ready"
                 << std::endl;
+      if (pendingGuidedLibraryId_.isNotEmpty()) {
+        broadcastMessage("openGuidedLibrary", pendingGuidedLibraryId_);
+        pendingGuidedLibraryId_.clear();
+      }
     } else {
       webViewBridge_.setLoaded(true);
       std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
@@ -3987,6 +4539,17 @@ void MainComponent::setupJsHandlers() {
         [this, patchId]() { libraryPatchPreviewHost_.discard(patchId); });
     return;
   });
+  jsRouter_.registerHandler("closeLibraryPatchEditor",
+                            [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto patchId = args[0].toString().toStdString();
+    safeCallAsync(
+        [this, patchId]() { libraryPatchPreviewHost_.closeEditor(patchId); });
+  });
   jsRouter_.registerHandler("showLibraryDraftPreviews", [this](const juce::var &payload) {
     std::vector<std::string> ids;
     if (payload.isArray() && payload.size() > 0 && payload[0].isArray())
@@ -4072,6 +4635,12 @@ void MainComponent::setupJsHandlers() {
           patch.pluginUid = (int)patchObj->getProperty("vstPlugin");
           patch.expressionMapId =
               patchObj->getProperty("exprMap").toString().toStdString();
+          patch.expectedPresetName = patchObj->getProperty("expectedPresetName")
+                                         .toString()
+                                         .toStdString();
+          patch.setupComplete =
+              !patchObj->hasProperty("setupComplete") ||
+              (bool)patchObj->getProperty("setupComplete");
 
           // An isolated preview owns the newest explicitly configured state.
           if (libraryPatchPreviewHost_.captureState(
@@ -4167,6 +4736,7 @@ void MainComponent::setupJsHandlers() {
               auto *item = new juce::DynamicObject();
               item->setProperty("id", juce::String(patch.id));
               item->setProperty("hasPluginState", !patch.pluginState.empty());
+              item->setProperty("setupComplete", patch.setupComplete);
               savedPatches.add(juce::var(item));
             }
             result->setProperty("patches", juce::var(savedPatches));
@@ -4249,6 +4819,9 @@ void MainComponent::setupJsHandlers() {
           patchObj->setProperty("vstPlugin", patch.pluginUid);
           patchObj->setProperty("exprMap",
                                 juce::String(patch.expressionMapId));
+          patchObj->setProperty("expectedPresetName",
+                                juce::String(patch.expectedPresetName));
+          patchObj->setProperty("setupComplete", patch.setupComplete);
           patchObj->setProperty("pluginUid", patch.pluginUid);
           patchObj->setProperty("hasPluginState", !patch.pluginState.empty());
           patchObj->setProperty("usageCount",

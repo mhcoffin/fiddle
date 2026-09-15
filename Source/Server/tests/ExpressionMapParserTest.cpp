@@ -357,6 +357,23 @@ static void testTechniqueIDParsing() {
   CHECK_EQ((int)c2.switchOnActions[1].type, (int)SwitchActionType::KeySwitch);
 }
 
+static void testMetadataIncludesPlayerPresetName() {
+  std::cout << "--- testMetadataIncludesPlayerPresetName ---" << std::endl;
+  auto file = juce::File::createTempFile("guided-map.doricolib");
+  CHECK(file.replaceWithText(R"(<?xml version="1.0"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition><name>Violin</name><entityID>xmap.violin</entityID>
+<version>7</version><creator>Map Vendor</creator>
+<pluginNames>Player Discovery Violin 1</pluginNames>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)"));
+  const auto metadata = scanExpressionMapMetadata(file);
+  CHECK_EQ(metadata.size(), std::size_t(1));
+  if (!metadata.empty())
+    CHECK_EQ(metadata.front().pluginNames,
+             std::string("Player Discovery Violin 1"));
+  CHECK(file.deleteFile());
+}
+
 static void testFindBestMatch() {
   std::cout << "--- testFindBestMatch ---" << std::endl;
 
@@ -489,6 +506,7 @@ int main(int argc, char *argv[]) {
 
   // Run parser tests
   testTechniqueIDParsing();
+  testMetadataIncludesPlayerPresetName();
   testFindBestMatch();
   testParseSucceeds(examplesDir);
   testActionTypeCoverage(examplesDir);
@@ -511,4 +529,3 @@ int main(int argc, char *argv[]) {
 
   return gFail > 0 ? 1 : 0;
 }
-

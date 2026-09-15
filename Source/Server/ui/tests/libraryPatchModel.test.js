@@ -3,11 +3,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+    canCaptureGuidedPatch,
     createBlankLibraryPatch,
     createLibraryPatch,
     duplicateLibraryPatch,
+    guidedSetupProgress,
     moveLibraryPatch,
     moveLibraryPatchByOffset,
+    nextGuidedPatch,
     pluginSetupStatus,
     shouldMarkLibraryEditorDirtyForPreviewChange,
     sortLibraryPatchesOrchestrally,
@@ -66,6 +69,28 @@ test("player setup status distinguishes saved, pending, and unconfigured rows", 
     );
     assert.match(libraryManagerSource, /class="plugin-setup-status \{setupStatus\.kind\}"/);
     assert.match(libraryManagerSource, /aria-label=\{setupStatus\.label\}/);
+});
+
+test("guided setup advances only after an explicit changed player state", () => {
+    const patches = [
+        { id: "v1", expectedPresetName: "Discovery Violin 1", setupComplete: true },
+        { id: "v2", expectedPresetName: "Discovery Violin 2", setupComplete: false,
+          pluginStatePending: false },
+        { id: "va", expectedPresetName: "Discovery Violas", setupComplete: false,
+          pluginStatePending: true },
+        { id: "manual", expectedPresetName: "", setupComplete: true },
+    ];
+
+    assert.deepEqual(guidedSetupProgress(patches), {
+        total: 3, configured: 1, remaining: 2,
+    });
+    assert.equal(nextGuidedPatch(patches)?.id, "v2");
+    assert.equal(nextGuidedPatch(patches, "v2")?.id, "va");
+    assert.equal(canCaptureGuidedPatch(patches[1]), false);
+    assert.equal(canCaptureGuidedPatch(patches[2]), true);
+    assert.match(libraryManagerSource, /GUIDED PLAYER SETUP/);
+    assert.match(libraryManagerSource, /Capture &amp; continue/);
+    assert.match(libraryManagerSource, /dispatchCpp\("closeLibraryPatchEditor"/);
 });
 
 test("the Library Manager exposes guarded propagation to linked layers", () => {

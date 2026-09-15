@@ -143,6 +143,12 @@ void LibraryPatchPreviewHost::retainOnly(const std::vector<std::string> &ids) {
     else ++it;
 }
 
+void LibraryPatchPreviewHost::closeEditor(const std::string &patchId) {
+  const auto found = previews_.find(patchId);
+  if (found != previews_.end())
+    found->second->slot.closeEditor();
+}
+
 void LibraryPatchPreviewHost::closeAll() { previews_.clear(); seeds_.clear(); }
 
 } // namespace fiddle

@@ -7,7 +7,7 @@
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
   import { LibraryHistory } from "./libraryHistory.js";
-  import { createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, moveLibraryPatch, moveLibraryPatchByOffset, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
+  import { canCaptureGuidedPatch, createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, guidedSetupProgress, moveLibraryPatch, moveLibraryPatchByOffset, nextGuidedPatch, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -25,6 +25,16 @@
   let savedLibraries = $state([]);
   onFromCpp("setLibraryList", (data) => {
     try { savedLibraries = data; } catch (e) { /* ignore */ }
+  });
+
+  let guidedRequestedLibraryId = $state("");
+  let guidedMode = $state(false);
+  let guidedPatchId = $state("");
+  let pendingGuidedPatchId = $state("");
+  onFromCpp("openGuidedLibrary", (libraryId) => {
+    guidedRequestedLibraryId = String(libraryId || "");
+    guidedMode = true;
+    if (guidedRequestedLibraryId) dispatchCpp("loadLibrary", guidedRequestedLibraryId);
   });
 
   // ── Load a library into the editor from C++ ─────────
@@ -47,6 +57,8 @@
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
         pluginStatePending: false,
+        expectedPresetName: patch.expectedPresetName || "",
+        setupComplete: patch.setupComplete !== false,
         usageCount: Number(patch.usageCount) || 0,
         outOfDateLayerCount: Number(patch.outOfDateLayerCount) || 0,
       }));
@@ -55,6 +67,11 @@
       instrumentChooserPatchId = "";
       modalView = "editor";
       editorDirty = false;
+      guidedMode = guidedRequestedLibraryId === data.id
+        || patches.some((patch) => patch.expectedPresetName && !patch.setupComplete);
+      guidedPatchId = nextGuidedPatch(patches)?.id || "";
+      guidedRequestedLibraryId = "";
+      pendingGuidedPatchId = "";
       resetDraftHistory(true);
     } catch (e) { /* ignore */ }
   });
@@ -153,16 +170,42 @@
   onFromCpp("librarySaveResult", result => {
     if (result.id !== editorLibId || !saving) return;
     saving = false;
-    if (!result.success) { buildResult = result.message || "Could not save the library"; return; }
-    draftHistory.markSaved();
+    if (!result.success) {
+      pendingGuidedPatchId = "";
+      buildResult = result.message || "Could not save the library";
+      return;
+    }
+    const completedGuidedPatchId = pendingGuidedPatchId;
     for (const patch of patches) {
       const key = patch.previewId || patch.id;
       const hasPluginState = result.patches?.find(p => p.id === patch.id)?.hasPluginState ?? patch.hasPluginState;
       playerFlags.set(key, { hasPluginState, pluginStatePending: false });
     }
-    patches = patches.map(patch => ({ ...patch, ...playerFlags.get(patch.previewId || patch.id) }));
+    patches = patches.map(patch => ({
+      ...patch,
+      ...playerFlags.get(patch.previewId || patch.id),
+      setupComplete: result.patches?.find(p => p.id === patch.id)?.setupComplete
+        ?? patch.setupComplete,
+    }));
+    if (completedGuidedPatchId)
+      draftHistory.record(patches, "Configure player preset");
+    draftHistory.markSaved();
     syncHistory();
-    buildResult = "OK: Library saved. Draft undo is still available.";
+    if (completedGuidedPatchId) {
+      dispatchCpp("closeLibraryPatchEditor", completedGuidedPatchId);
+      pendingGuidedPatchId = "";
+      const next = nextGuidedPatch(patches, completedGuidedPatchId);
+      guidedPatchId = next?.id || "";
+      selectedPatchIds = next ? new Set([next.id]) : new Set();
+      if (next) {
+        buildResult = `OK: Saved ${patches.find(p => p.id === completedGuidedPatchId)?.name || "player"}. Continue with ${next.name}.`;
+        requestAnimationFrame(() => openVstEditor(next));
+      } else {
+        buildResult = "OK: Guided setup complete. Every player preset has been captured.";
+      }
+    } else {
+      buildResult = "OK: Library saved. Draft undo is still available.";
+    }
   });
   let selectedPatchIds = $state(new Set());
   let selectionAnchorId = $state("");
@@ -229,6 +272,11 @@
 
   /** @type {LibraryPatch[]} */
   let patches = $state([]);
+  let guidedProgress = $derived(guidedSetupProgress(patches));
+  let guidedPatch = $derived(
+    patches.find((patch) => patch.id === guidedPatchId)
+      || nextGuidedPatch(patches),
+  );
   /** @type {string} */ let pendingDeleteId = $state("");
   let layerUpdateResult = $state("");
 
@@ -488,6 +536,12 @@
       pluginUid: uid,
     });
   };
+
+  const captureGuidedPatch = () => {
+    if (!canCaptureGuidedPatch(guidedPatch) || saving) return;
+    pendingGuidedPatchId = guidedPatch.id;
+    commitToLibrary(guidedPatch.id);
+  };
   const selectPatch = (id, event) => {
     const orderedIds = patches.map((patch) => patch.id);
     if (event.shiftKey && selectionAnchorId) {
@@ -543,7 +597,7 @@
     recordEdit("Assign expression maps");
   };
 
-  const commitToLibrary = () => {
+  const commitToLibrary = (guidedCompletionId = "") => {
     if (saving) return;
     recordEdit("Rename patch");
     saving = true;
@@ -562,6 +616,10 @@
         vstPlugin:   patch.vstPlugin,
         exprMap:     patch.exprMap,
         hasPluginState: patch.hasPluginState,
+        expectedPresetName: patch.expectedPresetName || "",
+        setupComplete: patch.id === guidedCompletionId
+          ? true
+          : patch.setupComplete !== false,
         sourcePatchId: patch.sourcePatchId || "",
       })),
     };
@@ -569,6 +627,8 @@
   };
 
   const openLibrary = (/** @type {string} */ libraryId) => {
+    guidedRequestedLibraryId = "";
+    guidedMode = false;
     dispatchCpp("loadLibrary", libraryId);
   };
 
@@ -714,6 +774,45 @@
 
         <!-- Right: patch catalog -->
         <div class="inst-content">
+          {#if guidedMode && guidedProgress.total > 0}
+            <section class="guided-setup" aria-label="Guided player setup">
+              <div class="guided-copy">
+                <div class="guided-kicker">GUIDED PLAYER SETUP</div>
+                <div class="guided-progress">
+                  {guidedProgress.configured} of {guidedProgress.total} presets captured
+                </div>
+                {#if guidedPatch}
+                  <div class="guided-instruction">
+                    <strong>{guidedPatch.name}</strong>
+                    <span>Open the player and load:</span>
+                    <code>{guidedPatch.expectedPresetName}</code>
+                  </div>
+                {:else}
+                  <div class="guided-instruction guided-complete">
+                    Every guided player preset has been captured. Save is complete.
+                  </div>
+                {/if}
+              </div>
+              <div class="guided-actions">
+                <button class="guided-secondary" onclick={() => { guidedMode = false; }}>
+                  Exit guide
+                </button>
+                {#if guidedPatch}
+                  <button class="guided-secondary" disabled={saving} onclick={() => openVstEditor(guidedPatch)}>
+                    Open player
+                  </button>
+                  <button class="guided-primary"
+                    disabled={saving || !canCaptureGuidedPatch(guidedPatch)}
+                    title={guidedPatch.pluginStatePending
+                      ? `Capture ${guidedPatch.expectedPresetName} and continue`
+                      : "Change the player preset before capturing"}
+                    onclick={captureGuidedPatch}>
+                    Capture &amp; continue
+                  </button>
+                {/if}
+              </div>
+            </section>
+          {/if}
           <div class="patch-toolbar">
             <button class="add-patch-btn" onclick={addBlankPatch}>+ Add Patch</button>
             <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}>Sort Orchestrally</button>
@@ -770,6 +869,7 @@
               <div
                 class="inst-row"
                 class:patch-selected={selectedPatchIds.has(row.id)}
+                class:guided-current={guidedMode && guidedPatch?.id === row.id}
                 class:patch-dragging={draggedPatchId === row.id}
                 class:patch-drop-before={dropTargetPatchId === row.id && !dropAfterTarget}
                 class:patch-drop-after={dropTargetPatchId === row.id && dropAfterTarget}
@@ -1209,6 +1309,35 @@
   /* ── Instrument content ───────────────────────────── */
   .inst-content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
   .inst-content > * { min-width: 1074px; box-sizing: border-box; flex-shrink: 0; }
+  .guided-setup {
+    display: flex; align-items: center; justify-content: space-between; gap: 24px;
+    padding: 16px 20px; border-bottom: 1px solid #5968bb;
+    background: linear-gradient(100deg, rgba(58,72,157,.45), rgba(23,22,70,.94));
+  }
+  .guided-copy { min-width: 0; }
+  .guided-kicker {
+    color: #91a9ff; font: 700 .62rem "Inter", sans-serif;
+    letter-spacing: .11em; margin-bottom: 4px;
+  }
+  .guided-progress { color: #f2f1ff; font: 700 .9rem "Sora", sans-serif; }
+  .guided-instruction {
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+    margin-top: 8px; color: #aaa9cc; font: 500 .72rem "Inter", sans-serif;
+  }
+  .guided-instruction strong { color: #e8e7ff; }
+  .guided-instruction code {
+    padding: 4px 7px; border: 1px solid #686fa9; border-radius: 4px;
+    background: #0d0c35; color: #aee6ff; font: 600 .72rem "Inter", sans-serif;
+  }
+  .guided-instruction.guided-complete { color: #8be3ac; }
+  .guided-actions { display: flex; align-items: center; gap: 9px; white-space: nowrap; }
+  .guided-actions button {
+    min-height: 36px; padding: 7px 13px; border-radius: 4px;
+    font: 700 .69rem "Inter", sans-serif; cursor: pointer;
+  }
+  .guided-secondary { border: 1px solid #666592; background: #171644; color: #d8d7f5; }
+  .guided-primary { border: 1px solid #62b5de; background: #24729d; color: white; }
+  .guided-actions button:disabled { opacity: .38; cursor: default; }
   .patch-toolbar {
     display: flex; align-items: center; gap: 14px;
     padding: 14px 20px; background: #131342;
@@ -1267,6 +1396,7 @@
   }
   .inst-row:hover { background: rgba(149,169,255,.04); }
   .inst-row.patch-selected { background: rgba(149,169,255,.09); }
+  .inst-row.guided-current { box-shadow: inset 4px 0 0 #67d3ff; background: rgba(64,151,202,.1); }
   .inst-row.patch-dragging { opacity: .45; }
   .inst-row.patch-drop-before { box-shadow: inset 0 3px 0 #75d3ff; }
   .inst-row.patch-drop-after { box-shadow: inset 0 -3px 0 #75d3ff; }

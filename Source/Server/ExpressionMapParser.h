@@ -11,6 +11,8 @@ struct ExpressionMapMeta {
   std::string entityID;
   int version = 0;
   std::string creator;
+  /// Player/preset label supplied by the map author, when present.
+  std::string pluginNames;
 };
 
 /// Parse the first ExpressionMapDefinition in a .doricolib file.
