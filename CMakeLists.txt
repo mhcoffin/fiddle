@@ -1065,6 +1065,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/LibraryPatchPreviewHost.cpp
     Source/Server/RenderAheadEngine.cpp
     Source/Server/ProjectRestoreService.cpp
+    Source/Server/MixerCommandService.cpp
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
     Source/Server/GroupBus.cpp

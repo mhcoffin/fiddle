@@ -803,11 +803,14 @@ void MainComponent::initMidiServer() {
               // Restore Lua plugins
               for (const auto &fileName : rs.luaPluginFileNames) {
                 auto resolved = luaCatalog_.resolvePluginPath(fileName);
-                if (!resolved.empty()) {
-                  auto plugin = std::make_shared<LuaPlugin>(resolved);
-                  if (plugin->load())
-                    strip->addLuaPlugin(std::move(plugin));
-                }
+                auto plugin = std::make_shared<LuaPlugin>(
+                    resolved.empty() ? fileName : resolved);
+                if (resolved.empty() || !plugin->load())
+                  pushLogMessage("<b>[Restore]</b> Lua processor '" +
+                                     juce::String(fileName) +
+                                     "' is unavailable and remains unloaded.",
+                                 true);
+                strip->addLuaPlugin(std::move(plugin));
               }
             }
           }
@@ -1639,6 +1642,20 @@ void MainComponent::processPluginChangeNotifications(
   scheduleStateRebuild();
 }
 
+void MainComponent::pluginProgramApplied(const juce::String &stripId) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip)
+    return;
+
+  (void)strip->consumePluginChangeNotification();
+  (void)strip->consumePluginExplicitEditNotification();
+  (void)strip->consumePluginNonParameterStateChangeNotification();
+  pluginFingerprints_[stripId] = {strip->pluginUid,
+                                  strip->pluginParameterFingerprint()};
+  pluginStateSettleUntilMs_[stripId] =
+      juce::Time::getMillisecondCounter() + kPluginStateSettleMs;
+}
+
 bool MainComponent::shouldSuppressPluginChanges(uint32_t now) {
   const bool transportStarted =
       isTransportStarted_.load(std::memory_order_relaxed);
@@ -1818,20 +1835,17 @@ void MainComponent::loadStripsFromDB() {
       // Restore Lua plugins
       for (const auto &fileName : row.luaPluginFileNames) {
         auto resolved = luaCatalog_.resolvePluginPath(fileName);
-        if (resolved.empty()) {
-          std::cerr << "[loadDB] Lua plugin not found: " << fileName
-                    << std::endl;
-          continue;
-        }
-        auto plugin = std::make_shared<LuaPlugin>(resolved);
-        if (plugin->load()) {
-          strip->addLuaPlugin(std::move(plugin));
+        auto plugin = std::make_shared<LuaPlugin>(
+            resolved.empty() ? fileName : resolved);
+        if (!resolved.empty() && plugin->load()) {
           std::cerr << "[loadDB] Restored Lua plugin '" << fileName
                     << "' for strip " << strip->id << std::endl;
         } else {
-          std::cerr << "[loadDB] Failed to load Lua plugin: " << fileName
-                    << std::endl;
+          std::cerr << "[loadDB] Lua plugin unavailable; retaining unloaded "
+                       "entry: "
+                    << fileName << std::endl;
         }
+        strip->addLuaPlugin(std::move(plugin));
       }
     }
   }
@@ -2921,15 +2935,22 @@ void MainComponent::setupJsHandlers() {
       }
     });
   });
-  mixerCommandService_ =
-      std::make_unique<MixerCommandService>(mixer_, undoManager_);
+  mixerCommandService_ = std::make_unique<MixerCommandService>(
+      mixer_, undoManager_,
+      [this](const juce::String &stripId) { pluginProgramApplied(stripId); });
   mixerJsHandlers_ = std::make_unique<MixerJsHandlers>(
       jsRouter_, *mixerCommandService_,
       MixerJsHandlers::Callbacks{[this](MixerJsHandlers::Task task) {
                                    safeCallAsync(std::move(task));
                                  },
                                  [this] { pushMixerState(); },
-                                 [this] { saveAllStripsToDB(false); }});
+                                 [this] { saveAllStripsToDB(false); },
+                                 [this] {
+                                   const auto now =
+                                       juce::Time::getMillisecondCounter();
+                                   processPluginChangeNotifications(
+                                       shouldSuppressPluginChanges(now));
+                                 }});
   mixerJsHandlers_->registerHandlers();
 
   groupBusCommandService_ =
@@ -3550,11 +3571,18 @@ void MainComponent::setupJsHandlers() {
       std::cerr << "[Lua] Plugin not in catalog: " << pluginPath << std::endl;
       return;
     }
-    safeCallAsync([this, stripId, fileName]() {
+    const auto pluginReference = meta->filePath;
+    safeCallAsync([this, stripId, pluginReference]() {
       auto action = std::make_unique<AddLuaPluginAction>(mixer_, luaCatalog_,
-                                                         stripId, fileName);
-      undoManager_.perform(std::move(action));
-      saveAllStripsToDB();
+                                                         stripId,
+                                                         pluginReference);
+      if (!undoManager_.perform(std::move(action))) {
+        pushLogMessage("<b>[Lua]</b> Could not add processor; the script "
+                       "did not load and no history entry was created.",
+                       true);
+        return;
+      }
+      saveAllStripsToDB(false);
       pushMixerState();
       scheduleStateRebuild();
     });
@@ -3573,9 +3601,14 @@ void MainComponent::setupJsHandlers() {
 
         safeCallAsync([this, stripId, pluginIndex]() {
           auto action = std::make_unique<RemoveLuaPluginAction>(
-              mixer_, luaCatalog_, stripId, pluginIndex);
-          undoManager_.perform(std::move(action));
-          saveAllStripsToDB();
+              mixer_, stripId, pluginIndex);
+          if (!undoManager_.perform(std::move(action))) {
+            pushLogMessage("<b>[Lua]</b> Could not remove processor; no "
+                           "history entry was created.",
+                           true);
+            return;
+          }
+          saveAllStripsToDB(false);
           pushMixerState();
           scheduleStateRebuild();
         });

@@ -134,6 +134,22 @@ public:
   [[nodiscard]] juce::MemoryBlock cachedState() const;
   bool captureState(juce::MemoryBlock &destination) const;
   bool applyState(const void *data, int sizeInBytes);
+
+  struct ProgramState {
+    int index = -1;
+    juce::MemoryBlock processorState;
+
+    bool operator==(const ProgramState &other) const {
+      return index == other.index && processorState == other.processorState;
+    }
+  };
+
+  /// Capture a fresh complete state together with the current JUCE program.
+  bool captureProgramState(ProgramState &destination);
+  /// Select a validated program and capture the resulting complete state.
+  bool selectProgram(int programIndex, ProgramState &result);
+  /// Restore both parts without recreating the processor instance.
+  bool restoreProgramState(const ProgramState &state);
   bool setProgram(int programIndex);
   void refreshStateCache();
 

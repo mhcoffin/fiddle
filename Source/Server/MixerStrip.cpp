@@ -102,6 +102,21 @@ bool MixerStrip::applyPluginState(const void *data, int sizeInBytes) {
   return instrumentSlot_.applyState(data, sizeInBytes);
 }
 
+bool MixerStrip::capturePluginProgramState(
+    HostedPluginSlot::ProgramState &destination) {
+  return instrumentSlot_.captureProgramState(destination);
+}
+
+bool MixerStrip::selectPluginProgram(
+    int programIndex, HostedPluginSlot::ProgramState &result) {
+  return instrumentSlot_.selectProgram(programIndex, result);
+}
+
+bool MixerStrip::restorePluginProgramState(
+    const HostedPluginSlot::ProgramState &state) {
+  return instrumentSlot_.restoreProgramState(state);
+}
+
 bool MixerStrip::setPluginProgram(int programIndex) {
   return instrumentSlot_.setProgram(programIndex);
 }
@@ -199,6 +214,7 @@ void MixerStrip::insertLuaPlugin(size_t index,
 }
 
 std::vector<std::string> MixerStrip::getLuaPluginFileNames() const {
+  auto lock = lockMidiState();
   std::vector<std::string> names;
   for (const auto &p : luaPlugins) {
     std::filesystem::path fp(p->filePath());

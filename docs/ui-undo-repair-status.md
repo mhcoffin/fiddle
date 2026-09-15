@@ -2,8 +2,10 @@
 
 Updated 13 September 2026. The shared-history, chair, plug-in, layer-refresh,
 and Library Manager checkpoints are committed and smoke-tested. The
-expression-map follow-up below has passed automated testing and awaits its
-smoke check. The broader inventory is
+expression-map follow-up is also committed and smoke-tested. The VSTi-program
+and Lua follow-up below has passed automated testing and its available Lua
+smoke check, while real-VST program acceptance is deferred because none of the
+available instruments expose multiple JUCE programs. The broader inventory is
 **not yet fully repaired**. Verification used isolated fixtures.
 
 ## Implemented in this checkpoint
@@ -56,10 +58,10 @@ see [audio safety results](audio-safety-results.md).
 
 ## Still to implement
 
-1. VSTi program-selection Undo and Lua loading failure handling. Preserve
-   vendor edits without recording their individual editor gestures.
-2. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
+1. Remaining legacy endpoints, no-op/failure handling and gesture regressions,
    plus native menu integration where appropriate.
+2. Real-VST acceptance for program-selection Undo/Redo when an instrument that
+   exposes multiple meaningfully named JUCE programs is available.
 
 ## Short manual check after restarting the rebuilt Release server
 
@@ -242,7 +244,7 @@ No native Fiddle VST3 reinstall is required.
 
 ## Expression-map follow-up — 13 September 2026
 
-Implemented and automatically verified; awaiting the user's smoke check.
+Implemented, automatically verified and smoke-tested; committed as `d5b74f1`.
 
 - Catalog assignment, clearing, group assignment and direct `.doricolib`
   import all use the project Undo history. Each action owns its exact before
@@ -273,3 +275,47 @@ of a `.doricolib` file. Undo should restore the catalog map and Redo should
 restore the imported map. Save and restart Fiddle; the imported map name should
 remain. Use a disposable copy if testing deletion of the source file. No native
 Fiddle VST3 reinstall is required.
+
+## Program-selection and Lua follow-up — 13 September 2026
+
+Implemented and automatically verified. The Lua smoke check passed on
+15 September 2026. Real-VST program acceptance is deferred because the
+currently available instruments do not expose multiple JUCE programs.
+
+- VSTi program selection is a project-history command. It records the JUCE
+  program index together with the instrument's complete serialized state,
+  because many players change more than the exposed program number. Undo and
+  Redo refresh the departing side on every cycle, preserving later vendor
+  edits without turning individual editor gestures into Fiddle commands.
+- Program-change callbacks are consumed and the parameter fingerprint is
+  rebased after Execute, Undo and Redo. Pending callbacks from an earlier
+  vendor edit are processed before a new program command, so the timer neither
+  duplicates the command as an external edit nor swallows an earlier edit.
+- Adding a Lua processor loads it once before history accepts the command.
+  Add/Remove Undo and Redo retain the exact in-memory processor; they never
+  reread a file that may have changed, moved or disappeared.
+- Missing, invalid and `on_load`-failing Lua processors reject direct Add
+  without changing the chain, persistence or Undo history. The UI log reports
+  the failure. Successful Lua commands persist from the existing caches.
+- Project/session restore keeps an inert unloaded Lua placeholder when a saved
+  script is unavailable or invalid. Its ordered filename remains visible and
+  survives the next save rather than being silently dropped. Catalog resolution
+  also supports discovered processors stored as nested `init.lua` files.
+
+The Release server and aggregate test target build, and all 56 stable CTest
+entries pass. Focused tests use a deterministic three-program instrument and
+real temporary Lua scripts. They verify exact state on repeated Undo/Redo,
+preservation after source deletion, rejection of a failing `on_load`, and
+version restoration of an unloaded placeholder. The ThreadSanitizer mixer
+integration target also passes without a race report.
+
+Deferred program smoke check: when a layer VSTi exposing at least two named
+JUCE programs becomes available, Save, choose a different program, then
+Undo/Redo and confirm the preset follows. Undo back to the saved program should
+disable Save. This is not blocked on internal vendor preset browsers, which do
+not exercise Fiddle's program command.
+
+Lua smoke check passed: adding and removing processors followed by Undo/Redo
+behaved correctly. The automated failure case verifies that a script whose
+`on_load` throws does not add a processor or history step. No native Fiddle
+VST3 reinstall is required for this checkpoint.

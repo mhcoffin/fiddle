@@ -7,7 +7,13 @@ namespace fiddle {
 // LuaPlugin implementation
 // ─────────────────────────────────────────────────────────────────────────────
 
-LuaPlugin::LuaPlugin(const std::string &filePath) : filePath_(filePath) {}
+LuaPlugin::LuaPlugin(const std::string &filePath) : filePath_(filePath) {
+  meta_.filePath = filePath_;
+  const auto path = std::filesystem::path(filePath_);
+  meta_.name = path.stem().string();
+  if (meta_.name.empty())
+    meta_.name = path.filename().string();
+}
 
 LuaPlugin::~LuaPlugin() = default;
 
@@ -127,9 +133,6 @@ bool LuaPlugin::load() {
   fnOnReset_ = cacheFunction("on_reset");
   fnOnLoad_ = cacheFunction("on_load");
 
-  loaded_ = true;
-  log("Loaded plugin: " + meta_.name + " v" + meta_.version);
-
   // Call on_load if present (with a stub context for now)
   if (fnOnLoad_) {
     sol::table ctx = lua_->create_table();
@@ -138,9 +141,13 @@ bool LuaPlugin::load() {
     if (!callResult.valid()) {
       sol::error err = callResult;
       log("on_load error: " + std::string(err.what()), true);
+      loaded_ = false;
+      return false;
     }
   }
 
+  loaded_ = true;
+  log("Loaded plugin: " + meta_.name + " v" + meta_.version);
   return true;
 }
 
@@ -581,6 +588,12 @@ LuaPluginCatalog::findByFileName(const std::string &fileName) const {
 std::string
 LuaPluginCatalog::resolvePluginPath(const std::string &fileName) const {
   namespace fs = std::filesystem;
+  // Catalog entries can live in nested folders (commonly package/init.lua),
+  // which cannot be reconstructed by appending the basename to a search root.
+  if (const auto *meta = findByFileName(fileName);
+      meta && fs::exists(meta->filePath)) {
+    return meta->filePath;
+  }
   for (const auto &dir : searchPaths_) {
     auto candidate = fs::path(dir) / fileName;
     if (fs::exists(candidate))
@@ -593,4 +606,3 @@ LuaPluginCatalog::resolvePluginPath(const std::string &fileName) const {
 }
 
 } // namespace fiddle
-

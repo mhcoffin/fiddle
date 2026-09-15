@@ -16,6 +16,7 @@ public:
     std::function<void(Task)> dispatch;
     std::function<void()> mixerChanged;
     std::function<void()> persistMixer;
+    std::function<void()> beforeProgramChange;
   };
 
   MixerJsHandlers(MessageRouter &router, MixerCommands &commands,

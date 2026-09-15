@@ -12,6 +12,7 @@
 #include "GroupBusCommandService.h"
 #include "GroupBusJsHandlers.h"
 #include "MessageRouter.h"
+#include "MixerCommandService.h"
 #include "MixerModel.h"
 #include "PluginScanner.h"
 #include "ProjectRestoreService.h"
@@ -54,14 +55,17 @@ public:
   uint64_t frames = 0;
   std::function<void()> onProcess, onDestroy;
   ~SignalProcessor() override { if (onDestroy) onDestroy(); }
-  SignalProcessor(bool instrument, float amount, int latency = 0)
+  SignalProcessor(bool instrument, float amount, int latency = 0,
+                  int programCount = 1)
       : AudioPluginInstance(instrument
                            ? BusesProperties().withOutput(
                                  "Output", juce::AudioChannelSet::stereo(), true)
                            : BusesProperties()
                                  .withInput("Input", juce::AudioChannelSet::stereo(), true)
                                  .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-        instrument_(instrument), amount_(amount), latency_(latency) {
+        instrument_(instrument), amount_(amount),
+        programBaseAmount_(amount), latency_(latency),
+        programCount_(std::max(1, programCount)) {
     lastCreated.store(this);
     setLatencySamples(latency);
   }
@@ -114,10 +118,20 @@ public:
   bool isMidiEffect() const override { return false; }
   bool hasEditor() const override { return false; }
   juce::AudioProcessorEditor *createEditor() override { return nullptr; }
-  int getNumPrograms() override { ++programQueries; return 1; }
-  int getCurrentProgram() override { ++programQueries; return 0; }
-  void setCurrentProgram(int) override {}
-  const juce::String getProgramName(int) override { ++programQueries; return {}; }
+  int getNumPrograms() override { ++programQueries; return programCount_; }
+  int getCurrentProgram() override { ++programQueries; return currentProgram_; }
+  void setCurrentProgram(int index) override {
+    if (index < 0 || index >= programCount_)
+      return;
+    currentProgram_ = index;
+    amount_ = programBaseAmount_ * static_cast<float>(index + 1);
+  }
+  const juce::String getProgramName(int index) override {
+    ++programQueries;
+    return index >= 0 && index < programCount_
+               ? "Program " + juce::String(index + 1)
+               : juce::String{};
+  }
   void changeProgramName(int, const juce::String &) override {}
   void getStateInformation(juce::MemoryBlock &state) override {
     ++stateCaptures;
@@ -130,7 +144,9 @@ public:
 private:
   bool instrument_;
   float amount_;
+  float programBaseAmount_;
   int latency_, position_ = 0;
+  int programCount_ = 1, currentProgram_ = 0;
   std::array<bool, 128> notes_{};
   juce::AudioBuffer<float> delay_;
 };
@@ -624,6 +640,133 @@ float stateAmount(const juce::MemoryBlock &state) {
   REQUIRE(state.getSize() == sizeof(float));
   float result = 0; std::memcpy(&result, state.getData(), sizeof(result));
   return result;
+}
+
+void testProgramSelectionUndo() {
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  auto processor = std::make_unique<SignalProcessor>(true, 0.2f, 0, 3);
+  auto *live = processor.get();
+  juce::String error;
+  REQUIRE(strip->installInstrumentProcessor(description(true),
+                                             std::move(processor), error));
+
+  std::vector<juce::String> applied;
+  fiddle::MixerCommandService commands(
+      f.mixer, f.undo,
+      [&](const juce::String &stripId) { applied.push_back(stripId); });
+  f.undo.markSavePoint();
+
+  REQUIRE(commands.setProgram(id, 1));
+  REQUIRE(live->getCurrentProgram() == 1);
+  REQUIRE(stateAmount(strip->cachedPluginState()) == 0.4f);
+  REQUIRE(applied == std::vector<juce::String>{id});
+  REQUIRE(!f.undo.isAtSavePoint());
+
+  // Vendor edits made while either side is live remain attached to that side
+  // across repeated cycles; Redo never asks the current program to recreate
+  // a patch from its index alone.
+  float selectedEdit = 0.45f;
+  live->setStateInformation(&selectedEdit, sizeof(selectedEdit));
+  REQUIRE(f.undo.undo());
+  REQUIRE(live->getCurrentProgram() == 0);
+  REQUIRE(stateAmount(strip->cachedPluginState()) == 0.2f);
+  REQUIRE(f.undo.isAtSavePoint());
+
+  float originalEdit = 0.25f;
+  live->setStateInformation(&originalEdit, sizeof(originalEdit));
+  REQUIRE(f.undo.redo());
+  REQUIRE(live->getCurrentProgram() == 1);
+  REQUIRE(stateAmount(strip->cachedPluginState()) == selectedEdit);
+  selectedEdit = 0.5f;
+  live->setStateInformation(&selectedEdit, sizeof(selectedEdit));
+  REQUIRE(f.undo.undo());
+  REQUIRE(live->getCurrentProgram() == 0);
+  REQUIRE(stateAmount(strip->cachedPluginState()) == originalEdit);
+  REQUIRE(applied.size() == 4);
+
+  // Re-selecting the current program and invalid host indices do not disturb
+  // the redo entry or manufacture project history.
+  REQUIRE(!commands.setProgram(id, 0));
+  REQUIRE(!commands.setProgram(id, 99));
+  REQUIRE(f.undo.canRedo());
+}
+
+void testLuaHistoryAndMissingRestore() {
+  Sandbox sandbox;
+  const auto valid = sandbox.directory.getChildFile("retained.lua");
+  REQUIRE(valid.replaceWithText(
+      "return { name = 'Retained', on_note_start = function(note, ctx) "
+      "return true end }"));
+
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+      f.mixer, catalog, id, valid.getFullPathName().toStdString())));
+  REQUIRE(strip->luaPlugins.size() == 1 && strip->luaPlugins[0]->isLoaded());
+  const auto retained = strip->luaPlugins[0];
+
+  REQUIRE(valid.deleteFile());
+  REQUIRE(f.undo.undo() && strip->luaPlugins.empty());
+  REQUIRE(f.undo.redo());
+  REQUIRE(strip->luaPlugins.size() == 1 && strip->luaPlugins[0] == retained);
+  REQUIRE(f.undo.perform(
+      std::make_unique<fiddle::RemoveLuaPluginAction>(f.mixer, id, 0)));
+  REQUIRE(strip->luaPlugins.empty());
+  REQUIRE(f.undo.undo());
+  REQUIRE(strip->luaPlugins.size() == 1 && strip->luaPlugins[0] == retained);
+
+  // Version restore retains an inert, visible placeholder when the saved
+  // source is unavailable, preventing the next save from erasing the entry.
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("lua.sqlite")));
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.initialize(sandbox.directory.getChildFile("lua-state.bin"));
+  const auto saved = state.saveCurrentState(f.mixer, branch, root);
+  REQUIRE(saved.succeeded());
+  const auto version = versions.getVersion(saved.versionId);
+  REQUIRE(version.has_value());
+  const auto savedState = versions.getState(version->stateHash);
+  REQUIRE(savedState.has_value());
+
+  MixerFixture restored;
+  int finished = 0;
+  fiddle::ProjectRestoreService::Callbacks callbacks;
+  callbacks.resolveLua = [](const std::string &) { return std::string{}; };
+  callbacks.finished = [&] { ++finished; };
+  fiddle::ProjectRestoreService restore(restored.mixer, versions, nullptr,
+                                        std::move(callbacks));
+  REQUIRE(restore.restore(*savedState).accepted);
+  pumpUntil([&] { return !restore.isLoading(); });
+  REQUIRE(finished == 1 && restored.mixer.size() == 1);
+  auto *restoredStrip = restored.mixer.getAllStrips().front();
+  REQUIRE(restoredStrip->luaPlugins.size() == 1);
+  REQUIRE(!restoredStrip->luaPlugins[0]->isLoaded());
+  REQUIRE(restoredStrip->getLuaPluginFileNames() ==
+          std::vector<std::string>{"retained.lua"});
+
+  // Catalog probing accepts this table, but full activation must reject its
+  // failing lifecycle callback without touching the chain or Undo stack.
+  const auto broken = sandbox.directory.getChildFile("broken.lua");
+  REQUIRE(broken.replaceWithText(
+      "return { name = 'Broken', on_load = function(ctx) error('boom') end }"));
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  f.undo.clear();
+  const auto originalSize = strip->luaPlugins.size();
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+      f.mixer, catalog, id, broken.getFullPathName().toStdString())));
+  REQUIRE(strip->luaPlugins.size() == originalSize && !f.undo.canUndo());
+  REQUIRE(!f.undo.perform(
+      std::make_unique<fiddle::RemoveLuaPluginAction>(f.mixer, id, 99)));
+  REQUIRE(strip->luaPlugins.size() == originalSize && !f.undo.canUndo());
 }
 
 void testFrozenSaveCapturesEachPluginOnce() {
@@ -2169,6 +2312,8 @@ int main() {
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("save freezes each plugin state once for session and version persistence", testFrozenSaveCapturesEachPluginOnce);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
+  run("instrument program selection retains both states across undo", testProgramSelectionUndo);
+  run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);

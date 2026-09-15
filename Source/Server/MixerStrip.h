@@ -99,6 +99,10 @@ struct MixerStrip {
   [[nodiscard]] bool hasPlugin() const noexcept;
   bool capturePluginState(juce::MemoryBlock &destination) const;
   bool applyPluginState(const void *data, int sizeInBytes);
+  bool capturePluginProgramState(HostedPluginSlot::ProgramState &destination);
+  bool selectPluginProgram(int programIndex,
+                           HostedPluginSlot::ProgramState &result);
+  bool restorePluginProgramState(const HostedPluginSlot::ProgramState &state);
   bool setPluginProgram(int programIndex);
   void setPluginBypassed(bool bypassed) noexcept;
   [[nodiscard]] bool isPluginBypassed() const noexcept;

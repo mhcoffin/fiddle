@@ -334,13 +334,48 @@ bool HostedPluginSlot::applyState(const void *data, int sizeInBytes) {
   return true;
 }
 
-bool HostedPluginSlot::setProgram(int programIndex) {
+bool HostedPluginSlot::captureProgramState(ProgramState &destination) {
   AudioProcessingGate::Control control;
   if (!messageThreadProcessor_)
     return false;
-  messageThreadProcessor_->setCurrentProgram(programIndex);
-  refreshStateCache();
+  destination.index = messageThreadProcessor_->getCurrentProgram();
+  cachedState_.reset();
+  messageThreadProcessor_->getStateInformation(cachedState_);
+  destination.processorState = cachedState_;
   return true;
+}
+
+bool HostedPluginSlot::selectProgram(int programIndex, ProgramState &result) {
+  AudioProcessingGate::Control control;
+  if (!messageThreadProcessor_ || programIndex < 0 ||
+      programIndex >= messageThreadProcessor_->getNumPrograms())
+    return false;
+  messageThreadProcessor_->setCurrentProgram(programIndex);
+  result.index = messageThreadProcessor_->getCurrentProgram();
+  cachedState_.reset();
+  messageThreadProcessor_->getStateInformation(cachedState_);
+  result.processorState = cachedState_;
+  return true;
+}
+
+bool HostedPluginSlot::restoreProgramState(const ProgramState &state) {
+  AudioProcessingGate::Control control;
+  if (!messageThreadProcessor_ || state.index < 0 ||
+      state.index >= messageThreadProcessor_->getNumPrograms())
+    return false;
+  messageThreadProcessor_->setCurrentProgram(state.index);
+  if (!state.processorState.isEmpty())
+    messageThreadProcessor_->setStateInformation(
+        state.processorState.getData(),
+        static_cast<int>(state.processorState.getSize()));
+  cachedState_.reset();
+  messageThreadProcessor_->getStateInformation(cachedState_);
+  return true;
+}
+
+bool HostedPluginSlot::setProgram(int programIndex) {
+  ProgramState ignored;
+  return selectProgram(programIndex, ignored);
 }
 
 void HostedPluginSlot::refreshStateCache() {

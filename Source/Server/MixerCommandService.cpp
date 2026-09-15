@@ -10,8 +10,10 @@
 namespace fiddle {
 
 MixerCommandService::MixerCommandService(MixerModel &mixer,
-                                         UndoManager &undoManager)
-    : mixer_(mixer), undoManager_(undoManager) {}
+                                         UndoManager &undoManager,
+                                         ProgramAppliedCallback programApplied)
+    : mixer_(mixer), undoManager_(undoManager),
+      programApplied_(std::move(programApplied)) {}
 
 bool MixerCommandService::addStrip() {
   undoManager_.perform(std::make_unique<AddStripAction>(mixer_));
@@ -111,7 +113,16 @@ bool MixerCommandService::toggleLibraryActive(const juce::String &library) {
 bool MixerCommandService::setProgram(const juce::String &stripId,
                                      int programIndex) {
   auto *strip = mixer_.getStrip(stripId);
-  return strip != nullptr && strip->setPluginProgram(programIndex);
+  if (!strip || strip->pluginUid == 0)
+    return false;
+
+  HostedPluginSlot::ProgramState before;
+  if (!strip->capturePluginProgramState(before))
+    return false;
+
+  return undoManager_.perform(std::make_unique<SetPluginProgramAction>(
+      mixer_, stripId, strip->pluginUid, std::move(before), programIndex,
+      programApplied_));
 }
 
 bool MixerCommandService::setGroupGainDelta(

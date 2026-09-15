@@ -130,7 +130,8 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
          ++changed;
          effects.emplace_back("changed");
        },
-       [&] { effects.emplace_back("persist"); }});
+       [&] { effects.emplace_back("persist"); },
+       [&] { effects.emplace_back("before-program"); }});
   handlers.registerHandlers();
 
   CHECK(!router.handleMessage("notACommand", {}));
@@ -175,9 +176,12 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   CHECK(commands.calls.back() == "toggle-library");
   CHECK(effects == std::vector<std::string>({"persist", "changed"}));
 
+  effects.clear();
   CHECK(router.handleMessage("setStripProgram", payload({"strip-a", 7})));
   CHECK(commands.calls.back() == "program");
   CHECK(commands.firstInt == 7);
+  CHECK(effects == std::vector<std::string>(
+                       {"before-program", "persist", "changed"}));
 
   const juce::String idsJson = R"(["strip-a","strip-b"])";
   CHECK(router.handleMessage("setGroupGainDelta", payload({idsJson, -3.5})));
@@ -209,12 +213,14 @@ void testDispatchAndFailedCommandsControlSideEffects() {
   std::vector<fiddle::MixerJsHandlers::Task> pending;
   int changed = 0;
   int persisted = 0;
+  int beforeProgram = 0;
   fiddle::MixerJsHandlers handlers(
       router, commands,
       {[&](fiddle::MixerJsHandlers::Task task) {
          pending.push_back(std::move(task));
        },
-       [&] { ++changed; }, [&] { ++persisted; }});
+       [&] { ++changed; }, [&] { ++persisted; },
+       [&] { ++beforeProgram; }});
   handlers.registerHandlers();
 
   CHECK(router.handleMessage("setStripInput", payload({"strip-a", 1, 4})));
@@ -228,6 +234,13 @@ void testDispatchAndFailedCommandsControlSideEffects() {
   CHECK(router.handleMessage("toggleLibraryActive", payload({"Missing"})));
   CHECK(pending.size() == 2);
   pending.back()();
+  CHECK(changed == 1);
+  CHECK(persisted == 0);
+
+  CHECK(router.handleMessage("setStripProgram", payload({"strip-a", 2})));
+  CHECK(pending.size() == 3);
+  pending.back()();
+  CHECK(beforeProgram == 1);
   CHECK(changed == 1);
   CHECK(persisted == 0);
 }

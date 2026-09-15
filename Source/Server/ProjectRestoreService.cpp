@@ -184,11 +184,13 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     }
     for (const auto &name : blob.luaPluginFileNames) {
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
-      if (path.empty())
-        continue;
-      auto plugin = std::make_shared<LuaPlugin>(path);
-      if (plugin->load())
-        current->addLuaPlugin(std::move(plugin));
+      auto plugin = std::make_shared<LuaPlugin>(path.empty() ? name : path);
+      if (!path.empty())
+        (void)plugin->load();
+      // Preserve the ordered reference even if its source is currently missing
+      // or invalid. The unloaded placeholder is inert and remains visible in
+      // the UI, so a later save cannot silently erase project intent.
+      current->addLuaPlugin(std::move(plugin));
     }
     restoreRack(current->audioEngine(), blob.audioInsertState);
     if (blob.pluginUid == 0)

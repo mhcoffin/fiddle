@@ -150,7 +150,9 @@ void MixerJsHandlers::registerHandlers() {
     const auto stripId = arguments[0].toString();
     const auto programIndex = static_cast<int>(arguments[1]);
     dispatch([this, stripId, programIndex] {
-      notifyChanged(commands_.setProgram(stripId, programIndex), false);
+      if (callbacks_.beforeProgramChange)
+        callbacks_.beforeProgramChange();
+      notifyChanged(commands_.setProgram(stripId, programIndex), true);
     });
   });
 

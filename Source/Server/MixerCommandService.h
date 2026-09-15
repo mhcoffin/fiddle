@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixerCommands.h"
+#include <functional>
 
 namespace fiddle {
 
@@ -10,7 +11,11 @@ class UndoManager;
 /// Applies mixer commands and records undoable changes.
 class MixerCommandService final : public MixerCommands {
 public:
-  MixerCommandService(MixerModel &mixer, UndoManager &undoManager);
+  using ProgramAppliedCallback =
+      std::function<void(const juce::String &stripId)>;
+
+  MixerCommandService(MixerModel &mixer, UndoManager &undoManager,
+                      ProgramAppliedCallback programApplied = {});
 
   bool addStrip() override;
   bool duplicateStrip(const juce::String &stripId) override;
@@ -36,6 +41,7 @@ public:
 private:
   MixerModel &mixer_;
   UndoManager &undoManager_;
+  ProgramAppliedCallback programApplied_;
 };
 
 } // namespace fiddle
