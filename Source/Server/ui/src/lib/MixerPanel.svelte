@@ -399,6 +399,8 @@
         Boolean(
             strip.missingPatchReference ||
             strip.sourcePatchOutOfDate ||
+            strip.pluginStatus === "missing" ||
+            strip.pluginStatus === "failed" ||
             strip.luaPlugins?.some((plugin) => !plugin.loaded) ||
             visibleStripInserts(strip).some((insert) =>
                 insert.status === "missing" || insert.status === "failed"),
@@ -1475,6 +1477,12 @@
                                                             aria-pressed={Boolean(strip.instrumentEditorOpen)}
                                                             title={`${strip.instrumentEditorOpen ? "Hide" : "Edit"} ${getPluginName(strip) || "VST instrument"}; use Edit details to change the player`}
                                                         >{strip.instrumentEditorOpen ? "Hide VSTi" : "Edit VSTi"}</button>
+                                                    {:else if strip.pluginUid && (strip.pluginStatus === "missing" || strip.pluginStatus === "failed")}
+                                                        <button
+                                                            class="attention"
+                                                            onclick={() => setPlugin(strip.id, strip.pluginUid)}
+                                                            title={strip.pluginError || "The VST instrument did not load; retry with its saved state"}
+                                                        >Retry VSTi</button>
                                                     {:else}
                                                         <select
                                                             aria-label="Choose VSTi"

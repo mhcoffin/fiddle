@@ -1583,10 +1583,6 @@ void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                          safeThis->pluginStateSettleUntilMs_[stripId] =
                              juce::Time::getMillisecondCounter() +
                              kPluginStateSettleMs;
-                       } else {
-                         currentStrip->markPluginMissing(
-                             pluginUid, state,
-                             "Plug-in could not be instantiated");
                        }
                        safeThis->pushMixerState(false);
                        safeThis->scheduleStateRebuild();
@@ -2272,6 +2268,7 @@ juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
   layer->setProperty("hasPlugin", strip.hasPlugin());
   layer->setProperty("pluginStatus",
                      HostedPluginSlot::statusName(strip.pluginStatus()));
+  layer->setProperty("pluginError", strip.pluginError());
   layer->setProperty(
       "expressionMap",
       strip.expressionMap ? juce::String(strip.expressionMap->name) : "");

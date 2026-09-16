@@ -1280,11 +1280,19 @@ void testInstrumentReplacementStateUndo() {
   factory->missingInstruments = true;
   REQUIRE(f.undo.undo()); settle();
   REQUIRE(strip->pluginStatus() == fiddle::HostedPluginStatus::missing);
+  REQUIRE(strip->pluginError() == "Intentionally unavailable test plug-in");
+  const auto missingJson = strip->toJson();
+  REQUIRE(missingJson.getProperty("pluginError", {}).toString() ==
+          "Intentionally unavailable test plug-in");
   REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
-  REQUIRE(f.undo.redo());
+
+  // Retrying the selected UID restores the cached state instead of loading the
+  // player's default preset.
   factory->missingInstruments = false;
-  f.scanner.getKnownPluginListMutable().clear(); // Undo does not depend on today's catalog.
-  REQUIRE(f.undo.undo()); settle();
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetPluginAction>(
+      f.mixer, f.scanner, id, 101, 101)));
+  settle();
+  REQUIRE(strip->hasPlugin());
   REQUIRE(stateAmount(strip->cachedPluginState()) == edited);
 }
 

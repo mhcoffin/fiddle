@@ -85,6 +85,8 @@
                     </div>
                     {#if strip.hasPlugin}
                         <button onclick={onShowInstrument}>Edit instrument</button>
+                    {:else if strip.pluginUid && (strip.pluginStatus === "missing" || strip.pluginStatus === "failed")}
+                        <button class="attention" onclick={() => onSetPlugin(strip.pluginUid)}>Retry instrument</button>
                     {/if}
                 </div>
                 <select value={strip.pluginUid || 0} onchange={(event) => onSetPlugin(Number(event.currentTarget.value))}>
@@ -94,6 +96,13 @@
                     {/each}
                 </select>
                 <div class="current-value">Current: {pluginName || "No instrument assigned"}</div>
+
+                {#if !strip.hasPlugin && strip.pluginUid && (strip.pluginStatus === "missing" || strip.pluginStatus === "failed")}
+                    <div class="warning">
+                        <strong>The VST instrument did not load.</strong>
+                        <span>{strip.pluginError || "Fiddle did not receive a more specific error."}</span>
+                    </div>
+                {/if}
 
                 {#if strip.hasPlugin && (strip.numPrograms ?? 0) > 1 && (strip.programNames ?? []).some((name) => name && !/^Program\s*\d*$/.test(name))}
                     <label class="program">
@@ -210,6 +219,7 @@
     .program { margin-top: 14px; }
     .current-value { margin-top: 8px; color: #94a3b8; font-size: 0.78rem; }
     .notice, .warning, .empty { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; }
+    .warning { display: flex; flex-direction: column; gap: 4px; }
     .notice { border: 1px solid #854d0e; background: rgba(133, 77, 14, 0.2); color: #fde68a; }
     .warning { border: 1px solid #991b1b; background: rgba(127, 29, 29, 0.22); color: #fecaca; }
     .empty { border: 1px dashed #334155; color: #94a3b8; text-align: center; }

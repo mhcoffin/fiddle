@@ -36,3 +36,11 @@ test("operational instrument and effect controls remain on large strips", () => 
     assert.match(mixerSource, /setStripInsertBypassed/);
     assert.match(mixerSource, /toggleStripInsertEditor/);
 });
+
+test("missing instruments can be retried without discarding their saved state", () => {
+    assert.match(mixerSource, />Retry VSTi<\/button>/);
+    assert.match(mixerSource, /setPlugin\(strip\.id, strip\.pluginUid\)/);
+    assert.match(mixerSource, /strip\.pluginStatus === "missing"/);
+    assert.match(detailsSource, />Retry instrument<\/button>/);
+    assert.match(detailsSource, /strip\.pluginError/);
+});

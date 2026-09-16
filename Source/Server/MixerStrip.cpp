@@ -133,6 +133,10 @@ HostedPluginStatus MixerStrip::pluginStatus() const noexcept {
   return instrumentSlot_.status();
 }
 
+const juce::String &MixerStrip::pluginError() const noexcept {
+  return instrumentSlot_.lastError();
+}
+
 const PluginCompatibility &MixerStrip::pluginCompatibility() const noexcept {
   return instrumentSlot_.compatibility();
 }
@@ -613,6 +617,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("pluginSlotId", instrumentSlot_.id().value);
   obj->setProperty("pluginStatus",
                    HostedPluginSlot::statusName(instrumentSlot_.status()));
+  obj->setProperty("pluginError", instrumentSlot_.lastError());
   obj->setProperty("pluginBypassed", instrumentSlot_.isBypassed());
   obj->setProperty("pluginCompatibility",
                    instrumentSlot_.compatibility().toJson());

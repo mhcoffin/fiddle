@@ -107,6 +107,7 @@ struct MixerStrip {
   void setPluginBypassed(bool bypassed) noexcept;
   [[nodiscard]] bool isPluginBypassed() const noexcept;
   [[nodiscard]] HostedPluginStatus pluginStatus() const noexcept;
+  [[nodiscard]] const juce::String &pluginError() const noexcept;
   [[nodiscard]] const PluginCompatibility &pluginCompatibility() const noexcept;
 
   /// Update the stable instrument-slot ID after assigning/restoring strip.id.
