@@ -3746,6 +3746,10 @@ void MainComponent::setupJsHandlers() {
             if (safeThis != nullptr)
               safeThis->broadcastMessage("setExpressionMaps", catalog);
           },
+          [safeThis](const juce::var &details) {
+            if (safeThis != nullptr)
+              safeThis->broadcastMessage("setExpressionMapDetails", details);
+          },
           [safeThis] {
             if (safeThis != nullptr) {
               safeThis->saveAllStripsToDB(false);

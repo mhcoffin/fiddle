@@ -1,5 +1,6 @@
 <script>
     import { tick } from "svelte";
+    import ExpressionMapViewer from "./ExpressionMapViewer.svelte";
     import { groupExpressionMaps } from "./expressionMapCatalog.js";
     import { getRememberedExpressionMapQuery, rememberExpressionMapQuery } from "./expressionMapPickerState.js";
 
@@ -17,8 +18,12 @@
     let searchInput = $state();
     let isOpen = $state(false);
     let query = $state("");
+    let viewerId = $state("");
     let groups = $derived(isOpen ? groupExpressionMaps(maps, query) : []);
     let resultCount = $derived(groups.reduce((total, group) => total + group.items.length, 0));
+    let canViewSelected = $derived(
+        Boolean(selectedId) && maps.some((map) => map.entityID === selectedId)
+    );
 
     const openPicker = async () => {
         query = getRememberedExpressionMapQuery();
@@ -40,6 +45,11 @@
     const choose = (entityID) => {
         onselect(entityID);
         closePicker();
+    };
+
+    const view = (entityID) => {
+        closePicker();
+        viewerId = entityID;
     };
 
     const clear = () => {
@@ -77,30 +87,41 @@
 </script>
 
 <div class="xmap-control">
-    <button
-        type="button"
-        class="xmap-trigger"
-        title={selectedName || "Choose an expression map"}
-        aria-haspopup="dialog"
-        onclick={openPicker}
-    >
-        <span
-            class="xmap-value"
-            class:xmap-placeholder={!selectedName}
-        ><span>{selectedName || "— xmap —"}</span></span>
-        <svg
-            class="xmap-search-icon"
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
+    <div class="xmap-control-row">
+        <button
+            type="button"
+            class="xmap-trigger"
+            title={selectedName || "Choose an expression map"}
+            aria-haspopup="dialog"
+            onclick={openPicker}
         >
-            <circle cx="11" cy="11" r="6.5"></circle>
-            <path d="m16 16 4 4"></path>
-        </svg>
-    </button>
+            <span
+                class="xmap-value"
+                class:xmap-placeholder={!selectedName}
+            ><span>{selectedName || "— xmap —"}</span></span>
+            <svg
+                class="xmap-search-icon"
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+            >
+                <circle cx="11" cy="11" r="6.5"></circle>
+                <path d="m16 16 4 4"></path>
+            </svg>
+        </button>
+        {#if canViewSelected}
+            <button
+                type="button"
+                class="xmap-view-current"
+                title="View expression map"
+                aria-label={`View ${selectedName || "expression map"}`}
+                onclick={() => view(selectedId)}
+            >View</button>
+        {/if}
+    </div>
 
     {#if isOpen}
         <dialog
@@ -154,20 +175,28 @@
                                 <h3>{group.name}</h3>
                                 <div class="xmap-group-items">
                                     {#each group.items as map}
-                                        <button
-                                            type="button"
-                                            data-xmap-option
-                                            class="xmap-option"
-                                            class:xmap-selected={map.entityID === selectedId}
-                                            title={map.name}
-                                            aria-current={map.entityID === selectedId ? "true" : undefined}
-                                            onclick={() => choose(map.entityID)}
-                                        >
-                                            <span>{map.label}</span>
-                                            {#if map.entityID === selectedId}
-                                                <span class="xmap-current">Current</span>
-                                            {/if}
-                                        </button>
+                                        <div class="xmap-option-row" class:xmap-selected={map.entityID === selectedId}>
+                                            <button
+                                                type="button"
+                                                data-xmap-option
+                                                class="xmap-option"
+                                                title={`Select ${map.name}`}
+                                                aria-current={map.entityID === selectedId ? "true" : undefined}
+                                                onclick={() => choose(map.entityID)}
+                                            >
+                                                <span>{map.label}</span>
+                                                {#if map.entityID === selectedId}
+                                                    <span class="xmap-current">Current</span>
+                                                {/if}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                class="xmap-option-view"
+                                                title={`View ${map.name}`}
+                                                aria-label={`View ${map.name}`}
+                                                onclick={() => view(map.entityID)}
+                                            >View</button>
+                                        </div>
                                     {/each}
                                 </div>
                             </section>
@@ -177,16 +206,25 @@
             </div>
         </dialog>
     {/if}
+
+    {#if viewerId}
+        <ExpressionMapViewer entityId={viewerId} onclose={() => (viewerId = "")} />
+    {/if}
 </div>
 
 <style>
     .xmap-control {
         margin-bottom: 2px;
     }
+    .xmap-control-row {
+        display: flex;
+        gap: 5px;
+    }
 
     .xmap-trigger {
         position: relative;
-        width: 100%;
+        flex: 1;
+        min-width: 0;
         min-height: 30px;
         overflow: hidden;
         padding: 0;
@@ -240,6 +278,23 @@
     .xmap-trigger:hover .xmap-search-icon,
     .xmap-trigger:focus-visible .xmap-search-icon {
         color: #bfdbfe;
+    }
+    .xmap-view-current {
+        flex: 0 0 auto;
+        padding: 0 8px;
+        border: 1px solid #334155;
+        border-radius: 3px;
+        background: #172033;
+        color: #93c5fd;
+        font-size: 0.68rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .xmap-view-current:hover,
+    .xmap-view-current:focus-visible {
+        border-color: #60a5fa;
+        color: #fff;
+        outline: none;
     }
 
     .xmap-dialog {
@@ -371,33 +426,62 @@
     .xmap-group-items {
         padding: 4px;
     }
+    .xmap-option-row {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 38px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        background: transparent;
+    }
     .xmap-option {
         display: flex;
+        flex: 1;
         align-items: center;
         justify-content: space-between;
         gap: 12px;
-        width: 100%;
-        min-height: 38px;
+        min-width: 0;
+        min-height: 36px;
         padding: 7px 10px;
-        border: 1px solid transparent;
-        border-radius: 4px;
+        border: 0;
         background: transparent;
         color: #dbeafe;
         font-size: 0.88rem;
         text-align: left;
         cursor: pointer;
     }
-    .xmap-option:hover,
-    .xmap-option:focus-visible {
+    .xmap-option-row:hover,
+    .xmap-option-row:focus-within {
         border-color: #334155;
         background: #1e293b;
         color: #fff;
+    }
+    .xmap-option:focus-visible,
+    .xmap-option-view:focus-visible {
         outline: none;
     }
     .xmap-selected {
         background: rgba(37, 99, 235, 0.18);
         color: #bfdbfe;
     }
+    .xmap-option-view {
+        align-self: stretch;
+        flex: 0 0 auto;
+        padding: 0 10px;
+        border: 0;
+        border-left: 1px solid transparent;
+        background: transparent;
+        color: #60a5fa;
+        font-size: 0.68rem;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .xmap-option-row:hover .xmap-option-view,
+    .xmap-option-row:focus-within .xmap-option-view {
+        border-left-color: #334155;
+    }
+    .xmap-option-view:hover { color: #fff; }
     .xmap-current {
         flex-shrink: 0;
         color: #60a5fa;

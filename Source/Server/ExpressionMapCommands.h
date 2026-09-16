@@ -11,6 +11,7 @@ public:
   virtual ~ExpressionMapCommands() = default;
 
   [[nodiscard]] virtual juce::var catalog() const = 0;
+  [[nodiscard]] virtual juce::var details(const juce::String &entityId) = 0;
   virtual bool assign(const juce::String &stripId,
                       const juce::String &entityId) = 0;
   virtual bool clear(const juce::String &stripId) = 0;

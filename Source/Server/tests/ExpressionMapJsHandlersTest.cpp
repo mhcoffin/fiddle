@@ -34,6 +34,8 @@ class FakeExpressionMapCommands final : public fiddle::ExpressionMapCommands {
 public:
   bool result = true;
   juce::var catalogValue = juce::JSON::parse(R"([{"entityID":"map-1"}])");
+  juce::var detailsValue =
+      juce::JSON::parse(R"({"found":true,"entityID":"map-1"})");
   std::vector<std::string> calls;
   std::vector<juce::String> stripIds;
   juce::String stripId;
@@ -41,6 +43,11 @@ public:
   juce::File file;
 
   juce::var catalog() const override { return catalogValue; }
+  juce::var details(const juce::String &targetEntityId) override {
+    calls.emplace_back("details");
+    entityId = targetEntityId;
+    return detailsValue;
+  }
 
   bool assign(const juce::String &id,
               const juce::String &targetEntityId) override {
@@ -78,6 +85,7 @@ void testCatalogAndIndividualAssignments() {
   FakeExpressionMapCommands commands;
   std::vector<fiddle::ExpressionMapJsHandlers::Task> pending;
   std::vector<juce::var> catalogs;
+  std::vector<juce::var> details;
   int changed = 0;
   fiddle::ExpressionMapJsHandlers handlers(
       router, commands,
@@ -85,6 +93,7 @@ void testCatalogAndIndividualAssignments() {
          pending.push_back(std::move(task));
        },
        {}, [&](const juce::var &catalog) { catalogs.push_back(catalog); },
+       [&](const juce::var &value) { details.push_back(value); },
        [&] { ++changed; }});
   handlers.registerHandlers();
 
@@ -95,9 +104,18 @@ void testCatalogAndIndividualAssignments() {
   CHECK(catalogs.size() == 1);
   CHECK(catalogs.back().getArray()->size() == 1);
 
+  CHECK(router.handleMessage("requestExpressionMapDetails",
+                             payload({"map-1"})));
+  CHECK(pending.size() == 2);
+  pending.back()();
+  CHECK(commands.calls.back() == "details");
+  CHECK(commands.entityId == "map-1");
+  CHECK(details.size() == 1);
+  CHECK(details.back().getDynamicObject()->getProperty("found"));
+
   CHECK(router.handleMessage("loadExpressionMap",
                              payload({"strip-a", "map-1"})));
-  CHECK(pending.size() == 2);
+  CHECK(pending.size() == 3);
   pending.back()();
   CHECK(commands.calls.back() == "assign");
   CHECK(commands.stripId == "strip-a");
@@ -126,7 +144,7 @@ void testGroupAssignmentAndClearing() {
          ++dispatched;
          task();
        },
-       {}, {}, [&] { ++changed; }});
+       {}, {}, {}, [&] { ++changed; }});
   handlers.registerHandlers();
 
   const juce::String idsJson = R"(["strip-a","strip-b"])";
@@ -166,7 +184,7 @@ void testFileSelectionAndMalformedPayloads() {
        [&](fiddle::ExpressionMapJsHandlers::FileSelection selection) {
          fileSelection = std::move(selection);
        },
-       {}, [&] { ++changed; }});
+       {}, {}, [&] { ++changed; }});
   handlers.registerHandlers();
 
   CHECK(router.handleMessage("loadExpressionMapFromFile",
@@ -189,6 +207,8 @@ void testFileSelectionAndMalformedPayloads() {
   CHECK(router.handleMessage("loadExpressionMap", payload({"strip-a"})));
   CHECK(router.handleMessage("clearExpressionMap", "not-an-array"));
   CHECK(router.handleMessage("loadExpressionMapFromFile", payload({})));
+  CHECK(router.handleMessage("requestExpressionMapDetails", payload({})));
+  CHECK(router.handleMessage("requestExpressionMapDetails", payload({""})));
   CHECK(dispatched == dispatchCount);
 }
 

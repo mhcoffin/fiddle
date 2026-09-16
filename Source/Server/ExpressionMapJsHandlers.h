@@ -18,6 +18,7 @@ public:
     std::function<void(Task)> dispatch;
     std::function<void(FileSelection)> chooseFile;
     std::function<void(const juce::var &)> publishCatalog;
+    std::function<void(const juce::var &)> publishDetails;
     std::function<void()> mixerChanged;
   };
 

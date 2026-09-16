@@ -513,12 +513,61 @@ juce::String expressionMapXml(const juce::String &name,
          "</kScoreLibrary>";
 }
 
+juce::String detailedExpressionMapXml() {
+  return R"xml(<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition>
+  <name>Catalog map</name><entityID>map.catalog</entityID>
+  <creator>Fiddle tests</creator><description>Serialization fixture</description>
+  <version>7</version><autoMutualExclusion>false</autoMutualExclusion>
+  <pitchBendRange>12</pitchBendRange>
+  <playingTechniqueCombinations array="true">
+    <playingTechniqueCombination>
+      <name>Legato muted</name><baseSwitchID>17</baseSwitchID>
+      <techniqueIDs>pt.legato+pt.muted</techniqueIDs>
+      <switchOnActions array="true">
+        <switchOnAction><type>kKeySwitch</type><param1>24</param1><param2>100</param2></switchOnAction>
+        <switchOnAction><type>kNoteVelocity</type><param1>25</param1><param2>101</param2></switchOnAction>
+        <switchOnAction><type>kCC</type><param1>32</param1><param2>2</param2></switchOnAction>
+        <switchOnAction><type>kControlChange</type><param1>33</param1><param2>3</param2></switchOnAction>
+        <switchOnAction><type>kChannelSwitch</type><param1>4</param1><param2>0</param2></switchOnAction>
+        <switchOnAction><type>kProgramChange</type><param1>7</param1><param2>0</param2></switchOnAction>
+      </switchOnActions>
+      <switchOffActions array="true">
+        <switchOffAction><type>kCC</type><param1>32</param1><param2>0</param2></switchOffAction>
+      </switchOffActions>
+      <ticksBefore>30</ticksBefore><millisecondsBefore>12</millisecondsBefore>
+      <conditionString>NoteLength &gt; kShort</conditionString>
+      <velocityFactor>0.75</velocityFactor><lengthFactor>0.8</lengthFactor>
+      <monophonic>true</monophonic><velocityRange>3,118</velocityRange>
+      <pitchRange>24,96</pitchRange><transpose>-12</transpose>
+      <volumeType><type>kCC</type><param1>11</param1></volumeType>
+      <volumeType2><type>kCC</type><param1>1</param1></volumeType2>
+    </playingTechniqueCombination>
+  </playingTechniqueCombinations>
+  <techniqueAddOns array="true">
+    <playingTechniqueCombination>
+      <name>Harmonic</name><techniqueIDs>pt.harmonic</techniqueIDs>
+      <switchOnActions array="true"><switchOnAction><type>kCC</type><param1>35</param1><param2>1</param2></switchOnAction></switchOnActions>
+      <switchOffActions array="true"/>
+    </playingTechniqueCombination>
+  </techniqueAddOns>
+  <playbackOptionsOverrides array="true">
+    <playbackOptionsOverride><option>timingOptions.noteDurationPercent</option><value>int: 88</value></playbackOptionsOverride>
+    <playbackOptionsOverride><option>timingOptions.staccatoDurationPercent</option><value>int: 42</value></playbackOptionsOverride>
+  </playbackOptionsOverrides>
+  <mutualExclusionGroups array="true">
+    <mutualExclusionGroup><name>Mute</name><techniqueIDs>pt.open, pt.muted</techniqueIDs><defaultID>pt.open</defaultID></mutualExclusionGroup>
+  </mutualExclusionGroups>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)xml";
+}
+
 void testExpressionMapUndoAndImportedPersistence() {
   Sandbox sandbox;
   const auto catalogFile = sandbox.directory.getChildFile("catalog.doricolib");
   const auto importedFile = sandbox.directory.getChildFile("imported.doricolib");
   const auto invalidFile = sandbox.directory.getChildFile("invalid.doricolib");
-  const auto catalogXml = expressionMapXml("Catalog map", "map.catalog");
+  const auto catalogXml = detailedExpressionMapXml();
   const auto importedXml = expressionMapXml("Imported map", "map.imported");
   REQUIRE(catalogFile.replaceWithText(catalogXml));
   REQUIRE(importedFile.replaceWithText(importedXml));
@@ -530,6 +579,91 @@ void testExpressionMapUndoAndImportedPersistence() {
   const auto firstId = f.mixer.addStrip();
   const auto secondId = f.mixer.addStrip();
   fiddle::ExpressionMapCommandService commands(f.mixer, library, f.undo);
+
+  const auto mapDetails = commands.details("map.catalog");
+  const auto *detailObject = mapDetails.getDynamicObject();
+  REQUIRE(detailObject != nullptr);
+  REQUIRE(static_cast<bool>(detailObject->getProperty("found")));
+  REQUIRE(detailObject->getProperty("name").toString() == "Catalog map");
+  REQUIRE(detailObject->getProperty("creator").toString() == "Fiddle tests");
+  REQUIRE(detailObject->getProperty("description").toString() ==
+          "Serialization fixture");
+  REQUIRE(static_cast<int>(detailObject->getProperty("version")) == 7);
+  REQUIRE(!static_cast<bool>(
+      detailObject->getProperty("autoMutualExclusion")));
+  REQUIRE(static_cast<int>(detailObject->getProperty("pitchBendRange")) == 12);
+  REQUIRE(detailObject->getProperty("sourcePath").toString() ==
+          catalogFile.getFullPathName());
+  const auto *combinations =
+      detailObject->getProperty("combinations").getArray();
+  REQUIRE(combinations != nullptr);
+  REQUIRE(combinations->size() == 2);
+  const auto *base = combinations->getReference(0).getDynamicObject();
+  REQUIRE(base != nullptr);
+  REQUIRE(base->getProperty("name").toString() == "Legato muted");
+  REQUIRE(static_cast<int>(base->getProperty("baseSwitchID")) == 17);
+  REQUIRE(!static_cast<bool>(base->getProperty("isAddOn")));
+  REQUIRE(base->getProperty("condition").toString() ==
+          "NoteLength > kShort");
+  REQUIRE(static_cast<int>(base->getProperty("ticksBefore")) == 30);
+  REQUIRE(static_cast<int>(base->getProperty("millisecondsBefore")) == 12);
+  REQUIRE(static_cast<bool>(base->getProperty("monophonic")));
+  REQUIRE(static_cast<int>(base->getProperty("velocityMin")) == 3);
+  REQUIRE(static_cast<int>(base->getProperty("velocityMax")) == 118);
+  REQUIRE(static_cast<int>(base->getProperty("pitchMin")) == 24);
+  REQUIRE(static_cast<int>(base->getProperty("pitchMax")) == 96);
+  REQUIRE(static_cast<int>(base->getProperty("transpose")) == -12);
+  REQUIRE(base->getProperty("volumeType").toString() == "cc");
+  REQUIRE(static_cast<int>(base->getProperty("volumeCC")) == 11);
+  REQUIRE(base->getProperty("volumeType2").toString() == "cc");
+  REQUIRE(static_cast<int>(base->getProperty("volumeCC2")) == 1);
+
+  const auto *techniqueIds = base->getProperty("techniqueIDs").getArray();
+  REQUIRE(techniqueIds != nullptr && techniqueIds->size() == 2);
+  REQUIRE(techniqueIds->getReference(0).toString() == "pt.legato");
+  REQUIRE(techniqueIds->getReference(1).toString() == "pt.muted");
+  const auto *switchOn = base->getProperty("switchOnActions").getArray();
+  REQUIRE(switchOn != nullptr && switchOn->size() == 6);
+  const std::array<juce::String, 6> expectedActionTypes{
+      "keySwitch", "noteVelocity", "cc", "controlChange",
+      "channelSwitch", "programChange"};
+  for (int index = 0; index < switchOn->size(); ++index)
+    REQUIRE(switchOn->getReference(index)
+                .getDynamicObject()
+                ->getProperty("type")
+                .toString() == expectedActionTypes[static_cast<size_t>(index)]);
+  REQUIRE(static_cast<int>(switchOn->getReference(0)
+                               .getDynamicObject()
+                               ->getProperty("param1")) == 24);
+  const auto *switchOff = base->getProperty("switchOffActions").getArray();
+  REQUIRE(switchOff != nullptr && switchOff->size() == 1);
+  REQUIRE(switchOff->getReference(0)
+              .getDynamicObject()
+              ->getProperty("type")
+              .toString() == "cc");
+
+  const auto *addOn = combinations->getReference(1).getDynamicObject();
+  REQUIRE(addOn != nullptr);
+  REQUIRE(static_cast<bool>(addOn->getProperty("isAddOn")));
+  REQUIRE(addOn->getProperty("name").toString() == "Harmonic");
+
+  const auto *timing = detailObject->getProperty("timing").getDynamicObject();
+  REQUIRE(timing != nullptr);
+  REQUIRE(static_cast<int>(timing->getProperty("natural")) == 88);
+  REQUIRE(static_cast<int>(timing->getProperty("staccato")) == 42);
+  REQUIRE(static_cast<int>(timing->getProperty("legato")) == 105);
+
+  const auto *megs =
+      detailObject->getProperty("mutualExclusionGroups").getArray();
+  REQUIRE(megs != nullptr && megs->size() == 1);
+  const auto *meg = megs->getReference(0).getDynamicObject();
+  REQUIRE(meg != nullptr);
+  REQUIRE(meg->getProperty("name").toString() == "Mute");
+  REQUIRE(meg->getProperty("defaultID").toString() == "pt.open");
+  REQUIRE(meg->getProperty("techniqueIDs").getArray()->size() == 2);
+  const auto missingDetails = commands.details("map.missing");
+  REQUIRE(!static_cast<bool>(
+      missingDetails.getDynamicObject()->getProperty("found")));
 
   REQUIRE(commands.assign(firstId, "map.catalog"));
   auto *first = f.mixer.getStrip(firstId);

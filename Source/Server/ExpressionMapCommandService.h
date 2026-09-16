@@ -15,6 +15,7 @@ public:
                               UndoManager &undoManager);
 
   [[nodiscard]] juce::var catalog() const override;
+  [[nodiscard]] juce::var details(const juce::String &entityId) override;
   bool assign(const juce::String &stripId,
               const juce::String &entityId) override;
   bool clear(const juce::String &stripId) override;

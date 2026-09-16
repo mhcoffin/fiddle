@@ -92,6 +92,20 @@ void ExpressionMapJsHandlers::registerHandlers() {
     });
   });
 
+  router_.registerHandler("requestExpressionMapDetails",
+                          [this](const juce::var &payload) {
+    const auto arguments = payloadArguments(payload);
+    if (arguments.size() < 1)
+      return;
+    const auto entityId = arguments[0].toString();
+    if (entityId.isEmpty())
+      return;
+    dispatch([this, entityId] {
+      if (callbacks_.publishDetails)
+        callbacks_.publishDetails(commands_.details(entityId));
+    });
+  });
+
   router_.registerHandler("setGroupExpressionMap",
                           [this](const juce::var &payload) {
     const auto arguments = payloadArguments(payload);

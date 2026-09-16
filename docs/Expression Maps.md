@@ -38,3 +38,11 @@ Send the MIDI events to the VST when the note is played.
 - **Techniques on a Note**: The `dimensions` field in the protobuf `Note` message contains the active playback techniques.
 - **Note-length conditions**: Deferred to a later phase.
 - **Keyswitch timing**: How far before the note should keyswitches be sent? Two sources of information: (1) the expression map itself may specify a pre-send time; (2) there is a default value that needs to be investigated. (TODO: determine the default keyswitch lead time.)
+
+## Viewer scope
+
+The expression-map viewer reloads maps from the current library catalog. It does not inspect the serialized expression-map snapshot stored in an existing project. A map can therefore continue to play from its saved snapshot even if its original `.doricolib` file has been moved or removed, but the viewer will report that the catalog map is unavailable.
+
+## Backlog
+
+- **Expand the expression map viewer into a full editor.** Preserve the original `.doricolib` XML structure and unknown fields so edits can be saved without losing information Fiddle does not currently interpret. Add validation, stable ID handling, Undo/Redo, and safe writing of files containing multiple expression-map definitions.
