@@ -16,6 +16,8 @@ test("every strip reserves the same operational space around its fader", () => {
     assert.match(mixerSource, /height: var\(--strip-pre-fader-height/);
     assert.match(mixerSource, /\.ch-fx-zone\s*\{[\s\S]*?height: 180px/);
     assert.match(mixerSource, /\.master-strip-bot-spacer\s*\{[\s\S]*?height: 74px/);
+    assert.match(mixerSource, /\.master-strip\s*\{[\s\S]*?box-sizing: border-box/);
+    assert.match(mixerSource, /\.master-db\s*\{[\s\S]*?min-height: 28px/);
 });
 
 test("rarely changed layer configuration lives in the details panel", () => {

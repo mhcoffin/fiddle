@@ -86,13 +86,19 @@ try {
                     headerHeight: header.getBoundingClientRect().height,
                     headerOverflow: header.scrollWidth - header.clientWidth,
                     faderTops: [...group.querySelectorAll(".fader-track")].map(track => track.getBoundingClientRect().top),
-                    // Master strips have their own existing bottom-control
-                    // geometry; compare the layer strips' complete spans.
-                    faderBottoms: [...group.querySelectorAll(".channel-strip .fader-track")].map(track => track.getBoundingClientRect().bottom),
+                    faderBottoms: [...group.querySelectorAll(".fader-track")].map(track => track.getBoundingClientRect().bottom),
                     buttonFits: (() => {
                         const button = group.querySelector(".bridge-add-layer").getBoundingClientRect();
                         return button.left >= rect.left && button.right <= rect.right;
                     })(),
+                };
+            }),
+            audioFaders: [...document.querySelectorAll(".bank .channel")].map(channel => {
+                const track = channel.querySelector(".fader-track").getBoundingClientRect();
+                return {
+                    name: channel.querySelector(".identity strong").textContent,
+                    top: track.top,
+                    bottom: track.bottom,
                 };
             }),
         }));
@@ -107,12 +113,17 @@ try {
         const heights = measured.groups.map(group => group.headerHeight);
         assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, "headers must align");
         const tops = measured.groups.flatMap(group => group.faderTops);
-        assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, "faders must align");
+        const allTops = [...tops, ...measured.audioFaders.map(fader => fader.top)];
         const bottoms = measured.groups.flatMap(group => group.faderBottoms);
+        const allBottoms = [...bottoms, ...measured.audioFaders.map(fader => fader.bottom)];
+        console.log(`${size}: fader spans ${measured.audioFaders.map(fader => `${fader.name} ${fader.top}-${fader.bottom}`).join(", ")}; layers ${Math.min(...tops)}-${Math.max(...bottoms)}`);
+        assert.ok(Math.max(...allTops) - Math.min(...allTops) <= 1,
+            `all fader tops must align: ${allTops.join(", ")}`);
         if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
             await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, `${size}.png`) });
         }
-        assert.ok(Math.max(...bottoms) - Math.min(...bottoms) <= 1, `fader spans must match: ${bottoms.join(", ")}`);
+        assert.ok(Math.max(...allBottoms) - Math.min(...allBottoms) <= 1,
+            `all fader bottoms must align: ${allBottoms.join(", ")}`);
         const firstChair = page.locator(".inst-group").first();
         const firstStrip = firstChair.locator(".channel-strip");
         assert.equal(await firstChair.getByText("Flute 1", { exact: true }).count(), 1,

@@ -2303,8 +2303,9 @@
         flex-shrink: 0;
         background: #090f1c;
         border-right: 1px solid rgba(51, 65, 85, 0.9); /* softer than other separators */
-        /* Same vertical padding as .channel-strip so spacers compute correctly */
-        padding: 6px 4px;
+        /* Match the layer strip's outer height and bottom inset exactly. */
+        box-sizing: border-box;
+        padding: 6px 4px 12px;
         overflow: hidden;
     }
     /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
@@ -2332,6 +2333,10 @@
         accent-color: #d4a017;
     }
     .master-db {
+        display: grid;
+        width: 100%;
+        min-height: 28px;
+        place-items: center;
         font-size: 0.75rem;
         font-weight: 600;
         color: #cbd5e1;
@@ -2874,6 +2879,7 @@
     }
     .ch-details-btn {
         width: 100%;
+        height: 32px;
         min-height: 32px;
         padding: 5px 8px;
         flex-shrink: 0;
@@ -2883,6 +2889,9 @@
         color: #cbd5e1;
         font-size: 0.72rem;
         font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         cursor: pointer;
     }
     .ch-details-btn:hover {

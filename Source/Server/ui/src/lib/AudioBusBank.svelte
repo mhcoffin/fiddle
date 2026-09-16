@@ -238,7 +238,8 @@
     .manage { min-height: 27px; padding: 3px 8px; border: 1px solid rgba(165,243,252,.55); border-radius: 4px; background: rgba(8,47,73,.72); color: #cffafe; font: inherit; font-size: .66rem; font-weight: 650; cursor: pointer; }
     .collapsed .header { height: 100%; padding: 8px 4px; flex-direction: column; justify-content: flex-start; }
     .collapsed .header-toggle { writing-mode: vertical-rl; flex: 0 0 auto; gap: 8px; }
-    .channels { min-height: 0; flex: 1; display: flex; }
+    /* Match the layer-bank bottom inset so every fader track ends on the same row. */
+    .channels { min-height: 0; padding-bottom: 21px; box-sizing: border-box; flex: 1; display: flex; }
     .channel { width: 146px; min-width: 146px; min-height: 0; padding: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 7px; border-right: 1px solid #27445b; background: #0b1727; transition: opacity .14s; }
     .channel.suppressed { opacity: .52; }
     .master { background: #111827; border-left: 2px solid #38bdf8; }
@@ -246,7 +247,9 @@
     .identity strong, .identity span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .identity strong { color: #e0f2fe; font-size: .76rem; }
     .identity span { color: #7dd3fc; font-size: .62rem; }
-    .fx-zone { height: 180px; min-height: 180px; display: flex; flex-shrink: 0; flex-direction: column; gap: 5px; }
+    /* Follow the mixer size's pre-fader span. The two pixels compensate for
+       the audio bank's local gap/tick geometry. */
+    .fx-zone { height: calc(var(--strip-pre-fader-height, 166px) + 2px); min-height: calc(var(--strip-pre-fader-height, 166px) + 2px); display: flex; flex-shrink: 0; flex-direction: column; gap: 5px; }
     .fx { width: 100%; min-height: 34px; padding: 5px 8px; flex-shrink: 0; border: 1px solid #36506f; border-radius: 5px; background: #10243a; color: #cbd5e1; font: inherit; font-size: .72rem; font-weight: 650; cursor: pointer; }
     .fx:hover, .fx.has-effects { border-color: #22d3ee; color: #cffafe; }
     .fx-summary { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
