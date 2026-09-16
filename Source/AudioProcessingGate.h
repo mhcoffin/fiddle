@@ -36,6 +36,18 @@ public:
     explicit operator bool() const noexcept { return entered_; }
     Render(const Render &) = delete;
   };
+  // A helper joins a block already admitted by the coordinator. A new Control
+  // request must not make that helper skip its part of the block. The owner
+  // MUST remain alive until all participants have joined back to it.
+  class RenderParticipant {
+  public:
+    explicit RenderParticipant(const Render &owner) noexcept {
+      if (!owner || renderDepth_ != 0 || controlDepth_ != 0) std::terminate();
+      ++renderDepth_;
+    }
+    ~RenderParticipant() { --renderDepth_; }
+    RenderParticipant(const RenderParticipant &) = delete;
+  };
   class Control {
     std::unique_lock<std::recursive_mutex> lock_{controlMutex_, std::defer_lock};
   public:

@@ -35,6 +35,32 @@ test("panel uses native modal focus handling and offers marked, copyable diagnos
     assert.match(source, /Safety-mute episodes/);
     assert.match(source, /Lowest queued reserve/);
     assert.match(source, /recovery safety muting/);
+    assert.match(source, /controlWaitCount/);
+    assert.match(source, /controlWaitMs/);
+    assert.match(source, /setRenderWorkerCount/);
+    assert.match(source, /disabled=\{!data.renderWorkerChangeAllowed\}/);
+    assert.match(source, /Summed plugin work \(overlapping\)/);
+});
+
+test("reports retain control-gate wait measurements", () => {
+    const data = { renderAhead: { streamId: "test", controlWaitCount: 12, controlWaitMs: 15.5,
+        renderWorkers: 4, requestedRenderWorkers: 4, helpersRealtime: true },
+        parallelRendering: true, pluginLoad: 110, otherLoad: null };
+    const report = JSON.parse(diagnosticReport(appendDiagnosticSample([], data, 1000), []));
+    assert.deepEqual(report.samples[0].renderAhead, data.renderAhead);
+    assert.equal(report.samples[0].parallelRendering, true);
+    assert.equal(report.samples[0].pluginLoad, 110);
+    assert.equal(report.samples[0].otherLoad, null);
+});
+
+test("worker changes are validated, stopped-only, and local rather than project settings", () => {
+    const source = readFileSync(new URL("../../MainComponent.cpp", import.meta.url), "utf8");
+    const handler = source.match(/registerHandler\("setRenderWorkerCount",([\s\S]*?)\n  \}\);/)?.[1];
+    assert.match(handler, /value != 1.0 && value != 2.0 && value != 4.0/);
+    assert.match(handler, /isTransportStarted_/);
+    assert.match(handler, /mixPrintIsArmed/);
+    assert.match(handler, /saveSetting\("audio_render_workers"/);
+    assert.doesNotMatch(handler, /saveConfig|markDirty|undoManager/);
 });
 
 test("plugin costs sort without mutating reports, and stale or bypassed costs are explicit", () => {

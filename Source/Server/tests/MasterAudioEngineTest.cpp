@@ -247,8 +247,19 @@ void testPlaybackNotificationsDoNotDirtyMasterEffects() {
   int changes = 0;
   master.setOnChanged([&] { ++changes; });
 
+  const auto controlsBeforePlayback = fiddle::AudioProcessingGate::controlCount();
   processorPointer->setParameterWithNotification(0.6f);
   CHECK(!master.consumePluginChanges(true));
+  CHECK(changes == 0);
+  CHECK(fiddle::AudioProcessingGate::controlCount() == controlsBeforePlayback);
+  processorPointer->updateHostDisplay(
+      juce::AudioProcessor::ChangeDetails{}.withNonParameterStateChanged(true));
+  CHECK(!master.consumePluginChanges(true));
+  CHECK(fiddle::AudioProcessingGate::controlCount() == controlsBeforePlayback);
+
+  // Playback values become the baseline without being treated as an edit.
+  master.captureParameterFingerprints();
+  CHECK(!master.refreshPluginStateCaches());
   CHECK(changes == 0);
 
   processorPointer->setParameterWithGesture(0.7f);
@@ -267,6 +278,11 @@ void testPlaybackNotificationsDoNotDirtyMasterEffects() {
   CHECK(changes == 2); // Latency display updates must not dirty the project.
   CHECK(master.consumeLatencyDisplayChange());
   CHECK(!master.consumeLatencyDisplayChange());
+  master.captureParameterFingerprints();
+  CHECK(!master.refreshPluginStateCaches());
+  processorPointer->setParameterWithoutNotification(0.95f);
+  CHECK(master.refreshPluginStateCaches());
+  CHECK(changes == 3); // Normal stopped polling still finds silent edits.
 }
 
 } // namespace

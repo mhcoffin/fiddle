@@ -459,12 +459,37 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
     anyBusSoloed |= bus->isSoloed();
   }
 
-  for (const auto &route : graph->stripRoutes) {
-    const bool directPathAudible = !anyBusSoloed || route.destination != nullptr;
-    auto &destination = route.destination ? route.destination->inputBuffer()
-                                          : audioBuffer;
-    route.strip->processBlock(destination, currentTime, anySoloed,
-                              directPathAudible);
+  if (renderPool_.count() > 1 && graph->stripRoutes.size() > 1) {
+    struct Block {
+      ActiveAudioGraph &graph;
+      double time;
+      int frames;
+      bool anySoloed, anyBusSoloed;
+    } block{*graph, currentTime, audioBuffer.getNumSamples(), anySoloed, anyBusSoloed};
+    const auto renderStrip = [](void *context, size_t index) {
+      auto &b = *static_cast<Block *>(context);
+      auto &route = b.graph.stripRoutes[index];
+      juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2, b.frames);
+      scratch.clear();
+      route.strip->processBlock(scratch, b.time, b.anySoloed,
+                                !b.anyBusSoloed || route.destination != nullptr);
+    };
+    const auto helperPluginMs = renderPool_.process(graph->stripRoutes.size(), &block,
+                                                   renderStrip, render);
+    PluginRenderDiagnostics::addBlockWork(helperPluginMs);
+    // No shared summing from helpers. Original strip order is preserved, as
+    // are bus dependencies, FX order and one process call per instance/block.
+    for (const auto &route : graph->stripRoutes) {
+      auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
+      for (int channel = 0; channel < std::min(2, destination.getNumChannels()); ++channel)
+        destination.addFrom(channel, 0, route.scratch, channel, 0, block.frames);
+    }
+  } else {
+    for (const auto &route : graph->stripRoutes) {
+      const bool directPathAudible = !anyBusSoloed || route.destination != nullptr;
+      auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
+      route.strip->processBlock(destination, currentTime, anySoloed, directPathAudible);
+    }
   }
 
   for (auto *bus : graph->groupBuses)
@@ -484,6 +509,14 @@ void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
   for (auto &bus : groupBuses_)
     bus->prepareToPlay(sampleRate, blockSize);
   masterAudio_.prepareToPlay(sampleRate, blockSize);
+  commitAudioGraph(); // Publish correctly sized parallel scratch buffers.
+  renderPool_.configure(renderWorkers_.load(), sampleRate, blockSize);
+}
+
+void MixerModel::setRenderWorkerCount(int count) {
+  AudioProcessingGate::Control control;
+  renderWorkers_.store(ParallelRenderPool::validCount(count));
+  renderPool_.configure(renderWorkers_.load(), currentSampleRate_.load(), currentBlockSize_);
 }
 
 void MixerModel::routeNoteEvent(int port, int channel,
@@ -1077,7 +1110,8 @@ void MixerModel::commitAudioGraph() {
     }
     s->setDownstreamLatencySamples(
         destination ? destination->audioEngine().latencySamples() : 0);
-    current->stripRoutes.push_back({s.get(), destination});
+    current->stripRoutes.push_back({s.get(), destination,
+                                   juce::AudioBuffer<float>(2, currentBlockSize_)});
   }
   audioGraph_.publish(std::move(current));
 }

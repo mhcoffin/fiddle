@@ -79,7 +79,7 @@ public:
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
 
 #if JUCE_MAC
-    applicationMenu_.addItem(kRestartMenuItemId, "Restart FiddleServer");
+    applicationMenu_.addItem(kRestartMenuItemId, "Restart Fiddle");
     juce::MenuBarModel::setMacMainMenu(this, &applicationMenu_);
 
     // setMacMainMenu() schedules one final asynchronous menu rebuild. Install
@@ -120,6 +120,11 @@ public:
     juce::PopupMenu menu;
     if (menuIndex == 0) {
       menu.addItem(kSaveMenuItemId, "Save  (Cmd+S)");
+      menu.addSeparator();
+      // Keep restart in the normal menu model as well as the macOS application
+      // menu. AppKit may rebuild its application menu independently; File must
+      // remain a reliable way to reach this command.
+      menu.addItem(kRestartMenuItemId, "Restart Fiddle");
     } else if (menuIndex == 1) {
       // View menu
       bool debugVisible = false;

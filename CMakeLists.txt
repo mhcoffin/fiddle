@@ -122,6 +122,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/AgentControlServer.h
     Source/Server/AudioDeviceSettings.cpp
     Source/Server/RenderAheadEngine.cpp
+    Source/Server/RealtimeMixPrinter.cpp
+    Source/Server/RealtimeMixPrinter.h
     Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
@@ -846,6 +848,22 @@ target_compile_features(AudioDiagnosticsTest PRIVATE cxx_std_17)
 add_test(NAME audio_diagnostics COMMAND AudioDiagnosticsTest)
 set_tests_properties(audio_diagnostics PROPERTIES LABELS "audio;realtime;regression;stable")
 
+add_executable(RealtimeMixPrinterTest
+    Source/Server/tests/RealtimeMixPrinterTest.cpp
+    Source/Server/RealtimeMixPrinter.cpp
+)
+target_include_directories(RealtimeMixPrinterTest PRIVATE Source/Server Source)
+target_link_libraries(RealtimeMixPrinterTest PRIVATE
+    juce::juce_audio_formats
+    juce::juce_audio_basics
+    juce::juce_core
+)
+target_compile_features(RealtimeMixPrinterTest PRIVATE cxx_std_17)
+add_test(NAME realtime_mix_printer COMMAND RealtimeMixPrinterTest)
+set_tests_properties(realtime_mix_printer PROPERTIES
+    LABELS "audio;export;realtime;regression;stable"
+)
+
 add_executable(AudioDeviceSettingsStoreTest Source/Server/tests/AudioDeviceSettingsStoreTest.cpp)
 target_link_libraries(AudioDeviceSettingsStoreTest PRIVATE juce::juce_core)
 target_compile_features(AudioDeviceSettingsStoreTest PRIVATE cxx_std_17)
@@ -1133,6 +1151,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/tests/MixerIntegrationTest.cpp
     Source/Server/LibraryPatchPreviewHost.cpp
     Source/Server/RenderAheadEngine.cpp
+    Source/Server/RealtimeMixPrinter.cpp
     Source/Server/ProjectRestoreService.cpp
     Source/Server/MixerCommandService.cpp
     Source/Server/MixerModel.cpp

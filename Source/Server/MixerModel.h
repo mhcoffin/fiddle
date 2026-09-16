@@ -5,6 +5,7 @@
 #include "GroupBus.h"
 #include "MixerStrip.h"
 #include "ProjectSettings.h"
+#include "ParallelRenderPool.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
@@ -36,6 +37,7 @@ class MixerModel : public juce::Timer {
   struct StripRoute {
     MixerStrip *strip = nullptr;
     GroupBus *destination = nullptr; // nullptr means Master
+    juce::AudioBuffer<float> scratch; // allocated only when publishing a graph
   };
 
   struct ActiveAudioGraph {
@@ -153,6 +155,12 @@ public:
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime);
 
   void prepareToPlay(double sampleRate, int blockSize);
+  /// Local experimental setting, not part of project state. Includes the
+  /// coordinator: 1 means the original serial path, 2/4 add 1/3 helpers.
+  void setRenderWorkerCount(int count);
+  int renderWorkerCount() const noexcept { return renderPool_.count(); }
+  int requestedRenderWorkerCount() const noexcept { return renderWorkers_.load(); }
+  bool renderHelpersRealtime() const noexcept { return renderPool_.realtime(); }
 
   /// Route incoming MIDI note event to matching strips (raw, no annotation).
   void routeNoteEvent(int port, int channel, const juce::MidiMessage &msg,
@@ -252,6 +260,8 @@ private:
   MasterAudioEngine masterAudio_;
   std::atomic<double> currentSampleRate_{44100.0};
   int currentBlockSize_ = 512;
+  ParallelRenderPool renderPool_;
+  std::atomic<int> renderWorkers_{1};
   std::atomic<int> playbackDelayMs_{1000};
   std::set<std::string> lockedChairIds_; // message-thread project metadata
 

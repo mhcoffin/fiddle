@@ -1,5 +1,6 @@
 <script>
-    import { dispatchCpp } from "./ipc.js";
+    import { onDestroy, onMount } from "svelte";
+    import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { clampMasterGain, groupEffects } from "./masterAudioUi.js";
 
     let {
@@ -12,6 +13,18 @@
     let adding = $state(false);
     let query = $state("");
     let gainEntry = $state(false);
+    let printState = $state({
+        armed: false,
+        recording: false,
+        finalizing: false,
+        filePath: "",
+        fileName: "",
+        sampleRate: 0,
+        durationSeconds: 0,
+        droppedBlocks: 0,
+        error: "",
+        format: "Stereo WAV · 32-bit float",
+    });
     let effectGroups = $derived(groupEffects(plugins, query));
     let peakPercent = $derived(
         Math.max(0, Math.min(100, ((Number(peakDb) + 60) / 60) * 100)),
@@ -31,6 +44,29 @@
     const closeFromBackdrop = (event) => {
         if (event.target === event.currentTarget) onClose();
     };
+
+    const formatDuration = (seconds) => {
+        const total = Math.max(0, Math.floor(Number(seconds) || 0));
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const remainder = total % 60;
+        return hours
+            ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`
+            : `${minutes}:${String(remainder).padStart(2, "0")}`;
+    };
+
+    const unsubscribePrint = onFromCpp("setMixPrintState", (state) => {
+        if (state && typeof state === "object") printState = state;
+    });
+    let printPoll;
+    onMount(() => {
+        dispatchCpp("requestMixPrintState");
+        printPoll = window.setInterval(() => dispatchCpp("requestMixPrintState"), 500);
+    });
+    onDestroy(() => {
+        unsubscribePrint();
+        if (printPoll) window.clearInterval(printPoll);
+    });
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -94,6 +130,40 @@
                     <div class="meter-fill" style={`width: ${peakPercent}%`}></div>
                 </div>
                 <div class="scale"><span>−60</span><span>−30</span><span>−12</span><span>0</span><span>+6 dB</span></div>
+            </section>
+
+            <section class="print-section" aria-label="Print Master mix">
+                <div class="section-heading">
+                    <div>
+                        <h3>Print Master mix</h3>
+                        <p>Select the passage in Dorico first, then arm a transport-synchronized WAV.</p>
+                    </div>
+                    {#if printState.armed}
+                        <button class="stop-print" disabled={printState.finalizing} onclick={() => dispatchCpp("stopMixPrint")}>
+                            {printState.recording ? "Stop & finish WAV" : printState.finalizing ? "Finishing…" : "Cancel armed print"}
+                        </button>
+                    {:else}
+                        <button class="primary" onclick={() => dispatchCpp("startMixPrint")}>Choose WAV &amp; arm</button>
+                    {/if}
+                </div>
+                <div class="print-status" class:recording={printState.recording} class:armed={printState.armed && !printState.recording}>
+                    <strong>{printState.recording ? "Printing" : printState.finalizing ? "Finishing WAV" : printState.armed ? "Armed" : printState.fileName ? "Last print" : "Ready"}</strong>
+                    <span>{formatDuration(printState.durationSeconds)} · {printState.format || "Stereo WAV · 32-bit float"}{printState.sampleRate ? ` · ${Math.round(printState.sampleRate)} Hz` : ""}</span>
+                    {#if printState.filePath}
+                        <span class="print-path" title={printState.filePath}>{printState.filePath}</span>
+                    {/if}
+                </div>
+                {#if printState.armed && !printState.recording && !printState.finalizing}
+                    <div class="print-instructions">Waiting for Dorico playback. The next transport Start begins the WAV; transport Stop finishes it automatically.</div>
+                {:else if printState.recording}
+                    <div class="print-instructions">Recording follows Dorico's transport and will finish automatically when playback stops.</div>
+                {/if}
+                {#if Number(printState.droppedBlocks || 0) > 0}
+                    <div class="print-warning">The disk writer dropped {printState.droppedBlocks} audio block{Number(printState.droppedBlocks) === 1 ? "" : "s"}; this WAV is incomplete.</div>
+                {/if}
+                {#if printState.error}
+                    <div class="print-warning">{printState.error}</div>
+                {/if}
             </section>
 
             <section class="insert-section" aria-label="Master inserts">
@@ -235,13 +305,13 @@
     button:disabled { opacity: 0.38; cursor: default; }
     .close { min-width: 72px; }
     .content { padding: 24px 26px 32px; overflow-y: auto; }
-    .gain-section, .insert-section {
+    .gain-section, .print-section, .insert-section {
         border: 1px solid #26364d;
         border-radius: 10px;
         background: #0f1929;
         padding: 20px;
     }
-    .insert-section { margin-top: 20px; }
+    .print-section, .insert-section { margin-top: 20px; }
     .section-heading { justify-content: space-between; gap: 20px; }
     .gain-readout, .gain-entry {
         width: 104px;
@@ -256,6 +326,17 @@
     .meter { height: 12px; overflow: hidden; border-radius: 5px; background: #020617; border: 1px solid #26364d; }
     .meter-fill { height: 100%; background: linear-gradient(90deg, #22c55e 0%, #eab308 80%, #ef4444 100%); transition: width 80ms linear; }
     .scale { justify-content: space-between; margin-top: 6px; color: #64748b; font-size: 0.7rem; }
+    .print-status { display: flex; flex-direction: column; gap: 4px; margin-top: 16px; padding: 12px 14px; border: 1px solid #334155; border-radius: 7px; background: #111c2e; color: #94a3b8; }
+    .print-status.recording { border-color: #ef4444; background: rgba(127, 29, 29, 0.2); }
+    .print-status.armed { border-color: #38bdf8; background: rgba(7, 89, 133, 0.18); }
+    .print-status strong { color: #f8fafc; }
+    .print-status.recording strong { color: #fca5a5; }
+    .print-status.armed strong { color: #7dd3fc; }
+    .print-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; font-size: 0.76rem; }
+    .print-instructions, .print-warning { margin-top: 10px; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; line-height: 1.4; }
+    .print-instructions { border: 1px solid #1d4ed8; background: rgba(30, 64, 175, 0.18); color: #bfdbfe; }
+    .print-warning { border: 1px solid #991b1b; background: rgba(127, 29, 29, 0.22); color: #fecaca; }
+    .stop-print { border-color: #ef4444; background: #7f1d1d; color: #fee2e2; }
     .primary { min-width: 112px; background: #075985; border-color: #38bdf8; }
     .picker { margin-top: 18px; padding: 16px; border: 1px solid #36506f; border-radius: 8px; background: #08111f; }
     .search { width: 100%; height: 44px; box-sizing: border-box; padding: 10px 13px; border: 1px solid #475569; border-radius: 6px; background: #111c2e; color: #f8fafc; font-size: 0.95rem; }

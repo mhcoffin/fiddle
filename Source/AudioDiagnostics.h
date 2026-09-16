@@ -21,6 +21,7 @@ public:
     uint64_t callbacks = 0, overruns = 0, longGaps = 0;
     uint64_t ringOverflows = 0, unavailableBlocks = 0, droppedReports = 0;
     int blockSize = 0, minBlockSize = 0, maxBlockSize = 0;
+    bool parallelRendering = false;
   };
 
   // Device lifecycle calls are serialized with the audio callback by JUCE.
@@ -29,11 +30,13 @@ public:
     previousStart_ = -1;
     workMs_ = budgetMs_ = peak_ = pluginMs_ = recentGap_ = 0;
     previousRenderMs_ = 0;
+    parallelWindow_ = false;
   }
 
   void record(double startMs, double endMs, int frames,
               bool overflow = false, bool unavailable = false,
-              double pluginWorkMs = 0, bool trackCallbackGaps = true) noexcept {
+              double pluginWorkMs = 0, bool trackCallbackGaps = true,
+              bool parallelRendering = false) noexcept {
     if (frames <= 0 || state_.sampleRate <= 0) return;
     const double budget = 1000.0 * frames / state_.sampleRate;
     const double elapsed = std::max(0.0, endMs - startMs);
@@ -65,7 +68,11 @@ public:
     state_.maxRenderMs = std::max(state_.maxRenderMs, elapsed);
     state_.timestampMs = endMs;
     workMs_ += elapsed;
-    pluginMs_ += std::clamp(pluginWorkMs, 0.0, elapsed);
+    // Parallel plugin calls overlap: their summed wall time is work, not a
+    // portion of the coordinator's elapsed time. Do not clamp it to elapsed.
+    pluginMs_ += parallelRendering ? std::max(0.0, pluginWorkMs)
+                                  : std::clamp(pluginWorkMs, 0.0, elapsed);
+    parallelWindow_ |= parallelRendering;
     budgetMs_ += budget;
     peak_ = std::max(peak_, load);
     if (budgetMs_ >= 250.0) publish();
@@ -76,10 +83,12 @@ public:
     state_.load = workMs_ / budgetMs_;
     state_.peakLoad = peak_;
     state_.pluginLoad = pluginMs_ / budgetMs_;
-    state_.otherLoad = (workMs_ - pluginMs_) / budgetMs_;
+    state_.parallelRendering = parallelWindow_;
+    state_.otherLoad = parallelWindow_ ? -1.0 : (workMs_ - pluginMs_) / budgetMs_;
     state_.recentMaxGapMs = recentGap_;
     if (!reports_.tryPush(state_)) ++state_.droppedReports;
     workMs_ = budgetMs_ = peak_ = pluginMs_ = recentGap_ = 0;
+    parallelWindow_ = false;
   }
 
   bool takeLatest(Snapshot &result) noexcept {
@@ -97,6 +106,7 @@ private:
   double previousStart_ = -1, previousBudget_ = 0;
   double workMs_ = 0, budgetMs_ = 0, peak_ = 0;
   double pluginMs_ = 0, recentGap_ = 0, previousRenderMs_ = 0;
+  bool parallelWindow_ = false;
   RealtimeSpscQueue<Snapshot, 257> reports_;
 };
 

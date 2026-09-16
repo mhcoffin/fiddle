@@ -78,6 +78,7 @@ public:
       diagnostics_.record(AudioReturnDiagnostics::Result::unavailable, numSamples);
       safetyMuted_ = false;
       underrunSeen_ = false;
+      healthyRecoveryFrames_ = 0;
       recoveryFadeRemaining_ = recoveryFadeLength_ = 0;
       silence(outputChannels, numChannels, numSamples);
       return;
@@ -86,6 +87,7 @@ public:
     if (resetBuffering_.exchange(false, std::memory_order_acquire)) {
       safetyMuted_ = false;
       underrunSeen_ = false;
+      healthyRecoveryFrames_ = 0;
       recoveryFadeRemaining_ = recoveryFadeLength_ = 0;
     }
 
@@ -118,10 +120,29 @@ public:
     if (!usable) {
       safetyMuted_ = false;
       underrunSeen_ = false;
+      healthyRecoveryFrames_ = 0;
       recoveryFadeRemaining_ = recoveryFadeLength_ = 0;
-    } else if (safetyMuted_ && coherentWindow && available >= recoveryFrames) {
-      safetyMuted_ = false;
-      recovering = true;
+    } else if (safetyMuted_) {
+      // A producer can keep up indefinitely while its last block is still
+      // in flight at each host callback. Requiring a full reserve would then
+      // latch silence forever, even though every requested block is present.
+      // Also accept 100 ms of continuously healthy callback-time occupancy.
+      // A single low-water callback resets the probation period, so isolated
+      // fragments during a stall still stay muted.
+      const double rate = hostRate > 0 ? hostRate : state->sampleRate;
+      const auto stableFrames = static_cast<uint64_t>(
+          std::isfinite(rate) && rate > 0 ? std::ceil(rate * 0.100) : 4800);
+      if (coherentWindow && available >= lowWaterFrames)
+        healthyRecoveryFrames_ = std::min(stableFrames,
+            healthyRecoveryFrames_ + static_cast<uint64_t>(numSamples));
+      else
+        healthyRecoveryFrames_ = 0;
+      if (coherentWindow && (available >= recoveryFrames ||
+                            healthyRecoveryFrames_ >= stableFrames)) {
+        safetyMuted_ = false;
+        healthyRecoveryFrames_ = 0;
+        recovering = true;
+      }
     } else if (!safetyMuted_ && state->targetFrames > 0 && available < lowWaterFrames) {
       beginSafetyMute();
     }
@@ -131,10 +152,12 @@ public:
     if (result == AudioStreamRing::PullResult::unavailable) {
       safetyMuted_ = false;
       underrunSeen_ = false;
+      healthyRecoveryFrames_ = 0;
       recoveryFadeRemaining_ = recoveryFadeLength_ = 0;
       diagnostics_.record(Result::unavailable, numSamples);
     } else if (result == AudioStreamRing::PullResult::underrun) {
       if (!safetyMuted_) beginSafetyMute();
+      healthyRecoveryFrames_ = 0;
       silence(outputChannels, numChannels, numSamples);
       diagnostics_.record(underrunSeen_ ? Result::buffering : Result::underrun,
                           numSamples);
@@ -160,6 +183,7 @@ private:
   const std::string mapPath_;
   AudioReturnDiagnostics diagnostics_;
   bool safetyMuted_ = false, underrunSeen_ = false; // consumer audio thread only
+  uint64_t healthyRecoveryFrames_ = 0;
   int recoveryFadeRemaining_ = 0, recoveryFadeLength_ = 0;
   struct Mapping {
     SharedState *state = nullptr;
@@ -184,6 +208,7 @@ private:
   void beginSafetyMute() noexcept {
     safetyMuted_ = true;
     underrunSeen_ = false;
+    healthyRecoveryFrames_ = 0;
     recoveryFadeRemaining_ = recoveryFadeLength_ = 0;
     diagnostics_.beginSafetyMute();
   }

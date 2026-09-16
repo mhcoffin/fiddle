@@ -173,6 +173,59 @@ void testPreAndPostFaderOrderingAndBypass() {
   CHECK(changes >= 4);
 }
 
+void testPlaybackMonitoringDoesNotTakeControlGate() {
+  // Group buses use this engine too; exercise both insert positions.
+  for (const auto position : {fiddle::StripInsertPosition::preFader,
+                              fiddle::StripInsertPosition::postFader}) {
+    fiddle::StripAudioEngine engine;
+    engine.prepareToPlay(48000.0, 64);
+    auto processor = std::make_unique<ArithmeticEffect>(
+        ArithmeticEffect::Operation::multiply, 1.0f);
+    auto *plugin = processor.get();
+    auto *parameter = new juce::AudioParameterFloat(
+        {"monitor", 1}, "Monitor", 0.0f, 1.0f, 0.5f);
+    plugin->addParameter(parameter);
+    CHECK(engine.insertProcessor(makeSlot("monitor", 1, "Monitor"), position,
+                                 0, std::move(processor), false));
+    int changes = 0;
+    engine.setOnChanged([&] { ++changes; });
+    const auto before = fiddle::AudioProcessingGate::controlCount();
+    parameter->setValueNotifyingHost(0.6f);
+    CHECK(!engine.consumePluginChanges(true));
+    plugin->updateHostDisplay(
+        juce::AudioProcessor::ChangeDetails{}.withNonParameterStateChanged(true));
+    CHECK(!engine.consumePluginChanges(true));
+    CHECK(fiddle::AudioProcessingGate::controlCount() == before);
+    CHECK(changes == 0);
+
+    engine.captureParameterFingerprints();
+    CHECK(!engine.refreshPluginStateCaches());
+    CHECK(changes == 0);
+    parameter->beginChangeGesture();
+    parameter->setValueNotifyingHost(0.7f);
+    parameter->endChangeGesture();
+    CHECK(engine.consumePluginChanges(true));
+    CHECK(changes == 1);
+    parameter->setValueNotifyingHost(0.8f);
+    CHECK(engine.consumePluginChanges(false));
+    CHECK(changes == 2);
+
+    CHECK(!engine.consumeLatencyDisplayChange());
+    plugin->setLatencySamples(128);
+    parameter->setValueNotifyingHost(0.9f);
+    CHECK(!engine.consumePluginChanges(true));
+    CHECK(engine.consumeLatencyDisplayChange());
+    CHECK(!engine.consumeLatencyDisplayChange());
+    CHECK(engine.latencySamples() == 128);
+    CHECK(changes == 2);
+    engine.captureParameterFingerprints();
+    CHECK(!engine.refreshPluginStateCaches());
+    static_cast<juce::AudioProcessorParameter *>(parameter)->setValue(0.95f);
+    CHECK(engine.refreshPluginStateCaches());
+    CHECK(changes == 3);
+  }
+}
+
 void testSnapshotSerializationRoundTrip() {
   fiddle::StripAudioSnapshot original;
   auto pre = makeSlot("pre", 11, "Pre Effect");
@@ -201,6 +254,7 @@ int main() {
   testGainRunsThroughIndependentGraphs();
   testZeroGainSilencesOnlyItsOwnPath();
   testPreAndPostFaderOrderingAndBypass();
+  testPlaybackMonitoringDoesNotTakeControlGate();
   testSnapshotSerializationRoundTrip();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';

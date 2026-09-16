@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { availableEffects, clampMasterGain, groupEffects } from "../src/lib/masterAudioUi.js";
+
+const panelSource = readFileSync(
+    new URL("../src/lib/MasterAudioPanel.svelte", import.meta.url),
+    "utf8",
+);
 
 const plugins = [
     { uid: 3, name: "Hall", manufacturer: "Zed", category: "Reverb", valid: true, compatibleAsEffect: true },
@@ -24,4 +30,15 @@ test("master gain is finite and constrained", () => {
     assert.equal(clampMasterGain(9), 6);
     assert.equal(clampMasterGain("-3.5"), -3.5);
     assert.equal(clampMasterGain("nope"), 0);
+});
+
+test("Master Audio exposes a transport-gated real-time WAV print control", () => {
+    assert.match(panelSource, /Print Master mix/);
+    assert.match(panelSource, /dispatchCpp\("startMixPrint"\)/);
+    assert.match(panelSource, /dispatchCpp\("stopMixPrint"\)/);
+    assert.match(panelSource, /requestMixPrintState/);
+    assert.match(panelSource, /droppedBlocks/);
+    assert.match(panelSource, /32-bit float/);
+    assert.match(panelSource, /Choose WAV &amp; arm/);
+    assert.match(panelSource, /transport Stop finishes it automatically/);
 });

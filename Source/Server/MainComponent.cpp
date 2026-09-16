@@ -578,12 +578,22 @@ void MainComponent::initMidiServer() {
           if (!isTransportStarted_.compare_exchange_strong(expected, true)) {
             return; // Already started, ignore redundant event
           }
+          const auto printStartMs = delayedOutputPresentationTimeMs();
+          safeCallAsync([this, printStartMs] {
+            if (renderAhead_ && renderAhead_->beginMixPrintAt(printStartMs))
+              pushMixPrintState();
+          });
         } else if (event.transport().type() ==
                    fiddle::MidiEvent_TransportEvent_Type_STOP) {
           bool expected = true;
           if (!isTransportStarted_.compare_exchange_strong(expected, false)) {
             return; // Already stopped, ignore redundant event
           }
+          const auto printStopMs = delayedOutputPresentationTimeMs();
+          safeCallAsync([this, printStopMs] {
+            if (renderAhead_ && renderAhead_->endMixPrintAt(printStopMs))
+              pushMixPrintState();
+          });
         }
       }
 
@@ -850,6 +860,10 @@ void MainComponent::initMidiServer() {
           mixer_.allNotesOff();
           harmonicService_.onTransportStop();
           metronomeTracker_.reset();
+          if (renderAhead_ && renderAhead_->mixPrintIsArmed()) {
+            renderAhead_->stopMixPrint();
+            pushMixPrintState("Dorico disconnected while the print was armed");
+          }
           pushLogMessage(
               "<span style=\"color: #cf6679\">[Disconnected]</span>");
         }
@@ -911,6 +925,7 @@ void MainComponent::initDatabase() {
   // Open SQLite database
   auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
   db_.open(dbFile);
+  mixer_.setRenderWorkerCount(juce::String(db_.loadSetting("audio_render_workers", "1")).getIntValue());
   scanPersistedExpressionMapSources();
   migrateLegacyLibraryPatches();
 
@@ -1605,9 +1620,11 @@ void MainComponent::processPluginChangeNotifications(
     // playback state out of the project's dirty flag while preserving genuine
     // editor gestures. Outside performance, a non-parameter notification is a
     // persistent change even if the public parameter surface is unchanged.
-    const bool parametersChanged = observeStripPluginFingerprint(*strip);
     if (suppressPlaybackChanges && !explicitEdit)
       continue;
+    // Fingerprinting takes the process-wide control gate. Do not interrupt
+    // rendering for notifications that we already know are performance-only.
+    const bool parametersChanged = observeStripPluginFingerprint(*strip);
     bool stateSettling = false;
     if (const auto settling = pluginStateSettleUntilMs_.find(strip->id);
         settling != pluginStateSettleUntilMs_.end()) {
@@ -1689,8 +1706,10 @@ bool MainComponent::shouldSuppressPluginChanges(uint32_t now) {
     // the window are drained using playback semantics.
     captureStripPluginFingerprints();
     mixer_.masterAudio().captureParameterFingerprints();
-    for (auto *strip : mixer_.getAllStrips())
-      strip->audioEngine().captureParameterFingerprints();
+    // captureStripPluginFingerprints already covers strip inserts. Bus inserts
+    // also need a new baseline before unsuppressed polling resumes.
+    for (auto *bus : mixer_.getAllGroupBuses())
+      bus->audioEngine().captureParameterFingerprints();
     pluginChangesWereSuppressed_ = false;
     return true;
   }
@@ -2768,6 +2787,32 @@ void MainComponent::pushMasterAudioState() {
     broadcastMessage("setMasterAudioState", mixer_.masterAudio().toJson());
 }
 
+void MainComponent::pushMixPrintState(const juce::String &errorOverride) {
+  juce::var state;
+  if (renderAhead_) {
+    state = renderAhead_->mixPrintState();
+  } else {
+    auto *empty = new juce::DynamicObject();
+    empty->setProperty("armed", false);
+    empty->setProperty("recording", false);
+    empty->setProperty("finalizing", false);
+    empty->setProperty("filePath", "");
+    empty->setProperty("fileName", "");
+    empty->setProperty("sampleRate", 0.0);
+    empty->setProperty("samples", static_cast<juce::int64>(0));
+    empty->setProperty("durationSeconds", 0.0);
+    empty->setProperty("droppedBlocks", static_cast<juce::int64>(0));
+    empty->setProperty("droppedSamples", static_cast<juce::int64>(0));
+    empty->setProperty("error", "Audio rendering is not running");
+    empty->setProperty("format", "Stereo WAV · 32-bit float");
+    state = juce::var(empty);
+  }
+  if (errorOverride.isNotEmpty())
+    if (auto *object = state.getDynamicObject())
+      object->setProperty("error", errorOverride);
+  broadcastMessage("setMixPrintState", state);
+}
+
 void MainComponent::pushMixerMeters() {
   if (!webViewBridge_.isLoaded() || meterUpdatePending_)
     return;
@@ -3055,6 +3100,12 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 }
 
 void MainComponent::timerCallback() {
+  if (renderAhead_ &&
+      renderAhead_->mixPrintNeedsFinalizing(audioStreamTimeMs())) {
+    renderAhead_->stopMixPrint();
+    pushMixPrintState();
+  }
+
   const auto diagnosticsNow = juce::Time::getMillisecondCounterHiRes();
   if (diagnosticsNow - lastDiagnosticsPushMs_ >= 250.0) {
     lastDiagnosticsPushMs_ = diagnosticsNow;
@@ -3219,6 +3270,13 @@ double MainComponent::getDelayedTriggerTimeMs() {
          - mixer_.masterLatencyMs();
 }
 
+double MainComponent::delayedOutputPresentationTimeMs() const {
+  // MIDI is advanced independently for strip, bus, and Master latency. Their
+  // final post-Master output therefore reaches this common presentation time.
+  return audioStreamTimeMs() +
+         reportedPlaybackDelayMs_.load(std::memory_order_relaxed);
+}
+
 void MainComponent::showAudioSettings() {
   if (audioSettings_) audioSettings_->show();
 }
@@ -3243,7 +3301,10 @@ void MainComponent::pushAudioDiagnostics() {
   data->setProperty("returnProtocol", int(returnDiagnostics_.audio_protocol()));
   data->setProperty("plugins", mixer_.pluginTimings(now));
   data->setProperty("pluginLoad", s.pluginLoad * 100.0);
-  data->setProperty("otherLoad", s.otherLoad * 100.0);
+  data->setProperty("parallelRendering", s.parallelRendering);
+  data->setProperty("otherLoad", s.parallelRendering ? juce::var() : juce::var(s.otherLoad * 100.0));
+  data->setProperty("renderWorkerChangeAllowed", !isTransportStarted_.load(std::memory_order_acquire)
+                    && !(renderAhead_ && renderAhead_->mixPrintIsArmed()));
   data->setProperty("recentMaxGapMs", s.recentMaxGapMs);
   data->setProperty("lastLongGapMs", s.lastLongGapMs);
   data->setProperty("renderBeforeLongGapMs", s.renderBeforeLongGapMs);
@@ -3396,6 +3457,74 @@ void MainComponent::setupJsHandlers() {
   }
   jsRouter_.registerHandler("showAudioSettings", [this](const juce::var &) {
     safeCallAsync([this] { showAudioSettings(); });
+  });
+  jsRouter_.registerHandler("setRenderWorkerCount", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1) return;
+    const auto value = static_cast<double>(payload[0]);
+    if (value != 1.0 && value != 2.0 && value != 4.0) return;
+    safeCallAsync([this, count = static_cast<int>(value)] {
+      if (isTransportStarted_.load(std::memory_order_acquire) ||
+          (renderAhead_ && renderAhead_->mixPrintIsArmed())) {
+        pushLogMessage("Stop Dorico playback and disarm printing before changing render workers.", true);
+        return;
+      }
+      mixer_.setRenderWorkerCount(count);
+      // Local preference only: never included in project versions or undo.
+      db_.saveSetting("audio_render_workers", std::to_string(count));
+      pushAudioDiagnostics();
+    });
+  });
+  jsRouter_.registerHandler("requestMixPrintState", [this](const juce::var &) {
+    safeCallAsync([this] { pushMixPrintState(); });
+  });
+  jsRouter_.registerHandler("startMixPrint", [this](const juce::var &) {
+    safeCallAsync([this] {
+      if (isTransportStarted_.load(std::memory_order_acquire)) {
+        pushMixPrintState("Stop Dorico playback before arming a print");
+        return;
+      }
+      const auto defaultName =
+          "Fiddle Mix " +
+          juce::Time::getCurrentTime().formatted("%Y-%m-%d %H-%M-%S") +
+          ".wav";
+      auto chooser = std::make_shared<juce::FileChooser>(
+          "Print Fiddle Master Mix",
+          juce::File::getSpecialLocation(juce::File::userDesktopDirectory)
+              .getChildFile(defaultName),
+          "*.wav");
+      const juce::Component::SafePointer<MainComponent> safeThis(this);
+      chooser->launchAsync(
+          juce::FileBrowserComponent::saveMode |
+              juce::FileBrowserComponent::canSelectFiles |
+              juce::FileBrowserComponent::warnAboutOverwriting,
+          [safeThis, chooser](const juce::FileChooser &fc) {
+            if (safeThis == nullptr)
+              return;
+            const auto results = fc.getResults();
+            if (results.isEmpty())
+              return;
+            if (safeThis->isTransportStarted_.load(
+                    std::memory_order_acquire)) {
+              safeThis->pushMixPrintState(
+                  "Stop Dorico playback before arming a print");
+              return;
+            }
+            auto file = results[0];
+            if (file.getFileExtension().isEmpty())
+              file = file.withFileExtension(".wav");
+            const auto error = safeThis->renderAhead_
+                                   ? safeThis->renderAhead_->startMixPrint(file)
+                                   : juce::String("Audio rendering is not running");
+            safeThis->pushMixPrintState(error);
+          });
+    });
+  });
+  jsRouter_.registerHandler("stopMixPrint", [this](const juce::var &) {
+    safeCallAsync([this] {
+      if (renderAhead_)
+        renderAhead_->stopMixPrint();
+      pushMixPrintState();
+    });
   });
   jsRouter_.registerHandler("copyAudioDiagnosticsReport", [](const juce::var &payload) {
     if (payload.isArray() && payload.size() > 0)

@@ -162,6 +162,7 @@ private:
   HarmonicAnalysisService harmonicService_;
 
   double getDelayedTriggerTimeMs();
+  double delayedOutputPresentationTimeMs() const;
   int effectivePlaybackDelayMs() const;
 
   /// Live BPM from FiddleNative ProcessContext (arrives via TempoEvent).
@@ -277,6 +278,7 @@ private:
   void pushLogMessage(const juce::String &msg, bool isError = false);
   void pushMixerState(bool markDirty = true);
   void pushMasterAudioState();
+  void pushMixPrintState(const juce::String &errorOverride = {});
   void pushGroupBusState();
   void pushChairState();
   void chairEditChanged(bool success);

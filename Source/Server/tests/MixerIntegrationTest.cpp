@@ -2226,10 +2226,136 @@ void testConcurrentMidiInspectorChanges() {
   REQUIRE(snapshots > 0);
 }
 
-void testRenderAheadWorkerAndRemapping() {
+void testParallelPoolCompletesAdmittedBlock() {
+  fiddle::ParallelRenderPool pool;
+  for (const int workers : {2, 4}) {
+    pool.configure(workers, 48000, 256);
+    REQUIRE(pool.count() == workers);
+    struct Jobs {
+      std::array<std::atomic<int>, 39> calls{};
+      std::atomic<int> active{0}, peak{0};
+      std::atomic<bool> started{false}, bad{false}, controlled{false};
+    } jobs;
+    std::thread controller([&] {
+      while (!jobs.started.load()) std::this_thread::yield();
+      fiddle::AudioProcessingGate::Control control;
+      for (const auto &calls : jobs.calls)
+        if (calls.load() != 1) jobs.bad.store(true);
+      if (jobs.active.load() != 0) jobs.bad.store(true);
+      jobs.controlled.store(true);
+    });
+    double totalWork = 0;
+    {
+      fiddle::AudioProcessingGate::Render owner;
+      fiddle::PluginRenderDiagnostics::beginBlock();
+      const auto helperWork = pool.process(jobs.calls.size(), &jobs, [](void *context, size_t i) {
+        auto &jobs = *static_cast<Jobs *>(context);
+        jobs.started.store(true);
+        // A pending control request must not cause helper nested Render guards
+        // to drop the remainder of this already-admitted block.
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000;
+        while (!fiddle::AudioProcessingGate::controlPending() &&
+               juce::Time::getMillisecondCounterHiRes() < deadline)
+          std::this_thread::yield();
+        fiddle::AudioProcessingGate::Render nested;
+        if (!nested || jobs.controlled.load() || !fiddle::AudioProcessingGate::controlPending())
+          jobs.bad.store(true);
+        const auto active = jobs.active.fetch_add(1) + 1;
+        auto peak = jobs.peak.load();
+        while (active > peak && !jobs.peak.compare_exchange_weak(peak, active)) {}
+        juce::Thread::sleep(1);
+        jobs.calls[i].fetch_add(1);
+        fiddle::PluginRenderDiagnostics::addBlockWork(1.0);
+        jobs.active.fetch_sub(1);
+      }, owner);
+      totalWork = helperWork + fiddle::PluginRenderDiagnostics::blockWorkMs();
+    }
+    controller.join();
+    REQUIRE(!jobs.bad.load());
+    REQUIRE(jobs.controlled.load());
+    REQUIRE(jobs.peak.load() > 1);
+    REQUIRE(totalWork == 39.0);
+  }
+  pool.configure(1, 44100, 512);
+  REQUIRE(pool.count() == 1);
+  REQUIRE(fiddle::ParallelRenderPool::validCount(3) == 1);
+}
+
+std::vector<float> parallelMixerSamples(int workers, int maximumBlock, double rate) {
+  MixerFixture f;
+  f.now = 1000;
+  f.mixer.prepareToPlay(rate, maximumBlock);
+  f.mixer.setRenderWorkerCount(workers);
+  REQUIRE(f.mixer.renderWorkerCount() == workers);
+  std::vector<juce::String> ids;
+  for (int i = 0; i < 12; ++i) {
+    const auto id = f.instrument(0.01f * (i + 1), i + 1);
+    ids.push_back(id);
+    auto *strip = f.mixer.getStrip(id);
+    strip->setGainDb(float(-i));
+    addEffect(strip->audioEngine(), "pre", 0.75f, i % 3);
+    addEffect(strip->audioEngine(), "post", 0.5f, i % 2,
+              fiddle::StripInsertPosition::postFader);
+  }
+  // Missing instruments and shared destinations must remain silent/race-free.
+  f.mixer.addStrip();
+  const auto bus = f.mixer.addGroupBus("Parallel test");
+  for (int i = 0; i < 6; ++i) REQUIRE(f.mixer.setStripDirectOutput(ids[i], bus));
+  addEffect(f.mixer.getGroupBus(bus)->audioEngine(), "bus-fx", 0.6f, 7);
+  f.mixer.refreshAudioRouting();
+  fiddle::MasterInsertSnapshot master;
+  master.slotId = "master-fx"; master.description = description(false);
+  REQUIRE(f.mixer.masterAudio().insertProcessor(master, 0,
+      std::make_unique<SignalProcessor>(false, 0.9f, 3)));
+  for (int i = 0; i < 12; ++i) {
+    f.noteOn(i + 1, (3 + i * 5) * 1000.0 / rate);
+    f.mixer.routeNoteEvent(0, i + 1, juce::MidiMessage::noteOff(1, 60),
+                           f.now + 20 * maximumBlock * 1000.0 / rate);
+  }
+  std::vector<float> result;
+  std::shared_ptr<fiddle::MixerStrip> removed;
+  int frames = 0;
+  for (int step = 0; step < 26; ++step) {
+    if (step == 4) f.mixer.setStripMute(ids[0], true);
+    if (step == 6) f.mixer.setStripSolo(ids[1], true);
+    if (step == 8) { f.mixer.setStripSolo(ids[1], false); f.mixer.setGroupBusSolo(bus, true); }
+    if (step == 10) { f.mixer.setGroupBusSolo(bus, false); f.mixer.setGroupBusMute(bus, true); }
+    if (step == 12) { f.mixer.setGroupBusMute(bus, false); REQUIRE(f.mixer.setStripDirectOutput(ids[8], bus)); }
+    if (step == 14) f.mixer.getStrip(ids[3])->setPluginBypassed(true);
+    if (step == 16) removed = f.mixer.removeStripKeepAlive(ids[2]);
+    if (step == 18) f.mixer.insertStripAt(removed, 2);
+    if (step == 20) f.mixer.setRenderWorkerCount(1);
+    if (step == 21) f.mixer.setRenderWorkerCount(workers);
+    const int count = step % 5 == 0 ? 1 : maximumBlock;
+    juce::AudioBuffer<float> out(2, count);
+    out.clear();
+    fiddle::PluginRenderDiagnostics::beginBlock();
+    f.mixer.processBlock(out, f.now + frames * 1000.0 / rate);
+    for (int channel = 0; channel < 2; ++channel)
+      result.insert(result.end(), out.getReadPointer(channel), out.getReadPointer(channel) + count);
+    frames += count;
+  }
+  return result;
+}
+
+void testParallelMixerEquivalence() {
+  for (const int block : {64, 256, 512}) {
+    const double rate = block == 64 ? 48000 : 44100;
+    const auto serial = parallelMixerSamples(1, block, rate);
+    REQUIRE(std::any_of(serial.begin(), serial.end(), [](float x) { return x != 0; }));
+    for (const int workers : {2, 4}) {
+      const auto parallel = parallelMixerSamples(workers, block, rate);
+      REQUIRE(parallel == serial); // Fixed-order reduction is sample-exact.
+    }
+  }
+}
+
+void checkRenderAheadWorkerAndRemapping(int workers) {
   Sandbox sandbox;
   MixerFixture f;
   f.instrument(0.1f, 1);
+  f.instrument(0.0f, 2); // Exercises the parallel branch without changing output.
+  f.mixer.setRenderWorkerCount(workers);
   fiddle::AudioRenderDiagnostics recorder;
   const auto file = sandbox.directory.getChildFile("audio-v2.mmap");
   fiddle::RenderAheadEngine worker(f.mixer, recorder, file);
@@ -2243,6 +2369,10 @@ void testRenderAheadWorkerAndRemapping() {
   f.now = base;
   f.noteOn(1, 1000);
   f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60), base + 1200);
+  const auto printFile = sandbox.directory.getChildFile("parallel-print.wav");
+  REQUIRE(worker.startMixPrint(printFile).isEmpty());
+  REQUIRE(worker.beginMixPrintAt(base + 1000));
+  REQUIRE(worker.endMixPrintAt(base + 1200));
   juce::AudioBuffer<float> out(2, 512);
   int firstSound = -1, lastSound = -1;
   for (int frame = 0; frame < 48000 * 3 / 2; frame += 512) {
@@ -2265,6 +2395,20 @@ void testRenderAheadWorkerAndRemapping() {
   }
   REQUIRE(std::abs(firstSound - 48000) <= 1);
   REQUIRE(std::abs(lastSound - 57599) <= 1);
+  worker.stopMixPrint();
+  REQUIRE(static_cast<juce::int64>(worker.mixPrintState()["droppedBlocks"]) == 0);
+  juce::AudioFormatManager formats;
+  formats.registerBasicFormats();
+  std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(printFile));
+  REQUIRE(reader != nullptr);
+  REQUIRE(std::abs(reader->lengthInSamples - 9600) <= 1);
+  juce::AudioBuffer<float> printed(2, static_cast<int>(reader->lengthInSamples));
+  REQUIRE(reader->read(&printed, 0, printed.getNumSamples(), 0, true, true));
+  for (int channel = 0; channel < 2; ++channel)
+    for (int i = 1; i + 1 < printed.getNumSamples(); ++i)
+      REQUIRE(std::abs(printed.getSample(channel, i) - 0.1f) < 0.00001f);
+  REQUIRE(static_cast<juce::int64>(worker.diagnostics()["controlWaitCount"]) == 0);
+  REQUIRE(double(worker.diagnostics()["controlWaitMs"]) == 0.0);
   {
     fiddle::AudioProcessingGate::Control control;
     const auto written = ring.writeFrame.load();
@@ -2272,12 +2416,19 @@ void testRenderAheadWorkerAndRemapping() {
     // fabricated silent block or advance DSP while its control gate is closed.
     (void)ring.pull(out.getArrayOfWritePointers(), 2, 512, 48000,
                     base + 1500);
-    juce::Thread::sleep(5);
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000;
+    while (double(worker.diagnostics()["controlWaitMs"]) < 5.0 &&
+           juce::Time::getMillisecondCounterHiRes() < deadline)
+      juce::Thread::sleep(1);
     REQUIRE(ring.writeFrame.load() == written);
+    REQUIRE(static_cast<juce::int64>(worker.diagnostics()["controlWaitCount"]) > 0);
+    REQUIRE(double(worker.diagnostics()["controlWaitMs"]) >= 5.0);
   }
   worker.stop();
   REQUIRE(ring.active.load() == 0);
   REQUIRE(worker.start(44100, 1024).isEmpty());
+  REQUIRE(static_cast<juce::int64>(worker.diagnostics()["controlWaitCount"]) == 0);
+  REQUIRE(double(worker.diagnostics()["controlWaitMs"]) == 0.0);
   REQUIRE(worker.streamId() != firstId);
   // Old inode stays valid but inactive; no cursor reset under an old reader.
   REQUIRE(ring.active.load() == 0 && ring.sampleRate == 48000);
@@ -2288,6 +2439,10 @@ void testRenderAheadWorkerAndRemapping() {
   REQUIRE(consumer.diagnostics().unavailableFrames == 512);
   REQUIRE(out.getMagnitude(0, 512) == 0); // freshly primed generation
   worker.stop();
+}
+
+void testRenderAheadWorkerAndRemapping() {
+  for (int workers : {1, 2, 4}) checkRenderAheadWorkerAndRemapping(workers);
 }
 
 } // namespace
@@ -2305,6 +2460,8 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("parallel workers complete a block before admitting pending control", testParallelPoolCompletesAdmittedBlock);
+  run("parallel layers match serial MIDI, routing, FX, bypass and undo samples", testParallelMixerEquivalence);
   run("expression-map imports undo and restore without source files", testExpressionMapUndoAndImportedPersistence);
   run("separate catalog history retains data and rejected redo", testLibraryCatalogHistory);
   run("library preview state survives structural history and duplication", testRetainedLibraryPreviews);

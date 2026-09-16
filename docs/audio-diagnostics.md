@@ -41,6 +41,15 @@ scrolls. Escape closes the modal and returns focus to the toolbar.
   audio-device restarts. Server restart creates fresh counters.
 - **Deadline overruns:** completed renders whose measured work exceeded their
   block duration. With a reserve this does not necessarily cause an audible gap.
+- **Control-gate retry waits** (`renderAhead.controlWaitCount`, `controlWaitMs`):
+  number and cumulative wall time of worker retry sleeps after control work
+  prevented a needed render from starting. Includes scheduler wake-up delays;
+  excludes normal full-reserve waits and is not included in Audio CPU/other load.
+  Compare counter differences during playback, within the same `streamId`.
+  These counters reset on audio setup. `controlOperations` and
+  `longestControlPauseMs` instead last for the server lifetime and include time
+  the controller spent waiting for an already-running render to finish; they
+  do not directly measure lost rendering time.
 - **Long callback gaps:** starts separated by more than 1.5 times the previous
   block's duration. A clue to scheduling/overload, not a precise driver xrun
   count. Hidden for the render-ahead worker, whose waits for consumption are intentional.
@@ -51,7 +60,10 @@ scrolls. Escape closes the modal and returns focus to the toolbar.
 - **Underrun episodes:** the native consumer could not satisfy a block. It counts
   consecutive silent blocks as one episode, advancing the cursor through them.
 - **Safety-mute episodes/frames:** low reserve latches silence until the reserve
-  is effectively full. `minimumQueuedFrames` records the lowest callback-time
+  is effectively full, or remains above the low-water threshold for 100 ms of
+  consecutive callbacks. This allows recovery when a healthy producer's last
+  block is still rendering at each callback. A low-water callback restarts that
+  100-ms interval. `minimumQueuedFrames` records the lowest callback-time
   occupancy seen by the Dorico plugin. A 10-ms fade follows recovery.
 - **Recovery silence** (JSON `bufferingFrames`): frames replaced by silence during
   low-water/underrun recovery, excluding initial priming. **Unavailable-ring

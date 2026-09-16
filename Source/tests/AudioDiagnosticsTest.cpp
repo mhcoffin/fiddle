@@ -141,6 +141,21 @@ static void consumerCounts() {
   unlink(path);
 }
 
+static void parallelPluginTiming() {
+  fiddle::AudioRenderDiagnostics recorder;
+  recorder.prepare(48000);
+  recorder.record(0, 4, 480, false, false, 9, false, true);
+  recorder.publish();
+  fiddle::AudioRenderDiagnostics::Snapshot s;
+  CHECK(recorder.takeLatest(s));
+  CHECK(s.parallelRendering && s.load == 0.4 && s.pluginLoad == 0.9);
+  CHECK(s.otherLoad == -1); // Overlapping work cannot be subtracted from elapsed.
+  recorder.record(10, 15, 480, false, false, 3, false);
+  recorder.publish();
+  CHECK(recorder.takeLatest(s));
+  CHECK(!s.parallelRendering && s.load == 0.5 && s.pluginLoad == 0.3 && s.otherLoad == 0.2);
+}
+
 static void safetyMuteRecovery() {
   // Production-like reserve thresholds, still using an isolated mmap.
   char path[] = "/tmp/fiddle-safety-mute-test.XXXXXX";
@@ -200,10 +215,66 @@ static void safetyMuteRecovery() {
   unlink(path);
 }
 
+static void safetyMuteRecoversWithRenderInFlight() {
+  char path[] = "/tmp/fiddle-safety-inflight-test.XXXXXX";
+  const int fd = mkstemp(path);
+  CHECK(fd >= 0);
+  using State = fiddle::AudioConsumer::SharedState;
+  CHECK(ftruncate(fd, sizeof(State)) == 0);
+  void *memory = mmap(nullptr, sizeof(State), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  CHECK(memory != MAP_FAILED);
+  auto *state = new (memory) State{};
+  state->sampleRate = 48000;
+  state->blockSize = 256;
+  state->targetFrames = State::reserveFrames(48000, 256);
+  state->magic.store(fiddle::AudioConsumer::kMagic);
+  state->active.store(1);
+  for (auto &sample : state->samples) sample = 0.5f;
+  {
+    // The producer completes every requested block, but the last block is
+    // always still rendering when the next host callback samples occupancy.
+    // This is healthy steady-state playback, below the old full-ring gate.
+    for (const int hostBlock : {256, 512}) {
+      state->readFrame.store(0);
+      state->writeFrame.store(0);
+      fiddle::AudioConsumer consumer(path);
+      float left[512]{}, right[512]{};
+      float *channels[]{left, right};
+      consumer.pullAudio(channels, 2, hostBlock, 48000); // provoke one underrun
+      CHECK(left[0] == 0);
+
+      // Intermittent good fragments must not prematurely release the mute.
+      for (int i = 0; i < 20; ++i) {
+        const auto queued = i % 4 == 3 ? hostBlock : state->targetFrames - state->blockSize;
+        state->writeFrame.store(state->readFrame.load() + queued);
+        consumer.pullAudio(channels, 2, hostBlock, 48000);
+        CHECK(left[hostBlock - 1] == 0);
+      }
+
+      int firstAudible = -1;
+      for (int i = 0; i < 200; ++i) {
+        state->writeFrame.store(state->readFrame.load() + state->targetFrames - state->blockSize);
+        consumer.pullAudio(channels, 2, hostBlock, 48000);
+        if (left[hostBlock - 1] > 0 && firstAudible < 0) firstAudible = i;
+        if (firstAudible >= 0) CHECK(left[hostBlock - 1] > 0);
+      }
+      CHECK(firstAudible >= 0 && firstAudible * hostBlock <= 4800);
+      CHECK(consumer.diagnostics().safetyMuteEpisodes == 1);
+      CHECK(consumer.diagnostics().underruns == 1);
+      CHECK(left[hostBlock - 1] == 0.5f);
+    }
+  }
+  munmap(memory, sizeof(State));
+  close(fd);
+  unlink(path);
+}
+
 int main() {
   try {
     renderTiming(); saturatedAndConcurrent(); pluginTiming(); consumerCounts();
+    parallelPluginTiming();
     safetyMuteRecovery();
+    safetyMuteRecoversWithRenderInFlight();
     std::cout << "Audio diagnostics: timing, bounded handoff and real consumer counters passed\n";
     return 0;
   } catch (const std::exception &e) {

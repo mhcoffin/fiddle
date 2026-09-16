@@ -14,7 +14,39 @@ void RenderAheadEngine::stop() {
   notify();
   // Never force-terminate a thread inside vendor code or free its processors.
   waitForThreadToExit(-1);
+  mixPrinter_.stop();
   recorder_.publish();
+}
+
+juce::String RenderAheadEngine::startMixPrint(const juce::File &file) {
+  auto stream = stream_.read();
+  if (!stream.get() || !stream.get()->ring || !isThreadRunning())
+    return "Audio rendering is not running";
+  return mixPrinter_.start(file, stream.get()->ring->sampleRate,
+                           static_cast<int>(stream.get()->ring->blockSize));
+}
+
+bool RenderAheadEngine::beginMixPrintAt(double presentationTimeMs) noexcept {
+  return mixPrinter_.beginAt(presentationTimeMs);
+}
+
+bool RenderAheadEngine::endMixPrintAt(double presentationTimeMs) noexcept {
+  return mixPrinter_.endAt(presentationTimeMs);
+}
+
+void RenderAheadEngine::stopMixPrint() { mixPrinter_.stop(); }
+
+bool RenderAheadEngine::mixPrintIsArmed() const noexcept {
+  return mixPrinter_.isArmed();
+}
+
+bool RenderAheadEngine::mixPrintNeedsFinalizing(
+    double currentPresentationTimeMs) const noexcept {
+  return mixPrinter_.needsFinalizing(currentPresentationTimeMs);
+}
+
+juce::var RenderAheadEngine::mixPrintState() const {
+  return mixPrinter_.state();
 }
 
 juce::String RenderAheadEngine::start(double rate, int blockSize) {
@@ -75,18 +107,29 @@ void RenderAheadEngine::run() {
       continue;
     }
     AudioProcessingGate::Render render;
-    if (!render) { wait(1); continue; }
+    if (!render) {
+      const auto waitStart = juce::Time::getMillisecondCounterHiRes();
+      wait(1);
+      const auto elapsed = juce::Time::getMillisecondCounterHiRes() - waitStart;
+      s.controlWaitUs.fetch_add(static_cast<uint64_t>(std::max(0.0, elapsed) * 1000.0),
+                               std::memory_order_relaxed);
+      s.controlWaitCount.fetch_add(1, std::memory_order_relaxed);
+      continue;
+    }
     const auto start = juce::Time::getMillisecondCounterHiRes();
     if (previousEndMs > 0 && std::abs(plan.presentationTimeMs - previousEndMs) > 100.0)
       s.clockJumps.fetch_add(1, std::memory_order_relaxed);
     PluginRenderDiagnostics::beginBlock();
     s.scratch.clear();
     mixer_.processBlock(s.scratch, plan.presentationTimeMs);
+    if (mixPrinter_.isArmed())
+      (void)mixPrinter_.push(s.scratch, plan.presentationTimeMs);
     const bool pushed = ring.push(plan.startFrame, s.scratch.getReadPointer(0),
                                    s.scratch.getReadPointer(1), ring.blockSize);
     const auto end = juce::Time::getMillisecondCounterHiRes();
     recorder_.record(start, end, int(ring.blockSize), !pushed, false,
-                      PluginRenderDiagnostics::blockWorkMs(), false);
+                      PluginRenderDiagnostics::blockWorkMs(), false,
+                      mixer_.renderWorkerCount() > 1);
     s.renderedBlocks.fetch_add(1, std::memory_order_relaxed);
     s.skippedFrames.fetch_add(plan.skippedFrames, std::memory_order_relaxed);
     previousEndMs = plan.presentationTimeMs + 1000.0 * ring.blockSize / ring.sampleRate;
@@ -108,8 +151,13 @@ juce::var RenderAheadEngine::diagnostics() const {
   data->setProperty("controlOperations", static_cast<juce::int64>(AudioProcessingGate::controlCount()));
   data->setProperty("longestControlPauseMs", AudioProcessingGate::longestControlMs());
   data->setProperty("realtimeScheduling", realtime_.load(std::memory_order_relaxed));
+  data->setProperty("renderWorkers", mixer_.renderWorkerCount());
+  data->setProperty("requestedRenderWorkers", mixer_.requestedRenderWorkerCount());
+  data->setProperty("helpersRealtime", mixer_.renderHelpersRealtime());
   auto s = stream_.read();
   if (s.get()) {
+    data->setProperty("controlWaitCount", static_cast<juce::int64>(s.get()->controlWaitCount.load(std::memory_order_relaxed)));
+    data->setProperty("controlWaitMs", double(s.get()->controlWaitUs.load(std::memory_order_relaxed)) / 1000.0);
     const auto &ring = *s.get()->ring;
     const auto read = ring.readFrame.load(std::memory_order_acquire);
     const auto write = ring.writeFrame.load(std::memory_order_acquire);

@@ -541,17 +541,20 @@ bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
       if (!entry->hosted->consumeChangeNotification() && !explicitEdit &&
           !nonParameterStateChanged)
         continue;
-      const auto fingerprint = entry->hosted->parameterFingerprint();
-      const bool parametersChanged = entry->parameterFingerprint &&
-                                     *entry->parameterFingerprint != fingerprint;
-      entry->parameterFingerprint = fingerprint;
       const int currentLatency = entry->hosted->activeProcessor()
                                      ? entry->hosted->activeProcessor()
                                            ->getLatencySamples()
                                      : 0;
       latencyChanged |= entry->graphLatencySamples != currentLatency;
-      if ((suppressPlaybackChanges && !explicitEdit) ||
-          (!parametersChanged && !explicitEdit && !nonParameterStateChanged))
+      // Keep latency handling live, but don't acquire the rendering gate just
+      // to fingerprint a playback notification. Rebaseline after playback.
+      if (suppressPlaybackChanges && !explicitEdit)
+        continue;
+      const auto fingerprint = entry->hosted->parameterFingerprint();
+      const bool parametersChanged = entry->parameterFingerprint &&
+                                     *entry->parameterFingerprint != fingerprint;
+      entry->parameterFingerprint = fingerprint;
+      if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
         continue;
       entry->hosted->refreshStateCache();
       changed = true;

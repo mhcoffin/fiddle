@@ -439,19 +439,22 @@ bool MasterAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
         !nonParameterStateChanged)
       continue;
 
-    const auto fingerprint = entry->hosted->parameterFingerprint();
-    const bool parametersChanged =
-        entry->parameterFingerprint &&
-        *entry->parameterFingerprint != fingerprint;
-    entry->parameterFingerprint = fingerprint;
     const int currentLatency =
         entry->hosted->activeProcessor()
             ? entry->hosted->activeProcessor()->getLatencySamples()
             : 0;
     latencyChanged |= entry->graphLatencySamples != currentLatency;
 
-    if ((suppressPlaybackChanges && !explicitEdit) ||
-        (!parametersChanged && !explicitEdit && !nonParameterStateChanged))
+    // Latency changes remain observable without scanning parameters or
+    // interrupting rendering for an otherwise suppressed notification.
+    if (suppressPlaybackChanges && !explicitEdit)
+      continue;
+    const auto fingerprint = entry->hosted->parameterFingerprint();
+    const bool parametersChanged =
+        entry->parameterFingerprint &&
+        *entry->parameterFingerprint != fingerprint;
+    entry->parameterFingerprint = fingerprint;
+    if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
       continue;
 
     entry->hosted->refreshStateCache();

@@ -70,11 +70,24 @@
         {#if data?.renderAhead?.enabled}
             <section class="device">
                 <h3>Render-ahead reserve</h3>
+                <label>Rendering workers (experimental)
+                    <select value={data.renderAhead.requestedRenderWorkers ?? 1}
+                        disabled={!data.renderWorkerChangeAllowed}
+                        onchange={(event) => dispatchCpp("setRenderWorkerCount", Number(event.currentTarget.value))}>
+                        <option value={1}>1 — single-thread fallback</option>
+                        <option value={2}>2 workers</option>
+                        <option value={4}>4 workers</option>
+                    </select>
+                </label>
+                <p>{data.renderAhead.renderWorkers ?? 1} active worker(s), including the coordinator. Stop playback and disarm printing to change. Remembered on this Mac, not in project versions.</p>
+                {#if data.renderAhead.renderWorkers !== data.renderAhead.requestedRenderWorkers}<p class="warning">Some workers could not start; single-thread fallback is active.</p>{/if}
+                {#if data.renderAhead.helpersRealtime === false}<p class="warning">Helper real-time scheduling was unavailable; high-priority fallback is in use.</p>{/if}
                 <p>{fixed(data.renderAhead.queuedMs)} ms queued · {fixed(data.renderAhead.targetMs)} ms target<br />
                     Playback delay: {data.effectiveDelayMs} ms effective / {data.requestedDelayMs} ms requested</p>
                 <p>The worker follows Dorico's sample consumption. The reserve uses part of the playback delay; it is not added to it. Live control changes can take up to the queued duration to be heard.</p>
                 <p>Skipped late frames: {data.renderAhead.skippedFrames ?? 0} · Host clock age: {fixed(data.renderAhead.hostClockAgeMs)} ms</p>
                 <p>Longest state/lifecycle pause: {fixed(data.renderAhead.longestControlPauseMs)} ms. Saving or changing a player pauses new rendering safely; long operations may outlast the reserve. Stop playback for large state changes.</p>
+                <p>Control-gate retry waits: {data.renderAhead.controlWaitCount ?? "—"} · {fixed(data.renderAhead.controlWaitMs)} ms total since audio setup. These waits include scheduler wake-up delays and are excluded from Audio CPU; waiting for a full reserve is not counted.</p>
                 {#if !data.renderAhead.realtimeScheduling}<p class="warning">Real-time scheduling was unavailable; the worker is using high priority.</p>{/if}
                 {#if data.returnFresh && data.returnProtocol !== 2}<p class="warning">The Dorico plugin uses an older audio protocol. Close Dorico and install the rebuilt Fiddle plugin.</p>{/if}
             </section>
@@ -86,7 +99,11 @@
                     <dt>Sample rate / current block</dt><dd>{data?.sampleRate ?? "—"} Hz / {data?.blockSize ?? "—"} frames</dd>
                     <dt>Smallest / largest block</dt><dd>{data?.minBlockSize ?? "—"} / {data?.maxBlockSize ?? "—"} frames</dd>
                     <dt>Highest block load</dt><dd>{fixed(data?.maxLoad)}%</dd>
-                    <dt>Plugin calls / other Fiddle work</dt><dd>{fixed(data?.pluginLoad)}% / {fixed(data?.otherLoad)}%</dd>
+                    {#if data?.parallelRendering}
+                        <dt>Summed plugin work (overlapping)</dt><dd>{fixed(data?.pluginLoad)}%</dd>
+                    {:else}
+                        <dt>Plugin calls / other Fiddle work</dt><dd>{fixed(data?.pluginLoad)}% / {fixed(data?.otherLoad)}%</dd>
+                    {/if}
                     <dt>Longest render</dt><dd>{fixed(data?.maxRenderMs, 2)} ms</dd>
                     <dt>Deadline overruns</dt><dd>{data?.overruns ?? "—"}</dd>
                     <dt>Last overrun</dt><dd>{!data ? "—" : data.lastOverrunAgeMs >= 0 ? `${fixed(data.lastOverrunAgeMs / 1000)} s ago` : "None recorded"}</dd>
