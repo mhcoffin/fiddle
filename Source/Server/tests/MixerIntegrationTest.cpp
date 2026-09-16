@@ -380,6 +380,21 @@ void testProductionRoutingAndAudibility() {
   for (int channel = 1; channel <= 3; ++channel)
     f.noteOn(channel);
   f.expectLevel(1.0f); // (0.1 + 0.2) * 2 + 0.4: no duplicate direct path.
+  REQUIRE(f.commands.setGroupStripDirectOutput({a, b}, ""));
+  REQUIRE(f.mixer.getStrip(a)->directOutputBusId.isEmpty());
+  REQUIRE(f.mixer.getStrip(b)->directOutputBusId.isEmpty());
+  f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo());
+  REQUIRE(f.mixer.getStrip(a)->directOutputBusId == bus);
+  REQUIRE(f.mixer.getStrip(b)->directOutputBusId == bus);
+  f.expectLevel(1.0f);
+  REQUIRE(f.undo.redo());
+  f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo());
+  f.expectLevel(1.0f);
+  REQUIRE(!f.commands.setGroupStripDirectOutput({a, "missing"}, ""));
+  REQUIRE(!f.commands.setGroupStripDirectOutput({a, a}, ""));
+  REQUIRE(f.mixer.getStrip(a)->directOutputBusId == bus);
   REQUIRE(!f.commands.setStripDirectOutput(a, "nonexistent"));
   REQUIRE(f.mixer.getStrip(a)->directOutputBusId == bus);
   REQUIRE(f.commands.setGroupBusMute(bus, true));

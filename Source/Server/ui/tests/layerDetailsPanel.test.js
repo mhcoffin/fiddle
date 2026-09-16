@@ -26,12 +26,13 @@ test("rarely changed layer configuration lives in the details panel", () => {
     assert.match(detailsSource, /Lua processors/);
     assert.match(detailsSource, /Inspect MIDI/);
     assert.match(detailsSource, /Refresh Library/);
-    assert.match(detailsSource, /Audio output/);
+    assert.doesNotMatch(detailsSource, /Audio output/);
 });
 
 test("operational instrument and effect controls remain on large strips", () => {
     assert.match(mixerSource, /ch-instrument-summary/);
     assert.match(mixerSource, /ch-fx-summary-actions/);
+    assert.match(mixerSource, /ch-output-routing/);
     assert.match(mixerSource, /setStripInsertBypassed/);
     assert.match(mixerSource, /toggleStripInsertEditor/);
 });

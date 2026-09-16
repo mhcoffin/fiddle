@@ -31,8 +31,10 @@ test("bus management exposes naming, order, gain, mute, and solo", () => {
     assert.match(managerSource, /setGroupBusSolo/);
 });
 
-test("infrequent direct-output routing lives in Layer Details", () => {
-    assert.match(detailsSource, /Audio output/);
-    assert.match(detailsSource, /groupBuses/);
+test("direct-output routing is visible on every mixer strip", () => {
+    assert.doesNotMatch(detailsSource, /Audio output/);
+    assert.match(mixerSource, /ch-output-routing/);
+    assert.match(mixerSource, /Audio output for/);
     assert.match(mixerSource, /setStripDirectOutput/);
+    assert.match(mixerSource, /setGroupStripDirectOutput/);
 });

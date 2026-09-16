@@ -65,6 +65,9 @@ try {
         ] });
         window.__dispatchFromCpp({ type: "setChairState", data: chairs });
         window.__dispatchFromCpp({ type: "setMixerState", data: strips });
+        window.__dispatchFromCpp({ type: "setGroupBusState", data: [
+            { id: "bus-strings", name: "Strings", gainDb: 0, muted: false, soloed: false },
+        ] });
     });
     await page.waitForSelector(".channel-strip");
     const sizes = [];
@@ -140,9 +143,11 @@ try {
         const controlHeights = await firstStrip.evaluate(strip => ({
             vst: strip.querySelector(".ch-instrument-summary button").getBoundingClientRect().height,
             fx: strip.querySelector(".ch-audio-fx").getBoundingClientRect().height,
+            output: strip.querySelector(".ch-output-routing").getBoundingClientRect().height,
         }));
         assert.equal(controlHeights.vst, 32);
         assert.equal(controlHeights.fx, controlHeights.vst, "VSTi and Audio FX buttons must have equal height");
+        assert.equal(controlHeights.output, controlHeights.vst, "output and VSTi controls must have equal height");
 
         const secondStrip = page.locator(".inst-group").nth(1).locator(".channel-strip");
         const selector = secondStrip.getByRole("combobox", { name: "Choose VSTi" });
@@ -176,6 +181,18 @@ try {
     }
     assert.ok(sizes[0].scrollWidth < sizes[1].scrollWidth);
     assert.ok(sizes[1].scrollWidth < sizes[2].scrollWidth);
+    const routedChair = page.locator(".inst-group").nth(8);
+    for (const bar of await routedChair.locator(".select-bar-top").all())
+        await bar.evaluate(element => element.dispatchEvent(new MouseEvent("click", {
+            bubbles: true, metaKey: true,
+        })));
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    await routedChair.locator(".ch-output-routing select").first().selectOption("bus-strings");
+    const routeMessage = await page.evaluate(() => window.fixtureMessages.at(-1));
+    assert.equal(routeMessage.type, "setGroupStripDirectOutput");
+    assert.deepEqual(JSON.parse(routeMessage.payload[0]), ["chair-8-0", "chair-8-1"]);
+    assert.equal(routeMessage.payload[1], "bus-strings");
+    await routedChair.locator(".select-bar-top").first().click();
     // Exercise real DOM gestures and bridge payloads, not source-text matches.
     await page.evaluate(() => {
         window.__dispatchFromCpp({ type: "setProjectSettings", data: {

@@ -141,5 +141,14 @@ void GroupBusJsHandlers::registerHandlers() {
     const auto strip = a[0].toString(), bus = a[1].toString();
     dispatch([this, strip, bus] { notify(commands_.setStripDirectOutput(strip, bus)); });
   });
+  router_.registerHandler("setGroupStripDirectOutput", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() < 2) return;
+    const auto strips = stripIds(a[0]);
+    const auto bus = a[1].toString();
+    if (strips.empty()) return;
+    dispatch([this, strips, bus] {
+      notify(commands_.setGroupStripDirectOutput(strips, bus));
+    });
+  });
 }
 } // namespace fiddle

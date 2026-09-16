@@ -7,7 +7,6 @@
         plugins = [],
         maps = [],
         luaCatalog = [],
-        groupBuses = [],
         inspectorOpen = false,
         onClose = () => {},
         onSetPlugin = () => {},
@@ -23,7 +22,6 @@
         onRenameLibrary = () => {},
         onDuplicate = () => {},
         onDelete = () => {},
-        onSetOutput = () => {},
     } = $props();
 
     const closeFromBackdrop = (event) => {
@@ -77,21 +75,6 @@
                 {:else if strip.sourcePatchOutOfDate}
                     <div class="notice">The library patch has changed since this layer was created.</div>
                 {/if}
-            </section>
-
-            <section>
-                <div class="section-heading">
-                    <div>
-                        <h3>Audio output</h3>
-                        <p>Send this strip directly to Master or through one group bus.</p>
-                    </div>
-                </div>
-                <select value={strip.directOutputBusId || ""} onchange={(event) => onSetOutput(event.currentTarget.value)}>
-                    <option value="">Master</option>
-                    {#each groupBuses as bus}
-                        <option value={bus.id}>{bus.name}</option>
-                    {/each}
-                </select>
             </section>
 
             <section>

@@ -92,6 +92,38 @@ private:
   juce::String stripId_, oldOutput_, newOutput_;
 };
 
+class SetGroupStripOutputAction final : public UndoableAction {
+public:
+  using PreviousOutput = std::pair<juce::String, juce::String>;
+
+  SetGroupStripOutputAction(MixerModel &mixer,
+                            std::vector<PreviousOutput> previousOutputs,
+                            juce::String newOutput)
+      : mixer_(mixer), previousOutputs_(std::move(previousOutputs)),
+        newOutput_(std::move(newOutput)) {}
+
+  void execute() override {
+    for (const auto &[stripId, oldOutput] : previousOutputs_) {
+      (void)oldOutput;
+      mixer_.setStripDirectOutput(stripId, newOutput_);
+    }
+  }
+
+  void undo() override {
+    for (const auto &[stripId, oldOutput] : previousOutputs_)
+      mixer_.setStripDirectOutput(stripId, oldOutput);
+  }
+
+  juce::String getDescription() const override {
+    return "Change selected strip outputs";
+  }
+
+private:
+  MixerModel &mixer_;
+  std::vector<PreviousOutput> previousOutputs_;
+  juce::String newOutput_;
+};
+
 class RenameGroupBusAction final : public UndoableAction {
 public:
   RenameGroupBusAction(MixerModel &mixer, juce::String id,

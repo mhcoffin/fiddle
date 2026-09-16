@@ -35,6 +35,8 @@ public:
                                   const juce::String &slotId) override;
   bool setStripDirectOutput(const juce::String &stripId,
                             const juce::String &busId) override;
+  bool setGroupStripDirectOutput(const std::vector<juce::String> &stripIds,
+                                 const juce::String &busId) override;
 private:
   MixerModel &mixer_;
   PluginScanner &scanner_;

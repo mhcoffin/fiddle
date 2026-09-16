@@ -36,6 +36,7 @@ public:
   bool setGroupBusInsertBypassed(const juce::String &busId, const juce::String &slotId, bool bypassed) override { call="bypassInsert"; id=busId; value=slotId; flag=bypassed; return result; }
   bool toggleGroupBusInsertEditor(const juce::String &busId, const juce::String &slotId) override { call="toggleEditor"; id=busId; value=slotId; return result; }
   bool setStripDirectOutput(const juce::String &stripId, const juce::String &busId) override { call="output"; id=stripId; value=busId; return result; }
+  bool setGroupStripDirectOutput(const std::vector<juce::String> &stripIds, const juce::String &busId) override { call="groupOutput"; ids=stripIds; value=busId; return result; }
   fiddle::StripInsertPosition insertPosition = fiddle::StripInsertPosition::preFader;
 };
 
@@ -72,12 +73,16 @@ void run() {
   CHECK(commands.call == "toggleEditor" && requested == 2);
   CHECK(router.handleMessage("setStripDirectOutput", payload({"strip", "bus"})));
   CHECK(commands.call == "output" && commands.id == "strip" && commands.value == "bus");
+  CHECK(router.handleMessage("setGroupStripDirectOutput",
+                             payload({R"(["a","b"])", "bus"})));
+  CHECK(commands.call == "groupOutput" && commands.ids.size() == 2 &&
+        commands.ids[1] == "b" && commands.value == "bus");
   CHECK(router.handleMessage("removeGroupBus", payload({"bus"})));
   CHECK(commands.call == "remove");
-  CHECK(changed == 12);
+  CHECK(changed == 13);
   commands.result = false;
   CHECK(router.handleMessage("removeGroupBus", payload({"missing"})));
-  CHECK(changed == 12);
+  CHECK(changed == 13);
 }
 } // namespace
 

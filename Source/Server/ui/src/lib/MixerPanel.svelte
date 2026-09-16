@@ -415,6 +415,13 @@
             dispatchCpp("setGroupLibrary", selectedIdsJson(), library);
         else dispatchCpp("setStripLibrary", stripId, library);
     };
+    const setDirectOutput = (stripId, busId) => {
+        if (isMultiSelected && selectedIds.has(stripId)) {
+            dispatchCpp("setGroupStripDirectOutput", selectedIdsJson(), busId);
+            return;
+        }
+        dispatchCpp("setStripDirectOutput", stripId, busId);
+    };
     const loadExpressionMap = (stripId, entityID) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
             dispatchCpp("setGroupExpressionMap", selectedIdsJson(), entityID);
@@ -1107,7 +1114,7 @@
 
 <div
     class="mixer-container"
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 276 : 128}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 314 : 166}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1530,6 +1537,25 @@
                                                     >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
                                                 {/if}
 
+                                                <label
+                                                    class="ch-output-routing"
+                                                    title={isMultiSelected && selectedIds.has(strip.id)
+                                                        ? `Route all ${selectedIds.size} selected strips`
+                                                        : "Audio output destination"}
+                                                >
+                                                    <span>Out</span>
+                                                    <select
+                                                        aria-label={`Audio output for ${strip.layerName || strip.library || "layer"}`}
+                                                        value={strip.directOutputBusId || ""}
+                                                        onchange={(event) => setDirectOutput(strip.id, event.currentTarget.value)}
+                                                    >
+                                                        <option value="">Master</option>
+                                                        {#each groupBuses as bus}
+                                                            <option value={bus.id}>{bus.name}</option>
+                                                        {/each}
+                                                    </select>
+                                                </label>
+
                                                 <!-- Vertical fader -->
                                                 <div class="ch-fader">
                                                     <span class="fader-tick fader-top">+6</span>
@@ -1708,7 +1734,6 @@
                 plugins={scannedPlugins}
                 maps={availableXmaps}
                 luaCatalog={luaPluginCatalog}
-                {groupBuses}
                 inspectorOpen={inspectorStripId === detailsStrip.id}
                 onClose={() => { layerDetailsStripId = ""; }}
                 onSetPlugin={(uid) => setPlugin(detailsStrip.id, uid)}
@@ -1733,7 +1758,6 @@
                     removeStrip(detailsStrip.id);
                     layerDetailsStripId = "";
                 }}
-                onSetOutput={(busId) => dispatchCpp("setStripDirectOutput", detailsStrip.id, busId)}
             />
         {/if}
     {/if}
@@ -2665,6 +2689,48 @@
         border-color: #38bdf8;
         color: #bae6fd;
     }
+    .ch-output-routing {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        height: var(--strip-control-height, 32px);
+        min-height: var(--strip-control-height, 32px);
+        box-sizing: border-box;
+        flex-shrink: 0;
+        gap: 4px;
+        padding-left: 5px;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        background: #0d1728;
+    }
+    .ch-output-routing > span {
+        flex-shrink: 0;
+        color: #7dd3fc;
+        font-size: 0.58rem;
+        font-weight: 750;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+    }
+    .ch-output-routing select {
+        min-width: 0;
+        height: 100%;
+        flex: 1;
+        box-sizing: border-box;
+        overflow: hidden;
+        padding: 2px 3px;
+        border: 0;
+        background: transparent;
+        color: #cbd5e1;
+        font: inherit;
+        font-size: 0.68rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        cursor: pointer;
+    }
+    .ch-output-routing:focus-within {
+        border-color: #7dd3fc;
+    }
+    .ch-output-routing select:focus { outline: none; }
     .ch-strip-identity {
         display: flex;
         height: 38px;

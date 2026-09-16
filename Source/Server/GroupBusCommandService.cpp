@@ -5,6 +5,8 @@
 #include "PluginScanner.h"
 #include "UndoManager.h"
 
+#include <set>
+
 namespace fiddle {
 
 GroupBusCommandService::GroupBusCommandService(MixerModel &mixer,
@@ -145,6 +147,29 @@ bool GroupBusCommandService::setStripDirectOutput(
   undoManager_.perform(std::make_unique<SetStripOutputAction>(
       mixer_, stripId, strip->directOutputBusId, busId));
   return true;
+}
+
+bool GroupBusCommandService::setGroupStripDirectOutput(
+    const std::vector<juce::String> &stripIds, const juce::String &busId) {
+  if (stripIds.empty() ||
+      (busId.isNotEmpty() && !mixer_.getGroupBus(busId)))
+    return false;
+
+  std::set<juce::String> uniqueIds;
+  std::vector<SetGroupStripOutputAction::PreviousOutput> previousOutputs;
+  previousOutputs.reserve(stripIds.size());
+  for (const auto &stripId : stripIds) {
+    auto *strip = mixer_.getStrip(stripId);
+    if (!strip || !uniqueIds.insert(stripId).second)
+      return false;
+    if (strip->directOutputBusId != busId)
+      previousOutputs.push_back({stripId, strip->directOutputBusId});
+  }
+
+  if (previousOutputs.empty())
+    return false;
+  return undoManager_.perform(std::make_unique<SetGroupStripOutputAction>(
+      mixer_, std::move(previousOutputs), busId));
 }
 
 } // namespace fiddle

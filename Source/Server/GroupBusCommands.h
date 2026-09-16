@@ -34,6 +34,9 @@ public:
                                           const juce::String &slotId) = 0;
   virtual bool setStripDirectOutput(const juce::String &stripId,
                                     const juce::String &busId) = 0;
+  virtual bool setGroupStripDirectOutput(
+      const std::vector<juce::String> &stripIds,
+      const juce::String &busId) = 0;
 };
 
 } // namespace fiddle
