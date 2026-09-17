@@ -59,6 +59,14 @@ try {
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
             const message = request.params[0];
             window.fixtureMessages.push(message);
+            if (message.type === "updateStripSend") {
+                const [stripId, id, busId, gainDb, enabled] = message.payload;
+                const strip = window.fixtureStrips.find((s) => s.id === stripId);
+                if (strip?.sends) {
+                    strip.sends = strip.sends.map((s) => s.id === id ? { id, busId, gainDb, enabled } : s);
+                    queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+                }
+            }
             if (message.type === "showView" && ["inspector", "audio-bank", "chairs", "bus-manager", "audio-performance"].includes(message.payload[0]))
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
         } } };
@@ -74,6 +82,95 @@ try {
         ] });
     });
     await page.waitForSelector(".channel-strip");
+    // Exercise send controls through the real built Svelte UI, echoing model
+    // snapshots just as the native backend does after successful commands.
+    await page.locator(".ch-audio-fx").first().click();
+    const channelAudio = page.getByRole("dialog", { name: /Channel Audio for/ });
+    await channelAudio.getByLabel("New send destination", { exact: true }).selectOption("bus-strings");
+    await channelAudio.getByRole("button", { name: "Add send", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "addStripSend", payload: ["chair-0-0", "bus-strings"] });
+    await page.evaluate(() => {
+        window.fixtureStrips[0].sends = [{ id: "test-send", busId: "bus-strings", gainDb: -12, enabled: true }];
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    const sendRow = channelAudio.locator(".send-row");
+    await sendRow.getByLabel("Send level in dB").fill("-6");
+    await sendRow.getByLabel("Send level in dB").press("Tab");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.filter((m) => m.type === "updateStripSend").at(-1)),
+        { type: "updateStripSend", payload: ["chair-0-0", "test-send", "bus-strings", -6, true] });
+    const sendKnob = sendRow.getByRole("slider", { name: "Send level", exact: true });
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-6");
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    const knobBox = await sendKnob.boundingBox();
+    const knobX = knobBox.x + knobBox.width / 2, knobY = knobBox.y + knobBox.height / 2;
+    await page.mouse.move(knobX, knobY);
+    await page.mouse.down();
+    await page.mouse.move(knobX, knobY - 12, { steps: 4 });
+    await new Promise(resolve => setTimeout(resolve, 600)); // exceeds the backend's normal coalescing window
+    await page.mouse.move(knobX, knobY - 24, { steps: 4 });
+    await page.mouse.up();
+    const dragMessages = await page.evaluate(() => window.fixtureMessages);
+    assert.equal(dragMessages.filter((m) => m.type === "beginHistoryGesture").length, 1);
+    assert.equal(dragMessages.filter((m) => m.type === "endHistoryGesture").length, 1);
+    assert.equal(dragMessages.at(-1).type, "endHistoryGesture", "flush final value before closing Undo gesture");
+    const normalGain = Number(await sendKnob.getAttribute("aria-valuenow"));
+    assert.ok(normalGain > -6);
+    // Undo/backend snapshots update both knob and readout.
+    const resetSendGain = async (gainDb) => page.evaluate((gainDb) => {
+        window.fixtureStrips[0].sends[0].gainDb = gainDb;
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    }, gainDb);
+    await resetSendGain(-6);
+    await page.keyboard.down("Shift");
+    await page.mouse.move(knobX, knobY); await page.mouse.down();
+    await page.mouse.move(knobX, knobY - 24, { steps: 4 }); await page.mouse.up();
+    await page.keyboard.up("Shift");
+    const fineGain = Number(await sendKnob.getAttribute("aria-valuenow"));
+    assert.ok(fineGain > -6 && fineGain < normalGain);
+    await resetSendGain(-6);
+    await sendKnob.focus();
+    await page.keyboard.press("ArrowUp");
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-5.5");
+    await page.keyboard.press("Shift+ArrowDown");
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-5.6");
+    await page.keyboard.press("Home");
+    assert.equal(await sendRow.getByLabel("Send level in dB").inputValue(), "−∞");
+    await page.keyboard.press("End");
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "12");
+    const sendText = sendRow.getByLabel("Send level in dB");
+    await sendText.fill("invalid"); await sendText.press("Enter");
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "12");
+    await sendText.fill("-30"); await sendText.press("Escape");
+    assert.equal(await channelAudio.isVisible(), true);
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "12");
+    await sendText.fill("-inf"); await sendText.press("Enter");
+    assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-120");
+    await sendText.fill("-6"); await sendText.press("Enter");
+    await page.evaluate(() => {
+        window.fixtureStrips[0].sends[0].gainDb = -6;
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    await sendRow.getByRole("checkbox", { name: "Enabled" }).uncheck();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "updateStripSend", payload: ["chair-0-0", "test-send", "bus-strings", -6, false] });
+    // Snapshot echo is authoritative, including undo/redo and deleted buses.
+    await page.evaluate(() => {
+        window.fixtureStrips[0].sends[0].enabled = false;
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    assert.equal(await sendRow.getByRole("checkbox", { name: "Enabled" }).isChecked(), false);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "post-fader-sends.png") });
+    await sendRow.getByRole("button", { name: "Remove", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "removeStripSend", payload: ["chair-0-0", "test-send"] });
+    await page.evaluate(() => {
+        window.fixtureStrips[0].sends = [];
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    assert.equal(await sendRow.count(), 0);
+    await channelAudio.getByRole("button", { name: "Close", exact: true }).click();
     const viewButton = page.getByRole("button", { name: "View", exact: true });
     for (const width of [800, 1280]) {
         await page.setViewportSize({ width, height: 900 });

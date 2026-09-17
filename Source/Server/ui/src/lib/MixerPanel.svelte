@@ -1362,8 +1362,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                             class="ch-audio-fx ch-audio-fx-heading"
                                                             class:has-effects={(strip.audio?.insertCount || 0) > 0}
                                                             onclick={() => openChannelAudio(strip)}
-                                                            title="Add, remove, or reorder this layer's audio effects"
-                                                        >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
+                                                            title="Audio effects and post-fader sends"
+                                                        >FX{strip.audio?.insertCount ? ` ${strip.audio.insertCount}` : ""} / Sends{strip.sends?.length ? ` ${strip.sends.length}` : ""}</button>
                                                         <div class="ch-fx-summary" aria-label="Audio effect inserts">
                                                             {#if (strip.audio?.insertCount || 0) > 0}
                                                                 {#each visibleStripInserts(strip) as insert (insert.id)}
@@ -1396,8 +1396,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                         class="ch-audio-fx"
                                                         class:has-effects={(strip.audio?.insertCount || 0) > 0}
                                                         onclick={() => openChannelAudio(strip)}
-                                                        title="Open this layer's audio effects"
-                                                    >Audio FX{strip.audio?.insertCount ? ` · ${strip.audio.insertCount}` : ""}</button>
+                                                        title="Audio effects and post-fader sends"
+                                                    >FX{strip.audio?.insertCount ? ` ${strip.audio.insertCount}` : ""} / Sends{strip.sends?.length ? ` ${strip.sends.length}` : ""}</button>
                                                 {/if}
 
                                                 <label
@@ -1579,6 +1579,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         {#if channelStrip}
             <ChannelAudioPanel
                 strip={channelStrip}
+                buses={groupBuses}
                 audio={channelAudio || channelStrip.audio}
                 instrumentName={getPluginName(channelStrip)}
                 plugins={scannedPlugins}

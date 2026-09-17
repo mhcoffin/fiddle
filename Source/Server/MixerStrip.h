@@ -1,4 +1,5 @@
 #pragma once
+#include "AudioSend.h"
 
 #include "AnnotationRecord.h"
 #include "AnnotatorChain.h"
@@ -49,6 +50,7 @@ struct MixerStrip {
   /// Empty means the strip feeds Master directly. The message thread owns the
   /// string; MixerModel resolves it to a pointer in each published graph.
   juce::String directOutputBusId;
+  std::vector<AudioSend> sends;
 
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {

@@ -258,6 +258,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
+    if (!strip->sends.empty())
+      sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();
@@ -431,6 +433,8 @@ versioning::FiddleState StateManager::captureCurrentState(
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
+    if (!strip->sends.empty())
+      sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();

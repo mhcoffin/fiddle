@@ -605,6 +605,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("layerName", layerName);
   obj->setProperty("missingPatchReference", missingPatchReference);
   obj->setProperty("directOutputBusId", directOutputBusId);
+  obj->setProperty("sends", audioSendsToJson(sends));
   const auto state = realtimeState();
   obj->setProperty("active", state.active);
   obj->setProperty("muted", state.muted);

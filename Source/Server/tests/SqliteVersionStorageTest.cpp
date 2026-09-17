@@ -89,6 +89,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.expressionMapPath = "/removed/imported.doricolib";
     strip.expressionMapSourceXml = "<saved-expression-map/>";
     strip.directOutputBusId = "strings-bus";
+    strip.sendsJson = R"([{"id":"send-1","busId":"reverb","gainDb":-12,"enabled":true}])";
     strip.pluginState = {0, 1, 2, 255};
     strip.audioInsertState = {9, 8, 7, 6, 5};
     strip.luaPluginFileNames = {"first.lua", "second.lua"};
@@ -105,6 +106,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored && restored->pluginState == strip.pluginState);
     CHECK(restored && restored->audioInsertState == strip.audioInsertState);
     CHECK(restored && restored->directOutputBusId == "strings-bus");
+    CHECK(restored && restored->sendsJson == strip.sendsJson);
     CHECK(restored && restored->expressionMapPath == strip.expressionMapPath);
     CHECK(restored &&
           restored->expressionMapSourceXml == strip.expressionMapSourceXml);

@@ -6,6 +6,7 @@
 #include "MixerStrip.h"
 #include "ProjectSettings.h"
 #include "ParallelRenderPool.h"
+#include "RouteDelay.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
@@ -21,6 +22,7 @@ class MasterInstrumentList;
 /// Lightweight snapshot of strip state for undo/redo.
 struct StripSnapshot {
   juce::String id, library, family, directOutputBusId;
+  std::vector<AudioSend> sends;
   bool isSolo = true;
   bool muted = false;
   bool soloed = false;
@@ -34,10 +36,21 @@ struct StripSnapshot {
 /// Manages an ordered list of MixerStrips. Owns a shared
 /// AudioPluginFormatManager for plugin instantiation.
 class MixerModel : public juce::Timer {
+  struct SendRoute {
+    juce::String id;
+    GroupBus *destination = nullptr;
+    float gain = 0;
+    bool enabled = false;
+    std::shared_ptr<RouteDelay> delay;
+    size_t destinationIndex = 0;
+  };
   struct StripRoute {
     MixerStrip *strip = nullptr;
     GroupBus *destination = nullptr; // nullptr means Master
     juce::AudioBuffer<float> scratch; // allocated only when publishing a graph
+    std::shared_ptr<RouteDelay> delay;
+    std::vector<SendRoute> sends;
+    int downstreamLatency = 0;
   };
 
   struct ActiveAudioGraph {
@@ -51,6 +64,7 @@ class MixerModel : public juce::Timer {
     std::vector<MixerStrip *> strips;
     std::vector<StripRoute> stripRoutes;
     std::vector<GroupBus *> groupBuses;
+    std::vector<bool> busAudible;
   };
 
 public:
@@ -117,6 +131,7 @@ public:
   /// Missing bus IDs are rejected without changing the existing route.
   bool setStripDirectOutput(const juce::String &stripId,
                             const juce::String &busId);
+  bool setStripSends(const juce::String &stripId, std::vector<AudioSend> sends);
 
   /// Republish routing and downstream latency after a bus rack changes.
   void refreshAudioRouting();
@@ -257,7 +272,7 @@ private:
   std::vector<std::shared_ptr<MixerStrip>> trashStrips_;
   std::vector<std::shared_ptr<GroupBus>> trashGroupBuses_;
 
-  void commitAudioGraph();
+  void commitAudioGraph(bool resetDelays = false);
 
   void timerCallback() override;
   juce::AudioPluginFormatManager formatManager_;

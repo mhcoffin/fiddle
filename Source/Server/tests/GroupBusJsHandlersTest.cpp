@@ -23,6 +23,9 @@ public:
   float gain = 0.0f;
   bool flag = false;
   bool result = true;
+  bool addStripSend(const juce::String &stripId, const juce::String &busId) override { call="addSend"; id=stripId; value=busId; return result; }
+  bool updateStripSend(const juce::String &stripId, const juce::String &, const juce::String &busId, float gainDb, bool enabled) override { call="updateSend"; id=stripId; value=busId; gain=gainDb; flag=enabled; return result; }
+  bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override { call="removeSend"; id=stripId; value=sendId; return result; }
   bool addGroupBus(const juce::String &name, const std::vector<juce::String> &stripIds) override { call="add"; value=name; ids=stripIds; return result; }
   bool removeGroupBus(const juce::String &busId) override { call="remove"; id=busId; return result; }
   bool renameGroupBus(const juce::String &busId, const juce::String &name) override { call="rename"; id=busId; value=name; return result; }
@@ -80,9 +83,19 @@ void run() {
   CHECK(router.handleMessage("removeGroupBus", payload({"bus"})));
   CHECK(commands.call == "remove");
   CHECK(changed == 13);
+  CHECK(router.handleMessage("addStripSend", payload({"strip", "bus"})));
+  CHECK(commands.call == "addSend" && commands.id == "strip" && commands.value == "bus");
+  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", -6.0, false})));
+  CHECK(commands.call == "updateSend" && commands.gain == -6 && !commands.flag);
+  CHECK(router.handleMessage("removeStripSend", payload({"strip", "send"})));
+  CHECK(commands.call == "removeSend" && commands.value == "send");
+  CHECK(changed == 16);
+  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", "oops", true})));
+  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", -6.0, "false"})));
+  CHECK(changed == 16);
   commands.result = false;
   CHECK(router.handleMessage("removeGroupBus", payload({"missing"})));
-  CHECK(changed == 13);
+  CHECK(changed == 16);
 }
 } // namespace
 

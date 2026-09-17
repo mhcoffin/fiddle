@@ -450,6 +450,112 @@ void testBusRemovalThroughUiCommandsAndUndo() {
   }
 }
 
+void testPostFaderSends(int workers) {
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto a = f.instrument(0.1f, 1), b = f.instrument(0.2f, 2);
+  const auto group = f.mixer.addGroupBus("Strings");
+  const auto reverb = f.mixer.addGroupBus("Reverb");
+  REQUIRE(f.commands.setStripDirectOutput(a, group));
+  addEffect(f.mixer.getGroupBus(reverb)->audioEngine(), "wet", 2.0f);
+  addEffect(f.mixer.getStrip(a)->audioEngine(), "post", 2.0f, 0, fiddle::StripInsertPosition::postFader);
+  auto *strip = f.mixer.getStrip(a);
+  strip->setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  REQUIRE(f.router.handleMessage("addStripSend", juce::var(juce::Array<juce::var>{a, reverb})));
+  const auto send = strip->sends.front().id;
+  REQUIRE(f.commands.updateStripSend(a, send, reverb, 0, true));
+  REQUIRE(f.commands.addStripSend(b, reverb));
+  REQUIRE(f.commands.updateStripSend(b, f.mixer.getStrip(b)->sends.front().id, reverb, 0, true));
+  f.noteOn(1); f.noteOn(2);
+  f.expectLevel(0.9f); // dry .1 + .2, wet (.1 + .2) * 2; strip FX applied once.
+  REQUIRE(f.commands.setGroupBusSolo(group, true));
+  f.expectLevel(0.3f); // solo-safe return, but no leakage from the other source.
+  REQUIRE(f.commands.setGroupBusSolo(group, false));
+  REQUIRE(f.commands.setGroupBusSolo(reverb, true));
+  f.expectLevel(0.6f); // wet-only audition.
+  REQUIRE(f.commands.setGroupBusSolo(reverb, false));
+  strip->setSoloed(true); f.expectLevel(0.3f);
+  strip->setSoloed(false);
+  strip->setMuted(true); f.expectLevel(0.6f);
+  strip->setMuted(false);
+  strip->setActive(false); f.expectLevel(0.6f);
+  strip->setActive(true);
+  REQUIRE(f.commands.updateStripSend(a, send, reverb, 0, false));
+  f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
+  REQUIRE(f.undo.redo()); f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo());
+  REQUIRE(f.commands.setGroupBusMute(reverb, true)); f.expectLevel(0.3f);
+  REQUIRE(f.commands.setGroupBusMute(reverb, false));
+  REQUIRE(f.commands.removeGroupBus(reverb));
+  REQUIRE(strip->sends.empty() && f.mixer.getStrip(b)->sends.empty());
+  REQUIRE(strip->directOutputBusId == group);
+  f.expectLevel(0.3f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
+  REQUIRE(strip->sends.front().id == send);
+  REQUIRE(!f.commands.addStripSend(a, reverb));
+  REQUIRE(!f.commands.addStripSend(a, "missing"));
+  REQUIRE(!f.commands.updateStripSend(a, send, "missing", 0, true));
+  REQUIRE(!f.commands.updateStripSend(a, send, reverb, std::numeric_limits<float>::quiet_NaN(), true));
+  REQUIRE(!f.commands.updateStripSend(a, send, reverb, 13, true));
+  REQUIRE(!f.commands.removeStripSend(a, "missing"));
+  REQUIRE(f.commands.removeStripSend(a, send)); f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
+  REQUIRE(f.commands.updateStripSend(a, send, group, -120, true)); f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
+  f.undo.clear();
+  REQUIRE(f.commands.updateStripSend(a, send, reverb, -4, true));
+  REQUIRE(f.commands.updateStripSend(a, send, reverb, -9, true));
+  REQUIRE(f.undo.undo() && strip->sends.front().gainDb == 0);
+  REQUIRE(!f.undo.canUndo());
+}
+
+void testSendLatencyAndContinuity(int workers) {
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto a = f.instrument(0.1f, 1);
+  f.instrument(0.4f, 2); // exercise parallel execution without a sounding note
+  const auto dry = f.mixer.addGroupBus("Dry");
+  const auto slow = f.mixer.addGroupBus("Slow");
+  const auto fast = f.mixer.addGroupBus("Fast");
+  REQUIRE(f.commands.setStripDirectOutput(a, dry));
+  addEffect(f.mixer.getStrip(a)->audioEngine(), "strip-delay", 1, 4);
+  addEffect(f.mixer.getGroupBus(dry)->audioEngine(), "dry-delay", 1, 8);
+  addEffect(f.mixer.getGroupBus(slow)->audioEngine(), "slow-delay", 2, 120);
+  addEffect(f.mixer.getGroupBus(fast)->audioEngine(), "fast-delay", 3, 7);
+  REQUIRE(f.mixer.setStripSends(a, {{"slow-send", slow, juce::Decibels::gainToDecibels(0.5f), true},
+                                  {"fast-send", fast, juce::Decibels::gainToDecibels(0.25f), true}}));
+  REQUIRE(std::abs(f.mixer.maximumPathLatencyMs() - 1000.0 * 124 / 48000) < 1e-6);
+  f.noteOn(1, 10); // all three paths must start at sample 480
+  f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60), f.now + 13);
+  int frame = 0, iteration = 0;
+  for (int length : {64, 23, 64, 1, 39, 64, 64, 64, 64, 23, 64, 64, 64, 64, 64}) {
+    if (++iteration == 9) f.mixer.addGroupBus("Unrelated edit during delayed audio");
+    juce::AudioBuffer<float> audio(2, length); audio.clear();
+    f.mixer.processBlock(audio, f.now);
+    f.now += 1000.0 * length / 48000;
+    for (int i = 0; i < length; ++i, ++frame)
+      for (int ch = 0; ch < 2; ++ch)
+        REQUIRE(std::abs(audio.getSample(ch, i) - (frame >= 480 && frame < 624 ? 0.275f : 0)) < 1e-5f);
+  }
+}
+
+void testSendReturnTails() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1);
+  const auto bus = f.mixer.addGroupBus("Tail");
+  addEffect(f.mixer.getGroupBus(bus)->audioEngine(), "tail", 1, 160);
+  REQUIRE(f.mixer.setStripSends(a, {{"send", bus, 0, true}}));
+  f.noteOn(1);
+  f.render(); // 64 samples now inside the return effect
+  REQUIRE(f.commands.updateStripSend(a, "send", bus, 0, false));
+  f.render();
+  const auto tail = f.render();
+  // Already-fed return samples are processed even after disabling the send.
+  REQUIRE(std::abs(tail.getSample(0, 40) - 0.2f) < 1e-5f);
+  REQUIRE(std::abs(f.render().getSample(0, 63) - 0.1f) < 1e-5f);
+}
+
 void testRealSampleLatencyAcrossDirectAndBusRoutes() {
   MixerFixture f;
   f.instrument(0.1f, 1);
@@ -2126,6 +2232,10 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     busId = bus->id.toStdString();
     bus->setGainDb(-3.0f);
     addEffect(bus->audioEngine(), "bus-pre", 2.0f);
+    const auto returnId = f.mixer.addGroupBus("Shared return");
+    addEffect(f.mixer.getGroupBus(returnId)->audioEngine(), "return-fx", 0.25f);
+    REQUIRE(f.mixer.setStripSends(ids[0], {{"saved-send", returnId, -7.5f, true}}));
+    REQUIRE(f.mixer.setStripSends(ids[1], {{"disabled-send", returnId, -18, false}}));
     addEffect(bus->audioEngine(), "bus-post", 0.75f, 0, fiddle::StripInsertPosition::postFader);
     addEffect(f.mixer.getStrip(ids[0])->audioEngine(), "strip-pre", 0.5f);
     addEffect(f.mixer.getStrip(ids[0])->audioEngine(), "strip-bypassed", 4.0f,
@@ -2173,6 +2283,10 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     const fiddle::ProjectSettings expectedSettings{825, {"historical-chair"}};
     REQUIRE(f.mixer.projectSettings() == expectedSettings);
     REQUIRE(f.mixer.getStrip(ids[0])->directOutputBusId.toStdString() == busId);
+    REQUIRE(f.mixer.getStrip(ids[0])->sends.size() == 1);
+    REQUIRE(f.mixer.getStrip(ids[0])->sends.front().id == "saved-send");
+    REQUIRE(f.mixer.getStrip(ids[0])->sends.front().gainDb == -7.5f);
+    REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().enabled);
     REQUIRE(f.mixer.getStrip(ids[0])->layerName == "Historical violin");
     REQUIRE(f.mixer.getStrip(ids[0])->library == "Saved library");
     REQUIRE(f.mixer.getStrip(ids[0])->missingPatchReference);
@@ -2196,11 +2310,25 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(f.mixer.size() == 3 && finished == 1);
     REQUIRE(db.getLibraryRoutingRepository()->listLayers().size() == 3);
 
+    // Invalid send state must be rejected before touching live topology.
+    for (const auto &sendJson : {juce::String("not JSON"),
+          juce::String(R"([{"id":"bad","busId":"missing","gainDb":0,"enabled":true}])")}) {
+      auto bad = *saved;
+      auto blob = *versions.getStripBlob(bad.routingState.layers.front().stripHash);
+      blob.sendsJson = sendJson.toStdString();
+      const auto hash = blob.computeHash();
+      versions.getStorage().putStripBlob(hash, blob);
+      bad.routingState.layers.front().stripHash = hash;
+      REQUIRE(!restore.restore(bad).accepted);
+      REQUIRE(f.mixer.getStrip(ids[0])->sends.front().id == "saved-send");
+      REQUIRE(f.mixer.size() == 3 && finished == 1);
+    }
+
     // Reuse stable layer IDs in overlapping restores, with different state.
     // Deliver the newer loads first, then obsolete callbacks from the old one.
     factory->defer = true;
     REQUIRE(restore.restore(*saved).accepted);
-    pumpUntil([&] { return factory->pending.size() == 8; });
+    pumpUntil([&] { return factory->pending.size() == 9; });
     auto newer = *saved;
     const auto oldHash = newer.routingState.layers.front().stripHash;
     auto changed = *versions.getStripBlob(oldHash);
@@ -2212,7 +2340,7 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     newer.routingState.layers.front().stripHash = newHash;
     std::replace(newer.stripHashes.begin(), newer.stripHashes.end(), oldHash, newHash);
     REQUIRE(restore.restore(newer).accepted);
-    pumpUntil([&] { return factory->pending.size() == 16; });
+    pumpUntil([&] { return factory->pending.size() == 18; });
     std::reverse(factory->pending.begin(), factory->pending.end());
     factory->completeAll();
     pumpUntil([&] { return !restore.isLoading(); });
@@ -2235,6 +2363,9 @@ void testMissingPluginsAndSupersededRestore() {
     MixerFixture source;
     const auto id = source.instrument(0.1f, 1);
     addEffect(source.mixer.getStrip(id)->audioEngine(), "effect", 2.0f);
+    const auto aux = source.mixer.addGroupBus("Missing return effect");
+    addEffect(source.mixer.getGroupBus(aux)->audioEngine(), "return-effect", 0.5f);
+    REQUIRE(source.mixer.setStripSends(id, {{"send", aux, 0, true}}));
     expected = renderPassage(source);
     source.mixer.getStrip(id)->refreshPluginStateCache();
     fiddle::StateManager state;
@@ -2254,6 +2385,8 @@ void testMissingPluginsAndSupersededRestore() {
   pumpUntil([&] { return finished == 1; });
   auto *strip = f.mixer.getAllStrips().front();
   REQUIRE(strip->pluginStatus() == fiddle::HostedPluginStatus::missing);
+  REQUIRE(strip->sends.size() == 1 && strip->sends.front().id == "send");
+  REQUIRE(f.mixer.getAllGroupBuses().front()->audioEngine().snapshot("return-effect").has_value());
   const auto blob = versions.getStripBlob(saved.stripHashes.front());
   REQUIRE(strip->cachedPluginState() == juce::MemoryBlock(blob->pluginState.data(), blob->pluginState.size()));
   const auto rack = fiddle::deserializeStripAudioSnapshot(blob->audioInsertState.data(), blob->audioInsertState.size());
@@ -2266,22 +2399,22 @@ void testMissingPluginsAndSupersededRestore() {
   pumpUntil([&] { return finished == 2; });
   // Missing effect is retained as pass-through, not a dead audio path.
   for (const float sample : renderPassage(f))
-    REQUIRE(std::abs(sample - 0.1f) < 0.00001f);
+    REQUIRE(std::abs(sample - 0.2f) < 0.00001f);
 
   factory->missingEffects = false;
   factory->defer = true;
   REQUIRE(restore.restore(saved).accepted);
-  pumpUntil([&] { return factory->pending.size() == 2; });
+  pumpUntil([&] { return factory->pending.size() == 3; });
   // Replace a project before its asynchronous instrument/effect creation completes.
   REQUIRE(restore.restore(saved).accepted);
-  pumpUntil([&] { return factory->pending.size() == 4; });
+  pumpUntil([&] { return factory->pending.size() == 6; });
   factory->completeAll();
   pumpUntil([&] { return !restore.isLoading(); });
   REQUIRE(finished == 3); // Superseded restore must not publish/persist.
   requireSameAudio(expected, renderPassage(f));
 
   REQUIRE(restore.restore(saved).accepted);
-  pumpUntil([&] { return factory->pending.size() == 2; });
+  pumpUntil([&] { return factory->pending.size() == 3; });
   // Removing a loading strip discards its instrument callback. The completion
   // barrier must still release once JUCE disposes of that cancelled request.
   f.mixer.clear();
@@ -2292,7 +2425,7 @@ void testMissingPluginsAndSupersededRestore() {
   {
     fiddle::ProjectRestoreService abandoned(f.mixer, versions, nullptr, restoreCallbacks(finished));
     REQUIRE(abandoned.restore(saved).accepted);
-    pumpUntil([&] { return factory->pending.size() == 2; });
+    pumpUntil([&] { return factory->pending.size() == 3; });
   }
   factory->completeAll();
   juce::MessageManager::getInstance()->runDispatchLoopUntil(20);
@@ -2693,6 +2826,9 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("post-fader sends, solo-safe returns and history", [] { for (int workers : {1, 2, 4}) testPostFaderSends(workers); });
+  run("send paths align samples and retain delayed audio across graph edits", [] { for (int workers : {1, 2, 4}) testSendLatencyAndContinuity(workers); });
+  run("disabled sends preserve return effect tails", testSendReturnTails);
   run("parallel workers complete a block before admitting pending control", testParallelPoolCompletesAdmittedBlock);
   run("parallel layers match serial MIDI, routing, FX, bypass and undo samples", testParallelMixerEquivalence);
   run("expression-map imports undo and restore without source files", testExpressionMapUndoAndImportedPersistence);

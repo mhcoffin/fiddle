@@ -77,6 +77,8 @@ struct StripBlob {
   std::string expressionMapSourceXml;
   /// Empty routes directly to Master; otherwise references a GroupBusBlob ID.
   std::string directOutputBusId;
+  /// Ordered post-fader send definitions; empty for pre-send projects.
+  std::string sendsJson;
 
   /// Binary VST3 plugin state. Stored separately in the blob for efficiency.
   std::vector<uint8_t> pluginState;
@@ -114,6 +116,11 @@ struct StripBlob {
     if (!audioInsertState.empty())
       header.append(reinterpret_cast<const char *>(audioInsertState.data()),
                     audioInsertState.size());
+    // Preserve existing hashes for projects with no sends.
+    if (!sendsJson.empty()) {
+      header.append("\0postFaderSends\0", 16);
+      header.append(sendsJson);
+    }
     return header;
   }
 

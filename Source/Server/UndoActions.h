@@ -341,6 +341,7 @@ public:
         strip->family = src->family;
         strip->isSolo = src->isSolo;
         strip->directOutputBusId = src->directOutputBusId;
+        strip->sends = src->sends;
       }
       int sourceIdx = mixer_.stripIndex(sourceStripId_);
       mixer_.insertStripAt(std::move(strip), sourceIdx + 1);

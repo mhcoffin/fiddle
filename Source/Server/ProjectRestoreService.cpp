@@ -93,9 +93,16 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   for (const auto &bus : state.globalState.groupBuses)
     if (bus.id.empty() || !busIds.insert(bus.id).second)
       return {false, false, "Invalid or duplicate audio bus ID"};
-  for (const auto &[hash, blob] : blobs)
+  std::map<std::string, std::vector<AudioSend>> sendsByHash;
+  for (const auto &[hash, blob] : blobs) {
     if (!blob.directOutputBusId.empty() && busIds.find(blob.directOutputBusId) == busIds.end())
       return {false, false, "A saved audio bus destination is missing"};
+    if (!blob.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(blob.sendsJson), sendsByHash[hash]))
+      return {false, false, "Invalid saved post-fader sends"};
+    for (const auto &send : sendsByHash[hash])
+      if (!busIds.count(send.busId.toStdString()))
+        return {false, false, "A saved send destination is missing"};
+  }
 
   std::vector<ChairRow> chairs;
   std::vector<LayerRow> layers;
@@ -168,6 +175,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     strip->setGainDb(blob.gainDb);
     strip->pluginUid = blob.pluginUid;
     strip->directOutputBusId = blob.directOutputBusId;
+    if (!blob.sendsJson.empty())
+      audioSendsFromJson(juce::JSON::parse(blob.sendsJson), strip->sends);
     mixer_.insertStripAt(std::move(strip), mixer_.size());
     if (callbacks_.stripCreated)
       callbacks_.stripCreated(*current);

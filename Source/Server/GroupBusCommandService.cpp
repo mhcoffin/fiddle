@@ -9,6 +9,35 @@
 
 namespace fiddle {
 
+bool GroupBusCommandService::addStripSend(const juce::String &stripId, const juce::String &busId) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip || !mixer_.getGroupBus(busId)) return false;
+  auto sends = strip->sends;
+  if (std::any_of(sends.begin(), sends.end(), [&](const auto &s) { return s.busId == busId; })) return false;
+  sends.push_back({juce::Uuid().toString(), busId, -12.0f, true});
+  return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
+}
+
+bool GroupBusCommandService::updateStripSend(const juce::String &stripId, const juce::String &sendId,
+                                            const juce::String &busId, float gainDb, bool enabled) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip || !mixer_.getGroupBus(busId) || !std::isfinite(gainDb) || gainDb < -120 || gainDb > 12) return false;
+  auto sends = strip->sends;
+  const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
+  if (found == sends.end()) return false;
+  const auto gesture = found->busId == busId && found->enabled == enabled ? sendId : juce::String{};
+  *found = {sendId, busId, gainDb, enabled};
+  return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends), gesture));
+}
+
+bool GroupBusCommandService::removeStripSend(const juce::String &stripId, const juce::String &sendId) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip) return false;
+  auto sends = strip->sends;
+  sends.erase(std::remove_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; }), sends.end());
+  return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
+}
+
 GroupBusCommandService::GroupBusCommandService(MixerModel &mixer,
                                                PluginScanner &scanner,
                                                UndoManager &undoManager)

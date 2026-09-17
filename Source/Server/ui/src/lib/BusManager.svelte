@@ -11,6 +11,7 @@
     let newName = $state("");
     let pendingRemovalId = $state("");
     const routeCount = (busId) => strips.filter((strip) => strip.directOutputBusId === busId).length;
+    const sendCount = (busId) => strips.reduce((count, strip) => count + (strip.sends || []).filter((send) => send.busId === busId).length, 0);
 
     const add = () => {
         const name = newName.trim();
@@ -32,7 +33,7 @@
         <header>
             <div>
                 <h2>Bus Manager</h2>
-                <p>Create stereo group buses for shared processing and submix control.</p>
+                <p>Create stereo buses for submixes or shared send effects.</p>
             </div>
             <button class="close" onclick={onClose}>Close</button>
         </header>
@@ -78,7 +79,7 @@
                                         value={bus.name}
                                         onchange={(event) => dispatchCpp("renameGroupBus", bus.id, event.currentTarget.value)}
                                     />
-                                    <span>Group · {routeCount(bus.id)} routed {routeCount(bus.id) === 1 ? "strip" : "strips"}</span>
+                                    <span>{routeCount(bus.id)} routed {routeCount(bus.id) === 1 ? "strip" : "strips"} · {sendCount(bus.id)} sends</span>
                                 </div>
                                 <label class="gain">
                                     <span>Gain</span>
@@ -110,6 +111,7 @@
                             {#if pendingRemovalId === bus.id}
                                 <div class="removal-warning" role="alert">
                                     Remove <strong>{bus.name}</strong>?
+                                    {#if sendCount(bus.id)}Its {sendCount(bus.id)} sends will be removed. Undo restores them.{/if}
                                     {#if routeCount(bus.id)}
                                         Its {routeCount(bus.id)} routed {routeCount(bus.id) === 1 ? "strip" : "strips"} will return to Master.
                                     {/if}

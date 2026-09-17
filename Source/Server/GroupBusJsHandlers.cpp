@@ -49,6 +49,24 @@ void GroupBusJsHandlers::notify(bool changed) {
 }
 
 void GroupBusJsHandlers::registerHandlers() {
+  router_.registerHandler("addStripSend", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() != 2 || !a[0].isString() || !a[1].isString()) return;
+    const auto strip = a[0].toString(), bus = a[1].toString();
+    dispatch([this, strip, bus] { notify(commands_.addStripSend(strip, bus)); });
+  });
+  router_.registerHandler("updateStripSend", [this](const juce::var &payload) {
+    const auto a = args(payload);
+    if (a.size() != 5 || !a[0].isString() || !a[1].isString() || !a[2].isString() ||
+        !(a[3].isDouble() || a[3].isInt() || a[3].isInt64()) || !a[4].isBool()) return;
+    const auto strip = a[0].toString(), send = a[1].toString(), bus = a[2].toString();
+    const float gain = static_cast<float>(double(a[3])); const bool enabled = bool(a[4]);
+    dispatch([this, strip, send, bus, gain, enabled] { notify(commands_.updateStripSend(strip, send, bus, gain, enabled)); });
+  });
+  router_.registerHandler("removeStripSend", [this](const juce::var &payload) {
+    const auto a = args(payload); if (a.size() != 2 || !a[0].isString() || !a[1].isString()) return;
+    const auto strip = a[0].toString(), send = a[1].toString();
+    dispatch([this, strip, send] { notify(commands_.removeStripSend(strip, send)); });
+  });
   router_.registerHandler("requestGroupBusState", [this](const juce::var &) {
     dispatch([this] {
       if (callbacks_.requested)

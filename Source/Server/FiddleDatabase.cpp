@@ -259,7 +259,8 @@ void FiddleDatabase::createSchema() {
       soloed        INTEGER NOT NULL DEFAULT 0,
       lua_plugins   TEXT NOT NULL DEFAULT '',
       audio_insert_state BLOB,
-      direct_output_bus TEXT NOT NULL DEFAULT ''
+      direct_output_bus TEXT NOT NULL DEFAULT '',
+      sends_json TEXT NOT NULL DEFAULT ''
     )
   )");
 

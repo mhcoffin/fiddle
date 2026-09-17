@@ -129,6 +129,7 @@ StripSnapshot MixerModel::snapshotStrip(const juce::String &id) const {
       snap.expressionMapEntityID =
           s->expressionMap ? s->expressionMap->entityID : "";
       snap.directOutputBusId = s->directOutputBusId;
+      snap.sends = s->sends;
       snap.index = i;
       break;
     }
@@ -155,6 +156,7 @@ juce::String MixerModel::duplicateStripAfter(const juce::String &afterId) {
   strip->family = source->family;
   strip->isSolo = source->isSolo;
   strip->directOutputBusId = source->directOutputBusId;
+  strip->sends = source->sends;
   strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
 
   // Library label defaults to empty — user fills in later
@@ -223,9 +225,13 @@ MixerModel::removeGroupBusKeepAlive(const juce::String &id) {
       [&id](const auto &bus) { return bus->id == id; });
   if (found == groupBuses_.end())
     return nullptr;
-  for (auto &strip : strips_)
+  for (auto &strip : strips_) {
     if (strip->directOutputBusId == id)
       strip->directOutputBusId.clear();
+    auto &sends = strip->sends;
+    sends.erase(std::remove_if(sends.begin(), sends.end(),
+                              [&](const auto &send) { return send.busId == id; }), sends.end());
+  }
   auto removed = std::move(*found);
   groupBuses_.erase(found);
   commitAudioGraph();
@@ -342,6 +348,25 @@ void MixerModel::refreshAudioRouting() {
   commitAudioGraph();
 }
 
+bool MixerModel::setStripSends(const juce::String &stripId, std::vector<AudioSend> sends) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  const auto strip = std::find_if(strips_.begin(), strips_.end(),
+      [&](const auto &s) { return s->id == stripId; });
+  if (strip == strips_.end()) return false;
+  std::set<juce::String> ids, destinations;
+  for (const auto &send : sends) {
+    if (send.id.isEmpty() || !ids.insert(send.id).second ||
+        !destinations.insert(send.busId).second || !std::isfinite(send.gainDb) ||
+        send.gainDb < -120 || send.gainDb > 12 ||
+        std::none_of(groupBuses_.begin(), groupBuses_.end(),
+                     [&](const auto &b) { return b->id == send.busId; })) return false;
+  }
+  if ((*strip)->sends == sends) return false;
+  (*strip)->sends = std::move(sends);
+  commitAudioGraph();
+  return true;
+}
+
 juce::String MixerModel::groupBusesToJson() const {
   juce::Array<juce::var> values;
   std::lock_guard<std::mutex> lock(stripsMutex_);
@@ -411,7 +436,7 @@ double MixerModel::maximumPathLatencyMs() const {
   double longest = 0;
   if (graph.get()) for (const auto &route : graph.get()->stripRoutes) {
     const auto path = route.strip->audioEngine().latencyMs() +
-        (route.destination ? route.destination->audioEngine().latencyMs() : 0.0);
+        1000.0 * route.downstreamLatency / currentSampleRate_.load();
     longest = std::max(longest, path);
   }
   return longest + masterAudio_.latencyMs();
@@ -464,36 +489,47 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       ActiveAudioGraph &graph;
       double time;
       int frames;
-      bool anySoloed, anyBusSoloed;
-    } block{*graph, currentTime, audioBuffer.getNumSamples(), anySoloed, anyBusSoloed};
+      bool anySoloed;
+    } block{*graph, currentTime, audioBuffer.getNumSamples(), anySoloed};
     const auto renderStrip = [](void *context, size_t index) {
       auto &b = *static_cast<Block *>(context);
       auto &route = b.graph.stripRoutes[index];
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2, b.frames);
       scratch.clear();
-      route.strip->processBlock(scratch, b.time, b.anySoloed,
-                                !b.anyBusSoloed || route.destination != nullptr);
+      route.strip->processBlock(scratch, b.time, b.anySoloed, true);
     };
     const auto helperPluginMs = renderPool_.process(graph->stripRoutes.size(), &block,
                                                    renderStrip, render);
     PluginRenderDiagnostics::addBlockWork(helperPluginMs);
-    // No shared summing from helpers. Original strip order is preserved, as
-    // are bus dependencies, FX order and one process call per instance/block.
-    for (const auto &route : graph->stripRoutes) {
-      auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
-      for (int channel = 0; channel < std::min(2, destination.getNumChannels()); ++channel)
-        destination.addFrom(channel, 0, route.scratch, channel, 0, block.frames);
-    }
   } else {
-    for (const auto &route : graph->stripRoutes) {
-      const bool directPathAudible = !anyBusSoloed || route.destination != nullptr;
-      auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
-      route.strip->processBlock(destination, currentTime, anySoloed, directPathAudible);
+    for (auto &route : graph->stripRoutes) {
+      juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2,
+                                       audioBuffer.getNumSamples());
+      scratch.clear();
+      route.strip->processBlock(scratch, currentTime, anySoloed, true);
     }
   }
 
-  for (auto *bus : graph->groupBuses)
-    bus->processTo(audioBuffer, !anyBusSoloed || bus->isSoloed());
+  // Render an instrument once, then fan out in stable strip order. Soloing a
+  // group keeps its sends audible (solo-safe returns); soloing a return alone
+  // auditions its wet signal. Other groups cannot leak through shared returns.
+  for (size_t i = 0; i < graph->groupBuses.size(); ++i)
+    graph->busAudible[i] = !anyBusSoloed || graph->groupBuses[i]->isSoloed();
+  for (const auto &route : graph->stripRoutes) {
+    const bool selectedSource = route.destination && route.destination->isSoloed();
+    const bool directAudible = !anyBusSoloed || selectedSource;
+    auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
+    route.delay->addTo(destination, route.scratch, audioBuffer.getNumSamples(), directAudible ? 1.0f : 0.0f);
+    for (const auto &send : route.sends) {
+      const bool audible = send.enabled && (!anyBusSoloed || selectedSource || send.destination->isSoloed());
+      send.delay->addTo(send.destination->inputBuffer(), route.scratch,
+                        audioBuffer.getNumSamples(), audible ? send.gain : 0.0f);
+      if (audible)
+        graph->busAudible[send.destinationIndex] = true;
+    }
+  }
+  for (size_t i = 0; i < graph->groupBuses.size(); ++i)
+    graph->groupBuses[i]->processTo(audioBuffer, graph->busAudible[i]);
 
   masterAudio_.processBlock(audioBuffer);
 }
@@ -509,7 +545,7 @@ void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
   for (auto &bus : groupBuses_)
     bus->prepareToPlay(sampleRate, blockSize);
   masterAudio_.prepareToPlay(sampleRate, blockSize);
-  commitAudioGraph(); // Publish correctly sized parallel scratch buffers.
+  commitAudioGraph(true); // Device changes also reset compensation histories.
   renderPool_.configure(renderWorkers_.load(), sampleRate, blockSize);
 }
 
@@ -1089,7 +1125,8 @@ void MixerModel::setHarmonicService(HarmonicAnalysisService *service) {
   harmonicService_ = service;
 }
 
-void MixerModel::commitAudioGraph() {
+void MixerModel::commitAudioGraph(bool resetDelays) {
+  auto previous = audioGraph_.read();
   auto current = std::make_unique<ActiveAudioGraph>();
   current->stripOwners = strips_;
   current->busOwners = groupBuses_;
@@ -1098,6 +1135,7 @@ void MixerModel::commitAudioGraph() {
     current->groupBuses.push_back(bus.get());
     busById.emplace(bus->id, bus.get());
   }
+  current->busAudible.resize(current->groupBuses.size());
   for (auto &s : strips_) {
     current->strips.push_back(s.get());
     GroupBus *destination = nullptr;
@@ -1108,10 +1146,42 @@ void MixerModel::commitAudioGraph() {
       else
         s->directOutputBusId.clear();
     }
-    s->setDownstreamLatencySamples(
-        destination ? destination->audioEngine().latencySamples() : 0);
-    current->stripRoutes.push_back({s.get(), destination,
-                                   juce::AudioBuffer<float>(2, currentBlockSize_)});
+    StripRoute route;
+    route.strip = s.get();
+    route.destination = destination;
+    route.scratch.setSize(2, currentBlockSize_);
+    const int directLatency = destination ? destination->audioEngine().latencySamples() : 0;
+    route.downstreamLatency = directLatency;
+    for (const auto &send : s->sends) {
+      const auto found = busById.find(send.busId);
+      if (found == busById.end()) continue;
+      // Keep disabled sends in the latency topology: enabling a send must not
+      // retime the dry path or flush its delay line.
+      route.downstreamLatency = std::max(route.downstreamLatency, found->second->audioEngine().latencySamples());
+      route.sends.push_back({send.id, found->second,
+                             juce::Decibels::decibelsToGain(send.gainDb, -120.0f), send.enabled, {}});
+    }
+    const StripRoute *old = nullptr;
+    if (!resetDelays && previous.get())
+      for (const auto &candidate : previous.get()->stripRoutes)
+        if (candidate.strip == s.get()) { old = &candidate; break; }
+    auto reuse = [](int samples, const std::shared_ptr<RouteDelay> &delay) {
+      return delay && delay->samples() == samples ? delay : std::make_shared<RouteDelay>(samples);
+    };
+    route.delay = reuse(route.downstreamLatency - directLatency,
+                         old && old->destination == destination ? old->delay : nullptr);
+    for (auto &send : route.sends) {
+      send.destinationIndex = static_cast<size_t>(std::distance(current->groupBuses.begin(),
+          std::find(current->groupBuses.begin(), current->groupBuses.end(), send.destination)));
+      std::shared_ptr<RouteDelay> oldDelay;
+      if (old)
+        for (const auto &candidate : old->sends)
+          if (candidate.id == send.id && candidate.destination == send.destination)
+            oldDelay = candidate.delay;
+      send.delay = reuse(route.downstreamLatency - send.destination->audioEngine().latencySamples(), oldDelay);
+    }
+    s->setDownstreamLatencySamples(route.downstreamLatency);
+    current->stripRoutes.push_back(std::move(route));
   }
   audioGraph_.publish(std::move(current));
 }

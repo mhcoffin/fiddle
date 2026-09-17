@@ -5,6 +5,31 @@
 
 namespace fiddle {
 
+class SetStripSendsAction final : public UndoableAction {
+public:
+  SetStripSendsAction(MixerModel &mixer, juce::String stripId,
+                      std::vector<AudioSend> before, std::vector<AudioSend> after,
+                      juce::String gainGesture = {})
+      : mixer_(mixer), stripId_(std::move(stripId)), before_(std::move(before)),
+        after_(std::move(after)), gainGesture_(std::move(gainGesture)) {}
+  void execute() override { success_ = mixer_.setStripSends(stripId_, after_); }
+  void undo() override { mixer_.setStripSends(stripId_, before_); }
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override { return "Change post-fader sends"; }
+  juce::String getCoalesceId() const override {
+    return gainGesture_.isEmpty() ? juce::String{} : "send-gain:" + stripId_ + ":" + gainGesture_;
+  }
+  void coalesceWith(const UndoableAction &other) override {
+    after_ = static_cast<const SetStripSendsAction &>(other).after_;
+  }
+private:
+  MixerModel &mixer_;
+  juce::String stripId_;
+  std::vector<AudioSend> before_, after_;
+  juce::String gainGesture_;
+  bool success_ = false;
+};
+
 class AddGroupBusAction final : public UndoableAction {
 public:
   AddGroupBusAction(MixerModel &mixer, juce::String name,
@@ -52,9 +77,14 @@ public:
 
   void execute() override {
     affectedRoutes_.clear();
-    for (auto *strip : mixer_.getAllStrips())
+    affectedSends_.clear();
+    for (auto *strip : mixer_.getAllStrips()) {
       if (strip->directOutputBusId == busId_)
         affectedRoutes_.push_back(strip->id);
+      if (std::any_of(strip->sends.begin(), strip->sends.end(),
+                      [&](const auto &send) { return send.busId == busId_; }))
+        affectedSends_.push_back({strip->id, strip->sends});
+    }
     index_ = mixer_.groupBusIndex(busId_);
     removedBus_ = mixer_.removeGroupBusKeepAlive(busId_);
   }
@@ -65,6 +95,8 @@ public:
     mixer_.insertGroupBusAt(std::move(removedBus_), index_);
     for (const auto &stripId : affectedRoutes_)
       mixer_.setStripDirectOutput(stripId, busId_);
+    for (const auto &[stripId, sends] : affectedSends_)
+      mixer_.setStripSends(stripId, sends);
   }
 
   juce::String getDescription() const override { return "Remove group bus"; }
@@ -73,6 +105,7 @@ private:
   MixerModel &mixer_;
   juce::String busId_;
   std::vector<juce::String> affectedRoutes_;
+  std::vector<std::pair<juce::String, std::vector<AudioSend>>> affectedSends_;
   std::shared_ptr<GroupBus> removedBus_;
   int index_ = 0;
 };

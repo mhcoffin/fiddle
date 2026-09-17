@@ -11,6 +11,10 @@ class GroupBusCommandService final : public GroupBusCommands {
 public:
   GroupBusCommandService(MixerModel &mixer, PluginScanner &scanner,
                          UndoManager &undoManager);
+  bool addStripSend(const juce::String &stripId, const juce::String &busId) override;
+  bool updateStripSend(const juce::String &stripId, const juce::String &sendId,
+                       const juce::String &busId, float gainDb, bool enabled) override;
+  bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override;
   bool addGroupBus(const juce::String &name,
                    const std::vector<juce::String> &stripIds) override;
   bool removeGroupBus(const juce::String &busId) override;
