@@ -76,6 +76,9 @@ try {
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const measured = await page.evaluate(() => ({
             scrollWidth: document.querySelector(".console").scrollWidth,
+            sectionTabHeight: document.querySelector(".folder-tab:not(.folder-tab-collapsed)").getBoundingClientRect().height,
+            audioTabHeight: document.querySelector(".bank > .header").getBoundingClientRect().height,
+            audioHeaderHeights: [...document.querySelectorAll(".bank .bus-header")].map(header => header.getBoundingClientRect().height),
             groups: [...document.querySelectorAll(".inst-group")].map(group => {
                 const rect = group.getBoundingClientRect();
                 const header = group.querySelector(".bridge-header");
@@ -96,7 +99,7 @@ try {
             audioFaders: [...document.querySelectorAll(".bank .channel")].map(channel => {
                 const track = channel.querySelector(".fader-track").getBoundingClientRect();
                 return {
-                    name: channel.querySelector(".identity strong").textContent,
+                    name: channel.closest(".bus-group").querySelector(".identity strong").textContent,
                     top: track.top,
                     bottom: track.bottom,
                 };
@@ -112,6 +115,10 @@ try {
         }
         const heights = measured.groups.map(group => group.headerHeight);
         assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, "headers must align");
+        assert.ok(Math.abs(measured.sectionTabHeight - measured.audioTabHeight) <= 1,
+            `section tabs must match: ${measured.sectionTabHeight}, ${measured.audioTabHeight}`);
+        assert.ok(Math.max(...heights, ...measured.audioHeaderHeights) - Math.min(...heights, ...measured.audioHeaderHeights) <= 1,
+            `strip headers must match: ${[...heights, ...measured.audioHeaderHeights].join(", ")}`);
         const tops = measured.groups.flatMap(group => group.faderTops);
         const allTops = [...tops, ...measured.audioFaders.map(fader => fader.top)];
         const bottoms = measured.groups.flatMap(group => group.faderBottoms);

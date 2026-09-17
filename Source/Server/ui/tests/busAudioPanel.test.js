@@ -30,7 +30,9 @@ test("mixer exposes a distinct metered audio bus bank", () => {
     assert.match(bankSource, /aria-expanded/);
     assert.match(bankSource, />Master</);
     assert.match(bankSource, /padding-bottom: 21px/);
-    assert.match(bankSource, /height: calc\(var\(--strip-pre-fader-height, 166px\) \+ 2px\)/);
+    assert.match(bankSource, /class="bus-group/);
+    assert.match(bankSource, /class="bus-header"/);
+    assert.match(bankSource, /height: calc\(var\(--strip-pre-fader-height, 166px\) - 1px\)/);
 });
 
 test("bus audio panel supports complete pre and post fader rack editing", () => {
