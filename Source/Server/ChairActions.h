@@ -49,6 +49,10 @@ public:
     }
     auto settings = mixer_.projectSettings();
     locked_ = settings.lockedChairIds.erase(id_) != 0;
+    if (const auto found = settings.chairLevels.find(id_); found != settings.chairLevels.end()) {
+      level_ = found->second;
+      settings.chairLevels.erase(found);
+    } else level_.reset();
     mixer_.setProjectSettings(settings);
     success_ = true;
     changed_(true);
@@ -63,6 +67,7 @@ public:
     for (auto &r : retained_) mixer_.insertStripAt(std::move(r.strip), r.index);
     auto settings = mixer_.projectSettings();
     if (locked_) settings.lockedChairIds.insert(id_);
+    if (level_) settings.chairLevels[id_] = *level_;
     mixer_.setProjectSettings(settings);
     success_ = true;
     changed_(true);
@@ -79,6 +84,7 @@ private:
   std::vector<LayerRow> layers_;
   std::vector<Retained> retained_;
   bool success_ = false, locked_ = false;
+  std::optional<ChairLevelState> level_;
 };
 
 class AddChairAction final : public UndoableAction {

@@ -264,6 +264,7 @@ private:
   std::atomic<int> renderWorkers_{1};
   std::atomic<int> playbackDelayMs_{1000};
   std::set<std::string> lockedChairIds_; // message-thread project metadata
+  std::map<std::string, ChairLevelState> chairLevels_;
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
@@ -271,13 +272,16 @@ private:
 public:
   int getPlaybackDelayMs() const;
   ProjectSettings projectSettings() const {
-    return {getPlaybackDelayMs(), lockedChairIds_};
+    return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_};
   }
   void setProjectSettings(const ProjectSettings &settings) {
     lockedChairIds_ = settings.lockedChairIds;
+    chairLevels_ = settings.chairLevels;
     setPlaybackDelayMs(settings.playbackDelayMs);
   }
   void setPlaybackDelayMs(int ms);
+  ChairLevelState captureChairLevel(const std::string &id) const;
+  void initialiseLegacyChairLevels();
 };
 
 } // namespace fiddle

@@ -1140,6 +1140,31 @@ void MixerModel::timerCallback() {
 
 int MixerModel::getPlaybackDelayMs() const { return playbackDelayMs_; }
 
+ChairLevelState MixerModel::captureChairLevel(const std::string &id) const {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  ChairLevelState level;
+  double power = 0;
+  const bool anySolo = std::any_of(strips_.begin(), strips_.end(),
+      [](const auto &s) { return s->isSoloed(); });
+  for (const auto &strip : strips_) {
+    if (strip->chairId.toStdString() != id) continue;
+    const double p = strip->gainDb() <= -120 ? 0 : std::pow(10.0, strip->gainDb() / 10.0);
+    level.weights[strip->id.toStdString()] = p;
+    if (strip->isActive() && !strip->isMuted() && (!anySolo || strip->isSoloed())) power += p;
+  }
+  level.targetDb = power > 0 ? 10 * std::log10(power) : -120;
+  return level;
+}
+
+void MixerModel::initialiseLegacyChairLevels() {
+  // Old projects stored only a lock flag. Capture once, after layers are loaded.
+  for (const auto &id : lockedChairIds_) {
+    if (chairLevels_.count(id)) continue;
+    auto level = captureChairLevel(id);
+    if (!level.weights.empty()) chairLevels_[id] = std::move(level);
+  }
+}
+
 void MixerModel::setPlaybackDelayMs(int ms) { playbackDelayMs_ = std::clamp(ms, 0, 5000); }
 
 } // namespace fiddle

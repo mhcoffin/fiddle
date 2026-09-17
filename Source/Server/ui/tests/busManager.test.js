@@ -12,9 +12,9 @@ const detailsSource = readFileSync(
     new URL("../src/lib/LayerDetailsPanel.svelte", import.meta.url), "utf8",
 );
 
-test("the toolbar opens a spacious Bus Manager", () => {
+test("the bus bank opens a spacious Bus Manager", () => {
     assert.match(mixerSource, /<BusManager/);
-    assert.match(mixerSource, /Audio Buses/);
+    assert.match(mixerSource, /onManage=\{\(\) => \{ busManagerOpen = true;/);
     assert.match(mixerSource, /requestGroupBusState/);
     assert.match(managerSource, /Create from selection/);
     assert.match(managerSource, /addGroupBus/);

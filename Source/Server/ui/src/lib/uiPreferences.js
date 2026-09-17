@@ -1,5 +1,6 @@
 export const STRIP_SIZE_STORAGE_KEY = "fiddle.mixer.stripSize";
 export const UI_ZOOM_STORAGE_KEY = "fiddle.ui.zoom";
+export const LIBRARY_BAR_STORAGE_KEY = "fiddle.mixer.showLibraryBar";
 
 export const STRIP_SIZE_PRESETS = Object.freeze({
     compact: Object.freeze({ label: "Compact", width: 80 }),
@@ -43,6 +44,14 @@ const writePreference = (storage, key, value) => {
 
 export const readStripSize = (storage) =>
     normalizeStripSize(readPreference(storage, STRIP_SIZE_STORAGE_KEY));
+
+export const readLibraryBarVisible = (storage) =>
+    readPreference(storage, LIBRARY_BAR_STORAGE_KEY) !== "false";
+
+export const writeLibraryBarVisible = (storage, visible) => {
+    writePreference(storage, LIBRARY_BAR_STORAGE_KEY, Boolean(visible));
+    return Boolean(visible);
+};
 
 export const writeStripSize = (storage, value) => {
     const normalized = normalizeStripSize(value);

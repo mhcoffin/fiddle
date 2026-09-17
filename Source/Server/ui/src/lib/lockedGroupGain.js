@@ -14,6 +14,68 @@ const dbFromPower = (power) => {
 const isAudible = (strip, active, anySoloed) =>
     active && !strip.muted && (!anySoloed || strip.soloed);
 
+const audible = (strip, anySoloed) => isAudible(strip, strip.active !== false, anySoloed);
+const clampDb = (db) => Math.max(MINUS_INFINITY_DB, Math.min(6, db));
+
+export function captureChairLevel(strips, anySoloed = false) {
+    return {
+        targetDb: dbFromPower(strips.reduce((sum, s) =>
+            sum + (audible(s, anySoloed) ? powerFromDb(s.gainDb ?? 0) : 0), 0)),
+        weights: Object.fromEntries(strips.map(s => [s.id, powerFromDb(s.gainDb ?? 0)])),
+    };
+}
+
+// Keep the last non-silent proportions when automatic compensation reaches
+// zero. Use real, clamped gains, never an unattainable internal shadow gain.
+function distribute(strips, power, state) {
+    const current = strips.map(s => powerFromDb(s.gainDb ?? 0));
+    const currentSum = current.reduce((a, b) => a + b, 0);
+    const weights = currentSum > 0 ? current.map(p => p / currentSum)
+        : strips.map(s => state.weights[s.id] ?? 0);
+    if (currentSum > 0)
+        strips.forEach((s, i) => { state.weights[s.id] = weights[i]; });
+    if (!weights.some(w => w > 0)) weights.fill(1);
+    const assigned = new Array(strips.length).fill(0);
+    let remaining = Math.max(0, power);
+    let available = strips.map((_, i) => i).filter(i => weights[i] > 0);
+    const maximum = powerFromDb(6);
+    while (available.length && remaining > 0) {
+        const totalWeight = available.reduce((sum, i) => sum + weights[i], 0);
+        const capped = available.filter(i => remaining * weights[i] / totalWeight > maximum);
+        if (!capped.length) {
+            for (const i of available) assigned[i] = remaining * weights[i] / totalWeight;
+            break;
+        }
+        for (const i of capped) { assigned[i] = maximum; remaining -= maximum; }
+        available = available.filter(i => !capped.includes(i));
+    }
+    return strips.map((s, i) => ({ id: s.id, gainDb: dbFromPower(assigned[i]) }));
+}
+
+/** Keep explicit layer edits, compensate audible siblings toward the stored
+ * target, and return updated blend memory in the SAME undoable transaction. */
+export function planLockedLayerChange(strips, changes, level, anySoloed = false) {
+    const state = { ...level, weights: { ...level.weights } };
+    const edits = new Map(changes.map(change => [change.id, change]));
+    const next = strips.map(s => ({ ...s, ...edits.get(s.id) }));
+    let fixedPower = 0;
+    for (const s of next) {
+        if (!edits.has(s.id)) continue;
+        if (audible(s, anySoloed)) fixedPower += powerFromDb(clampDb(s.gainDb ?? 0));
+        if (edits.get(s.id).gainDb !== undefined)
+            state.weights[s.id] = powerFromDb(clampDb(s.gainDb));
+    }
+    const others = next.filter(s => !edits.has(s.id) && audible(s, anySoloed));
+    const compensation = distribute(others, powerFromDb(state.targetDb) - fixedPower, state);
+    return { changes: [...changes, ...compensation], state };
+}
+
+export function planChairTargetChange(strips, targetDb, level, anySoloed = false) {
+    const state = { ...level, targetDb, weights: { ...level.weights } };
+    return { changes: distribute(strips.filter(s => audible(s, anySoloed)),
+        powerFromDb(targetDb), state), state };
+}
+
 /**
  * Calculate sibling gain changes that preserve a locked chair's total power
  * when one or more layers change activation state together.

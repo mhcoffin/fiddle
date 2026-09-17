@@ -32,7 +32,8 @@ await new Promise((resolve, reject) => {
 let browser;
 try {
     browser = await chromium.launch({ channel: process.env.FIDDLE_TEST_BROWSER_CHANNEL || "chrome" });
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
     page.setDefaultTimeout(10000);
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
@@ -70,9 +71,50 @@ try {
         ] });
     });
     await page.waitForSelector(".channel-strip");
+    const viewButton = page.getByRole("button", { name: "View", exact: true });
+    const setupButton = page.getByRole("button", { name: "Setup", exact: true });
+    for (const width of [800, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        const toolbar = await page.locator(".mixer-toolbar").evaluate(element => {
+            const box = element.getBoundingClientRect();
+            const controls = [...element.querySelectorAll("button")].map(button => button.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0);
+            return { height: box.height, right: box.right, controls: controls.map(r => ({ top: r.top, bottom: r.bottom, right: r.right })) };
+        });
+        assert.ok(toolbar.height <= 50, "toolbar stays in a single compact row");
+        assert.ok(toolbar.controls.every(r => r.right <= toolbar.right), "toolbar controls fit the window");
+        assert.ok(Math.max(...toolbar.controls.map(r => r.top)) < Math.min(...toolbar.controls.map(r => r.bottom)), "all toolbar buttons share the same row");
+    }
+    await viewButton.click();
+    await page.getByRole("checkbox", { name: "Show library bar" }).uncheck();
+    assert.equal(await page.locator(".library-chip-bar").count(), 0);
+    assert.equal(await page.evaluate(() => localStorage.getItem("fiddle.mixer.showLibraryBar")), "false");
+    // A new page uses the saved visibility preference.
+    const reopened = await page.context().newPage();
+    await reopened.goto(page.url());
+    await reopened.getByRole("button", { name: "View", exact: true }).click();
+    assert.equal(await reopened.getByRole("checkbox", { name: "Show library bar" }).isChecked(), false);
+    await reopened.close();
+    await page.getByRole("checkbox", { name: "Show library bar" }).check();
+    await page.keyboard.press("Escape");
+    assert.equal(await viewButton.getAttribute("aria-expanded"), "false");
+    await viewButton.click();
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "toolbar-view.png") });
+    await page.getByRole("button", { name: "Zoom in", exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "Reset zoom", exact: true }).innerText(), "110%");
+    await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
+    await setupButton.click();
+    assert.equal(await viewButton.getAttribute("aria-expanded"), "false", "opening Setup closes View");
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "toolbar-setup.png") });
+    await page.getByRole("button", { name: "Library Manager", exact: true }).click();
+    assert.equal(await setupButton.getAttribute("aria-expanded"), "false");
+    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "showLibraryManagerWindow");
     const sizes = [];
     for (const size of ["compact", "comfortable", "large"]) {
+        await viewButton.click();
         await page.locator("#strip-size-select").selectOption(size);
+        await page.keyboard.press("Escape");
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         const measured = await page.evaluate(() => ({
             scrollWidth: document.querySelector(".console").scrollWidth,
@@ -236,19 +278,22 @@ try {
     // Native state after Undo must replace optimistic gain shadows.
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
     assert.equal(Number(await layeredChair.locator('.channel-strip input[type="number"]').nth(1).inputValue()), 0);
+    await page.getByRole("button", { name: "Audio performance", exact: true }).click();
     await page.locator("#delay-slider").focus();
     await page.keyboard.down("ArrowRight");
     await page.keyboard.up("ArrowRight");
     const delayMessages = await page.evaluate(() => window.fixtureMessages.slice(-3).map(x => x.type));
     assert.deepEqual(delayMessages, ["beginHistoryGesture", "setPlaybackDelay", "endHistoryGesture"]);
+    await page.getByRole("dialog", { name: "Audio performance", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
     await layeredChair.locator('.channel-strip input[type="number"]').first().focus();
     await page.evaluate(() => { window.fixtureMessages = []; });
     await page.keyboard.press("Meta+z");
     assert.equal(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "undo")), false,
         "text-field Undo must not undo the project");
-    await page.locator("#delay-slider").focus();
+    await viewButton.focus();
     await page.keyboard.press("Meta+Shift+z");
     assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "redo");
+    await setupButton.click();
     await page.getByRole("button", { name: "Manage Chairs", exact: true }).click();
     const manager = page.getByRole("dialog", { name: "Chair Manager", exact: true });
     await page.evaluate(() => {
@@ -292,7 +337,7 @@ try {
             ageMs: 100, blockSize: 512, sampleRate: 44100,
         })),
     } }));
-    await page.getByRole("button", { name: "Audio CPU 70%", exact: true }).click();
+    await page.getByRole("button", { name: "Audio performance", exact: true }).click();
     const performance = page.getByRole("dialog", { name: "Audio performance", exact: true });
     await performance.waitFor({ state: "visible" });
     assert.match(await performance.innerText(), /61.2 ms queued · 69.7 ms target/);
@@ -321,6 +366,70 @@ try {
     await performance.getByRole("button", { name: "Audio Settings…", exact: true }).click();
     await performance.waitFor({ state: "hidden" });
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "showAudioSettings")));
+    // A locked three-layer chair: cross the target, restore from a serialized
+    // snapshot while siblings are silent, then lower the layer and recover the blend.
+    // The fixture only applies bridge messages; all compensation runs in the UI.
+    const installLockFixture = async (targetPage, snapshot) => targetPage.evaluate(snapshot => {
+        window.lockFixture = snapshot;
+        window.fixtureMessages = [];
+        const publish = () => {
+            window.__dispatchFromCpp({ type: "setChairState", data: [snapshot.chair] });
+            window.__dispatchFromCpp({ type: "setProjectSettings", data: structuredClone(snapshot.settings) });
+            window.__dispatchFromCpp({ type: "setMixerState", data: structuredClone(snapshot.strips) });
+        };
+        window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
+            const message = request.params[0];
+            window.fixtureMessages.push(message);
+            if (message.type !== "setMixerControls") return;
+            const [changes, , levels = []] = message.payload;
+            snapshot.strips = snapshot.strips.map(s => ({ ...s, ...changes.find(c => c.id === s.id) }));
+            for (const level of levels) snapshot.settings.chairLevels[level.id] = level;
+            queueMicrotask(publish);
+        } } };
+        publish();
+    }, snapshot);
+    const lockedSnapshot = {
+        chair: { id: "locked", name: "Locked blend", family: "wind", role: "solo", port: 0, channel: 0, ordinal: 1, flatIndex: 0 },
+        strips: [0.5, 0.3, 0.2].map((power, i) => ({
+            id: `blend-${i}`, chairId: "locked", family: "wind", layerName: `Layer ${i + 1}`,
+            library: "Blend", inputPort: 0, inputChannel: 0, gainDb: 10 * Math.log10(power),
+            active: true, muted: false, soloed: false, pluginUid: 0,
+        })),
+        settings: { playbackDelayMs: 1000, lockedChairIds: ["locked"],
+            chairLevels: { locked: { targetDb: 0, weights: { "blend-0": 0.5, "blend-1": 0.3, "blend-2": 0.2 } } } },
+    };
+    await installLockFixture(page, lockedSnapshot);
+    const targetSlider = page.getByRole("slider", { name: "Target level for Locked blend", exact: true });
+    const targetPosition = await targetSlider.inputValue();
+    const layerGain = page.locator('.channel-strip input[type="number"]').first();
+    await layerGain.fill("3");
+    await layerGain.press("Enter");
+    assert.equal(await targetSlider.inputValue(), targetPosition);
+    assert.match(await page.locator(".combined-level-marker").getAttribute("aria-label"), /Combined gain \+3.0 dB; target \+0.0 dB/);
+    const savedExcess = await page.evaluate(() => JSON.parse(JSON.stringify(window.lockFixture)));
+    assert.deepEqual(savedExcess.strips.slice(1).map(s => s.gainDb), [-120, -120]);
+    assert.equal(savedExcess.settings.chairLevels.locked.targetDb, 0);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "locked-chair-excess.png") });
+    await page.reload();
+    await page.waitForSelector(".mixer-container");
+    await installLockFixture(page, savedExcess);
+    assert.equal(await targetSlider.inputValue(), targetPosition);
+    await layerGain.fill("-3");
+    await layerGain.press("Enter");
+    assert.equal(await page.locator(".combined-level-marker").count(), 0);
+    const recovered = await page.evaluate(() => window.lockFixture);
+    const powers = recovered.strips.map(s => Math.pow(10, s.gainDb / 10));
+    assert.ok(Math.abs(powers.reduce((a, b) => a + b, 0) - 1) < 1e-9);
+    assert.ok(Math.abs(powers[1] / powers[2] - 1.5) < 1e-9);
+    await targetSlider.focus();
+    await page.keyboard.press("PageUp");
+    assert.ok((await page.evaluate(() => window.lockFixture.settings.chairLevels.locked.targetDb)) > 0);
+    // Authoritative Undo state replaces the keyboard-edited target and shadow gains.
+    await installLockFixture(page, recovered);
+    assert.equal(await targetSlider.inputValue(), targetPosition);
+    assert.equal(await page.locator(".combined-level-marker").count(), 0);
+
     // Use the real Library Manager in its own window mode. Native integration
     // tests execute the command; this fixture checks dispatch and status rendering.
     const libraryPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

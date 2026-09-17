@@ -1486,6 +1486,7 @@ void testChairDeletionRetainsLayers() {
   const auto busId = originals[0]->directOutputBusId;
   auto settings = f.mixer.projectSettings();
   settings.lockedChairIds.insert(chair.id); settings.playbackDelayMs = 850;
+  settings.chairLevels[chair.id] = f.mixer.captureChairLevel(chair.id);
   f.mixer.setProjectSettings(settings);
   f.undo.clear();
   auto changed = [&](bool success) { REQUIRE(success); };
@@ -1496,6 +1497,7 @@ void testChairDeletionRetainsLayers() {
     REQUIRE(!repository.getChair(chair.id) && repository.listLayers(chair.id).empty());
     REQUIRE(f.mixer.size() == 1 && f.mixer.getStrip(ids[1]) == originals[1]);
     REQUIRE(!f.mixer.projectSettings().lockedChairIds.count(chair.id));
+    REQUIRE(!f.mixer.projectSettings().chairLevels.count(chair.id));
     f.expectLevel(0.1f);
     REQUIRE(f.undo.undo() && f.undo.isAtSavePoint());
     REQUIRE(repository.getChair(chair.id)->flatIndex == chair.flatIndex);
@@ -1802,7 +1804,7 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     f.mixer.getStrip(a)->setMuted(true);
     f.mixer.getStrip(b)->setGainDb(-9.0f);
     f.mixer.masterAudio().setGainDb(-6.0f);
-    f.mixer.setProjectSettings({725, {"chair-a", "chair-b"}});
+    f.mixer.setProjectSettings({725, {"chair-a", "chair-b"}, {{"chair-a", {-3.0, {{"layer-a", 0.6}, {"layer-b", 0.4}}}}}});
 
     fiddle::StateManager state;
     state.setVersionStore(&versions);
@@ -1843,7 +1845,7 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     REQUIRE(bus.id == busId && bus.name == "Saved Strings");
     REQUIRE(bus.gainDb == -3.0f && bus.muted && bus.soloed);
     REQUIRE(state->globalState.masterGainDb == -6.0f);
-    const fiddle::ProjectSettings settings{725, {"chair-a", "chair-b"}};
+    const fiddle::ProjectSettings settings{725, {"chair-a", "chair-b"}, {{"chair-a", {-3.0, {{"layer-a", 0.6}, {"layer-b", 0.4}}}}}};
     REQUIRE(state->globalState.projectSettings == settings);
     const auto rack = fiddle::deserializeStripAudioSnapshot(
         bus.audioInsertState.data(), bus.audioInsertState.size());
@@ -1926,6 +1928,57 @@ void testProjectSettingsAndAtomicMixerUndo() {
   REQUIRE(!f.undo.perform(std::make_unique<fiddle::CompoundAction>("Rejected compound", std::move(children))));
   REQUIRE(Action::Values::of(*f.mixer.getStrip(a)) == beforeA);
   REQUIRE(!f.undo.canUndo() && f.undo.canRedo());
+}
+
+void testPersistentChairTargetAndBlendUndo() {
+  MixerFixture f;
+  const auto a = f.instrument(0.1f, 1), b = f.instrument(0.2f, 2);
+  auto *sa = f.mixer.getStrip(a), *sb = f.mixer.getStrip(b);
+  sa->chairId = sb->chairId = "chair-a";
+  sa->setGainDb(-6); sb->setGainDb(-9);
+  f.mixer.setProjectSettings({1000, {"chair-a"}});
+  f.mixer.initialiseLegacyChairLevels();
+  const auto initial = f.mixer.projectSettings();
+  REQUIRE(initial.chairLevels.count("chair-a"));
+  const auto &level = initial.chairLevels.at("chair-a");
+  REQUIRE(std::abs(level.targetDb - 10 * std::log10(std::pow(10., -0.6) + std::pow(10., -0.9))) < 1e-6);
+  sa->setGainDb(3); sb->setGainDb(-120);
+  f.mixer.initialiseLegacyChairLevels();
+  REQUIRE(f.mixer.projectSettings() == initial); // Never recapture an existing target.
+  using Action = fiddle::SetMixerControlsAction;
+  const auto beforeA = Action::Values::of(*sa), beforeB = Action::Values::of(*sb);
+  auto nextA = beforeA, nextB = beforeB;
+  nextA.gainDb = -6; nextB.gainDb = -9;
+  auto changed = initial;
+  changed.chairLevels["chair-a"].targetDb = -4;
+  changed.chairLevels["chair-a"].weights = {{a.toStdString(), 0.75}, {b.toStdString(), 0.25}};
+  f.undo.clear();
+  f.undo.beginGesture();
+  REQUIRE(f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, beforeA, nextA}, {b, beforeB, nextB}},
+      "Adjust layer gains", true, changed)));
+  auto last = changed;
+  last.chairLevels["chair-a"].targetDb = -7;
+  auto lastA = nextA; lastA.gainDb = -9;
+  auto lastB = nextB; lastB.gainDb = -12;
+  REQUIRE(f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{a, nextA, lastA}, {b, nextB, lastB}},
+      "Adjust layer gains", true, last)));
+  f.undo.endGesture();
+  REQUIRE(f.mixer.projectSettings() == last);
+  REQUIRE(fiddle::ProjectSettings::deserialize(last.serialize()) == last);
+  REQUIRE(f.undo.undo() && !f.undo.canUndo());
+  REQUIRE(f.mixer.projectSettings() == initial);
+  REQUIRE(Action::Values::of(*sa) == beforeA && Action::Values::of(*sb) == beforeB);
+  REQUIRE(f.undo.redo() && f.mixer.projectSettings() == last);
+  REQUIRE(Action::Values::of(*sa) == lastA && Action::Values::of(*sb) == lastB);
+  // A target-only edit (all layers muted, for example) remains undoable.
+  REQUIRE(f.undo.perform(std::make_unique<Action>(f.mixer, std::vector<Action::Change>{},
+      "Adjust layer gains", true, changed)));
+  REQUIRE(f.undo.undo() && f.mixer.projectSettings() == last);
+  REQUIRE(!f.undo.perform(std::make_unique<Action>(f.mixer,
+      std::vector<Action::Change>{{"missing", beforeA, nextA}}, "Rejected", false, changed)));
+  REQUIRE(f.mixer.projectSettings() == last);
 }
 
 void testHistoricalMixerSaveForkSurvivesReopen() {
@@ -2640,6 +2693,7 @@ int main() {
   run("graceful stop tolerates incomplete note tracking", testGracefulStopWithIncompleteNoteTracking);
   run("saved routing survives database reopen", testSnapshotSurvivesDatabaseReopenAndStateExchange);
   run("project settings and atomic compensated mixer undo", testProjectSettingsAndAtomicMixerUndo);
+  run("persistent chair target and blend undo", testPersistentChairTargetAndBlendUndo);
   run("historical mixer save forks and survives reopen", testHistoricalMixerSaveForkSurvivesReopen);
   run("restore recreates audio after database reopen", testRestoreRecreatesAudioAfterDatabaseReopen);
   run("missing plug-ins and superseded restore", testMissingPluginsAndSupersededRestore);

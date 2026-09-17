@@ -3,6 +3,8 @@
     import { onFromCpp, dispatchCpp } from "./ipc.js";
     import { audioCpuLabel, appendDiagnosticSample, diagnosticReport, pluginTimingRows } from "./audioDiagnostics.js";
 
+    let { playbackDelay = 1000, onDelayChange = () => {} } = $props();
+
     let data = $state(null);
     let receivedAt = $state(0);
     let now = $state(Date.now());
@@ -46,7 +48,8 @@
 
 <button class="cpu" class:hot={data?.running && data?.peakLoad >= 100}
     title="Audio block time-budget usage. Click for peaks, overruns and return-buffer diagnostics."
-    aria-haspopup="dialog" onclick={() => { open = true; copied = false; }}>{label}</button>
+    aria-label="Audio performance" aria-haspopup="dialog"
+    onclick={() => { open = true; copied = false; }}>{label.replace(/^Audio CPU/, "CPU")}</button>
 
 <dialog bind:this={dialog} onclose={() => { open = false; }} aria-labelledby="audio-diagnostics-title">
     <header>
@@ -56,6 +59,19 @@
     </header>
     <div class="content">
         <div class="headline">{label}<span>Recent peak {fixed(data?.peakLoad)}%</span></div>
+        <section class="device">
+            <h3>Playback delay</h3>
+            <div class="delay-control">
+                <label for="delay-slider">Delay</label>
+                <input id="delay-slider" type="range" min="0" max="5000" step="50"
+                    value={playbackDelay} oninput={(event) => onDelayChange(event.currentTarget.value)} />
+                <input aria-label="Playback delay in milliseconds" class="delay-value" type="number"
+                    min="0" max="5000" step="50" value={playbackDelay}
+                    onchange={(event) => onDelayChange(event.currentTarget.value)} />
+                <span>ms</span>
+            </div>
+            <p>Time available for Fiddle to prepare audio before Dorico plays it. Saved with the project; Undo and Redo apply.</p>
+        </section>
         <section class="device">
             <h3>Audio setup · {data?.buildConfiguration ?? "Unknown build"}</h3>
             <p>{data?.device?.name ?? "No active device"} · {data?.device?.type ?? "—"}<br />
@@ -172,8 +188,11 @@
     button { color: #e2e8f0; background: #182638; border: 1px solid #64748b; border-radius: 6px; padding: 9px 14px; font-size: 14px; cursor: pointer; white-space: nowrap; }
     button:hover { background: #29405a; }
     button:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
-    .cpu { min-width: 145px; font-variant-numeric: tabular-nums; color: #bae6fd; }
-    .hot { border-color: #fb923c; color: #fed7aa; }
+    .cpu { height: 30px; padding: 4px 8px; border-color: transparent; background: transparent; font-size: .75rem; font-variant-numeric: tabular-nums; color: #94a3b8; }
+    .cpu.hot { border-color: #fb923c; background: #431407; color: #fed7aa; }
+    .delay-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .delay-control input[type="range"] { flex: 1; min-width: 120px; }
+    .delay-value { width: 80px; padding: 5px; border: 1px solid #475569; border-radius: 4px; background: #020617; color: #e2e8f0; font: inherit; }
     dialog { width: min(920px, 92vw); max-height: 88vh; padding: 0; background: #0f1929; color: #e2e8f0; border: 1px solid #64748b; border-radius: 12px; font-size: 15px; }
     dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
     dialog::backdrop { background: #0009; }

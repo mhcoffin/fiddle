@@ -1,15 +1,6 @@
 # Gain Calculations
 
-We want to change the way the gain is calculated for groups of strips with the same input.
-
-Currently, the group fader is always set to the sum of the db of the strips in the group:
-
-- If the group fader is locked and a strip fader is changed, the other strip faders are adjusted to compensate so that the sum of the db of the strips in the group is equal to the group fader.
-- If the group fader is not locked and a strip fader is changed, the other strip faders are unchanged, but the group fader is set to the sum of the db of the strips in the group.
-
-This is not what we want.
-
-We want group fader to reflect the total *power* of the strips in the group. Here is how it should work:
+Chair levels use a gain-based *power estimate*, not a sum of dB and not measured audio loudness:
 
 - The *gain* of a strip is determined from its fader position in db, using the function `juce::Decibels::decibelsToGain(float db)`.
 - The *power* of a strip is the square of its gain.
@@ -17,9 +8,13 @@ We want group fader to reflect the total *power* of the strips in the group. Her
 - The *gain* of a group is the square root of the group power.
 - The *fader position* of a group fader is the db equivalent of its gain, using the function `juce::Decibels::gainToDecibels(float gain)`.
 
-Important: at all times, the power of the group fader should equal to the sum of the powers of the strips in the group. Muted strips have 0 power.
+When unlocked, the chair fader follows the combined layer power. Muted, inactive, and solo-excluded strips contribute no power.
 
-When the group fader is locked and a strip fader is changed, the other strip faders should have their power adjusted proportionally to keep the group power constant. 
+Locking captures a persistent target. The chair fader then represents that target; moving it explicitly changes the target and scales audible layers proportionally. An amber marker and a `Σ` readout show the combined gain when it differs from the target by more than 0.05 dB.
+
+Changing an individual layer preserves its requested gain and adjusts audible siblings proportionally toward the stored target. If the edited layer alone exceeds the target, siblings reach silence but the target does not move. Lowering the layer below the target restores the siblings using their remembered proportions. Automatic silence does not erase that blend memory. Gain limits may also prevent the target from being reached; the marker reflects the clamped gains actually sent to audio.
+
+Targets and blend memory are saved with project settings and undone/redone atomically with compensated gain changes. Old projects containing only lock flags capture their current combined levels once, after layers load. Multi-selected layer gain/mute edits retain their existing direct-edit behavior; they do not redefine locked targets.
 
 When the group fader is not locked and a strip fader is changed, the other strip faders are unchanged, but the group fader is adjusted to reflect the new group power:
 - add up the group power of all the strips in the group
@@ -45,7 +40,7 @@ Example 2:
 Example 3: 
 - There are three strip faders, each set at 0db. But two are muted. The group fader is locked. 
 - The user moves non-muted fader up by 3db. 
-- There is no way to keep the power constant, so the group fader should change in spite of being locked. I.e., if there is only one non-muted strip, the group fader should always track the strip fader.
+- There is no way to keep the power constant. The locked target stays at 0 dB, while the combined-gain marker moves to +3 dB. Lowering the layer to 0 dB makes the marker coincide with the target again.
 
 Example 4: There are three strip faders, all set at 0db. The group fader is locked.
 - The group fader will have the value of juce::Decibels::gainToDecibels(sqrt(3)).
@@ -67,8 +62,7 @@ In general, muting a strip should have the same effect on other strips and on th
 
 In general, unmuting a strip should have the same effect on other strips and on the group fader as moving the strip fader from -infinity to its previous value.
 
-If all strips are muted, the group gain is 0 and the group fader should show -infinity, using JUCE's default value for -infinity.
-
+If all strips are muted, the combined gain is -infinity. An unlocked chair fader follows it; a locked chair fader retains its target and displays the combined-gain marker at -infinity.
 
 
 

@@ -2739,12 +2739,23 @@ void MainComponent::pushLibraryLayerStatus() {
 }
 
 void MainComponent::pushProjectSettings() {
+  mixer_.initialiseLegacyChairLevels();
   const auto settings = mixer_.projectSettings();
   auto *state = new juce::DynamicObject();
   state->setProperty("playbackDelayMs", settings.playbackDelayMs);
   juce::Array<juce::var> locks;
   for (const auto &id : settings.lockedChairIds) locks.add(juce::String(id));
   state->setProperty("lockedChairIds", locks);
+  auto *levels = new juce::DynamicObject();
+  for (const auto &[id, level] : settings.chairLevels) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("targetDb", level.targetDb);
+    auto *weights = new juce::DynamicObject();
+    for (const auto &[strip, weight] : level.weights) weights->setProperty(juce::Identifier(strip), weight);
+    item->setProperty("weights", juce::var(weights));
+    levels->setProperty(juce::Identifier(id), juce::var(item));
+  }
+  state->setProperty("chairLevels", juce::var(levels));
   broadcastMessage("setProjectSettings", juce::var(state));
 }
 
@@ -3537,7 +3548,32 @@ void MainComponent::setupJsHandlers() {
     if (!payload.isArray() || payload.size() < 2 || !payload[0].isArray()) return;
     const auto values = payload[0];
     const auto label = payload[1].toString();
-    safeCallAsync([this, values, label] {
+    const auto levels = payload.size() > 2 ? payload[2] : juce::var();
+    safeCallAsync([this, values, label, levels] {
+      std::optional<ProjectSettings> settings;
+      if (!levels.isVoid()) {
+        if (!levels.isArray()) return;
+        settings = mixer_.projectSettings();
+        for (const auto &value : *levels.getArray()) {
+          const auto id = value["id"].toString().toStdString();
+          if (!settings->lockedChairIds.count(id) || !value.hasProperty("targetDb")) return;
+          ChairLevelState level;
+          level.targetDb = static_cast<double>(value["targetDb"]);
+          if (!std::isfinite(level.targetDb) || level.targetDb < -120 || level.targetDb > 60) return;
+          const auto *weights = value["weights"].getDynamicObject();
+          if (!weights) return;
+          for (const auto &entry : weights->getProperties()) {
+            const double weight = static_cast<double>(entry.value);
+            if (!std::isfinite(weight) || weight < 0 || weight > 1e6) return;
+            const auto stripId = entry.name.toString();
+            const auto *strip = mixer_.getStrip(stripId);
+            if (!strip) continue; // A remembered layer may have since been removed.
+            if (strip->chairId.toStdString() != id) return;
+            level.weights[stripId.toStdString()] = weight;
+          }
+          settings->chairLevels[id] = std::move(level);
+        }
+      }
       std::vector<SetMixerControlsAction::Change> changes;
       std::set<juce::String> seen;
       for (const auto &value : *values.getArray()) {
@@ -3557,7 +3593,7 @@ void MainComponent::setupJsHandlers() {
         changes.push_back({id, before, after});
       }
       if (undoManager_.perform(std::make_unique<SetMixerControlsAction>(
-              mixer_, std::move(changes), label, label == "Adjust layer gains"))) {
+              mixer_, std::move(changes), label, label == "Adjust layer gains", std::move(settings)))) {
         saveAllStripsToDB(false);
         pushMixerState();
         scheduleStateRebuild();
@@ -3599,8 +3635,13 @@ void MainComponent::setupJsHandlers() {
       auto *repository = db_.getLibraryRoutingRepository();
       if (!repository || !repository->getChair(id)) return;
       auto settings = mixer_.projectSettings();
-      if (locked) settings.lockedChairIds.insert(id);
-      else settings.lockedChairIds.erase(id);
+      if (locked) {
+        settings.lockedChairIds.insert(id);
+        settings.chairLevels[id] = mixer_.captureChairLevel(id);
+      } else {
+        settings.lockedChairIds.erase(id);
+        settings.chairLevels.erase(id);
+      }
       if (undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
               mixer_, std::move(settings), "Change chair level lock"))) {
         saveAllStripsToDB(false);

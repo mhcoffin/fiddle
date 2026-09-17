@@ -183,7 +183,12 @@ void testProjectSettingsExtensionAndLegacyDefaults() {
   fiddle::ProjectSettings expected;
   expected.playbackDelayMs = 750;
   expected.lockedChairIds = {"chair-a", "chair with spaces and \"quotes\""};
+  expected.chairLevels["chair-a"] = {-3.125, {{"layer-a", 0.6}, {"layer-b", 0.4}}};
+  expected.chairLevels["chair with spaces and \"quotes\""] = {-120, {{"layer \"c\"", 1}}};
   CHECK(fiddle::ProjectSettings::deserialize(expected.serialize()) == expected);
+  const auto oldSettings = fiddle::ProjectSettings::deserialize("750\n\"chair-a\"\n\"chair b\"\n");
+  CHECK(oldSettings.playbackDelayMs == 750 && oldSettings.lockedChairIds.size() == 2);
+  CHECK(oldSettings.chairLevels.empty());
   CHECK(fiddle::ProjectSettings::deserialize("garbage").playbackDelayMs == 1000);
   CHECK(fiddle::ProjectSettings::deserialize("-1").playbackDelayMs == 0);
   CHECK(fiddle::ProjectSettings::deserialize("99999").playbackDelayMs == 5000);

@@ -1,8 +1,9 @@
 <script>
-    import { onMount, onDestroy, untrack } from "svelte";
+    import { onMount, onDestroy } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
     import AudioDiagnostics from "./AudioDiagnostics.svelte";
+    import ToolbarMenu from "./ToolbarMenu.svelte";
     import { parseMixerMeters } from "./mixerMeters.js";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
@@ -28,8 +29,10 @@
         STRIP_SIZE_PRESETS,
         readStripSize,
         writeStripSize,
+        readLibraryBarVisible,
+        writeLibraryBarVisible,
     } from "./uiPreferences.js";
-    import { planLockedActivationChange } from "./lockedGroupGain.js";
+import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from "./lockedGroupGain.js";
     import { projectSaveButton } from "./projectSaveUi.js";
 
     let meters = $state(parseMixerMeters(null));
@@ -70,6 +73,7 @@
     let branches = $state([]);
     let currentBranch = $state("default");
     let stripSize = $state(readStripSize(window.localStorage));
+    let showLibraryBar = $state(readLibraryBarVisible(window.localStorage));
     let stripWidth = $derived(STRIP_SIZE_PRESETS[stripSize].width);
 
     const updateStripSize = (value) => {
@@ -77,7 +81,6 @@
     };
 
     let playbackDelay = $state(1000);
-    let editingDelay = $state(false);
     let dirty = $state(false);
     let isDetachedHead = $state(false);
     let saveButton = $derived(projectSaveButton(dirty, isDetachedHead));
@@ -151,7 +154,8 @@
     onFromCpp("setUndoState", (state) => { undoState = state; });
     onFromCpp("setProjectSettings", (state) => {
         playbackDelay = state.playbackDelayMs;
-        groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { lockSum: true }]));
+groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { lockSum: true, ...state.chairLevels?.[id] }]));
+        if (faderDragging.size === 0) chairLevelShadow = {};
     });
     onFromCpp("setDirtyState", (d) => {
         dirty = d;
@@ -455,10 +459,9 @@
     // IPC-reflected strip.gainDb (which may still show the old value).
     const gainShadow = {};
 
-    // Unconstrained internal shadow used for all group-master delta math.
-    // Allows lock-on redistribution to accumulate values outside [-120,+6] so
-    // the theoretical sum stays exact even when displayed faders are clamped.
-    const gainShadowRaw = {};
+    // Last applied (clamped) gain for group calculations. The combined marker
+    // describes the gains sent to audio, not a hypothetical unclamped sum.
+    const gainShadowRaw = $state({});
 
     // ── Fader display smoothing ─────────────────────────────
     // Display positions ease toward target values via requestAnimationFrame.
@@ -563,7 +566,7 @@
             easeFaderTo(s.id, Math.round(dbToPos(db) * 1000));
         }
         const masterKey = `master:${instrGroup.key}`;
-        const masterDb = getGroupDb(instrGroup);
+        const masterDb = getMasterDb(instrGroup);
         easeFaderTo(masterKey, Math.round(dbToPos(masterDb) * 1000));
     };
 
@@ -573,23 +576,28 @@
         queueMixerControl(stripId, { gainDb: db });
     };
 
-    /** Send an unconstrained raw value to a strip: store raw for math, send clamped to audio. */
+    /** Clamp compensation to the supported audio gain range. */
     const setGainRaw = (stripId, rawDb) => {
-        gainShadowRaw[stripId] = rawDb;
         const clamped = Math.max(FADER_MIN, Math.min(FADER_MAX, rawDb));
+        gainShadowRaw[stripId] = clamped;
         gainShadow[stripId] = clamped;
         queueMixerControl(stripId, { gainDb: clamped });
     };
 
     let pendingControlBatch = null;
+    let pendingChairLevels = null;
     const batchMixerEdit = (label, edit) => {
         if (pendingControlBatch) { edit(); return; }
         pendingControlBatch = new Map();
+        pendingChairLevels = new Map();
         try { edit(); }
         finally {
             const changes = [...pendingControlBatch.values()];
+            const levels = [...pendingChairLevels.values()];
             pendingControlBatch = null;
-            if (changes.length) dispatchCpp("setMixerControls", changes, label);
+            pendingChairLevels = null;
+            if (levels.length) dispatchCpp("setMixerControls", changes, label, levels);
+            else if (changes.length) dispatchCpp("setMixerControls", changes, label);
         }
     };
     const queueMixerControl = (id, values) => {
@@ -626,29 +634,15 @@
         const affectedIds = new Set(libraryStrips.map((strip) => strip.id));
         const adjustedGroups = [];
         const adjustments = [];
-
-        // One library may contribute layers to several chairs. Preserve each
-        // locked chair independently, just as its mute controls do.
         for (const familyGroup of groupedStrips) {
             for (const instrGroup of familyGroup.instrGroups || []) {
-                if (!instrGroup.strips.some((strip) => affectedIds.has(strip.id)))
-                    continue;
-                const gm = getGroupMaster(instrGroup.key);
-                if (!gm.lockSum || instrGroup.strips.length <= 1)
-                    continue;
-
-                const gainState = instrGroup.strips.map((strip) => ({
-                    ...strip,
-                    gainDb: gainShadowRaw[strip.id] ?? strip.gainDb ?? 0,
-                }));
-                adjustments.push(
-                    ...planLockedActivationChange(
-                        gainState,
-                        affectedIds,
-                        nextActive,
-                        anySoloed,
-                    ),
-                );
+                const affected = instrGroup.strips.filter(s => affectedIds.has(s.id));
+                if (!affected.length || !getGroupMaster(instrGroup.key).lockSum) continue;
+                const plan = planLockedLayerChange(groupGainState(instrGroup),
+                    affected.map(s => ({ id: s.id, active: nextActive })),
+                    getChairLevel(instrGroup), anySoloed);
+                rememberChairLevel(instrGroup, plan.state);
+                adjustments.push(...plan.changes.filter(change => change.gainDb !== undefined));
                 adjustedGroups.push(instrGroup);
             }
         }
@@ -686,7 +680,7 @@
 
     /**
      * Group-aware mute toggle. In locked mode, redistributes power to siblings
-     * so the group power stays constant (gain.md Examples 4, lines 66-68).
+     * toward the stored chair target (see docs/gain.md).
      * Muting  = treat as moving fader to -∞ (power → 0), redistribute to others.
      * Unmuting = treat as restoring remembered power, others scale down.
      */
@@ -701,48 +695,12 @@
             return;
         }
 
-        const gm = getGroupMaster(instrGroup.key);
-
-        if (gm.lockSum && instrGroup.strips.length > 1) {
-            // Compute old group power (before mute change)
-            const oldGroupPower = getGroupPower(instrGroup);
-
-            if (willMute) {
-                // Strip is being muted: its power will become 0.
-                // Target: other strips absorb the difference.
-                const stripPower = powerFromDb(gainShadowRaw[strip.id] ?? strip.gainDb ?? 0);
-                const otherPowerBefore = oldGroupPower - stripPower;
-
-                if (otherPowerBefore > 0 && oldGroupPower > 0) {
-                    // Scale others so their total = oldGroupPower
-                    const scale = oldGroupPower / otherPowerBefore;
-                    for (const s of instrGroup.strips) {
-                        if (s.id !== stripId && !s.muted) {
-                            const db = gainShadowRaw[s.id] ?? s.gainDb ?? 0;
-                            const p = powerFromDb(db) * scale;
-                            setGainRaw(s.id, dbFromGain(Math.sqrt(p)));
-                        }
-                    }
-                }
-            } else {
-                // Strip is being unmuted: its remembered power is restored.
-                // Other strips must scale down to keep group power = oldGroupPower.
-                const restoredPower = powerFromDb(gainShadowRaw[strip.id] ?? strip.gainDb ?? 0);
-                const otherPowerBefore = oldGroupPower; // all current power is from others
-                const newTotal = otherPowerBefore + restoredPower;
-
-                if (newTotal > 0 && otherPowerBefore > 0) {
-                    const requiredOtherPower = Math.max(0, oldGroupPower - restoredPower);
-                    const scale = requiredOtherPower / otherPowerBefore;
-                    for (const s of instrGroup.strips) {
-                        if (s.id !== stripId && !s.muted) {
-                            const db = gainShadowRaw[s.id] ?? s.gainDb ?? 0;
-                            const p = powerFromDb(db) * scale;
-                            setGainRaw(s.id, dbFromGain(Math.sqrt(p)));
-                        }
-                    }
-                }
-            }
+        if (getGroupMaster(instrGroup.key).lockSum) {
+            const plan = planLockedLayerChange(groupGainState(instrGroup),
+                [{ id: stripId, muted: willMute }], getChairLevel(instrGroup), anySoloed);
+            rememberChairLevel(instrGroup, plan.state);
+            for (const change of plan.changes)
+                if (change.gainDb !== undefined) setGainRaw(change.id, change.gainDb);
         }
 
         // Optimistic mute: set locally BEFORE dispatching so the next render
@@ -823,24 +781,28 @@
     };
 
     // ── Group Master Fader state ──────────────────────────────
-    // Only lockSum is stored in state. masterDb is always DERIVED from the
-    // power model: groupDb = 20·log10(√(Σ power_i)).
-    let groupMasters = $state(
-        /** @type {Record<string, {lockSum: boolean}>} */ ({}),
-    );
-
-    const getGroupMaster = (key) => {
-        if (!groupMasters[key]) {
-            untrack(() => {
-                groupMasters[key] = { lockSum: false };
-            });
-        }
-        return groupMasters[key];
+    // Target and blend memory are project state. Shadows bridge async echoes
+    // during a drag; native state replaces them on completed edits/Undo.
+    let groupMasters = $state({});
+    let chairLevelShadow = $state({});
+    const getGroupMaster = (key) => chairLevelShadow[key] ?? groupMasters[key] ?? { lockSum: false };
+    const groupGainState = (group) => group.strips.map(s => ({
+        ...s, gainDb: gainShadow[s.id] ?? s.gainDb ?? 0,
+    }));
+    const getChairLevel = (group) => {
+        const gm = getGroupMaster(group.key);
+        return Number.isFinite(gm.targetDb) ? gm : captureChairLevel(groupGainState(group), anySoloed);
+    };
+    const getMasterDb = (group) => getGroupMaster(group.key).lockSum
+        ? getChairLevel(group).targetDb : getGroupDb(group);
+    const rememberChairLevel = (group, state) => {
+        chairLevelShadow[group.key] = { lockSum: true, ...state };
+        pendingChairLevels.set(group.key, { id: group.key, targetDb: state.targetDb, weights: state.weights });
     };
 
     /** Compute group power: sum of power of all audible strips.
      *  A strip is audible if it is not muted AND (no solo active OR strip is soloed).
-     *  Uses gainShadowRaw so the value is accurate even if some faders are clamped. */
+     *  Uses the clamped gains actually sent to audio. */
     const getGroupPower = (instrGroup) =>
         instrGroup.strips.reduce((acc, s) => {
             if (!isAudible(s)) return acc;
@@ -861,30 +823,12 @@
      */
     const handleMasterFaderInput = (instrGroup, pos) => batchMixerEdit("Adjust layer gains", () => {
         const newGroupDb = Math.round(posToDB(pos) * 10) / 10;
-        const newGroupGain = gainFromDb(newGroupDb);
-        const newGroupPower = newGroupGain * newGroupGain;
-        const oldGroupPower = getGroupPower(instrGroup);
-
-        if (oldGroupPower <= 0) {
-            // All unmuted strips are silent — can't scale. Set all to equal share.
-            const unmuted = instrGroup.strips.filter((s) => !s.muted);
-            if (unmuted.length === 0) return;
-            const perStripPower = newGroupPower / unmuted.length;
-            const perStripDb = dbFromGain(Math.sqrt(perStripPower));
-            for (const s of unmuted) {
-                setGainRaw(s.id, perStripDb);
-            }
-            return;
-        }
-
-        const scale = newGroupPower / oldGroupPower;
-        for (const strip of instrGroup.strips) {
-            if (strip.muted) continue;
-            const db = gainShadowRaw[strip.id] ?? strip.gainDb ?? 0;
-            const p = powerFromDb(db) * scale;
-            const g = Math.sqrt(p);
-            setGainRaw(strip.id, dbFromGain(g));
-        }
+        const locked = getGroupMaster(instrGroup.key).lockSum;
+        const plan = planChairTargetChange(groupGainState(instrGroup), newGroupDb,
+            locked ? getChairLevel(instrGroup) : captureChairLevel(groupGainState(instrGroup), anySoloed),
+            anySoloed);
+        if (locked) rememberChairLevel(instrGroup, plan.state);
+        for (const change of plan.changes) setGainRaw(change.id, change.gainDb);
     });
 
     /** Double-click master fader → same effect as sliding to 0 dB */
@@ -909,40 +853,12 @@
             }
             return;
         }
-        if (gm.lockSum && instrGroup.strips.length > 1) {
-            const oldGroupPower = getGroupPower(instrGroup);
-            const newStripPower = strip.muted ? 0 : powerFromDb(newDb);
-            const requiredOtherPower = Math.max(0, oldGroupPower - newStripPower);
-
-            // Current total power of other unmuted strips
-            let currentOtherPower = 0;
-            for (const s of instrGroup.strips) {
-                if (s.id !== strip.id && !s.muted) {
-                    currentOtherPower += powerFromDb(gainShadowRaw[s.id] ?? s.gainDb ?? 0);
-                }
-            }
-
-            // Redistribute required power across other unmuted strips
-            const others = instrGroup.strips.filter((s) => s.id !== strip.id && !s.muted);
-            if (others.length > 0) {
-                if (currentOtherPower > 0) {
-                    // Scale proportionally when others have non-zero power
-                    const scale = requiredOtherPower / currentOtherPower;
-                    for (const other of others) {
-                        const base = gainShadowRaw[other.id] ?? other.gainDb ?? 0;
-                        const p = powerFromDb(base) * scale;
-                        const g = Math.sqrt(p);
-                        setGainRaw(other.id, dbFromGain(g));
-                    }
-                } else {
-                    // Others are all at -∞ — distribute equally
-                    const perStripPower = requiredOtherPower / others.length;
-                    const perStripDb = dbFromGain(Math.sqrt(perStripPower));
-                    for (const other of others) {
-                        setGainRaw(other.id, perStripDb);
-                    }
-                }
-            }
+        if (gm.lockSum) {
+            const plan = planLockedLayerChange(groupGainState(instrGroup),
+                [{ id: strip.id, gainDb: newDb }], getChairLevel(instrGroup), anySoloed);
+            rememberChairLevel(instrGroup, plan.state);
+            for (const change of plan.changes) setGainRaw(change.id, change.gainDb);
+            return;
         }
         setGain(strip.id, newDb);
     });
@@ -1123,165 +1039,66 @@
     {/if}
     <div class="mixer-toolbar">
         <div class="toolbar-left">
-
             <BranchSelector
                 {branches}
                 {currentBranch}
-                onCheckout={(id) => {
-                    dispatchCpp("checkoutBranch", id);
-                }}
-                onCreateBranch={(name) => {
-                    dispatchCpp("createBranch", name);
-                }}
+                onCheckout={(id) => dispatchCpp("checkoutBranch", id)}
+                onCreateBranch={(name) => dispatchCpp("createBranch", name)}
             />
-
-        </div>
-        <div class="toolbar-center">
-            {#if selectedIds.size > 1}
-                <span class="selection-badge">{selectedIds.size} selected</span>
-            {/if}
-            <button
-                class="toolbar-ms-btn solo-clear"
-                style:visibility={(anySoloed || anyBusSoloed) ? 'visible' : 'hidden'}
-                onclick={clearSolos}
-            >
-                Clear Solos
-            </button>
-            <button
-                class="toolbar-ms-btn chairs-btn"
-                onclick={() => { chairManagerOpen = true; }}
-                aria-haspopup="dialog"
-                title="Create and manage Dorico chairs"
-            >
-                Manage Chairs
-            </button>
-            <button
-                class="toolbar-ms-btn library-manager-btn"
-                onclick={() => dispatchCpp("showLibraryManagerWindow")}
-                title="Show or bring forward the Library Manager"
-            >
-                Library Manager
-            </button>
-            <button
-                class="toolbar-ms-btn buses-btn"
-                onclick={() => { busManagerOpen = true; }}
-                aria-haspopup="dialog"
-                title="Create and manage audio group buses"
-            >
-                Audio Buses{groupBuses.length ? ` · ${groupBuses.length}` : ""}
-            </button>
-            <button
-                class="toolbar-ms-btn master-audio-btn"
-                onclick={() => { masterAudioOpen = true; }}
-                aria-haspopup="dialog"
-                title="Open master output and insert effects"
-            >
-                Master Audio{masterAudio.inserts?.length ? ` · ${masterAudio.inserts.length}` : ""}
-            </button>
-        </div>
-        <div class="toolbar-right">
-            <AudioDiagnostics />
-            <div class="display-controls" aria-label="Display settings">
-                <label class="display-control-label" for="strip-size-select">Strip size</label>
-                <select
-                    id="strip-size-select"
-                    class="toolbar-select"
-                    value={stripSize}
-                    onchange={(e) => updateStripSize(e.currentTarget.value)}
-                    title="Choose the width of mixer strips"
-                >
-                    {#each Object.entries(STRIP_SIZE_PRESETS) as [value, preset]}
-                        <option {value}>{preset.label}</option>
-                    {/each}
-                </select>
-            </div>
-            <div class="zoom-control" aria-label="Interface zoom">
-                <button
-                    class="zoom-btn"
-                    onclick={onZoomOut}
-                    aria-label="Zoom out"
-                    title="Zoom out (Command-minus)"
-                >−</button>
-                <button
-                    class="zoom-value"
-                    onclick={onResetZoom}
-                    aria-label="Reset zoom"
-                    title="Reset zoom (Command-0)"
-                >{Math.round(uiZoom * 100)}%</button>
-                <button
-                    class="zoom-btn"
-                    onclick={onZoomIn}
-                    aria-label="Zoom in"
-                    title="Zoom in (Command-plus)"
-                >+</button>
-            </div>
-            <div class="delay-control">
-                <label class="delay-label" for="delay-slider">Delay</label>
-                <input
-                    id="delay-slider"
-                    class="delay-slider"
-                    type="range"
-                    min="0"
-                    max="3000"
-                    step="50"
-                    value={playbackDelay}
-                    oninput={(e) => updateDelay(e.target.value)}
-                />
-                {#if editingDelay}
-                    <input
-                        class="delay-value-input"
-                        type="number"
-                        min="0"
-                        max="5000"
-                        value={playbackDelay}
-                        onchange={(e) => {
-                            updateDelay(e.target.value);
-                            editingDelay = false;
-                        }}
-                        onblur={() => {
-                            editingDelay = false;
-                        }}
-                        onkeydown={(e) => {
-                            if (e.key === "Escape") editingDelay = false;
-                        }}
-                    />
-                {:else}
-                    <span
-                        class="delay-value"
-                        role="button"
-                        tabindex="0"
-                        ondblclick={() => {
-                            editingDelay = true;
-                        }}
-                        onkeydown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                editingDelay = true;
-                            }
-                        }}
-                        title="Double-click or press Enter to type">{playbackDelay}ms</span
-                    >
-                {/if}
-            </div>
-
             <button class="toolbar-btn" disabled={!undoState.canUndo}
                 title={undoState.undoDescription ? `Undo: ${undoState.undoDescription}` : "Nothing to undo"}
                 onclick={() => dispatchCpp("undo")}>Undo</button>
             <button class="toolbar-btn" disabled={!undoState.canRedo}
                 title={undoState.redoDescription ? `Redo: ${undoState.redoDescription}` : "Nothing to redo"}
                 onclick={() => dispatchCpp("redo")}>Redo</button>
-            <button
-                class="toolbar-btn save-btn"
-                onclick={doSaveConfig}
-                disabled={saveButton.disabled}
-                title={saveButton.title}
-            >
-                💾 Save
-            </button>
+            <button class="toolbar-btn save-btn" onclick={doSaveConfig}
+                disabled={saveButton.disabled} title={saveButton.title}>Save</button>
+            {#if selectedIds.size > 1}
+                <span class="selection-badge">{selectedIds.size} selected</span>
+            {/if}
+            {#if anySoloed || anyBusSoloed}
+                <button class="toolbar-btn solo-clear" onclick={clearSolos}>Clear Solos</button>
+            {/if}
+        </div>
+        <div class="toolbar-right">
+            <AudioDiagnostics {playbackDelay} onDelayChange={updateDelay} />
+            <ToolbarMenu label="View">
+                {#snippet children(close)}
+                    <div class="display-controls">
+                        <label class="display-control-label" for="strip-size-select">Strip size</label>
+                        <select id="strip-size-select" class="toolbar-select" value={stripSize}
+                            onchange={(event) => updateStripSize(event.currentTarget.value)}>
+                            {#each Object.entries(STRIP_SIZE_PRESETS) as [value, preset]}
+                                <option {value}>{preset.label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="display-controls">
+                        <span class="display-control-label">Zoom</span>
+                        <div class="zoom-control" aria-label="Interface zoom">
+                            <button class="zoom-btn" onclick={onZoomOut} aria-label="Zoom out" title="Zoom out (Command-minus)">−</button>
+                            <button class="zoom-value" onclick={onResetZoom} aria-label="Reset zoom" title="Reset zoom (Command-0)">{Math.round(uiZoom * 100)}%</button>
+                            <button class="zoom-btn" onclick={onZoomIn} aria-label="Zoom in" title="Zoom in (Command-plus)">+</button>
+                        </div>
+                    </div>
+                    <label class="library-bar-option">
+                        <input type="checkbox" checked={showLibraryBar}
+                            onchange={(event) => { showLibraryBar = writeLibraryBarVisible(window.localStorage, event.currentTarget.checked); }} />
+                        Show library bar
+                    </label>
+                {/snippet}
+            </ToolbarMenu>
+            <ToolbarMenu label="Setup">
+                {#snippet children(close)}
+                    <button class="setup-item" onclick={() => { close(); chairManagerOpen = true; }}
+                        aria-haspopup="dialog">Manage Chairs</button>
+                    <button class="setup-item" onclick={() => { close(); dispatchCpp("showLibraryManagerWindow"); }}>Library Manager</button>
+                {/snippet}
+            </ToolbarMenu>
         </div>
     </div>
 
-    {#if uniqueLibraries.length > 0}
+    {#if showLibraryBar && uniqueLibraries.length > 0}
         <div class="library-chip-bar">
             {#each uniqueLibraries as lib (lib.name)}
                 <button
@@ -1385,7 +1202,9 @@
                                     <!-- Master strip: only for multi-strip groups -->
                                     {#if instrGroup.strips.length > 1}
                                         {@const gm = getGroupMaster(instrGroup.key)}
-                                         {@const masterDb = getGroupDb(instrGroup)}
+                                        {@const masterDb = getMasterDb(instrGroup)}
+                                        {@const combinedDb = getGroupDb(instrGroup)}
+                                        {@const offTarget = gm.lockSum && Math.abs(combinedDb - masterDb) > 0.05}
                                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                                         <div class="master-strip" onclick={(e) => e.stopPropagation()}>
@@ -1396,8 +1215,15 @@
                                                 <span class="fader-tick fader-top">+6</span>
                                                 <div class="fader-meter-row">
                                                     <div class="fader-track master-track">
+                                                        {#if offTarget}
+                                                            <span class="combined-level-marker"
+                                                                style:bottom={`calc(8px + (100% - 16px) * ${dbToPos(combinedDb)})`}
+                                                                role="img" aria-label={`Combined gain ${formatDb(combinedDb)} dB; target ${formatDb(masterDb)} dB`}
+                                                                title={`Combined gain: ${formatDb(combinedDb)} dB — target: ${formatDb(masterDb)} dB (gain estimate, not measured loudness)`}></span>
+                                                        {/if}
                                                         <input
                                                             class="fader-slider master-slider"
+                                                            aria-label={gm.lockSum ? `Target level for ${instrGroup.label}` : `Combined level for ${instrGroup.label}`}
                                                             type="range"
                                                             min="0"
                                                             max="1000"
@@ -1417,13 +1243,20 @@
                                                                 handleMasterFaderInput(instrGroup, effectivePos / 1000);
                                                             }}
                                                             onpointerup={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
+                                                            onpointercancel={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
+                                                            onkeyup={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
+                                                            onblur={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
                                                             onpointerleave={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
                                                             ondblclick={() => handleMasterFaderReset(instrGroup)}
                                                         />
                                                     </div>
                                                 </div>
                                                 <span class="fader-tick fader-bot">-∞</span>
-                                                <div class="master-db">{formatDb(getGroupDb(instrGroup))}</div>
+                                                <div class="master-db" class:off-target={offTarget}
+                                                    title={gm.lockSum ? `Locked target: ${formatDb(masterDb)} dB; combined: ${formatDb(combinedDb)} dB` : "Combined layer gain"}>
+                                                    <span>{formatDb(masterDb)}</span>
+                                                    {#if offTarget}<span class="combined-db">Σ {formatDb(combinedDb)}</span>{/if}
+                                                </div>
                                             </div>
                                             <!-- Bottom spacer: matches mute-solo + xmap + plugin rows -->
                                             <div class="master-strip-bot-spacer">
@@ -1431,7 +1264,7 @@
                                                     class="sum-lock-btn"
                                                     class:sum-lock-active={gm.lockSum}
                                                     title={gm.lockSum
-                                                        ? "Sum Lock ON — individual faders keep sum constant"
+                                                        ? "Sum Lock ON — fader sets the target; amber marker shows any difference in combined gain"
                                                         : "Sum Lock OFF — master tracks sum of all faders"}
                                                     onclick={() => dispatchCpp("setChairLevelLock", instrGroup.key, !gm.lockSum)}
                                                 >{gm.lockSum ? '🔒' : '🔓'}</button>
@@ -1590,6 +1423,9 @@
                                                                     handleGroupFaderInput(instrGroup, strip, effectivePos / 1000);
                                                                 }}
                                                                 onpointerup={() => { faderDragging.delete(strip.id); delete faderAnchor[strip.id]; }}
+                                                                onpointercancel={() => { faderDragging.delete(strip.id); }}
+                                                                onkeyup={() => { faderDragging.delete(strip.id); }}
+                                                                onblur={() => { faderDragging.delete(strip.id); }}
                                                                 onpointerleave={() => { faderDragging.delete(strip.id); delete faderAnchor[strip.id]; }}
                                                                 ondblclick={() =>
                                                                     handleGainValueInput(strip, "0")}
@@ -1903,9 +1739,9 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 12px;
-        padding: 6px 16px;
+        padding: 6px 12px;
         flex-shrink: 0;
         border-bottom: 1px solid #1e293b;
         /* Menus such as the branch selector extend below this row. Keeping
@@ -1914,10 +1750,11 @@
         position: relative;
         z-index: 20;
     }
-    .toolbar-center {
+    .toolbar-left {
         display: flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
     }
     .selection-badge {
         font-size: 0.7rem;
@@ -1930,53 +1767,10 @@
         margin-left: 8px;
     }
 
-    .toolbar-ms-btn {
-        font-size: 0.7rem;
-        font-weight: 600;
-        padding: 2px 10px;
-        border: 1px solid #555;
-        border-radius: 4px;
-        background: #2a2a2a;
-        color: #ddd;
-        cursor: pointer;
-        transition: all 0.12s ease;
-    }
-
-    .toolbar-ms-btn:hover {
-        border-color: #aaa;
-        color: #e0e0e0;
-        background: #383838;
-    }
-
-    .toolbar-ms-btn.solo-clear {
-        border-color: rgba(34, 197, 94, 0.4);
-        color: #4ade80;
-    }
-    .toolbar-ms-btn.master-audio-btn {
-        min-height: 30px;
-        padding: 4px 12px;
-        border-color: rgba(56, 189, 248, 0.55);
-        color: #bae6fd;
-        background: rgba(14, 77, 110, 0.5);
-    }
-    .toolbar-ms-btn.chairs-btn {
-        min-height: 30px;
-        padding: 4px 12px;
-        border-color: rgba(52, 211, 153, 0.55);
-        color: #a7f3d0;
-        background: rgba(20, 83, 45, 0.45);
-    }
-    .toolbar-ms-btn.library-manager-btn {
-        min-height: 30px;
-        padding: 4px 12px;
-        border-color: rgba(167, 139, 250, 0.58);
-        color: #ddd6fe;
-        background: rgba(76, 29, 149, 0.42);
-    }
     .toolbar-right {
         display: flex;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
         flex-shrink: 0;
     }
 
@@ -1986,6 +1780,11 @@
         align-items: center;
         gap: 6px;
     }
+    .display-controls { justify-content: space-between; }
+    .library-bar-option { display: flex; align-items: center; gap: 8px; color: #cbd5e1; font-size: .8rem; cursor: pointer; }
+    .setup-item { padding: 8px; border: 0; border-radius: 4px; background: transparent; color: #e2e8f0; font: inherit; font-size: .8rem; text-align: left; cursor: pointer; white-space: nowrap; }
+    .setup-item:hover, .setup-item:focus-visible { background: #1e293b; outline: 1px solid #64748b; }
+    .solo-clear { color: #4ade80; border-color: #166534; }
     .display-control-label {
         color: #cbd5e1;
         font-size: 0.75rem;
@@ -2039,6 +1838,7 @@
     }
 
     .toolbar-btn {
+        flex-shrink: 0;
         padding: 4px 10px;
         font-size: 0.7rem;
         font-weight: 600;
@@ -2071,48 +1871,6 @@
         transform: none;
     }
 
-    .delay-control {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-    .delay-label {
-        font-size: 0.7rem;
-        color: #cbd5e1;
-        font-weight: 500;
-    }
-    .delay-slider {
-        width: 80px;
-        height: 4px;
-        accent-color: #3b82f6;
-        cursor: pointer;
-    }
-    .delay-value {
-        font-size: 0.7rem;
-        color: #cbd5e1;
-        min-width: 40px;
-        text-align: right;
-        cursor: default;
-        user-select: none;
-    }
-    .delay-value-input {
-        width: 50px;
-        padding: 2px 4px;
-        border: 1px solid #3b82f6;
-        border-radius: 3px;
-        background: #0f172a;
-        color: #e2e8f0;
-        font-size: 0.7rem;
-        text-align: right;
-        -moz-appearance: textfield;
-    }
-    .delay-value-input:focus {
-        outline: none;
-    }
-    .delay-value-input::-webkit-inner-spin-button,
-    .delay-value-input::-webkit-outer-spin-button {
-        -webkit-appearance: none;
-    }
 
     .empty-state {
         display: flex;
@@ -2332,6 +2090,17 @@
     input.fader-slider.master-slider {
         accent-color: #d4a017;
     }
+    .combined-level-marker {
+        position: absolute;
+        left: calc(50% + 9px);
+        width: 9px;
+        height: 3px;
+        background: #fbbf24;
+        transform: translateY(50%);
+        z-index: 2;
+    }
+    .combined-db { color: #fbbf24; font-size: .6rem; line-height: 11px; }
+    .master-db.off-target { grid-template-rows: 15px 11px; }
     .master-db {
         display: grid;
         width: 100%;

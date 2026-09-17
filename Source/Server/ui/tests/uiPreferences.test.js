@@ -8,8 +8,10 @@ import {
     STRIP_SIZE_PRESETS,
     readStripSize,
     readUiZoom,
+    readLibraryBarVisible,
     writeStripSize,
     writeUiZoom,
+    writeLibraryBarVisible,
 } from "../src/lib/uiPreferences.js";
 
 const memoryStorage = (initial = {}) => {
@@ -61,4 +63,15 @@ test("unavailable browser storage does not prevent preference use", () => {
     assert.equal(readUiZoom(blockedStorage), 1);
     assert.equal(writeStripSize(blockedStorage, "compact"), "compact");
     assert.equal(writeUiZoom(blockedStorage, 1.5), 1.5);
+    assert.equal(readLibraryBarVisible(blockedStorage), true);
+    assert.equal(writeLibraryBarVisible(blockedStorage, false), false);
+});
+
+test("library bar defaults to visible and remembers either choice", () => {
+    const storage = memoryStorage();
+    assert.equal(readLibraryBarVisible(storage), true);
+    writeLibraryBarVisible(storage, false);
+    assert.equal(readLibraryBarVisible(storage), false);
+    writeLibraryBarVisible(storage, true);
+    assert.equal(readLibraryBarVisible(storage), true);
 });
