@@ -1,4 +1,5 @@
 <script>
+    import { tick } from "svelte";
     import { dispatchCpp } from "./ipc.js";
 
     let {
@@ -10,9 +11,18 @@
         onManage = () => {},
         onOpenBusAudio = () => {},
         onOpenMasterAudio = () => {},
+        revealRequest = 0,
     } = $props();
 
     let collapsed = $state(false);
+    let bank;
+    let handledReveal = 0;
+    $effect(() => {
+        if (!revealRequest || revealRequest === handledReveal) return;
+        handledReveal = revealRequest;
+        collapsed = false;
+        tick().then(() => bank?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" }));
+    });
     let anySoloed = $derived(buses.some((bus) => bus.soloed));
 
     const MIN_DB = -120;
@@ -42,7 +52,7 @@
     ];
 </script>
 
-<aside class="bank" class:collapsed aria-label="Audio buses">
+<aside class="bank" class:collapsed aria-label="Audio buses" bind:this={bank}>
     <div class="header">
         <button
             class="header-toggle"

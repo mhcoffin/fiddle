@@ -57,6 +57,7 @@ public:
                         debugReady_ = true;
                         std::cerr << "[DebugWindow] signalReady fired"
                                   << std::endl;
+                        selectTab(pendingTab_);
                         if (callbacks_.onSignalReady)
                           callbacks_.onSignalReady();
                       } else if (type == "nativeLog") {
@@ -95,7 +96,25 @@ public:
 
   /// Navigate the debug WebView to the debug-mode URL.
   void loadDebugPage(const juce::String &rootUrl) {
-    webView_.goToURL(rootUrl + "?mode=debug");
+    webView_.goToURL(rootUrl + "index.html?mode=debug");
+  }
+
+  /// Select one of the diagnostic tabs. Requests made while the page is
+  /// loading are replayed after its signalReady handshake.
+  void selectTab(const juce::String &tab) {
+    static const juce::StringArray tabs{"timeline", "eventlog", "plugins",
+                                         "capture"};
+    if (!tabs.contains(tab))
+      return;
+    pendingTab_ = tab;
+    if (!debugReady_)
+      return;
+    auto *message = new juce::DynamicObject();
+    message->setProperty("type", "showDebugTab");
+    message->setProperty("data", tab);
+    const auto json = juce::JSON::toString(juce::var(message));
+    webView_.evaluateJavascript(
+        "window.__dispatchFromCpp && window.__dispatchFromCpp(" + json + ")");
   }
 
   /// Evaluate JavaScript in the debug WebView.
@@ -149,6 +168,7 @@ private:
   DebugWindowCallbacks callbacks_;
   juce::WebBrowserComponent webView_;
   bool debugReady_ = false;
+  juce::String pendingTab_ = "timeline";
   std::function<void()> geometrySaver_;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DebugWindow)

@@ -60,7 +60,10 @@ public:
   /// Save relative to the loaded version; historical edits fork automatically.
   bool saveConfig(const std::optional<std::string> &newBranchName = std::nullopt);
 
-  /// Toggle debug window visibility.
+  /// Show/focus a named destination from either the native or web View menu.
+  void showView(const juce::String &viewId);
+
+  /// Toggle debug window visibility (retained for existing callers).
   void toggleDebugWindow();
 
   /// Check if debug window is visible.
@@ -68,6 +71,7 @@ public:
 
   /// Toggle history window visibility (called from View menu).
   void toggleHistoryWindow();
+  void showHistoryWindow();
 
   /// Check if history window is visible.
   bool isHistoryWindowVisible() const;
@@ -77,7 +81,7 @@ public:
 
   /// Create the Library Manager if needed, otherwise unminimize and focus it.
   void showLibraryManagerWindow();
-  void showAudioSettings();
+  void showSettings();
 
   /// Check if library manager window is visible.
   bool isLibraryManagerWindowVisible() const;
@@ -88,6 +92,7 @@ public:
 
   /// Save debug window geometry + visibility to database.
   void saveDebugWindowGeometry();
+  void saveHistoryWindowGeometry();
 
   /// Save library manager window geometry + visibility to database.
   void saveLibraryManagerWindowGeometry();
@@ -182,6 +187,7 @@ private:
   std::unique_ptr<fiddle::JsTestBridge> jsTestBridge_;
   AudioRenderDiagnostics audioDiagnostics_;
   std::unique_ptr<RenderAheadEngine> renderAhead_;
+  std::atomic<RenderAheadEngine *> renderAheadForMidi_{nullptr};
   std::unique_ptr<AgentControlServer> agentControlServer_;
   std::atomic<int> reportedPlaybackDelayMs_{1000};
   juce::String renderAheadError_;
@@ -193,6 +199,9 @@ private:
   double lastDiagnosticsPushMs_ = 0;
   void pushAudioDiagnostics();
   void pushMixerMeters();
+  void changePlaybackDelay(int milliseconds);
+  void changeRenderWorkerCount(int count);
+  bool canChangeRenderWorkerCount() const;
   bool meterUpdatePending_ = false; // Message-thread-only, one web evaluation in flight.
   bool diagnosticsUpdatePending_ = false;
 

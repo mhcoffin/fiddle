@@ -33,5 +33,5 @@
     .trigger span { margin-left: 5px; color: #94a3b8; }
     .trigger:hover, .trigger[aria-expanded="true"] { background: #1e293b; border-color: #64748b; }
     .trigger:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
-    .panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 220px; padding: 12px; display: flex; flex-direction: column; gap: 14px; background: #0f172a; border: 1px solid #475569; border-radius: 7px; box-shadow: 0 12px 30px #0008; }
+    .panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; min-width: 250px; max-height: min(620px, calc(100vh - 70px)); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; background: #0f172a; border: 1px solid #475569; border-radius: 7px; box-shadow: 0 12px 30px #0008; }
 </style>

@@ -12,6 +12,19 @@ class FiddleServerApplication : public juce::JUCEApplication,
 public:
   static constexpr int kSaveMenuItemId = 3;
   static constexpr int kRestartMenuItemId = 20;
+  static constexpr int kMainMixerMenuItemId = 101;
+  static constexpr int kInspectorMenuItemId = 102;
+  static constexpr int kAudioBankMenuItemId = 103;
+  static constexpr int kLibraryManagerMenuItemId = 104;
+  static constexpr int kHistoryMenuItemId = 105;
+  static constexpr int kChairsMenuItemId = 111;
+  static constexpr int kBusesMenuItemId = 112;
+  static constexpr int kPluginsMenuItemId = 113;
+  static constexpr int kSettingsMenuItemId = 114;
+  static constexpr int kAudioPerformanceMenuItemId = 121;
+  static constexpr int kTimelineMenuItemId = 122;
+  static constexpr int kEventLogMenuItemId = 123;
+  static constexpr int kMidiCaptureMenuItemId = 124;
 
   FiddleServerApplication() {}
 
@@ -126,25 +139,27 @@ public:
       // remain a reliable way to reach this command.
       menu.addItem(kRestartMenuItemId, "Restart Fiddle");
     } else if (menuIndex == 1) {
-      // View menu
-      bool debugVisible = false;
-      bool historyVisible = false;
+      juce::PopupMenu workspace;
+      workspace.addItem(kMainMixerMenuItemId, "Main Mixer");
+      workspace.addItem(kInspectorMenuItemId, "Layer Inspector");
+      workspace.addItem(kAudioBankMenuItemId, "Audio Buses & Master");
+      workspace.addItem(kLibraryManagerMenuItemId, "Library Manager");
+      workspace.addItem(kHistoryMenuItemId, "Project History");
+      menu.addSubMenu("Workspace", workspace);
 
-      bool libraryMgrVisible = false;
-      if (mainWindow) {
-        if (auto *mc = dynamic_cast<MainComponent *>(
-                mainWindow->getContentComponent())) {
-          debugVisible = mc->isDebugWindowVisible();
-          historyVisible = mc->isHistoryWindowVisible();
+      juce::PopupMenu setup;
+      setup.addItem(kChairsMenuItemId, "Chairs...");
+      setup.addItem(kBusesMenuItemId, "Audio Buses...");
+      setup.addItem(kPluginsMenuItemId, "Plug-ins...");
+      setup.addItem(kSettingsMenuItemId, "Settings...");
+      menu.addSubMenu("Setup", setup);
 
-          libraryMgrVisible = mc->isLibraryManagerWindowVisible();
-        }
-      }
-      menu.addItem(10, "Show Debug Window", true, debugVisible);
-      menu.addItem(11, "Show History Window", true, historyVisible);
-
-      menu.addItem(13, "Show Library Manager", true, libraryMgrVisible);
-      menu.addItem(14, "Audio Settings...");
+      juce::PopupMenu diagnostics;
+      diagnostics.addItem(kAudioPerformanceMenuItemId, "Audio Performance");
+      diagnostics.addItem(kTimelineMenuItemId, "Timeline");
+      diagnostics.addItem(kEventLogMenuItemId, "Event Log");
+      diagnostics.addItem(kMidiCaptureMenuItemId, "MIDI Capture");
+      menu.addSubMenu("Diagnostics", diagnostics);
     }
     return menu;
   }
@@ -154,35 +169,11 @@ public:
       saveCurrentState();
     } else if (menuItemID == kRestartMenuItemId) {
       restartApplication();
-    } else if (menuItemID == 14) {
+    } else if (const auto view = viewIdForMenuItem(menuItemID); view.isNotEmpty()) {
       if (mainWindow)
-        if (auto *mc = dynamic_cast<MainComponent *>(mainWindow->getContentComponent()))
-          mc->showAudioSettings();
-    } else if (menuItemID == 10) {
-      // Toggle debug window
-      if (mainWindow) {
-        if (auto *mc = dynamic_cast<MainComponent *>(
-                mainWindow->getContentComponent())) {
-          mc->toggleDebugWindow();
-        }
-      }
-    } else if (menuItemID == 11) {
-      // Toggle history window
-      if (mainWindow) {
-        if (auto *mc = dynamic_cast<MainComponent *>(
-                mainWindow->getContentComponent())) {
-          mc->toggleHistoryWindow();
-        }
-      }
-
-    } else if (menuItemID == 13) {
-      // Show or focus the library manager window.
-      if (mainWindow) {
-        if (auto *mc = dynamic_cast<MainComponent *>(
-                mainWindow->getContentComponent())) {
-          mc->showLibraryManagerWindow();
-        }
-      }
+        if (auto *component = dynamic_cast<MainComponent *>(
+                mainWindow->getContentComponent()))
+          component->showView(view);
     }
   }
 
@@ -217,6 +208,25 @@ public:
   }
 
 private:
+  static juce::String viewIdForMenuItem(int item) {
+    switch (item) {
+    case kMainMixerMenuItemId: return "main";
+    case kInspectorMenuItemId: return "inspector";
+    case kAudioBankMenuItemId: return "audio-bank";
+    case kLibraryManagerMenuItemId: return "library-manager";
+    case kHistoryMenuItemId: return "project-history";
+    case kChairsMenuItemId: return "chairs";
+    case kBusesMenuItemId: return "bus-manager";
+    case kPluginsMenuItemId: return "plugins";
+    case kSettingsMenuItemId: return "settings";
+    case kAudioPerformanceMenuItemId: return "audio-performance";
+    case kTimelineMenuItemId: return "timeline";
+    case kEventLogMenuItemId: return "event-log";
+    case kMidiCaptureMenuItemId: return "midi-capture";
+    default: return {};
+    }
+  }
+
   void confirmLibraryDiscard(std::function<void()> proceed) {
     auto *component = mainWindow ? dynamic_cast<MainComponent *>(mainWindow->getContentComponent()) : nullptr;
     if (!component || !component->hasUnsavedLibraryDraft()) { proceed(); return; }

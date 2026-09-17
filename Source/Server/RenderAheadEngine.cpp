@@ -3,12 +3,20 @@
 #include <new>
 
 namespace fiddle {
+namespace {
+constexpr uint32_t kPerformanceGraceMs = 1000;
+constexpr uint32_t kMaximumTailMs = 5000;
+constexpr double kQuietSeconds = 0.25;
+constexpr float kQuietMagnitude = 1.0e-5f;
+}
+
 RenderAheadEngine::RenderAheadEngine(MixerModel &mixer, AudioRenderDiagnostics &recorder,
                                      juce::File file)
     : Thread("Fiddle render ahead"), mixer_(mixer), recorder_(recorder), file_(std::move(file)) {}
 RenderAheadEngine::~RenderAheadEngine() { stop(); }
 
 void RenderAheadEngine::stop() {
+  idle_.store(true, std::memory_order_release);
   if (auto s = stream_.read(); s.get()) s.get()->ring->active.store(0, std::memory_order_release);
   signalThreadShouldExit();
   notify();
@@ -35,6 +43,31 @@ bool RenderAheadEngine::endMixPrintAt(double presentationTimeMs) noexcept {
 }
 
 void RenderAheadEngine::stopMixPrint() { mixPrinter_.stop(); }
+
+void RenderAheadEngine::setTransportActive(bool active) noexcept {
+  transportActive_.store(active, std::memory_order_release);
+  if (active)
+    idle_.store(false, std::memory_order_release);
+  notify();
+}
+
+void RenderAheadEngine::notePerformanceActivity() noexcept {
+  auto now = juce::Time::getMillisecondCounter();
+  if (now == 0)
+    now = 1;
+  lastPerformanceActivityMs_.store(now, std::memory_order_release);
+  idle_.store(false, std::memory_order_release);
+  notify();
+}
+
+void RenderAheadEngine::setAuditionNotesActive(bool active) noexcept {
+  const auto changed =
+      auditionNotesActive_.exchange(active, std::memory_order_acq_rel) != active;
+  if (active)
+    idle_.store(false, std::memory_order_release);
+  if (changed)
+    notify();
+}
 
 bool RenderAheadEngine::mixPrintIsArmed() const noexcept {
   return mixPrinter_.isArmed();
@@ -84,6 +117,8 @@ juce::String RenderAheadEngine::start(double rate, int blockSize) {
   recorder_.prepare(rate);
   stream_.publish(std::move(stream));
   stream_.reclaimRetired();
+  idle_.store(!performanceRequested(juce::Time::getMillisecondCounter()),
+              std::memory_order_release);
   const auto period = 1000.0 * blockSize / rate;
   const auto options = RealtimeOptions{}.withPeriodMs(period)
       .withProcessingTimeMs(period * 0.75).withMaximumProcessingTimeMs(period);
@@ -99,13 +134,45 @@ void RenderAheadEngine::run() {
   auto &s = *stream.get();
   auto &ring = *s.ring;
   double previousEndMs = 0;
+  uint64_t quietFrames = 0;
   while (!threadShouldExit()) {
+    const auto now = juce::Time::getMillisecondCounter();
+    const bool requested = performanceRequested(now);
+    if (requested) {
+      idle_.store(false, std::memory_order_release);
+      quietFrames = 0;
+    }
+    const bool idle = idle_.load(std::memory_order_acquire);
     const auto plan = RenderAheadPlan::next(ring);
     if (!ring.active.load(std::memory_order_acquire) || !plan.render) {
       // Consumer never signals/locks here. Only the non-device worker waits.
-      wait(1);
+      wait(idle ? idleWaitMilliseconds(ring) : 1);
       continue;
     }
+
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    if (previousEndMs > 0 &&
+        std::abs(plan.presentationTimeMs - previousEndMs) > 100.0)
+      s.clockJumps.fetch_add(1, std::memory_order_relaxed);
+    PluginRenderDiagnostics::beginBlock();
+    s.scratch.clear();
+
+    if (idle) {
+      const bool pushed = ring.push(
+          plan.startFrame, s.scratch.getReadPointer(0),
+          s.scratch.getReadPointer(1), ring.blockSize);
+      const auto end = juce::Time::getMillisecondCounterHiRes();
+      recorder_.record(start, end, int(ring.blockSize), !pushed, false, 0.0,
+                       false, false);
+      s.renderedBlocks.fetch_add(1, std::memory_order_relaxed);
+      s.idleBlocks.fetch_add(1, std::memory_order_relaxed);
+      s.skippedFrames.fetch_add(plan.skippedFrames,
+                                std::memory_order_relaxed);
+      previousEndMs = plan.presentationTimeMs +
+                      1000.0 * ring.blockSize / ring.sampleRate;
+      continue;
+    }
+
     AudioProcessingGate::Render render;
     if (!render) {
       const auto waitStart = juce::Time::getMillisecondCounterHiRes();
@@ -116,11 +183,6 @@ void RenderAheadEngine::run() {
       s.controlWaitCount.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
-    const auto start = juce::Time::getMillisecondCounterHiRes();
-    if (previousEndMs > 0 && std::abs(plan.presentationTimeMs - previousEndMs) > 100.0)
-      s.clockJumps.fetch_add(1, std::memory_order_relaxed);
-    PluginRenderDiagnostics::beginBlock();
-    s.scratch.clear();
     mixer_.processBlock(s.scratch, plan.presentationTimeMs);
     if (mixPrinter_.isArmed())
       (void)mixPrinter_.push(s.scratch, plan.presentationTimeMs);
@@ -133,9 +195,59 @@ void RenderAheadEngine::run() {
     s.renderedBlocks.fetch_add(1, std::memory_order_relaxed);
     s.skippedFrames.fetch_add(plan.skippedFrames, std::memory_order_relaxed);
     previousEndMs = plan.presentationTimeMs + 1000.0 * ring.blockSize / ring.sampleRate;
+
+    if (!requested) {
+      const auto magnitude = juce::jmax(
+          s.scratch.getMagnitude(0, 0, int(ring.blockSize)),
+          s.scratch.getMagnitude(1, 0, int(ring.blockSize)));
+      quietFrames = magnitude <= kQuietMagnitude
+                        ? quietFrames + ring.blockSize
+                        : 0;
+      const auto last =
+          lastPerformanceActivityMs_.load(std::memory_order_acquire);
+      const auto elapsed =
+          last == 0 ? kMaximumTailMs + 1
+                    : static_cast<uint32_t>(now - last);
+      const auto quietTarget = static_cast<uint64_t>(
+          std::ceil(kQuietSeconds * ring.sampleRate));
+      if (quietFrames >= quietTarget || elapsed > kMaximumTailMs)
+        idle_.store(true, std::memory_order_release);
+    }
     // If the reserve is depleted, loop immediately and replenish it. DSP still
     // advances by exactly blockSize samples, never by wall time spent sleeping.
   }
+}
+
+bool RenderAheadEngine::performanceRequested(uint32_t now) const noexcept {
+  if (transportActive_.load(std::memory_order_acquire) ||
+      auditionNotesActive_.load(std::memory_order_acquire) ||
+      mixPrinter_.isRecording())
+    return true;
+  const auto last =
+      lastPerformanceActivityMs_.load(std::memory_order_acquire);
+  if (last == 0)
+    return false;
+  const auto elapsed = static_cast<int32_t>(now - last);
+  return elapsed >= 0 && static_cast<uint32_t>(elapsed) <= kPerformanceGraceMs;
+}
+
+int RenderAheadEngine::idleWaitMilliseconds(
+    const AudioStreamRing &ring) noexcept {
+  if (!(ring.sampleRate > 0.0) || ring.blockSize == 0)
+    return 20;
+  const auto read = ring.readFrame.load(std::memory_order_acquire);
+  const auto write = ring.writeFrame.load(std::memory_order_acquire);
+  if (write < read)
+    return 1;
+  const auto available = std::min(write - read, AudioStreamRing::capacity);
+  const auto threshold = ring.targetFrames > ring.blockSize
+                             ? ring.targetFrames - ring.blockSize
+                             : uint32_t(0);
+  if (available <= threshold)
+    return 1;
+  const auto frames = available - threshold;
+  return juce::jlimit(
+      1, 20, static_cast<int>(std::floor(1000.0 * frames / ring.sampleRate)));
 }
 
 uint64_t RenderAheadEngine::streamId() const noexcept {
@@ -154,6 +266,7 @@ juce::var RenderAheadEngine::diagnostics() const {
   data->setProperty("renderWorkers", mixer_.renderWorkerCount());
   data->setProperty("requestedRenderWorkers", mixer_.requestedRenderWorkerCount());
   data->setProperty("helpersRealtime", mixer_.renderHelpersRealtime());
+  data->setProperty("idle", idle_.load(std::memory_order_acquire));
   auto s = stream_.read();
   if (s.get()) {
     data->setProperty("controlWaitCount", static_cast<juce::int64>(s.get()->controlWaitCount.load(std::memory_order_relaxed)));
@@ -168,6 +281,7 @@ juce::var RenderAheadEngine::diagnostics() const {
     data->setProperty("queuedMs", 1000.0 * double(available) / ring.sampleRate);
     data->setProperty("targetMs", 1000.0 * ring.targetFrames / ring.sampleRate);
     data->setProperty("renderedBlocks", static_cast<juce::int64>(s.get()->renderedBlocks.load()));
+    data->setProperty("idleBlocks", static_cast<juce::int64>(s.get()->idleBlocks.load()));
     data->setProperty("skippedFrames", static_cast<juce::int64>(s.get()->skippedFrames.load()));
     data->setProperty("clockJumps", static_cast<juce::int64>(s.get()->clockJumps.load()));
     AudioStreamRing::Clock clock;

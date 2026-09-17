@@ -2438,7 +2438,7 @@ void testConcurrentMidiInspectorChanges() {
 
 void testParallelPoolCompletesAdmittedBlock() {
   fiddle::ParallelRenderPool pool;
-  for (const int workers : {2, 4}) {
+  for (const int workers : {2, 3, 4}) {
     pool.configure(workers, 48000, 256);
     REQUIRE(pool.count() == workers);
     struct Jobs {
@@ -2488,7 +2488,10 @@ void testParallelPoolCompletesAdmittedBlock() {
   }
   pool.configure(1, 44100, 512);
   REQUIRE(pool.count() == 1);
-  REQUIRE(fiddle::ParallelRenderPool::validCount(3) == 1);
+  REQUIRE(fiddle::ParallelRenderPool::validCount(3) == 3);
+  REQUIRE(fiddle::ParallelRenderPool::validCount(0) == 1);
+  REQUIRE(fiddle::ParallelRenderPool::validCount(1000) ==
+          fiddle::ParallelRenderPool::maximumCount());
 }
 
 std::vector<float> parallelMixerSamples(int workers, int maximumBlock, double rate) {
@@ -2553,7 +2556,7 @@ void testParallelMixerEquivalence() {
     const double rate = block == 64 ? 48000 : 44100;
     const auto serial = parallelMixerSamples(1, block, rate);
     REQUIRE(std::any_of(serial.begin(), serial.end(), [](float x) { return x != 0; }));
-    for (const int workers : {2, 4}) {
+    for (const int workers : {2, 3, 4}) {
       const auto parallel = parallelMixerSamples(workers, block, rate);
       REQUIRE(parallel == serial); // Fixed-order reduction is sample-exact.
     }
@@ -2569,6 +2572,7 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
   fiddle::AudioRenderDiagnostics recorder;
   const auto file = sandbox.directory.getChildFile("audio-v2.mmap");
   fiddle::RenderAheadEngine worker(f.mixer, recorder, file);
+  worker.setTransportActive(true);
   REQUIRE(worker.start(48000, 512).isEmpty());
   const auto firstId = worker.streamId();
   fiddle::AudioConsumer consumer(file.getFullPathName().toStdString());
@@ -2636,7 +2640,9 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
   }
   worker.stop();
   REQUIRE(ring.active.load() == 0);
+  worker.setTransportActive(false);
   REQUIRE(worker.start(44100, 1024).isEmpty());
+  REQUIRE(static_cast<bool>(worker.diagnostics()["idle"]));
   REQUIRE(static_cast<juce::int64>(worker.diagnostics()["controlWaitCount"]) == 0);
   REQUIRE(double(worker.diagnostics()["controlWaitMs"]) == 0.0);
   REQUIRE(worker.streamId() != firstId);
@@ -2648,6 +2654,23 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
   consumer.pullAudio(out.getArrayOfWritePointers(), 2, 512, 44100, worker.streamId());
   REQUIRE(consumer.diagnostics().unavailableFrames == 512);
   REQUIRE(out.getMagnitude(0, 512) == 0); // freshly primed generation
+  for (int i = 0; i < 10; ++i) {
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 3000;
+    while (static_cast<juce::int64>(worker.diagnostics()["queuedFrames"]) <
+               512 &&
+           juce::Time::getMillisecondCounterHiRes() < deadline)
+      juce::Thread::sleep(1);
+    consumer.pullAudio(out.getArrayOfWritePointers(), 2, 512, 44100,
+                       worker.streamId());
+  }
+  const auto idleDeadline = juce::Time::getMillisecondCounterHiRes() + 3000;
+  while (static_cast<juce::int64>(worker.diagnostics()["idleBlocks"]) == 0 &&
+         juce::Time::getMillisecondCounterHiRes() < idleDeadline)
+    juce::Thread::sleep(1);
+  REQUIRE(static_cast<juce::int64>(worker.diagnostics()["idleBlocks"]) > 0);
+  REQUIRE(static_cast<bool>(worker.diagnostics()["idle"]));
+  worker.notePerformanceActivity();
+  REQUIRE(!static_cast<bool>(worker.diagnostics()["idle"]));
   worker.stop();
 }
 

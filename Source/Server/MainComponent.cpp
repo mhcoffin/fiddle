@@ -568,6 +568,9 @@ void MainComponent::initMidiServer() {
       if (isPluginPerformanceActivity(event)) {
         lastPluginPerformanceActivityMs_.store(
             juce::Time::getMillisecondCounter(), std::memory_order_release);
+        if (auto *renderAhead =
+                renderAheadForMidi_.load(std::memory_order_acquire))
+          renderAhead->notePerformanceActivity();
       }
 
       // ── Transport State Machine ───────────────────────────────────
@@ -578,6 +581,9 @@ void MainComponent::initMidiServer() {
           if (!isTransportStarted_.compare_exchange_strong(expected, true)) {
             return; // Already started, ignore redundant event
           }
+          if (auto *renderAhead =
+                  renderAheadForMidi_.load(std::memory_order_acquire))
+            renderAhead->setTransportActive(true);
           const auto printStartMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStartMs] {
             if (renderAhead_ && renderAhead_->beginMixPrintAt(printStartMs))
@@ -589,6 +595,9 @@ void MainComponent::initMidiServer() {
           if (!isTransportStarted_.compare_exchange_strong(expected, false)) {
             return; // Already stopped, ignore redundant event
           }
+          if (auto *renderAhead =
+                  renderAheadForMidi_.load(std::memory_order_acquire))
+            renderAhead->setTransportActive(false);
           const auto printStopMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStopMs] {
             if (renderAhead_ && renderAhead_->endMixPrintAt(printStopMs))
@@ -856,6 +865,10 @@ void MainComponent::initMidiServer() {
           // A lost endpoint cannot send its final transport or NoteOff events.
           // Fail safe to silence and clear all transient performance state.
           isTransportStarted_.store(false, std::memory_order_release);
+          if (renderAhead_) {
+            renderAhead_->setTransportActive(false);
+            renderAhead_->setAuditionNotesActive(false);
+          }
           noteTracker.resetForTransportStop();
           mixer_.allNotesOff();
           harmonicService_.onTransportStop();
@@ -906,14 +919,36 @@ void MainComponent::initAudioDevice() {
     renderAhead_ = std::make_unique<RenderAheadEngine>(mixer_, audioDiagnostics_,
         juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
             .getChildFile("Caches/Fiddle/fiddle_audio_v2.mmap"));
+    renderAheadForMidi_.store(renderAhead_.get(), std::memory_order_release);
+    AudioDeviceSettings::Controls settingsControls;
+    settingsControls.getPlaybackDelayMs =
+        [this] { return mixer_.getPlaybackDelayMs(); };
+    settingsControls.setPlaybackDelayMs =
+        [this](int milliseconds) { changePlaybackDelay(milliseconds); };
+    settingsControls.beginPlaybackDelayGesture =
+        [this] { undoManager_.beginGesture(); };
+    settingsControls.endPlaybackDelayGesture =
+        [this] { undoManager_.endGesture(); };
+    settingsControls.getRequestedRenderWorkers =
+        [this] { return mixer_.requestedRenderWorkerCount(); };
+    settingsControls.getActiveRenderWorkers =
+        [this] { return mixer_.renderWorkerCount(); };
+    settingsControls.getMaximumRenderWorkers =
+        [] { return MixerModel::maximumRenderWorkerCount(); };
+    settingsControls.canChangeRenderWorkers =
+        [this] { return canChangeRenderWorkerCount(); };
+    settingsControls.setRenderWorkers =
+        [this](int count) { changeRenderWorkerCount(count); };
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
-        deviceManager, FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"));
+        deviceManager,
+        FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"),
+        std::move(settingsControls));
     juce::String err = audioSettings_->initialise();
     if (err.isNotEmpty()) {
       std::cerr << "[Audio] Failed to initialize device manager: " << err
                 << std::endl;
     }
-    // Also register after an initial device failure so Audio Settings can recover.
+    // Also register after an initial device failure so Settings can recover.
     deviceManager.addAudioCallback(this);
   }
   safeCallAsync([this]() { initDatabase(); });
@@ -1058,24 +1093,10 @@ void MainComponent::initDatabase() {
   {
     auto hws = db_.loadWindowSettings("history");
     if (hws.visible) {
-      safeCallAsync([this, hws]() {
-        if (!historyWindow_ && versionStore_) {
-          historyWindow_ = std::make_unique<HistoryWindow>(
-              webViewBridge_.createWebOptions());
-          historyWindowLoaded_ = false;
-          juce::String root =
-              juce::WebBrowserComponent::getResourceProviderRoot();
-          historyWindow_->getWebView().goToURL(root +
-                                               "index.html?view=history");
-          if (hws.width > 0 && hws.height > 0) {
-            historyWindow_->restoreGeometry(hws.x, hws.y, hws.width, hws.height,
-                                            true);
-          } else {
-            historyWindow_->setVisible(true);
-          }
-          std::cerr << "[HistoryWindow] Restored from saved settings"
-                    << std::endl;
-        }
+      safeCallAsync([this]() {
+        showHistoryWindow();
+        std::cerr << "[HistoryWindow] Restored from saved settings"
+                  << std::endl;
       });
     }
   }
@@ -2120,6 +2141,10 @@ void MainComponent::restoreDoricoProject(
 MainComponent::~MainComponent() {
   stopTimer();
   agentControlServer_.reset();
+  // Stop incoming transport/MIDI callbacks before destroying the render
+  // worker they wake.
+  server.reset();
+  renderAheadForMidi_.store(nullptr, std::memory_order_release);
   deviceManager.removeAudioCallback(this);
   renderAhead_.reset();
   mixer_.masterAudio().setOnChanged(nullptr);
@@ -2161,7 +2186,6 @@ MainComponent::~MainComponent() {
   }
 
   audioSettings_.reset();
-  server.reset();
 }
 
 void MainComponent::scanPersistedExpressionMapSources() {
@@ -2914,6 +2938,57 @@ void MainComponent::pushToDebugWindow(const juce::String &js) {
   }
 }
 
+void MainComponent::showView(const juce::String &viewId) {
+  if (viewId == "library-manager") {
+    showLibraryManagerWindow();
+    return;
+  }
+  if (viewId == "project-history") {
+    showHistoryWindow();
+    return;
+  }
+  if (viewId == "settings" || viewId == "audio-settings") {
+    showSettings();
+    return;
+  }
+
+  const std::map<juce::String, juce::String> debugTabs{
+      {"timeline", "timeline"}, {"event-log", "eventlog"},
+      {"plugins", "plugins"}, {"midi-capture", "capture"}};
+  if (const auto found = debugTabs.find(viewId); found != debugTabs.end()) {
+    if (debugWindow_) {
+      debugWindow_->selectTab(found->second);
+      debugWindow_->setMinimised(false);
+      debugWindow_->setVisible(true);
+      debugWindow_->toFront(true);
+      debugWindow_->grabKeyboardFocus();
+      saveDebugWindowGeometry();
+    }
+    return;
+  }
+
+  // Mixer-owned panes and dialogs share one typed command, regardless of
+  // whether the request came from the native menu or the toolbar directory.
+  static const juce::StringArray mixerViews{
+      "main", "inspector", "audio-bank", "chairs", "bus-manager",
+      "audio-performance"};
+  if (!mixerViews.contains(viewId))
+    return;
+  if (auto *window = findParentComponentOfClass<juce::DocumentWindow>()) {
+    window->setMinimised(false);
+    window->setVisible(true);
+    window->toFront(true);
+  }
+  if (viewId == "main")
+    return;
+  auto *message = new juce::DynamicObject();
+  message->setProperty("type", "showMixerView");
+  message->setProperty("data", viewId);
+  const auto json = juce::JSON::toString(juce::var(message));
+  webViewBridge_.getMainWebComponent().evaluateJavascript(
+      "window.__dispatchFromCpp && window.__dispatchFromCpp(" + json + ")");
+}
+
 void MainComponent::toggleDebugWindow() {
   if (debugWindow_) {
     bool wasVisible = debugWindow_->isVisible();
@@ -2940,6 +3015,29 @@ bool MainComponent::isDebugWindowVisible() const {
   return debugWindow_ && debugWindow_->isVisible();
 }
 
+void MainComponent::showHistoryWindow() {
+  if (!historyWindow_ && versionStore_) {
+    historyWindow_ =
+        std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
+    historyWindowLoaded_ = false;
+    historyWindow_->setGeometrySaver(
+        [this]() { saveHistoryWindowGeometry(); });
+    const auto root = juce::WebBrowserComponent::getResourceProviderRoot();
+    historyWindow_->getWebView().goToURL(root + "index.html?view=history");
+    const auto settings = db_.loadWindowSettings("history");
+    if (settings.width > 0 && settings.height > 0)
+      historyWindow_->restoreGeometry(settings.x, settings.y, settings.width,
+                                      settings.height, false);
+  }
+  if (!historyWindow_)
+    return;
+  historyWindow_->setMinimised(false);
+  historyWindow_->setVisible(true);
+  historyWindow_->toFront(true);
+  historyWindow_->grabKeyboardFocus();
+  saveHistoryWindowGeometry();
+}
+
 void MainComponent::toggleHistoryWindow() {
   // Lazily create the History window on first toggle (same logic as the JS
   // "openHistoryWindow" handler).
@@ -2947,6 +3045,8 @@ void MainComponent::toggleHistoryWindow() {
     historyWindow_ =
         std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
     historyWindowLoaded_ = false;
+    historyWindow_->setGeometrySaver(
+        [this]() { saveHistoryWindowGeometry(); });
     juce::String root = juce::WebBrowserComponent::getResourceProviderRoot();
     historyWindow_->getWebView().goToURL(root + "index.html?view=history");
 
@@ -3067,6 +3167,20 @@ void MainComponent::saveDebugWindowGeometry() {
   db_.saveWindowSettings(ws);
 }
 
+void MainComponent::saveHistoryWindowGeometry() {
+  if (!historyWindow_)
+    return;
+  fiddle::WindowSettings settings;
+  settings.windowId = "history";
+  const auto bounds = historyWindow_->getBounds();
+  settings.x = bounds.getX();
+  settings.y = bounds.getY();
+  settings.width = bounds.getWidth();
+  settings.height = bounds.getHeight();
+  settings.visible = historyWindow_->isVisible();
+  db_.saveWindowSettings(settings);
+}
+
 void MainComponent::saveLibraryManagerWindowGeometry() {
   if (!libraryManagerWindow_)
     return;
@@ -3108,6 +3222,9 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 }
 
 void MainComponent::timerCallback() {
+  if (renderAhead_)
+    renderAhead_->setAuditionNotesActive(noteTracker.hasActiveNotes());
+
   if (renderAhead_ &&
       renderAhead_->mixPrintNeedsFinalizing(audioStreamTimeMs())) {
     renderAhead_->stopMixPrint();
@@ -3235,6 +3352,9 @@ void MainComponent::audioDeviceAboutToStart(juce::AudioIODevice *device) {
   // Pass the actual device sample rate and block size down to the mixer and
   // plugins
   if (device) {
+    renderAhead_->setTransportActive(
+        isTransportStarted_.load(std::memory_order_acquire));
+    renderAhead_->setAuditionNotesActive(noteTracker.hasActiveNotes());
     const auto error = renderAhead_->start(device->getCurrentSampleRate(), device->getCurrentBufferSizeSamples());
     audioDeviceRunning_.store(error.isEmpty(), std::memory_order_relaxed);
     safeCallAsync([this, error] {
@@ -3285,8 +3405,43 @@ double MainComponent::delayedOutputPresentationTimeMs() const {
          reportedPlaybackDelayMs_.load(std::memory_order_relaxed);
 }
 
-void MainComponent::showAudioSettings() {
+void MainComponent::showSettings() {
   if (audioSettings_) audioSettings_->show();
+}
+
+bool MainComponent::canChangeRenderWorkerCount() const {
+  return !isTransportStarted_.load(std::memory_order_acquire) &&
+         !(renderAhead_ && renderAhead_->mixPrintIsArmed());
+}
+
+void MainComponent::changeRenderWorkerCount(int count) {
+  if (count < 1 || count > MixerModel::maximumRenderWorkerCount())
+    return;
+  if (!canChangeRenderWorkerCount()) {
+    pushLogMessage(
+        "Stop Dorico playback and disarm printing before changing render "
+        "workers.",
+        true);
+    return;
+  }
+  mixer_.setRenderWorkerCount(count);
+  // Local preference only: never included in project versions or undo.
+  db_.saveSetting("audio_render_workers", std::to_string(count));
+  pushAudioDiagnostics();
+}
+
+void MainComponent::changePlaybackDelay(int milliseconds) {
+  auto settings = mixer_.projectSettings();
+  settings.playbackDelayMs = std::clamp(milliseconds, 0, 5000);
+  if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+          mixer_, settings, "Change playback delay", "playback-delay")))
+    return;
+  saveAllStripsToDB(false);
+  pushMixerState();
+  scheduleStateRebuild();
+  pushConfigStatus();
+  pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
+                 juce::String(settings.playbackDelayMs) + " ms");
 }
 
 void MainComponent::pushAudioDiagnostics() {
@@ -3464,22 +3619,22 @@ void MainComponent::setupJsHandlers() {
     });
   }
   jsRouter_.registerHandler("showAudioSettings", [this](const juce::var &) {
-    safeCallAsync([this] { showAudioSettings(); });
+    safeCallAsync([this] { showSettings(); });
+  });
+  jsRouter_.registerHandler("showView", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1)
+      return;
+    const auto viewId = payload[0].toString();
+    safeCallAsync([this, viewId]() { showView(viewId); });
   });
   jsRouter_.registerHandler("setRenderWorkerCount", [this](const juce::var &payload) {
     if (!payload.isArray() || payload.size() != 1) return;
     const auto value = static_cast<double>(payload[0]);
-    if (value != 1.0 && value != 2.0 && value != 4.0) return;
+    if (!std::isfinite(value) || value != std::floor(value) || value < 1.0 ||
+        value > MixerModel::maximumRenderWorkerCount())
+      return;
     safeCallAsync([this, count = static_cast<int>(value)] {
-      if (isTransportStarted_.load(std::memory_order_acquire) ||
-          (renderAhead_ && renderAhead_->mixPrintIsArmed())) {
-        pushLogMessage("Stop Dorico playback and disarm printing before changing render workers.", true);
-        return;
-      }
-      mixer_.setRenderWorkerCount(count);
-      // Local preference only: never included in project versions or undo.
-      db_.saveSetting("audio_render_workers", std::to_string(count));
-      pushAudioDiagnostics();
+      changeRenderWorkerCount(count);
     });
   });
   jsRouter_.registerHandler("requestMixPrintState", [this](const juce::var &) {
@@ -5515,19 +5670,7 @@ void MainComponent::setupJsHandlers() {
 
         if (args.size() >= 1) {
           int ms = static_cast<int>(args[0]);
-          safeCallAsync([this, ms]() {
-            auto settings = mixer_.projectSettings();
-            settings.playbackDelayMs = std::clamp(ms, 0, 5000);
-            if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
-                    mixer_, settings, "Change playback delay", "playback-delay")))
-              return;
-            saveAllStripsToDB(false);
-            pushMixerState();
-            scheduleStateRebuild();
-            pushConfigStatus();
-            pushLogMessage("<b>[Mixer]</b> Playback delay set to " +
-                           juce::String(ms) + " ms");
-          });
+          safeCallAsync([this, ms]() { changePlaybackDelay(ms); });
         }
         return;
       });
@@ -5566,21 +5709,7 @@ void MainComponent::setupJsHandlers() {
       });
   jsRouter_.registerHandler("openHistoryWindow", [this](
                                                      const juce::var &payload) {
-    safeCallAsync([this]() {
-      if (!historyWindow_ && versionStore_) {
-        historyWindow_ =
-            std::make_unique<HistoryWindow>(webViewBridge_.createWebOptions());
-        historyWindowLoaded_ = false;
-        juce::String root =
-            juce::WebBrowserComponent::getResourceProviderRoot();
-        historyWindow_->getWebView().goToURL(root + "index.html?view=history");
-      }
-      if (historyWindow_) {
-        historyWindow_->setVisible(true);
-        historyWindow_->toFront(true);
-        // pushDagHistory() will be called once the window signals ready
-      }
-    });
+    safeCallAsync([this]() { showHistoryWindow(); });
     return;
   });
   jsRouter_.registerHandler("showLibraryManagerWindow", [this](

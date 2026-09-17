@@ -57,7 +57,10 @@ try {
         window.fixtureChairs = chairs;
         window.fixtureMessages = [];
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
-            window.fixtureMessages.push(request.params[0]);
+            const message = request.params[0];
+            window.fixtureMessages.push(message);
+            if (message.type === "showView" && ["inspector", "audio-bank", "chairs", "bus-manager", "audio-performance"].includes(message.payload[0]))
+                queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
         } } };
         window.__dispatchFromCpp({ type: "setPluginList", data: [
             { uid: 101, name: "A very long sample player name", valid: true },
@@ -72,7 +75,6 @@ try {
     });
     await page.waitForSelector(".channel-strip");
     const viewButton = page.getByRole("button", { name: "View", exact: true });
-    const setupButton = page.getByRole("button", { name: "Setup", exact: true });
     for (const width of [800, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         const toolbar = await page.locator(".mixer-toolbar").evaluate(element => {
@@ -103,13 +105,19 @@ try {
     await page.getByRole("button", { name: "Zoom in", exact: true }).click();
     assert.equal(await page.getByRole("button", { name: "Reset zoom", exact: true }).innerText(), "110%");
     await page.getByRole("button", { name: "Reset zoom", exact: true }).click();
-    await setupButton.click();
-    assert.equal(await viewButton.getAttribute("aria-expanded"), "false", "opening Setup closes View");
-    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
-        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "toolbar-setup.png") });
     await page.getByRole("button", { name: "Library Manager", exact: true }).click();
-    assert.equal(await setupButton.getAttribute("aria-expanded"), "false");
-    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "showLibraryManagerWindow");
+    assert.equal(await viewButton.getAttribute("aria-expanded"), "false");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "showView", payload: ["library-manager"] });
+    const audioBankToggle = page.locator(".bank .header-toggle");
+    await audioBankToggle.click();
+    assert.equal(await audioBankToggle.getAttribute("aria-expanded"), "false");
+    await viewButton.click();
+    await page.getByRole("button", { name: "Audio Buses & Master", exact: true }).click();
+    assert.equal(await audioBankToggle.getAttribute("aria-expanded"), "true");
+    await viewButton.click();
+    await page.getByRole("button", { name: "Layer Inspector", exact: true }).click();
+    await page.getByRole("button", { name: "Close inspector", exact: true }).click();
     const sizes = [];
     for (const size of ["compact", "comfortable", "large"]) {
         await viewButton.click();
@@ -263,7 +271,6 @@ try {
         } });
         window.fixtureMessages = [];
     });
-    assert.equal(await page.locator("#delay-slider").inputValue(), "750");
     const layeredChair = page.locator(".inst-group").nth(8);
     assert.equal(await layeredChair.locator(".sum-lock-active").count(), 1);
     await layeredChair.locator(".channel-strip .mute-btn").first().click();
@@ -278,13 +285,6 @@ try {
     // Native state after Undo must replace optimistic gain shadows.
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
     assert.equal(Number(await layeredChair.locator('.channel-strip input[type="number"]').nth(1).inputValue()), 0);
-    await page.getByRole("button", { name: "Audio performance", exact: true }).click();
-    await page.locator("#delay-slider").focus();
-    await page.keyboard.down("ArrowRight");
-    await page.keyboard.up("ArrowRight");
-    const delayMessages = await page.evaluate(() => window.fixtureMessages.slice(-3).map(x => x.type));
-    assert.deepEqual(delayMessages, ["beginHistoryGesture", "setPlaybackDelay", "endHistoryGesture"]);
-    await page.getByRole("dialog", { name: "Audio performance", exact: true }).getByRole("button", { name: "Close", exact: true }).click();
     await layeredChair.locator('.channel-strip input[type="number"]').first().focus();
     await page.evaluate(() => { window.fixtureMessages = []; });
     await page.keyboard.press("Meta+z");
@@ -293,8 +293,8 @@ try {
     await viewButton.focus();
     await page.keyboard.press("Meta+Shift+z");
     assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "redo");
-    await setupButton.click();
-    await page.getByRole("button", { name: "Manage Chairs", exact: true }).click();
+    await viewButton.click();
+    await page.getByRole("button", { name: "Chairs…", exact: true }).click();
     const manager = page.getByRole("dialog", { name: "Chair Manager", exact: true });
     await page.evaluate(() => {
         window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
@@ -328,7 +328,7 @@ try {
         running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,
         blockSize: 512, buildConfiguration: "Release", returnFresh: true, returnSampleRate: 44100,
         returnProtocol: 2, requestedDelayMs: 1000, effectiveDelayMs: 1000,
-        renderAhead: { enabled: true, realtimeScheduling: true, queuedMs: 61.2, targetMs: 69.7,
+        renderAhead: { enabled: true, idle: true, realtimeScheduling: true, queuedMs: 61.2, targetMs: 69.7,
             skippedFrames: 0, hostClockAgeMs: 2.1 },
         device: { name: "Fixture audio interface", type: "Test audio", sampleRate: 44100, bufferSize: 512 },
         plugins: Array.from({ length: 30 }, (_, i) => ({
@@ -341,8 +341,13 @@ try {
     const performance = page.getByRole("dialog", { name: "Audio performance", exact: true });
     await performance.waitFor({ state: "visible" });
     assert.match(await performance.innerText(), /61.2 ms queued · 69.7 ms target/);
+    assert.match(await performance.innerText(), /Render-ahead reserve · Idle/);
     assert.match(await performance.innerText(), /1000 ms effective \/ 1000 ms requested/);
     assert.doesNotMatch(await performance.innerText(), /Long callback gaps/);
+    assert.equal(await performance.getByRole("slider").count(), 0,
+        "Audio Performance must not contain settings controls");
+    assert.equal(await performance.getByRole("combobox").count(), 0,
+        "render-worker selection belongs in Settings");
     assert.equal(await performance.locator("tbody tr").count(), 30);
     assert.match(await performance.locator("tbody tr").first().innerText(), /Violin 30/);
     for (const name of ["Close", "Mark crackle", "Copy report"]) {
@@ -363,9 +368,12 @@ try {
     await performance.locator("tbody tr").first().scrollIntoViewIfNeeded();
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-plugin-timings.png") });
-    await performance.getByRole("button", { name: "Audio Settings…", exact: true }).click();
+    await performance.getByRole("button", { name: "Close", exact: true }).click();
     await performance.waitFor({ state: "hidden" });
-    assert.ok(await page.evaluate(() => window.fixtureMessages.some(x => x.type === "showAudioSettings")));
+    await viewButton.click();
+    await page.getByRole("button", { name: "Settings…", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "showView", payload: ["settings"] });
     // A locked three-layer chair: cross the target, restore from a serialized
     // snapshot while siblings are silent, then lower the layer and recover the blend.
     // The fixture only applies bridge messages; all compensation runs in the UI.
@@ -429,6 +437,22 @@ try {
     await installLockFixture(page, recovered);
     assert.equal(await targetSlider.inputValue(), targetPosition);
     assert.equal(await page.locator(".combined-level-marker").count(), 0);
+
+    // The standalone Debug window must render from index.html and honor both
+    // its initial tab and later native focus requests.
+    const debugPage = await context.newPage();
+    debugPage.setDefaultTimeout(10000);
+    debugPage.on("pageerror", error => errors.push(error.message));
+    await debugPage.goto(`http://127.0.0.1:${server.address().port}/index.html?mode=debug&tab=plugins`);
+    await debugPage.locator(".tab-nav").waitFor();
+    assert.equal(await debugPage.getByRole("button", { name: "Plugins", exact: true }).evaluate(button => button.classList.contains("active")), true);
+    await debugPage.evaluate(() => window.__dispatchFromCpp({ type: "showDebugTab", data: "capture" }));
+    assert.equal(await debugPage.getByRole("button", { name: "MIDI Capture", exact: true }).evaluate(button => button.classList.contains("active")), true);
+    assert.equal(await debugPage.getByRole("button", { name: "Plugins", exact: true }).evaluate(button => button.classList.contains("active")), false);
+    assert.equal(await debugPage.locator(".tab-nav button.active").count(), 1);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await debugPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "debug-midi-capture.png") });
+    await debugPage.close();
 
     // Use the real Library Manager in its own window mode. Native integration
     // tests execute the command; this fixture checks dispatch and status rendering.

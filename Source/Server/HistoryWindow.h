@@ -23,7 +23,27 @@ public:
     jsTestBridge_ = std::make_unique<JsTestBridge>(webView_, 9224);
   }
 
-  void closeButtonPressed() override { setVisible(false); }
+  void closeButtonPressed() override {
+    setVisible(false);
+    if (geometrySaver_)
+      geometrySaver_();
+  }
+
+  void moved() override {
+    DocumentWindow::moved();
+    if (geometrySaver_)
+      geometrySaver_();
+  }
+
+  void resized() override {
+    DocumentWindow::resized();
+    if (geometrySaver_)
+      geometrySaver_();
+  }
+
+  void setGeometrySaver(std::function<void()> callback) {
+    geometrySaver_ = std::move(callback);
+  }
 
   void restoreGeometry(int x, int y, int w, int h, bool visible) {
     auto bounds = juce::Rectangle<int>(x, y, w, h);
@@ -45,6 +65,7 @@ public:
 private:
   juce::WebBrowserComponent webView_;
   std::unique_ptr<JsTestBridge> jsTestBridge_;
+  std::function<void()> geometrySaver_;
 
   JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(HistoryWindow)
 };

@@ -39,10 +39,15 @@
   let hoveredNote = $state(null);
   let tooltipPos = $state({ x: 0, y: 0 });
   let tooltipPlacement = $state("top");
-  let activeTab = $state("timeline");
+  const debugTabs = new Set(["timeline", "eventlog", "plugins", "capture"]);
+  let activeTab = $state(debugTabs.has(urlParams.get("tab")) ? urlParams.get("tab") : "timeline");
   let channelInstruments = $state({});
   let midiEvents = $state([]);
   let serverVersion = $state("");
+
+  onFromCpp("showDebugTab", (tab) => {
+    if (debugTabs.has(tab)) activeTab = tab;
+  });
   let isConnected = $state(false);
   let connectionWarning = $state("");
   let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }

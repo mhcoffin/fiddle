@@ -24,6 +24,11 @@ public:
   bool mixPrintIsArmed() const noexcept;
   bool mixPrintNeedsFinalizing(double currentPresentationTimeMs) const noexcept;
   juce::var mixPrintState() const;
+  /// Full graph rendering is required while transport is running. Outside
+  /// transport, recent MIDI and active audition notes temporarily wake it.
+  void setTransportActive(bool active) noexcept;
+  void notePerformanceActivity() noexcept;
+  void setAuditionNotesActive(bool active) noexcept;
   uint64_t streamId() const noexcept;
   double reserveMs() const noexcept;
   juce::var diagnostics() const;
@@ -32,18 +37,25 @@ private:
     std::unique_ptr<juce::MemoryMappedFile> mapping;
     AudioStreamRing *ring = nullptr;
     juce::AudioBuffer<float> scratch;
-    std::atomic<uint64_t> renderedBlocks{0}, skippedFrames{0}, clockJumps{0};
+    std::atomic<uint64_t> renderedBlocks{0}, idleBlocks{0}, skippedFrames{0},
+        clockJumps{0};
     // Actual worker retry sleeps after a denied render, not control duration
     // (which can overlap an already-running block). Reset with each stream.
     std::atomic<uint64_t> controlWaitCount{0}, controlWaitUs{0};
     ~Stream() { if (ring) ring->active.store(0, std::memory_order_release); }
   };
   void run() override;
+  bool performanceRequested(uint32_t now) const noexcept;
+  static int idleWaitMilliseconds(const AudioStreamRing &ring) noexcept;
   MixerModel &mixer_;
   AudioRenderDiagnostics &recorder_;
   juce::File file_;
   RealtimeObjectPublisher<Stream> stream_;
   std::atomic<bool> realtime_{false};
+  std::atomic<bool> transportActive_{false};
+  std::atomic<bool> auditionNotesActive_{false};
+  std::atomic<bool> idle_{true};
+  std::atomic<uint32_t> lastPerformanceActivityMs_{0};
   RealtimeMixPrinter mixPrinter_;
 };
 } // namespace fiddle

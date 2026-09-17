@@ -3,8 +3,6 @@
     import { onFromCpp, dispatchCpp } from "./ipc.js";
     import { audioCpuLabel, appendDiagnosticSample, diagnosticReport, pluginTimingRows } from "./audioDiagnostics.js";
 
-    let { playbackDelay = 1000, onDelayChange = () => {} } = $props();
-
     let data = $state(null);
     let receivedAt = $state(0);
     let now = $state(Date.now());
@@ -27,7 +25,10 @@
             history = appendDiagnosticSample(history, value, now);
         });
         const timer = setInterval(() => { now = Date.now(); }, 1000);
-        return () => { unsubscribe(); clearInterval(timer); };
+        const unsubscribeView = onFromCpp("showMixerView", (view) => {
+            if (view === "audio-performance") { open = true; copied = false; }
+        });
+        return () => { unsubscribe(); unsubscribeView(); clearInterval(timer); };
     });
 
     $effect(() => {
@@ -60,42 +61,18 @@
     <div class="content">
         <div class="headline">{label}<span>Recent peak {fixed(data?.peakLoad)}%</span></div>
         <section class="device">
-            <h3>Playback delay</h3>
-            <div class="delay-control">
-                <label for="delay-slider">Delay</label>
-                <input id="delay-slider" type="range" min="0" max="5000" step="50"
-                    value={playbackDelay} oninput={(event) => onDelayChange(event.currentTarget.value)} />
-                <input aria-label="Playback delay in milliseconds" class="delay-value" type="number"
-                    min="0" max="5000" step="50" value={playbackDelay}
-                    onchange={(event) => onDelayChange(event.currentTarget.value)} />
-                <span>ms</span>
-            </div>
-            <p>Time available for Fiddle to prepare audio before Dorico plays it. Saved with the project; Undo and Redo apply.</p>
-        </section>
-        <section class="device">
-            <h3>Audio setup · {data?.buildConfiguration ?? "Unknown build"}</h3>
+            <h3>Audio device · {data?.buildConfiguration ?? "Unknown build"}</h3>
             <p>{data?.device?.name ?? "No active device"} · {data?.device?.type ?? "—"}<br />
                 {data?.device?.sampleRate ?? "—"} Hz · {data?.device?.bufferSize ?? "—"} frames
                 ({fixed(1000 * data?.device?.bufferSize / data?.device?.sampleRate, 2)} ms per block)</p>
-            <button onclick={() => { open = false; dispatchCpp("showAudioSettings"); }}>Audio Settings…</button>
-            <p>Stop playback before changing settings. These are local to this Mac, not saved in project versions. Dorico has its own audio settings.</p>
             {#if data?.device?.warning}<p class="warning">{data.device.warning}</p>{/if}
         </section>
         {#if rateMismatch}<p class="warning">Sample rates differ between Fiddle and Dorico. Audio is not resampled on this connection.</p>{/if}
         {#if data?.renderAheadError}<p class="warning">{data.renderAheadError}</p>{/if}
         {#if data?.renderAhead?.enabled}
             <section class="device">
-                <h3>Render-ahead reserve</h3>
-                <label>Rendering workers (experimental)
-                    <select value={data.renderAhead.requestedRenderWorkers ?? 1}
-                        disabled={!data.renderWorkerChangeAllowed}
-                        onchange={(event) => dispatchCpp("setRenderWorkerCount", Number(event.currentTarget.value))}>
-                        <option value={1}>1 — single-thread fallback</option>
-                        <option value={2}>2 workers</option>
-                        <option value={4}>4 workers</option>
-                    </select>
-                </label>
-                <p>{data.renderAhead.renderWorkers ?? 1} active worker(s), including the coordinator. Stop playback and disarm printing to change. Remembered on this Mac, not in project versions.</p>
+                <h3>Render-ahead reserve · {data.renderAhead.idle ? "Idle" : `${data.renderAhead.renderWorkers ?? 1} active worker(s)`}</h3>
+                {#if data.renderAhead.idle}<p>Transport is stopped and no audition notes are active. Fiddle is maintaining Dorico's reserve with silence while instrument and effect processing sleeps.</p>{/if}
                 {#if data.renderAhead.renderWorkers !== data.renderAhead.requestedRenderWorkers}<p class="warning">Some workers could not start; single-thread fallback is active.</p>{/if}
                 {#if data.renderAhead.helpersRealtime === false}<p class="warning">Helper real-time scheduling was unavailable; high-priority fallback is in use.</p>{/if}
                 <p>{fixed(data.renderAhead.queuedMs)} ms queued · {fixed(data.renderAhead.targetMs)} ms target<br />
@@ -190,9 +167,6 @@
     button:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
     .cpu { height: 30px; padding: 4px 8px; border-color: transparent; background: transparent; font-size: .75rem; font-variant-numeric: tabular-nums; color: #94a3b8; }
     .cpu.hot { border-color: #fb923c; background: #431407; color: #fed7aa; }
-    .delay-control { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .delay-control input[type="range"] { flex: 1; min-width: 120px; }
-    .delay-value { width: 80px; padding: 5px; border: 1px solid #475569; border-radius: 4px; background: #020617; color: #e2e8f0; font: inherit; }
     dialog { width: min(920px, 92vw); max-height: 88vh; padding: 0; background: #0f1929; color: #e2e8f0; border: 1px solid #64748b; border-radius: 12px; font-size: 15px; }
     dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
     dialog::backdrop { background: #0009; }

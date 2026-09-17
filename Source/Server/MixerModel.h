@@ -155,9 +155,13 @@ public:
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime);
 
   void prepareToPlay(double sampleRate, int blockSize);
-  /// Local experimental setting, not part of project state. Includes the
-  /// coordinator: 1 means the original serial path, 2/4 add 1/3 helpers.
+  /// Local experimental setting, not part of project state. The count includes
+  /// the coordinator, so 1 means the original serial path and N adds N-1
+  /// persistent helpers.
   void setRenderWorkerCount(int count);
+  static constexpr int maximumRenderWorkerCount() noexcept {
+    return ParallelRenderPool::maximumCount();
+  }
   int renderWorkerCount() const noexcept { return renderPool_.count(); }
   int requestedRenderWorkerCount() const noexcept { return renderWorkers_.load(); }
   bool renderHelpersRealtime() const noexcept { return renderPool_.realtime(); }

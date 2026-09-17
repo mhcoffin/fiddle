@@ -28,8 +28,8 @@ test("panel uses native modal focus handling and offers marked, copyable diagnos
     assert.match(source, /dialog\.showModal\(\)/);
     assert.match(source, /Mark crackle/);
     assert.match(source, /copyAudioDiagnosticsReport/);
-    assert.match(source, /unsubscribe\(\); clearInterval\(timer\)/);
-    assert.match(source, /showAudioSettings/);
+    assert.match(source, /unsubscribe\(\); unsubscribeView\(\); clearInterval\(timer\)/);
+    assert.doesNotMatch(source, /showAudioSettings|delay-slider|setRenderWorkerCount/);
     assert.match(source, /buildConfiguration/);
     assert.match(source, /renderBeforeLongGapMs/);
     assert.match(source, /Safety-mute episodes/);
@@ -37,9 +37,23 @@ test("panel uses native modal focus handling and offers marked, copyable diagnos
     assert.match(source, /recovery safety muting/);
     assert.match(source, /controlWaitCount/);
     assert.match(source, /controlWaitMs/);
-    assert.match(source, /setRenderWorkerCount/);
-    assert.match(source, /disabled=\{!data.renderWorkerChangeAllowed\}/);
+    assert.match(source, /renderAhead\.idle/);
+    assert.match(source, /maintaining Dorico's reserve with silence/);
     assert.match(source, /Summed plugin work \(overlapping\)/);
+});
+
+test("delay, render workers and the audio device share the native Settings window", () => {
+    const source = readFileSync(new URL("../../AudioDeviceSettings.cpp", import.meta.url), "utf8");
+    assert.match(source, /Fiddle Settings/);
+    assert.match(source, /playbackGroup_\("playback", "Playback"\)/);
+    assert.match(source, /renderingGroup_\("rendering", "Rendering"\)/);
+    assert.match(source, /deviceGroup_\("device", "Audio output"\)/);
+    assert.match(source, /setPlaybackDelayMs/);
+    assert.match(source, /delay_\.onDragStart/);
+    assert.match(source, /delay_\.onDragEnd/);
+    assert.match(source, /setRenderWorkers/);
+    assert.match(source, /Slider::IncDecButtons/);
+    assert.doesNotMatch(source, /single-thread fallback/);
 });
 
 test("reports retain control-gate wait measurements", () => {
@@ -55,12 +69,13 @@ test("reports retain control-gate wait measurements", () => {
 
 test("worker changes are validated, stopped-only, and local rather than project settings", () => {
     const source = readFileSync(new URL("../../MainComponent.cpp", import.meta.url), "utf8");
-    const handler = source.match(/registerHandler\("setRenderWorkerCount",([\s\S]*?)\n  \}\);/)?.[1];
-    assert.match(handler, /value != 1.0 && value != 2.0 && value != 4.0/);
-    assert.match(handler, /isTransportStarted_/);
-    assert.match(handler, /mixPrintIsArmed/);
-    assert.match(handler, /saveSetting\("audio_render_workers"/);
-    assert.doesNotMatch(handler, /saveConfig|markDirty|undoManager/);
+    const change = source.match(/void MainComponent::changeRenderWorkerCount\(int count\) \{([\s\S]*?)\n\}/)?.[1];
+    const allowed = source.match(/bool MainComponent::canChangeRenderWorkerCount\(\) const \{([\s\S]*?)\n\}/)?.[1];
+    assert.match(change, /count < 1 \|\| count > MixerModel::maximumRenderWorkerCount\(\)/);
+    assert.match(allowed, /isTransportStarted_/);
+    assert.match(allowed, /mixPrintIsArmed/);
+    assert.match(change, /saveSetting\("audio_render_workers"/);
+    assert.doesNotMatch(change, /saveConfig|markDirty|undoManager/);
 });
 
 test("plugin costs sort without mutating reports, and stale or bypassed costs are explicit", () => {

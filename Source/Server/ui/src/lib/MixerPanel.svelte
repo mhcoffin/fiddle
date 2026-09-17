@@ -66,6 +66,7 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
     let chairManagerOpen = $state(false);
+    let audioBankReveal = $state(0);
     let chairs = $state([]);
     let layerCatalog = $state([]);
     let layerPickerChair = $state(null);
@@ -80,7 +81,6 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
         stripSize = writeStripSize(window.localStorage, value);
     };
 
-    let playbackDelay = $state(1000);
     let dirty = $state(false);
     let isDetachedHead = $state(false);
     let saveButton = $derived(projectSaveButton(dirty, isDetachedHead));
@@ -148,12 +148,8 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
             console.error("[Mixer] setAvailableInputs error:", e);
         }
     });
-    onFromCpp("setPlaybackDelay", (ms) => {
-        playbackDelay = ms;
-    });
     onFromCpp("setUndoState", (state) => { undoState = state; });
     onFromCpp("setProjectSettings", (state) => {
-        playbackDelay = state.playbackDelayMs;
 groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { lockSum: true, ...state.chairLevels?.[id] }]));
         if (faderDragging.size === 0) chairLevelShadow = {};
     });
@@ -231,12 +227,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         isDetachedHead = detached;
     });
 
-    const updateDelay = (ms) => {
-        const val = Math.max(0, Math.min(5000, parseInt(ms) || 0));
-        playbackDelay = val;
-        dispatchCpp("setPlaybackDelay", val);
-    };
-
     const doSaveConfig = () => {
         dispatchCpp("saveConfig");
     };
@@ -249,12 +239,30 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     let selectedIds = $state(new Set());
     let lastClickedId = $state(null);
     let inspectorStripId = $state(null);
+    let inspectorOpen = $state(false);
     let inspectorWidth = $state(320);
     let isResizing = $state(false);
 
     const toggleInspector = (stripId) => {
-        inspectorStripId = inspectorStripId === stripId ? null : stripId;
+        if (inspectorOpen && inspectorStripId === stripId) {
+            inspectorOpen = false;
+            return;
+        }
+        inspectorStripId = stripId;
+        inspectorOpen = true;
     };
+
+    const showInspector = () => {
+        inspectorStripId ??= [...selectedIds][0] ?? lastClickedId ?? strips[0]?.id ?? null;
+        inspectorOpen = true;
+    };
+
+    onFromCpp("showMixerView", (view) => {
+        if (view === "inspector") showInspector();
+        else if (view === "audio-bank") audioBankReveal += 1;
+        else if (view === "chairs") chairManagerOpen = true;
+        else if (view === "bus-manager") busManagerOpen = true;
+    });
 
     // ── Resize drag logic ─────────────────────────────────
     let resizeStartX = 0;
@@ -315,7 +323,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     const selectedIdsJson = () => JSON.stringify([...selectedIds]);
 
     onMount(() => {
-        dispatchCpp("getPlaybackDelay");
         dispatchCpp("requestBranches");
         dispatchCpp("requestMixerState");
         dispatchCpp("getAvailableInputs");
@@ -1061,9 +1068,31 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             {/if}
         </div>
         <div class="toolbar-right">
-            <AudioDiagnostics {playbackDelay} onDelayChange={updateDelay} />
+            <AudioDiagnostics />
             <ToolbarMenu label="View">
                 {#snippet children(close)}
+                    <div class="view-group">
+                        <span class="view-group-title">Workspace</span>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "inspector"); }}>Layer Inspector</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-bank"); }}>Audio Buses &amp; Master</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "project-history"); }}>Project History</button>
+                    </div>
+                    <div class="view-group">
+                        <span class="view-group-title">Setup</span>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "bus-manager"); }}>Audio Buses…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
+                    </div>
+                    <div class="view-group">
+                        <span class="view-group-title">Diagnostics</span>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-performance"); }}>Audio Performance</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "timeline"); }}>Timeline</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "event-log"); }}>Event Log</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "midi-capture"); }}>MIDI Capture</button>
+                    </div>
+                    <span class="view-group-title">Layout</span>
                     <div class="display-controls">
                         <label class="display-control-label" for="strip-size-select">Strip size</label>
                         <select id="strip-size-select" class="toolbar-select" value={stripSize}
@@ -1086,13 +1115,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                             onchange={(event) => { showLibraryBar = writeLibraryBarVisible(window.localStorage, event.currentTarget.checked); }} />
                         Show library bar
                     </label>
-                {/snippet}
-            </ToolbarMenu>
-            <ToolbarMenu label="Setup">
-                {#snippet children(close)}
-                    <button class="setup-item" onclick={() => { close(); chairManagerOpen = true; }}
-                        aria-haspopup="dialog">Manage Chairs</button>
-                    <button class="setup-item" onclick={() => { close(); dispatchCpp("showLibraryManagerWindow"); }}>Library Manager</button>
                 {/snippet}
             </ToolbarMenu>
         </div>
@@ -1518,12 +1540,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onManage={() => { busManagerOpen = true; }}
                 onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
                 onOpenMasterAudio={() => { masterAudioOpen = true; }}
+                revealRequest={audioBankReveal}
             />
         </div>
         </div> <!-- /mixer-strips-area -->
     {/if}
 
-    {#if inspectorStripId}
+    {#if inspectorOpen}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
             class="inspector-resize-handle"
@@ -1532,9 +1555,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         <div class="inspector-panel" style="width: {inspectorWidth}px;">
             <div class="inspector-panel-header">
                 <span class="inspector-panel-title">Note Inspector</span>
-                <button class="inspector-close-btn" onclick={() => { inspectorStripId = null; }}>✕</button>
+                <button class="inspector-close-btn" aria-label="Close inspector" onclick={() => { inspectorOpen = false; }}>✕</button>
             </div>
-            <NoteInspector stripId={inspectorStripId} />
+            {#if inspectorStripId}
+                <NoteInspector stripId={inspectorStripId} />
+            {:else}
+                <div class="inspector-empty">Select a layer to inspect its incoming MIDI.</div>
+            {/if}
         </div>
     {/if}
     </div> <!-- /mixer-body -->
@@ -1578,7 +1605,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 plugins={scannedPlugins}
                 maps={availableXmaps}
                 luaCatalog={luaPluginCatalog}
-                inspectorOpen={inspectorStripId === detailsStrip.id}
+                inspectorOpen={inspectorOpen && inspectorStripId === detailsStrip.id}
                 onClose={() => { layerDetailsStripId = ""; }}
                 onSetPlugin={(uid) => setPlugin(detailsStrip.id, uid)}
                 onShowInstrument={() => showEditor(detailsStrip.id)}
@@ -1703,6 +1730,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         flex-shrink: 0;
     }
 
+    .inspector-empty {
+        padding: 24px 16px;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        line-height: 1.5;
+    }
+
     .inspector-panel-header {
         display: flex;
         justify-content: space-between;
@@ -1782,8 +1816,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     }
     .display-controls { justify-content: space-between; }
     .library-bar-option { display: flex; align-items: center; gap: 8px; color: #cbd5e1; font-size: .8rem; cursor: pointer; }
-    .setup-item { padding: 8px; border: 0; border-radius: 4px; background: transparent; color: #e2e8f0; font: inherit; font-size: .8rem; text-align: left; cursor: pointer; white-space: nowrap; }
-    .setup-item:hover, .setup-item:focus-visible { background: #1e293b; outline: 1px solid #64748b; }
+    .view-group { display: flex; flex-direction: column; gap: 2px; padding-bottom: 8px; border-bottom: 1px solid #334155; }
+    .view-group-title { color: #64748b; font-size: .65rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .view-item { padding: 5px 8px; border: 0; border-radius: 4px; background: transparent; color: #e2e8f0; font: inherit; font-size: .8rem; text-align: left; cursor: pointer; white-space: nowrap; }
+    .view-item:hover, .view-item:focus-visible { background: #1e293b; outline: 1px solid #64748b; }
     .solo-clear { color: #4ade80; border-color: #166534; }
     .display-control-label {
         color: #cbd5e1;

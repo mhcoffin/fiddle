@@ -186,6 +186,11 @@ public:
     return activeNotes;
   }
 
+  bool hasActiveNotes() const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    return !activeNotes.empty();
+  }
+
   /// Reset transient performance state at the definitive transport boundary.
   /// START deliberately does not clear this state because START messages from
   /// multiple Dorico endpoints can race with their first notes. STOP is sent

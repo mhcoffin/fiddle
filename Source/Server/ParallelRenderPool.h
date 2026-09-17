@@ -2,19 +2,21 @@
 #include "../AudioProcessingGate.h"
 #include "../AudioDiagnostics.h"
 #include <juce_core/juce_core.h>
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <vector>
 
 namespace fiddle {
-// One coordinator, at most three persistent helpers. Only the render-ahead
-// coordinator waits for completion; the native audio callback never enters
-// this pool. Configuration/destruction require no block in flight.
+// One coordinator plus a configurable number of persistent helpers. Only the
+// render-ahead coordinator waits for completion; the native audio callback
+// never enters this pool. Configuration/destruction require no block in flight.
 class ParallelRenderPool {
 public:
   using Task = void (*)(void *, size_t);
+  static constexpr int maximumCount() noexcept { return 64; }
   static int validCount(int count) noexcept {
-    return count == 2 || count == 4 ? count : 1;
+    return std::clamp(count, 1, maximumCount());
   }
   ~ParallelRenderPool() { workers_.clear(); }
 
