@@ -66,7 +66,9 @@
             aria-expanded={!collapsed}
             title={collapsed ? "Expand Audio Buses" : "Collapse Audio Buses"}
         >
-            <span class="chevron" class:collapsed>▾</span>
+            <svg class="chevron" class:collapsed viewBox="0 0 20 20" width="10" height="10" fill="currentColor" aria-hidden="true">
+                <path d="M6 4l8 6-8 6z" />
+            </svg>
             <strong>Audio Buses</strong>
             <span class="count">{buses.length}</span>
         </button>
@@ -254,17 +256,21 @@
 <style>
     .fx-zone.bus-fx-zone { height: calc(var(--strip-pre-fader-height, 166px) - 50px); min-height: calc(var(--strip-pre-fader-height, 166px) - 50px); }
     .bank { display: flex; min-width: max-content; flex-direction: column; flex-shrink: 0; border-left: 3px solid #0e7490; background: #08111f; box-shadow: -10px 0 24px rgba(0,0,0,.28); }
-    .bank.collapsed { min-width: 38px; width: 38px; }
+    .bank.collapsed { min-width: 35px; width: 35px; box-sizing: border-box; border-left: 0; border-right: 1px solid #0f172a; }
     .header { position: relative; height: 25px; padding: 0 10px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; flex-shrink: 0; border: 0; border-bottom: 3px solid #22d3ee; background: #164e63; color: #cffafe; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
     .header-toggle { min-width: 0; padding: 0 62px 0 0; display: flex; align-items: center; gap: 6px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
     .header-toggle:hover { background: rgba(8,47,73,.5); }
     .header-toggle strong { white-space: nowrap; }
-    .chevron { font-size: .65rem; transform: rotate(0deg); transition: transform .15s; }
-    .chevron.collapsed { transform: rotate(-90deg); }
+    .chevron { flex-shrink: 0; transform: rotate(90deg); transition: transform .15s; }
+    .chevron.collapsed { transform: rotate(0deg); }
     .count { min-width: 22px; padding: 2px 5px; border-radius: 999px; background: rgba(34,211,238,.16); color: #67e8f9; font-size: .65rem; text-align: center; }
     .manage { position: absolute; right: 5px; top: 50%; height: 19px; padding: 1px 7px; transform: translateY(-50%); border: 1px solid rgba(165,243,252,.55); border-radius: 4px; background: rgba(8,47,73,.72); color: #cffafe; font: inherit; font-size: .6rem; font-weight: 650; letter-spacing: 0; cursor: pointer; }
-    .collapsed .header { height: 100%; padding: 8px 4px; flex-direction: column; justify-content: flex-start; }
-    .collapsed .header-toggle { writing-mode: vertical-rl; flex: 0 0 auto; gap: 8px; }
+    /* Match the orchestral sections' 34px vertical tab. Remove the expanded
+       header's Manage-button inset, and make the button fill the whole bar. */
+    .collapsed .header { height: auto; min-height: 0; width: 100%; padding: 0; border: 0; flex: 1; align-items: stretch; }
+    .collapsed .header-toggle { writing-mode: vertical-lr; text-orientation: mixed; width: 100%; min-height: 0; box-sizing: border-box; padding: 10px 5px; flex: 1; gap: 6px; justify-content: flex-start; border-bottom: 3px solid #22d3ee; }
+    .collapsed .header-toggle > * { flex-shrink: 0; }
+    .collapsed .count { min-width: 14px; padding: 0 5px; font-size: .6rem; }
     /* Match the layer-bank bottom inset so every fader track ends on the same row. */
     .channels { min-height: 0; padding-bottom: 21px; box-sizing: border-box; flex: 1; display: flex; }
     .bus-group { width: 146px; min-width: 146px; min-height: 0; display: flex; flex-direction: column; }

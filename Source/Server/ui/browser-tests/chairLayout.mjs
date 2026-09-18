@@ -285,6 +285,43 @@ try {
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "showView", payload: ["library-manager"] });
     const audioBankToggle = page.locator(".bank .header-toggle");
+    // A closed audio bank behaves like a closed orchestral section: narrow,
+    // contained label/count, and a button extending to the bottom of the bar.
+    const familyTab = page.locator(".folder-tab").first();
+    await familyTab.click();
+    for (const zoom of ["100%", "150%"]) {
+        await page.locator(".mixer-container").evaluate((element, zoom) => { element.style.zoom = zoom; }, zoom);
+        await audioBankToggle.click();
+        await audioBankToggle.scrollIntoViewIfNeeded();
+        const geometry = await audioBankToggle.evaluate(button => {
+            const box = element => {
+                const r = element.getBoundingClientRect();
+                return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width };
+            };
+            return { button: box(button), bank: box(button.closest(".bank")),
+                family: box(document.querySelector(".folder-tab-collapsed")),
+                children: [...button.children].map(box) };
+        });
+        assert.ok(Math.abs(geometry.button.width - geometry.family.width) <= 1,
+            `${zoom}: collapsed audio tab matches orchestral tab width: ${JSON.stringify(geometry)}`);
+        assert.ok(Math.abs(geometry.button.top - geometry.bank.top) <= 1 &&
+            Math.abs(geometry.button.bottom - geometry.bank.bottom) <= 1,
+            `${zoom}: entire collapsed bar is a button`);
+        for (const child of geometry.children)
+            assert.ok(child.left >= geometry.button.left && child.right <= geometry.button.right &&
+                child.top >= geometry.button.top && child.bottom <= geometry.button.bottom,
+                `${zoom}: label and count stay inside the collapsed bar`);
+        if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+            await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, `audio-bank-collapsed-${zoom}.png`) });
+        await page.mouse.click((geometry.button.left + geometry.button.right) / 2, geometry.button.bottom - 12);
+        assert.equal(await audioBankToggle.getAttribute("aria-expanded"), "true", "bottom of bar expands it");
+        await audioBankToggle.click();
+        const rect = await audioBankToggle.boundingBox();
+        await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        assert.equal(await audioBankToggle.getAttribute("aria-expanded"), "true", "middle of bar expands it");
+    }
+    await page.locator(".mixer-container").evaluate(element => { element.style.zoom = ""; });
+    await familyTab.click();
     await audioBankToggle.click();
     assert.equal(await audioBankToggle.getAttribute("aria-expanded"), "false");
     await viewButton.click();
