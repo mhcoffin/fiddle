@@ -1037,16 +1037,19 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips));
     // Every rendered layer shares the same send band; cap its height, not the
     // number of promoted sends. Longer lists scroll without consuming faders.
-    let sendRows = $derived(Math.min(2, Math.max(0, ...strips
-        .filter((strip) => flatStripOrder.includes(strip.id))
-        .map((strip) => (strip.sends || []).filter((send) => send.showOnStrip).length))));
+    const sendsAt = (strip, location) => (strip.sends || []).filter((send) => !!send.preFader === (location === "Pre"));
+    let sendRows = $derived(Object.fromEntries(["Pre", "Post"].map((location) => [location,
+        Math.min(2, Math.max(0, ...strips.filter((strip) => flatStripOrder.includes(strip.id))
+            .map((strip) => sendsAt(strip, location).filter((send) => send.showOnStrip).length)))])));
     let sendRowHeight = $derived(stripSize === "large" ? 36 : 52);
+    const sendSpan = (rows) => rows ? rows * sendRowHeight + 5 : 0;
 
 </script>
 
 <div
     class="mixer-container"
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 341 : 225}px; --strip-fx-height: {stripSize === "large" ? 207 : 91}px; --strip-send-row-height: {sendRowHeight}px; --strip-send-height: {sendRows * sendRowHeight}px; --strip-send-span: {sendRows ? sendRows * sendRowHeight + 5 : 0}px;"
+    class:compact-strips={stripSize === "compact"}
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 356 : 286}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1332,6 +1335,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                     <strong>{strip.library || "Unknown library"}</strong>
                                                 </div>
 
+                                                <section class="ch-strip-section ch-instrument-section" aria-label="Instrument">
+                                                <div class="ch-section-title">Instrument</div>
                                                 <div class="ch-instrument-summary">
                                                     {#if strip.hasPlugin}
                                                         <button
@@ -1362,60 +1367,67 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                         </select>
                                                     {/if}
                                                 </div>
+                                                </section>
 
                                                 <div class="ch-fx-zone">
                                                     {#each ["Pre", "Post"] as location}
                                                         {@const inserts = visibleStripInserts(strip).filter((insert) => insert.location === location)}
-                                                        <section class="ch-fx-section" class:post-fader={location === "Post"}
+                                                        {@const activeInserts = inserts.filter((insert) => !insert.bypassed && insert.status === "loaded").length}
+                                                        {@const insertSummary = `${inserts.length} insert${inserts.length === 1 ? "" : "s"}${inserts.length ? activeInserts ? `, ${activeInserts} active` : inserts.every((insert) => insert.bypassed) ? ", all bypassed" : ", none active" : ""}`}
+                                                        <section class="ch-strip-section ch-fx-section" class:post-fader={location === "Post"}
                                                             aria-label={`${location}-fader effects`}>
+                                                        <div class="ch-section-heading">
+                                                        <span class="ch-section-title">{location}-fader</span>
                                                         <button
                                                             class="ch-audio-fx"
-                                                            class:has-effects={inserts.length > 0}
+                                                            class:has-effects={inserts.length > 0 || sendsAt(strip, location).length > 0}
                                                             onclick={() => openChannelAudio(strip)}
-                                                            aria-label={`${location}-fader FX${location === "Post" ? " and sends" : ""}`}
-                                                            title={`${location}-fader audio effects${location === "Post" ? " and sends" : ""}`}
-                                                        >FX{inserts.length ? ` ${inserts.length}` : ""}{location === "Post" ? ` / Sends${strip.sends?.length ? ` ${strip.sends.length}` : ""}` : ""}</button>
+                                                            aria-label={`Manage ${location.toLowerCase()}-fader effects and sends — ${insertSummary}`}
+                                                            title={`${location}-fader: ${insertSummary}, ${sendsAt(strip, location).length} sends — manage`}
+                                                        >{#if inserts.length > 0}<span class="ch-insert-count" class:active={activeInserts > 0} aria-hidden="true">{inserts.length}{stripSize === "compact" ? "" : " FX"}</span>{/if}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h12m4 0h2M11 3v6M7 9v6M17 15v6" /></svg></button>
+                                                        </div>
                                                         {#if stripSize === "large"}
                                                         <div class="ch-fx-summary" aria-label={`${location}-fader audio effect inserts`}>
                                                             {#if inserts.length > 0}
                                                                 {#each inserts as insert (insert.id)}
                                                                     <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
-                                                                        <div class="ch-fx-summary-name" title={`${insert.location}-fader: ${insert.name || "Unavailable plug-in"}`}>
+                                                                        <button class="ch-fx-summary-name"
+                                                                            onclick={() => dispatchCpp("toggleStripInsertEditor", strip.id, insert.id)}
+                                                                            disabled={insert.status !== "loaded"}
+                                                                            aria-label={`${insert.editorOpen ? "Hide" : "Edit"} ${insert.name || "audio effect"}`}
+                                                                            aria-pressed={Boolean(insert.editorOpen)}
+                                                                            title={`${insert.editorOpen ? "Hide" : "Edit"} ${insert.name || "Unavailable plug-in"}`}>
                                                                             <strong>{insert.name || "Unavailable plug-in"}</strong>
-                                                                        </div>
+                                                                        </button>
                                                                         <div class="ch-fx-summary-actions">
                                                                             <button
                                                                                 class:active={insert.bypassed}
                                                                                 onclick={() => dispatchCpp("setStripInsertBypassed", strip.id, insert.id, !insert.bypassed)}
                                                                                 title={insert.bypassed ? `Enable ${insert.name}` : `Bypass ${insert.name}`}
                                                                             >{insert.bypassed ? "Enable" : "Bypass"}</button>
-                                                                            <button
-                                                                                onclick={() => dispatchCpp("toggleStripInsertEditor", strip.id, insert.id)}
-                                                                                disabled={insert.status !== "loaded"}
-                                                                                title={insert.editorOpen ? `Hide ${insert.name}` : `Edit ${insert.name || "audio effect"}`}
-                                                                            >{insert.editorOpen ? "Hide" : "Edit"}</button>
                                                                         </div>
                                                                     </div>
                                                                 {/each}
                                                             {:else}
-                                                                <div class="ch-fx-empty">No audio effects</div>
+                                                                <div class="ch-fx-empty">No inserts</div>
                                                             {/if}
                                                         </div>
                                                         {/if}
-                                                        {#if location === "Post" && sendRows > 0}
-                                                            <PromotedSends {strip} buses={groupBuses} horizontal={stripSize === "large"} />
+                                                        {#if sendRows[location] > 0}
+                                                            <PromotedSends {strip} buses={groupBuses} horizontal={stripSize === "large"}
+                                                                preFader={location === "Pre"} rows={sendRows[location]} />
                                                         {/if}
                                                         </section>
                                                     {/each}
                                                 </div>
 
                                                 <label
-                                                    class="ch-output-routing"
+                                                    class="ch-strip-section ch-output-routing"
                                                     title={isMultiSelected && selectedIds.has(strip.id)
                                                         ? `Route all ${selectedIds.size} selected strips`
                                                         : "Audio output destination"}
                                                 >
-                                                    <span>Out</span>
+                                                    <span class="ch-section-title">Output</span>
                                                     <select
                                                         aria-label={`Audio output for ${strip.layerName || strip.library || "layer"}`}
                                                         value={strip.directOutputBusId || ""}
@@ -2495,59 +2507,100 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         white-space: nowrap;
     }
 
-    .ch-audio-fx {
-        width: 100%;
-        height: var(--strip-control-height, 32px);
-        min-height: var(--strip-control-height, 32px);
+    .ch-strip-section {
+        margin: 0 -4px;
+        padding: 6px 4px;
+        border-radius: 5px;
+        background: #1b283b;
         box-sizing: border-box;
-        padding: 4px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        background: #111c2e;
-        color: #cbd5e1;
-        font-size: 0.74rem;
+        flex-shrink: 0;
+    }
+    .ch-section-title {
+        display: flex;
+        align-items: center;
+        height: 20px;
+        min-width: 0;
+        flex-shrink: 0;
+        color: #a3b4c8;
+        font-size: 0.6875rem;
         font-weight: 600;
+        letter-spacing: 0.015em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .compact-strips .ch-section-title { font-size: 0.6rem; }
+    .ch-section-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 2px;
+        height: 24px;
+        flex-shrink: 0;
+    }
+    .ch-instrument-section { height: 68px; display: flex; flex-direction: column; gap: 4px; }
+    .ch-audio-fx {
+        min-width: 22px;
+        height: 24px;
+        min-height: 24px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        position: relative;
+        padding: 2px;
+        border: 0;
+        border-radius: 4px;
+        background: transparent;
+        color: #a3b4c8;
         cursor: pointer;
         flex-shrink: 0;
     }
+    .ch-audio-fx svg { flex-shrink: 0; }
+    .ch-insert-count {
+        padding: 1px 3px;
+        border-radius: 3px;
+        background: #28374a;
+        color: #a3b4c8;
+        font-size: 0.5625rem;
+        line-height: 14px;
+        font-weight: 600;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+    }
+    .ch-insert-count.active { background: #21435a; color: #bae6fd; }
+    /* Corner badge uses the existing icon footprint on the narrowest strips. */
+    .compact-strips .ch-insert-count {
+        position: absolute;
+        top: -3px;
+        right: -3px;
+        padding: 0 2px;
+        min-width: 12px;
+        text-align: center;
+        font-size: 0.5rem;
+        line-height: 12px;
+    }
     .ch-audio-fx:hover, .ch-audio-fx.has-effects {
-        border-color: #38bdf8;
         color: #bae6fd;
     }
+    .ch-audio-fx:hover { background: #2b4059; }
     .ch-output-routing {
         display: flex;
-        align-items: center;
-        width: 100%;
-        height: var(--strip-control-height, 32px);
-        min-height: var(--strip-control-height, 32px);
-        box-sizing: border-box;
-        flex-shrink: 0;
+        flex-direction: column;
+        height: 68px;
         gap: 4px;
-        padding-left: 5px;
-        border: 1px solid #334155;
-        border-radius: 4px;
-        background: #0d1728;
-    }
-    .ch-output-routing > span {
-        flex-shrink: 0;
-        color: #7dd3fc;
-        font-size: 0.58rem;
-        font-weight: 750;
-        letter-spacing: 0.03em;
-        text-transform: uppercase;
     }
     .ch-output-routing select {
         min-width: 0;
-        height: 100%;
-        flex: 1;
+        width: 100%;
+        height: var(--strip-control-height, 32px);
+        flex-shrink: 0;
         box-sizing: border-box;
         overflow: hidden;
         padding: 2px 3px;
-        border: 0;
-        background: transparent;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #111c2e;
         color: #cbd5e1;
         font: inherit;
         font-size: 0.68rem;
@@ -2555,10 +2608,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         text-overflow: ellipsis;
         cursor: pointer;
     }
-    .ch-output-routing:focus-within {
-        border-color: #7dd3fc;
-    }
-    .ch-output-routing select:focus { outline: none; }
     .ch-strip-identity {
         display: flex;
         height: 38px;
@@ -2609,22 +2658,19 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         display: flex;
         height: calc(var(--strip-fx-height) + var(--strip-send-span, 0px));
         box-sizing: border-box;
-        border-bottom: 1px solid #334155;
-        padding-bottom: 6px;
         flex-shrink: 0;
         flex-direction: column;
-        gap: 6px;
+        gap: 8px;
     }
     .ch-fx-section {
         display: flex;
         flex: 1;
+        flex-basis: var(--strip-pre-send-span, 0px);
         min-height: 0;
         flex-direction: column;
-        border-top: 1px solid #334155;
-        padding-top: 6px;
         gap: 5px;
     }
-    .ch-fx-section.post-fader { flex-basis: var(--strip-send-span, 0px); }
+    .ch-fx-section.post-fader { flex-basis: var(--strip-post-send-span, 0px); }
     .ch-fx-summary {
         display: flex;
         min-height: 0;
@@ -2634,31 +2680,37 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         overflow-y: auto;
     }
     .ch-fx-empty {
-        display: grid;
-        height: 100%;
-        place-items: center;
-        border: 1px dashed #29384f;
-        border-radius: 5px;
-        color: #64748b;
+        display: flex;
+        align-items: center;
+        height: 30px;
+        color: #a3b4c8;
         font-size: 0.68rem;
     }
     .ch-fx-summary-row {
-        padding: 4px;
+        display: flex;
+        gap: 3px;
+        height: 30px;
         flex-shrink: 0;
-        border: 1px solid #334155;
-        border-radius: 5px;
-        background: #0d1728;
     }
     .ch-fx-summary-row.bypassed {
         opacity: 0.62;
     }
     .ch-fx-summary-name {
         display: flex;
-        align-items: baseline;
-        gap: 5px;
+        align-items: center;
+        flex: 1;
         min-width: 0;
+        padding: 3px 5px;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #111c2e;
+        color: #e2e8f0;
         line-height: 14px;
+        text-align: left;
+        cursor: pointer;
     }
+    .ch-fx-summary-name:hover:not(:disabled), .ch-fx-summary-name[aria-pressed="true"] { border-color: #7dd3fc; }
+    .ch-fx-summary-name:disabled { opacity: 0.5; cursor: default; }
     .ch-fx-summary-name strong {
         min-width: 0;
         overflow: hidden;
@@ -2669,14 +2721,12 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         white-space: nowrap;
     }
     .ch-fx-summary-actions {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 5px;
-        margin-top: 3px;
+        display: flex;
+        flex-shrink: 0;
     }
     .ch-fx-summary-actions button {
         min-width: 0;
-        min-height: 24px;
+        min-height: 30px;
         padding: 2px 5px;
         line-height: 16px;
         border: 1px solid #3d4c62;

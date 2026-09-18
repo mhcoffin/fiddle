@@ -499,7 +499,8 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       auto &route = b.graph.stripRoutes[index];
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2, b.frames);
       scratch.clear();
-      route.strip->processBlock(scratch, b.time, b.anySoloed, true);
+      route.strip->processBlock(scratch, b.time, b.anySoloed, true,
+          route.preFaderScratch.getNumChannels() ? &route.preFaderScratch : nullptr);
     };
     const auto helperPluginMs = renderPool_.process(graph->stripRoutes.size(), &block,
                                                    renderStrip, render);
@@ -509,7 +510,8 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2,
                                        audioBuffer.getNumSamples());
       scratch.clear();
-      route.strip->processBlock(scratch, currentTime, anySoloed, true);
+      route.strip->processBlock(scratch, currentTime, anySoloed, true,
+          route.preFaderScratch.getNumChannels() ? &route.preFaderScratch : nullptr);
     }
   }
 
@@ -525,7 +527,7 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
     route.delay->addTo(destination, route.scratch, audioBuffer.getNumSamples(), directAudible ? 1.0f : 0.0f);
     for (const auto &send : route.sends) {
       const bool audible = send.enabled && (!anyBusSoloed || selectedSource || send.destination->isSoloed());
-      send.delay->addTo(send.destination->inputBuffer(), route.scratch,
+      send.delay->addTo(send.destination->inputBuffer(), send.preFader ? route.preFaderScratch : route.scratch,
                         audioBuffer.getNumSamples(), audible ? send.gain : 0.0f);
       if (audible)
         graph->busAudible[send.destinationIndex] = true;
@@ -1154,16 +1156,22 @@ void MixerModel::commitAudioGraph(bool resetDelays) {
     route.destination = destination;
     route.scratch.setSize(2, currentBlockSize_);
     const int directLatency = destination ? destination->audioEngine().latencySamples() : 0;
+    const int postLatency = s->audioEngine().postFaderLatencySamples();
     route.downstreamLatency = directLatency;
     for (const auto &send : s->sends) {
       const auto found = busById.find(send.busId);
       if (found == busById.end()) continue;
       // Keep disabled sends in the latency topology: enabling a send must not
       // retime the dry path or flush its delay line.
-      route.downstreamLatency = std::max(route.downstreamLatency, found->second->audioEngine().latencySamples());
+      // MIDI lead is expressed relative to the full strip rack. A pre-fader
+      // path skips post FX, so subtract those samples when finding the lead.
+      route.downstreamLatency = std::max(route.downstreamLatency,
+          found->second->audioEngine().latencySamples() - (send.preFader ? postLatency : 0));
       route.sends.push_back({send.id, found->second,
-                             juce::Decibels::decibelsToGain(send.gainDb, -120.0f), send.enabled, {}});
+                             juce::Decibels::decibelsToGain(send.gainDb, -120.0f), send.enabled, {}, 0, send.preFader});
     }
+    if (std::any_of(route.sends.begin(), route.sends.end(), [](const auto &send) { return send.preFader; }))
+      route.preFaderScratch.setSize(2, currentBlockSize_);
     const StripRoute *old = nullptr;
     if (!resetDelays && previous.get())
       for (const auto &candidate : previous.get()->stripRoutes)
@@ -1179,9 +1187,10 @@ void MixerModel::commitAudioGraph(bool resetDelays) {
       std::shared_ptr<RouteDelay> oldDelay;
       if (old)
         for (const auto &candidate : old->sends)
-          if (candidate.id == send.id && candidate.destination == send.destination)
+          if (candidate.id == send.id && candidate.destination == send.destination && candidate.preFader == send.preFader)
             oldDelay = candidate.delay;
-      send.delay = reuse(route.downstreamLatency - send.destination->audioEngine().latencySamples(), oldDelay);
+      send.delay = reuse(route.downstreamLatency + (send.preFader ? postLatency : 0)
+                          - send.destination->audioEngine().latencySamples(), oldDelay);
     }
     s->setDownstreamLatencySamples(route.downstreamLatency);
     current->stripRoutes.push_back(std::move(route));

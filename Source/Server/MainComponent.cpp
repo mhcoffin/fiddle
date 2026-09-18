@@ -2880,6 +2880,7 @@ void MainComponent::stripAudioChanged(const juce::String &stripId) {
   auto *strip = mixer_.getStrip(stripId);
   if (!strip)
     return;
+  mixer_.refreshAudioRouting(); // Pre-fader branches skip the post-fader rack latency.
   db_.saveStripAudio(stripId, strip->audioEngine().snapshotAll());
   auto state = strip->audioEngine().toJson();
   if (auto *object = state.getDynamicObject()) {
@@ -3271,9 +3272,11 @@ void MainComponent::timerCallback() {
   bool externalFxEdit = mixer_.masterAudio().consumePluginChanges(suppressPlaybackChanges);
   if (mixer_.masterAudio().consumeLatencyDisplayChange())
     pushMasterAudioState();
+  bool stripLatencyChanged = false;
   for (auto *strip : mixer_.getAllStrips()) {
     externalFxEdit |= strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
     if (strip->audioEngine().consumeLatencyDisplayChange()) {
+      stripLatencyChanged = true;
       auto state = strip->audioEngine().toJson();
       state.getDynamicObject()->setProperty("stripId", strip->id);
       broadcastMessage("setStripAudioState", state);
@@ -3286,6 +3289,8 @@ void MainComponent::timerCallback() {
   }
   if (busLatencyChanged)
     pushGroupBusState();
+  if (stripLatencyChanged || busLatencyChanged)
+    mixer_.refreshAudioRouting();
   if (++pluginPollCounter_ % 100 == 0) {
     if (!suppressPlaybackChanges) {
       pollPluginStateChanges();

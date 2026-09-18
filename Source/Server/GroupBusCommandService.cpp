@@ -51,6 +51,17 @@ bool GroupBusCommandService::setStripSendVisible(const juce::String &stripId,
   return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
 }
 
+bool GroupBusCommandService::setStripSendPreFader(const juce::String &stripId,
+                                                 const juce::String &sendId, bool preFader) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip) return false;
+  auto sends = strip->sends;
+  const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
+  if (found == sends.end()) return false;
+  found->preFader = preFader;
+  return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
+}
+
 GroupBusCommandService::GroupBusCommandService(MixerModel &mixer,
                                                PluginScanner &scanner,
                                                UndoManager &undoManager)

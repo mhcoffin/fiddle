@@ -8,15 +8,17 @@
 namespace fiddle {
 
 // Message-thread state. The renderer uses resolved graph edges, never these
-// strings. Sends tap the completed strip rack (after fader and post-fader FX).
+// strings. Default sends tap the completed rack; pre-fader sends tap after
+// pre-fader FX but before the gain stage and post-fader FX.
 struct AudioSend {
   juce::String id, busId;
   float gainDb = -12.0f;
   bool enabled = true;
   bool showOnStrip = false;
+  bool preFader = false;
   bool sameAudioRoute(const AudioSend &other) const {
     return id == other.id && busId == other.busId &&
-           gainDb == other.gainDb && enabled == other.enabled;
+           gainDb == other.gainDb && enabled == other.enabled && preFader == other.preFader;
   }
   bool operator==(const AudioSend &other) const {
     return sameAudioRoute(other) && showOnStrip == other.showOnStrip;
@@ -33,6 +35,7 @@ inline juce::var audioSendsToJson(const std::vector<AudioSend> &sends) {
     obj->setProperty("enabled", send.enabled);
     // Omit the default to preserve hashes of existing send configurations.
     if (send.showOnStrip) obj->setProperty("showOnStrip", true);
+    if (send.preFader) obj->setProperty("preFader", true);
     result.add(juce::var(obj));
   }
   return result;
@@ -54,6 +57,10 @@ inline bool audioSendsFromJson(const juce::var &value,
     if (item.hasProperty("showOnStrip")) {
       if (!item["showOnStrip"].isBool()) return false;
       send.showOnStrip = bool(item["showOnStrip"]);
+    }
+    if (item.hasProperty("preFader")) {
+      if (!item["preFader"].isBool()) return false;
+      send.preFader = bool(item["preFader"]);
     }
     if (send.id.isEmpty() || send.busId.isEmpty() ||
         !std::isfinite(send.gainDb) || send.gainDb < -120 || send.gainDb > 12 ||

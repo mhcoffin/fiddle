@@ -12,6 +12,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace fiddle {
+struct StripFaderState;
 
 /// Owns the independent post-instrument audio path for one mixer strip.
 ///
@@ -35,7 +36,9 @@ public:
 
   /// Process one strip's stereo output in place. effectiveGain already
   /// includes its fader and the current active/mute/solo decision.
-  void processBlock(juce::AudioBuffer<float> &audio, float effectiveGain);
+  /// Optional tap storage is caller-preallocated and copied before gain/FX.
+  void processBlock(juce::AudioBuffer<float> &audio, float effectiveGain,
+                    juce::AudioBuffer<float> *preFaderTap = nullptr);
 
   void setOnChanged(ChangeCallback callback);
   void setOnEditorVisibilityChanged(ChangeCallback callback);
@@ -85,6 +88,7 @@ public:
                            const juce::String &owner, double now);
 
   [[nodiscard]] int latencySamples() const noexcept;
+  [[nodiscard]] int postFaderLatencySamples() const noexcept { return postFaderLatencySamples_.load(std::memory_order_acquire); }
   [[nodiscard]] double latencyMs() const noexcept;
 
 private:
@@ -109,8 +113,9 @@ private:
   Rack preFaderInserts_;
   Rack postFaderInserts_;
   juce::AudioProcessorGraph graph_;
-  std::shared_ptr<std::atomic<float>> gainLinear_;
+  std::shared_ptr<StripFaderState> faderState_;
   std::atomic<int> latencySamples_{0};
+  std::atomic<int> postFaderLatencySamples_{0};
   std::atomic<bool> prepared_{false};
   std::atomic<double> sampleRate_{44100.0};
   int blockSize_ = 512;

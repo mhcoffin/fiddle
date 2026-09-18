@@ -406,7 +406,8 @@ void MixerStrip::allNotesOff() {
 
 void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime, bool anySoloed,
-                              bool routeAudible) {
+                              bool routeAudible, juce::AudioBuffer<float> *preFaderOutput) {
+  if (preFaderOutput) preFaderOutput->clear();
   AudioProcessingGate::Render render;
   if (!render) return;
   // Effective audibility: active AND not muted AND (no solos active OR
@@ -448,7 +449,7 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
       const bool faderAudible = audible && db > -120.0f;
       const float effectiveGain =
           faderAudible ? juce::Decibels::decibelsToGain(db, -120.0f) : 0.0f;
-      audioEngine_.processBlock(block, effectiveGain);
+      audioEngine_.processBlock(block, effectiveGain, audible ? preFaderOutput : nullptr);
 
       if (!faderAudible) {
         // Strip is muted, solo-suppressed, or at -inf: decay meters and do

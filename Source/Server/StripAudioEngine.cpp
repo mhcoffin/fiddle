@@ -5,6 +5,11 @@
 #include <utility>
 
 namespace fiddle {
+struct StripFaderState {
+  std::atomic<float> gain{1.0f};
+  // Render-thread only, valid solely during the synchronous graph call.
+  juce::AudioBuffer<float> *preFaderTap = nullptr;
+};
 void StripAudioEngine::appendPluginTimings(juce::Array<juce::var> &rows,
                                            const juce::String &owner, double now) {
   for (const auto &entry : preFaderInserts_)
@@ -18,24 +23,29 @@ constexpr auto kNoUpdate = juce::AudioProcessorGraph::UpdateKind::none;
 
 class StripGainProcessor final : public juce::AudioProcessor {
 public:
-  explicit StripGainProcessor(std::shared_ptr<std::atomic<float>> gain)
+  explicit StripGainProcessor(std::shared_ptr<StripFaderState> state)
       : juce::AudioProcessor(
             BusesProperties()
                 .withInput("Input", juce::AudioChannelSet::stereo(), true)
                 .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-        gain_(std::move(gain)) {}
+        state_(std::move(state)) {}
 
   const juce::String getName() const override { return "Strip Gain"; }
   void prepareToPlay(double, int) override {}
   void releaseResources() override {}
   void processBlock(juce::AudioBuffer<float> &audio,
                     juce::MidiBuffer &) override {
-    audio.applyGain(gain_->load(std::memory_order_relaxed));
+    if (auto *tap = state_->preFaderTap) {
+      jassert(tap->getNumChannels() >= 2 && tap->getNumSamples() >= audio.getNumSamples());
+      for (int ch = 0; ch < 2; ++ch)
+        tap->copyFrom(ch, 0, audio, ch, 0, audio.getNumSamples());
+    }
+    audio.applyGain(state_->gain.load(std::memory_order_relaxed));
   }
   void processBlock(juce::AudioBuffer<double> &audio,
                     juce::MidiBuffer &) override {
     audio.applyGain(
-        static_cast<double>(gain_->load(std::memory_order_relaxed)));
+        static_cast<double>(state_->gain.load(std::memory_order_relaxed)));
   }
   double getTailLengthSeconds() const override { return 0.0; }
   bool acceptsMidi() const override { return false; }
@@ -57,7 +67,7 @@ public:
   }
 
 private:
-  std::shared_ptr<std::atomic<float>> gain_;
+  std::shared_ptr<StripFaderState> state_;
 };
 
 class HostedStripEffectProcessor final : public juce::AudioProcessor {
@@ -69,7 +79,7 @@ public:
                 .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
         slot_(std::move(slot)) {
     if (auto *processor = slot_->activeProcessor())
-      setLatencySamples(processor->getLatencySamples());
+      setLatencySamples(slot_->isBypassed() ? 0 : processor->getLatencySamples());
   }
 
   const juce::String getName() const override { return "Hosted Strip Effect"; }
@@ -214,7 +224,7 @@ StripAudioSnapshot deserializeStripAudioSnapshot(const void *data,
 }
 
 StripAudioEngine::StripAudioEngine()
-    : gainLinear_(std::make_shared<std::atomic<float>>(1.0f)) {
+    : faderState_(std::make_shared<StripFaderState>()) {
   graph_.setPlayConfigDetails(2, 2, sampleRate_, blockSize_);
   rebuildGraph();
 }
@@ -240,6 +250,8 @@ void StripAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
       entry->hosted->prepareToPlay(sampleRate_, blockSize_);
   graph_.setPlayConfigDetails(2, 2, sampleRate_, blockSize_);
   graph_.prepareToPlay(sampleRate_, blockSize_);
+  // Vendor latency may change during prepare (e.g. after a sample-rate change).
+  rebuildGraph();
   prepared_.store(true, std::memory_order_release);
   latencySamples_.store(graph_.getLatencySamples(), std::memory_order_release);
 }
@@ -251,10 +263,10 @@ void StripAudioEngine::releaseResources() {
 }
 
 void StripAudioEngine::processBlock(juce::AudioBuffer<float> &audio,
-                                    float effectiveGain) {
+                                    float effectiveGain, juce::AudioBuffer<float> *preFaderTap) {
   AudioProcessingGate::Render render;
   if (!render) return;
-  gainLinear_->store(effectiveGain, std::memory_order_release);
+  faderState_->gain.store(effectiveGain, std::memory_order_release);
   if (!prepared_.load(std::memory_order_acquire) ||
       audio.getNumChannels() < 2)
     return;
@@ -262,7 +274,9 @@ void StripAudioEngine::processBlock(juce::AudioBuffer<float> &audio,
   juce::AudioBuffer<float> stereo(audio.getArrayOfWritePointers(), 2,
                                   audio.getNumSamples());
   midiScratch_.clear();
+  faderState_->preFaderTap = preFaderTap;
   graph_.processBlock(stereo, midiScratch_);
+  faderState_->preFaderTap = nullptr;
 
   for (int channel = 2; channel < audio.getNumChannels(); ++channel)
     audio.clear(channel, 0, audio.getNumSamples());
@@ -486,11 +500,14 @@ bool StripAudioEngine::move(const juce::String &slotId,
 
 bool StripAudioEngine::setBypassed(const juce::String &slotId, bool bypassed,
                                    bool notify) {
+  AudioProcessingGate::Control control;
   const auto entry = find(slotId);
   if (!entry)
     return false;
   entry->hosted->setBypassed(bypassed);
   entry->requestedBypassed = bypassed;
+  // HostedPluginSlot bypass is a zero-latency pass-through, not delayed dry.
+  rebuildGraph();
   notifyChanged(notify);
   return true;
 }
@@ -654,6 +671,7 @@ double StripAudioEngine::latencyMs() const noexcept {
 }
 
 void StripAudioEngine::rebuildGraph() {
+  AudioProcessingGate::Control control;
   graph_.clear(kNoUpdate);
   auto previous = graph_.addNode(
       std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
@@ -675,12 +693,16 @@ void StripAudioEngine::rebuildGraph() {
   };
   appendRack(preFaderInserts_);
 
-  auto gain = graph_.addNode(std::make_unique<StripGainProcessor>(gainLinear_),
+  auto gain = graph_.addNode(std::make_unique<StripGainProcessor>(faderState_),
                              std::nullopt, kNoUpdate);
   connectStereo(graph_, previous, gain);
   previous = std::move(gain);
 
   appendRack(postFaderInserts_);
+  int postLatency = 0;
+  for (const auto &entry : postFaderInserts_)
+    if (!entry->hosted->isBypassed()) postLatency += entry->graphLatencySamples;
+  postFaderLatencySamples_.store(postLatency, std::memory_order_release);
   auto output = graph_.addNode(
       std::make_unique<juce::AudioProcessorGraph::AudioGraphIOProcessor>(
           juce::AudioProcessorGraph::AudioGraphIOProcessor::audioOutputNode),

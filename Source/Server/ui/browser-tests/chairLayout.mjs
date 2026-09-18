@@ -73,6 +73,12 @@ try {
                 strip.sends = strip.sends.map((s) => s.id === id ? { ...s, showOnStrip } : s);
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
             }
+            if (message.type === "setStripSendPreFader") {
+                const [stripId, id, preFader] = message.payload;
+                const strip = window.fixtureStrips.find((s) => s.id === stripId);
+                strip.sends = strip.sends.map((s) => s.id === id ? { ...s, preFader } : s);
+                queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+            }
             if (message.type === "showView" && ["inspector", "audio-bank", "chairs", "bus-manager", "audio-performance"].includes(message.payload[0]))
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
         } } };
@@ -105,6 +111,20 @@ try {
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "setStripSendVisible", payload: ["chair-0-0", "test-send", true] });
     assert.equal(await page.locator(".promoted-send").count(), 1);
+    assert.equal(await sendRow.getByLabel("Send tap", { exact: true }).inputValue(), "postFader");
+    await sendRow.getByLabel("Send tap", { exact: true }).selectOption("preFader");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setStripSendPreFader", payload: ["chair-0-0", "test-send", true] });
+    assert.equal(await page.locator('.ch-fx-section:not(.post-fader) .promoted-send').count(), 1);
+    assert.equal(await page.locator('.post-fader .promoted-send').count(), 0);
+    assert.equal(await sendRow.getByLabel("Send level in dB").inputValue(), "-12.0");
+    // An authoritative Undo snapshot moves the shortcut back without changing its level.
+    await page.evaluate(() => {
+        window.fixtureStrips[0].sends[0].preFader = false;
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    assert.equal(await sendRow.getByLabel("Send tap", { exact: true }).inputValue(), "postFader");
+    assert.equal(await page.locator('.post-fader .promoted-send').count(), 1);
     await sendRow.getByRole("checkbox", { name: "Show on strip" }).uncheck();
     assert.equal(await page.locator(".promoted-sends").count(), 0);
     assert.equal(await sendRow.getByRole("checkbox", { name: "Enabled", exact: true }).isChecked(), true,
@@ -324,11 +344,19 @@ try {
         const controlHeights = await firstStrip.evaluate(strip => ({
             vst: strip.querySelector(".ch-instrument-summary button").getBoundingClientRect().height,
             fx: strip.querySelector(".ch-audio-fx").getBoundingClientRect().height,
-            output: strip.querySelector(".ch-output-routing").getBoundingClientRect().height,
+            output: strip.querySelector(".ch-output-routing select").getBoundingClientRect().height,
         }));
         assert.equal(controlHeights.vst, 32);
-        assert.equal(controlHeights.fx, controlHeights.vst, "VSTi and Audio FX buttons must have equal height");
+        assert.equal(controlHeights.fx, 24, "FX management uses a compact header button");
         assert.equal(controlHeights.output, controlHeights.vst, "output and VSTi controls must have equal height");
+        assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(),
+            ['Instrument', 'Pre-fader', 'Post-fader', 'Output']);
+        const headingsFit = await firstStrip.locator('.ch-section-heading').evaluateAll((headings) => headings.every((heading) => {
+            const text = heading.querySelector('.ch-section-title').getBoundingClientRect();
+            const button = heading.querySelector('button').getBoundingClientRect();
+            return text.right <= button.left + 1;
+        }));
+        assert.ok(headingsFit, `${size}: labels and settings buttons do not overlap`);
 
         const secondStrip = page.locator(".inst-group").nth(1).locator(".channel-strip");
         const selector = secondStrip.getByRole("combobox", { name: "Choose VSTi" });
@@ -365,20 +393,26 @@ try {
     // Uneven promoted-send counts must never offset layer, chair, bus or Master
     // faders. Long lists scroll within the band rather than taking more height.
     await page.evaluate(() => {
-        const buses = ["bus-strings", "bus-hall", "bus-delay"].map((id, i) => ({
+        const buses = ["bus-strings", "bus-hall", "bus-delay", "bus-pre-a", "bus-pre-b", "bus-pre-c"].map((id, i) => ({
             id, name: i === 0 ? "Strings" : i === 1 ? "A very long hall reverb destination" : "Delay", gainDb: 0,
         }));
         window.__dispatchFromCpp({ type: "setGroupBusState", data: buses });
         window.fixtureStrips[0].sends = buses.map((bus, i) => ({
-            id: `promoted-${i}`, busId: bus.id, gainDb: -12, enabled: i !== 1, showOnStrip: true,
+            id: `promoted-${i}`, busId: bus.id, gainDb: -12, enabled: i !== 1, showOnStrip: true, preFader: i >= 3,
         }));
         window.fixtureStrips[0].audio = {
             insertCount: 2,
             preFaderInserts: [{ id: "pre-eq", name: "Pre EQ", status: "loaded" }],
             postFaderInserts: [{ id: "post-comp", name: "Post compressor", status: "loaded" }],
         };
+        window.fixtureStrips[1].audio = {
+            preFaderInserts: Array.from({ length: 12 }, (_, i) => ({ id: `bypassed-${i}`, name: `Bypassed FX ${i}`, status: 'loaded', bypassed: true })),
+        };
+        window.fixtureStrips[2].audio = {
+            preFaderInserts: [{ id: 'missing-fx', name: 'Missing FX', status: 'missing', bypassed: false }],
+        };
         window.fixtureStrips.find((s) => s.id === "chair-8-0").sends = [
-            { id: "one-send", busId: buses[0].id, gainDb: -18, enabled: true, showOnStrip: true },
+            { id: "one-send", busId: buses[0].id, gainDb: -18, enabled: true, showOnStrip: true, preFader: true },
         ];
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
     });
@@ -387,7 +421,7 @@ try {
         await page.keyboard.press("Escape");
         const geometry = await page.evaluate(() => {
             const tracks = [...document.querySelectorAll(".fader-track")].map((e) => e.getBoundingClientRect());
-            const sends = document.querySelector(".promoted-sends");
+            const sends = document.querySelector(".post-fader .promoted-sends");
             const strip = document.querySelector(".channel-strip");
             const pre = strip.querySelector('.ch-fx-section:not(.post-fader)');
             const post = strip.querySelector('.ch-fx-section.post-fader');
@@ -401,6 +435,8 @@ try {
                     && pre.getBoundingClientRect().bottom <= post.getBoundingClientRect().top
                     && post.getBoundingClientRect().bottom <= strip.querySelector('.ch-output-routing').getBoundingClientRect().top,
                 sendsInPost: post.contains(sends),
+                preSendCount: pre.querySelectorAll('.promoted-send').length,
+                preBandHeight: pre.querySelector('.promoted-sends').clientHeight,
                 horizontal: label.right <= knob.left && label.bottom > knob.top,
                 horizontalReadout: dial.right <= readout.left && Math.abs((dial.top + dial.bottom - readout.top - readout.bottom) / 2) <= 1,
                 dialWidth: dial.width,
@@ -420,10 +456,28 @@ try {
         assert.equal(geometry.bandHeight, size === "large" ? 72 : 104);
         assert.ok(geometry.ordered, `${size}: VSTi, pre FX, post FX, output order`);
         assert.ok(geometry.sendsInPost, `${size}: promoted sends are inside post-fader effects`);
+        assert.equal(geometry.preSendCount, 3, `${size}: pre-fader sends are in the pre-fader section`);
+        assert.equal(geometry.preBandHeight, geometry.bandHeight);
         assert.equal(geometry.horizontal, size === "large", `${size}: use horizontal send layout when space permits`);
         assert.ok(geometry.horizontalReadout, `${size}: knob and readout are side by side`);
         assert.equal(geometry.dialWidth, 26);
         assert.equal(geometry.arrow, "→");
+        const headings = page.locator('.channel-strip .ch-fx-section:not(.post-fader) .ch-section-heading');
+        assert.equal(await headings.nth(0).locator('.ch-insert-count').innerText(), size === 'compact' ? '1' : '1 FX');
+        assert.equal(await headings.nth(1).locator('.ch-insert-count').innerText(), size === 'compact' ? '12' : '12 FX');
+        assert.equal(await headings.nth(0).locator('.ch-insert-count.active').count(), 1);
+        assert.equal(await headings.nth(1).locator('.ch-insert-count.active').count(), 0);
+        assert.match(await headings.nth(1).locator('button').getAttribute('aria-label'), /12 inserts, all bypassed/);
+        assert.equal(await headings.nth(2).locator('.ch-insert-count.active').count(), 0, 'missing is not active');
+        assert.equal(await headings.nth(8).locator('.ch-insert-count').count(), 0, 'sends alone do not count as inserts');
+        assert.ok(await headings.evaluateAll((rows) => rows.every((row) => {
+            const text = row.querySelector('.ch-section-title').getBoundingClientRect();
+            const button = row.querySelector('button').getBoundingClientRect();
+            const bounds = row.closest('.ch-fx-section').getBoundingClientRect();
+            const badge = row.querySelector('.ch-insert-count')?.getBoundingClientRect();
+            return text.right <= button.left + 1 && button.right <= bounds.right + 1
+                && (!badge || badge.right <= bounds.right + 1);
+        })), `${size}: insert counts fit without overlapping headings`);
         for (let section = 0; section < 3; ++section) {
             const tops = geometry.sectionTops.map((s) => s[section]);
             assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `${size}: section ${section} aligns across layers`);
@@ -431,6 +485,12 @@ try {
         if (size === "large") {
             assert.equal(await page.locator('.ch-fx-section:not(.post-fader) .ch-fx-summary-name').first().innerText(), "Pre EQ");
             assert.equal(await page.locator('.post-fader .ch-fx-summary-name').first().innerText(), "Post compressor");
+            await page.getByRole('button', { name: 'Edit Pre EQ', exact: true }).click();
+            assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+                { type: 'toggleStripInsertEditor', payload: ['chair-0-0', 'pre-eq'] });
+            await page.locator('.post-fader .ch-fx-summary-actions').first().getByRole('button', { name: 'Bypass', exact: true }).click();
+            assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+                { type: 'setStripInsertBypassed', payload: ['chair-0-0', 'post-comp', true] });
             assert.ok(await page.locator('.ch-fx-summary').evaluateAll((summaries) => summaries.every((summary) => {
                 const row = summary.querySelector('.ch-fx-summary-row');
                 return !row || row.getBoundingClientRect().bottom <= summary.getBoundingClientRect().bottom + 1;
@@ -441,7 +501,14 @@ try {
         if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
             await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, `promoted-${size}.png`) });
     }
-    const promoted = page.locator(".promoted-sends").first();
+    // Live rack updates (including Undo) update the indicator without a hover.
+    await page.evaluate(() => window.__dispatchFromCpp({ type: 'setStripAudioState', data: {
+        stripId: 'chair-0-0', preFaderInserts: [{ id: 'pre-eq', name: 'Pre EQ', status: 'loaded', bypassed: true }],
+    } }));
+    assert.equal(await page.locator('.channel-strip').first().locator('.ch-fx-section:not(.post-fader) .ch-insert-count.active').count(), 0);
+    await page.evaluate(() => window.__dispatchFromCpp({ type: 'setStripAudioState', data: { stripId: 'chair-0-0', preFaderInserts: [] } }));
+    assert.equal(await page.locator('.channel-strip').first().locator('.ch-fx-section:not(.post-fader) .ch-insert-count').count(), 0);
+    const promoted = page.locator(".post-fader .promoted-sends").first();
     await promoted.getByRole("slider", { name: "Send to Strings", exact: true }).press("ArrowUp");
     assert.equal(await promoted.getByRole("slider", { name: "Send to Strings", exact: true }).getAttribute("aria-valuenow"), "-11.5");
     assert.equal(await promoted.locator(".promoted-send").count(), 3, "editing the gain preserves promotion");

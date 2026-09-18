@@ -15,7 +15,7 @@ public:
   void execute() override { success_ = mixer_.setStripSends(stripId_, after_); }
   void undo() override { mixer_.setStripSends(stripId_, before_); }
   bool succeeded() const override { return success_; }
-  juce::String getDescription() const override { return "Change post-fader sends"; }
+  juce::String getDescription() const override { return "Change sends"; }
   juce::String getCoalesceId() const override {
     return gainGesture_.isEmpty() ? juce::String{} : "send-gain:" + stripId_ + ":" + gainGesture_;
   }

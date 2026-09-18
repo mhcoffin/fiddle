@@ -43,11 +43,13 @@ class MixerModel : public juce::Timer {
     bool enabled = false;
     std::shared_ptr<RouteDelay> delay;
     size_t destinationIndex = 0;
+    bool preFader = false;
   };
   struct StripRoute {
     MixerStrip *strip = nullptr;
     GroupBus *destination = nullptr; // nullptr means Master
     juce::AudioBuffer<float> scratch; // allocated only when publishing a graph
+    juce::AudioBuffer<float> preFaderScratch; // only allocated for pre-fader routes
     std::shared_ptr<RouteDelay> delay;
     std::vector<SendRoute> sends;
     int downstreamLatency = 0;

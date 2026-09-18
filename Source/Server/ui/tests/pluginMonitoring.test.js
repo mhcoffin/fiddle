@@ -4,6 +4,12 @@ import test from "node:test";
 
 const source = readFileSync(new URL("../../MainComponent.cpp", import.meta.url), "utf8");
 
+test("strip edits and dynamic rack latencies refresh send-path compensation", () => {
+    const body = source.match(/void MainComponent::stripAudioChanged\([\s\S]*?\n\}/)?.[0];
+    assert.match(body, /mixer_.refreshAudioRouting\(\)/);
+    assert.match(source, /if \(stripLatencyChanged \|\| busLatencyChanged\)\s+mixer_.refreshAudioRouting\(\);/);
+});
+
 test("instrument playback suppression precedes gated parameter scanning", () => {
     const body = source.match(/void MainComponent::processPluginChangeNotifications\([\s\S]*?\n\}/)?.[0];
     assert.ok(body);

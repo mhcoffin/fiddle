@@ -519,6 +519,119 @@ void testPostFaderSends(int workers) {
   REQUIRE(!f.undo.canUndo());
 }
 
+void testPreFaderSends(int workers) {
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto a = f.instrument(0.1f, 1), b = f.instrument(0.2f, 2);
+  auto *strip = f.mixer.getStrip(a);
+  const auto group = f.mixer.addGroupBus("Dry"), aux = f.mixer.addGroupBus("Aux");
+  REQUIRE(f.commands.setStripDirectOutput(a, group));
+  addEffect(strip->audioEngine(), "pre", 2);
+  addEffect(strip->audioEngine(), "post", 3, 0, fiddle::StripInsertPosition::postFader);
+  addEffect(f.mixer.getGroupBus(aux)->audioEngine(), "return", 2);
+  strip->setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  REQUIRE(f.mixer.setStripSends(a, {{"send", aux, 0, true, true}}));
+  f.noteOn(1); f.noteOn(2);
+  f.expectLevel(1.1f); // Post: .3 dry + .6 wet + .2 other.
+  REQUIRE(!strip->sends.front().preFader);
+  REQUIRE(f.router.handleMessage("setStripSendPreFader", juce::var(juce::Array<juce::var>{a, "send", true})));
+  REQUIRE(strip->sends.front().preFader && strip->sends.front().showOnStrip);
+  f.expectLevel(0.9f); // Pre: .3 dry + .4 wet + .2 other.
+  REQUIRE(f.undo.undo()); f.expectLevel(1.1f);
+  REQUIRE(f.undo.redo()); f.expectLevel(0.9f);
+  REQUIRE(!f.commands.setStripSendPreFader(a, "send", true));
+  REQUIRE(!f.commands.setStripSendPreFader(a, "missing", true));
+  REQUIRE(!f.commands.setStripSendPreFader("missing", "send", true));
+  strip->setGainDb(-120); f.expectLevel(0.6f); // Pre tap survives fader silence.
+  strip->setMuted(true); f.expectLevel(0.2f);
+  strip->setMuted(false); f.expectLevel(0.6f);
+  strip->setActive(false); f.expectLevel(0.2f);
+  strip->setActive(true); f.expectLevel(0.6f);
+  f.mixer.getStrip(b)->setSoloed(true); f.expectLevel(0.2f);
+  f.mixer.getStrip(b)->setSoloed(false);
+  strip->setSoloed(true); f.expectLevel(0.4f);
+  strip->setSoloed(false);
+  REQUIRE(f.commands.setGroupBusSolo(group, true)); f.expectLevel(0.4f);
+  REQUIRE(f.commands.setGroupBusSolo(group, false));
+  REQUIRE(f.commands.setGroupBusSolo(aux, true)); f.expectLevel(0.4f);
+  REQUIRE(f.commands.setGroupBusSolo(aux, false));
+  REQUIRE(f.commands.setGroupBusMute(aux, true)); f.expectLevel(0.2f);
+  REQUIRE(f.commands.setGroupBusMute(aux, false));
+  REQUIRE(f.commands.updateStripSend(a, "send", aux, 0, false)); f.expectLevel(0.2f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
+  REQUIRE(f.commands.removeGroupBus(aux)); f.expectLevel(0.2f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
+  REQUIRE(strip->sends.front().preFader && strip->sends.front().showOnStrip);
+  REQUIRE(f.commands.updateStripSend(a, "send", group, 0, true));
+  REQUIRE(strip->sends.front().preFader && strip->sends.front().showOnStrip);
+  f.expectLevel(0.4f);
+  REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
+  strip->setGainDb(0); f.expectLevel(1.2f);
+  strip->unloadPlugin(); f.expectLevel(0.2f); // No stale tap when the instrument disappears.
+}
+
+void testPreFaderSendLatency(int workers, int preBusLatency) {
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto a = f.instrument(0.1f, 1);
+  f.instrument(0.4f, 2);
+  const auto dry = f.mixer.addGroupBus("Dry"), pre = f.mixer.addGroupBus("Pre"), post = f.mixer.addGroupBus("Post");
+  REQUIRE(f.commands.setStripDirectOutput(a, dry));
+  addEffect(f.mixer.getStrip(a)->audioEngine(), "pre-fx", 2, 4);
+  addEffect(f.mixer.getStrip(a)->audioEngine(), "post-fx", 3, 20, fiddle::StripInsertPosition::postFader);
+  addEffect(f.mixer.getGroupBus(dry)->audioEngine(), "dry-fx", 1, 8);
+  addEffect(f.mixer.getGroupBus(pre)->audioEngine(), "pre-return", 2, preBusLatency);
+  addEffect(f.mixer.getGroupBus(post)->audioEngine(), "post-return", 3, 7);
+  f.mixer.getStrip(a)->setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  REQUIRE(f.mixer.setStripSends(a, {{"pre-send", pre, juce::Decibels::gainToDecibels(0.5f), true, true, true},
+                                  {"post-send", post, juce::Decibels::gainToDecibels(0.25f), true}}));
+  auto &engine = f.mixer.getStrip(a)->audioEngine();
+  engine.setOnChanged([&] { f.mixer.refreshAudioRouting(); });
+  for (int pass = 0; pass < 4; ++pass) {
+    float expected = 0.725f;
+    int longest = std::max(32, 4 + preBusLatency);
+    if (pass == 2) {
+      REQUIRE(engine.setBypassed("post-fx", true));
+      longest = std::max(12, 4 + preBusLatency);
+      expected = 0.375f;
+    } else if (pass == 3) {
+      REQUIRE(engine.setBypassed("post-fx", false));
+      REQUIRE(engine.move("post-fx", fiddle::StripInsertPosition::preFader, 1));
+      longest = 24 + std::max(8, preBusLatency);
+      expected = 1.125f; // The pre send now includes both effects.
+    }
+    REQUIRE(std::abs(f.mixer.maximumPathLatencyMs() - 1000.0 * longest / 48000) < 1e-6);
+    if (pass) f.mixer.prepareToPlay(48000, 64); // Clear tap/delay histories on device reprepare.
+    f.noteOn(1, 10);
+    f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60), f.now + 13);
+    int frame = 0, iteration = 0;
+    for (int length : {64, 23, 64, 1, 39, 64, 64, 64, 64, 23, 64, 64, 64, 64, 64}) {
+      if (++iteration == 9) f.mixer.addGroupBus("Unrelated edit");
+      juce::AudioBuffer<float> audio(2, length); audio.clear();
+      f.mixer.processBlock(audio, f.now);
+      f.now += 1000.0 * length / 48000;
+      for (int i = 0; i < length; ++i, ++frame)
+        for (int ch = 0; ch < 2; ++ch)
+          REQUIRE(std::abs(audio.getSample(ch, i) - (frame >= 480 && frame < 624 ? expected : 0)) < 1e-5f);
+    }
+  }
+}
+
+void testSendTapSerialization() {
+  std::vector<fiddle::AudioSend> sends{{"send", "bus", 0, true}};
+  auto json = fiddle::audioSendsToJson(sends);
+  REQUIRE(!json[0].hasProperty("preFader")); // Preserve existing post-fader hashes.
+  REQUIRE(fiddle::audioSendsFromJson(json, sends) && !sends.front().preFader);
+  sends.front().preFader = true;
+  json = fiddle::audioSendsToJson(sends);
+  REQUIRE(bool(json[0]["preFader"]));
+  std::vector<fiddle::AudioSend> restored;
+  REQUIRE(fiddle::audioSendsFromJson(json, restored) && restored == sends);
+  json[0].getDynamicObject()->setProperty("preFader", "true");
+  REQUIRE(!fiddle::audioSendsFromJson(json, restored));
+  REQUIRE(restored == sends); // Invalid input never partially applies.
+}
+
 void testSendLatencyAndContinuity(int workers) {
   MixerFixture f;
   f.mixer.setRenderWorkerCount(workers);
@@ -2243,7 +2356,7 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     addEffect(bus->audioEngine(), "bus-pre", 2.0f);
     const auto returnId = f.mixer.addGroupBus("Shared return");
     addEffect(f.mixer.getGroupBus(returnId)->audioEngine(), "return-fx", 0.25f);
-    REQUIRE(f.mixer.setStripSends(ids[0], {{"saved-send", returnId, -7.5f, true, true}}));
+    REQUIRE(f.mixer.setStripSends(ids[0], {{"saved-send", returnId, -7.5f, true, true, true}}));
     REQUIRE(f.mixer.setStripSends(ids[1], {{"disabled-send", returnId, -18, false}}));
     addEffect(bus->audioEngine(), "bus-post", 0.75f, 0, fiddle::StripInsertPosition::postFader);
     addEffect(f.mixer.getStrip(ids[0])->audioEngine(), "strip-pre", 0.5f);
@@ -2295,6 +2408,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(f.mixer.getStrip(ids[0])->sends.size() == 1);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().id == "saved-send");
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().showOnStrip);
+    REQUIRE(f.mixer.getStrip(ids[0])->sends.front().preFader);
+    REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().preFader);
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().showOnStrip);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().gainDb == -7.5f);
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().enabled);
@@ -2838,6 +2953,9 @@ int main() {
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("post-fader sends, solo-safe returns and history", [] { for (int workers : {1, 2, 4}) testPostFaderSends(workers); });
+  run("pre-fader sends, mute/solo semantics and history", [] { for (int workers : {1, 2, 4}) testPreFaderSends(workers); });
+  run("pre/post send sample alignment and device reprepare", [] { for (int workers : {1, 2, 4}) for (int latency : {7, 120}) testPreFaderSendLatency(workers, latency); });
+  run("send tap JSON defaults and validation", testSendTapSerialization);
   run("send paths align samples and retain delayed audio across graph edits", [] { for (int workers : {1, 2, 4}) testSendLatencyAndContinuity(workers); });
   run("disabled sends preserve return effect tails", testSendReturnTails);
   run("parallel workers complete a block before admitting pending control", testParallelPoolCompletesAdmittedBlock);

@@ -111,7 +111,7 @@
                                     </div>
                                 {/each}
                             {:else}
-                                <div class="fx-empty">No audio effects</div>
+                                <div class="fx-empty">No inserts</div>
                             {/if}
                         </div>
                     </div>
@@ -198,7 +198,7 @@
                                 </div>
                             {/each}
                         {:else}
-                            <div class="fx-empty">No audio effects</div>
+                            <div class="fx-empty">No inserts</div>
                         {/if}
                     </div>
                 </div>
@@ -279,7 +279,7 @@
     .fx { width: 100%; min-height: 34px; padding: 5px 8px; flex-shrink: 0; border: 1px solid #36506f; border-radius: 5px; background: #10243a; color: #cbd5e1; font: inherit; font-size: .72rem; font-weight: 650; cursor: pointer; }
     .fx:hover, .fx.has-effects { border-color: #22d3ee; color: #cffafe; }
     .fx-summary { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }
-    .fx-empty { height: 100%; display: grid; place-items: center; border: 1px dashed #29384f; border-radius: 5px; color: #64748b; font-size: .68rem; }
+    .fx-empty { padding: 6px; color: #a3b4c8; font-size: .68rem; }
     .fx-row { padding: 6px; border: 1px solid #334155; border-radius: 5px; background: #0d1728; }
     .fx-row.bypassed { opacity: .62; }
     .fx-name { min-width: 0; display: flex; align-items: baseline; gap: 5px; }

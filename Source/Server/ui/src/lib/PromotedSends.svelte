@@ -2,11 +2,12 @@
     import Knob from "./Knob.svelte";
     import { dispatchCpp } from "./ipc.js";
     import { gainToPosition, positionToGain, formatGain, parseGain } from "./knobMath.js";
-    let { strip, buses = [], horizontal = false } = $props();
-    let sends = $derived((strip.sends || []).filter((send) => send.showOnStrip));
+    let { strip, buses = [], horizontal = false, preFader = false, rows = 0 } = $props();
+    let sends = $derived((strip.sends || []).filter((send) => send.showOnStrip && !!send.preFader === preFader));
 </script>
 
-<div class="promoted-sends" class:horizontal aria-label={`Post-fader sends for ${strip.layerName || strip.library || "layer"}`}>
+<div class="promoted-sends" class:horizontal style:height={`calc(${rows} * var(--strip-send-row-height))`}
+    aria-label={`${preFader ? "Pre" : "Post"}-fader sends for ${strip.layerName || strip.library || "layer"}`}>
     {#each sends as send (send.id)}
         {@const name = buses.find((bus) => bus.id === send.busId)?.name || "Missing bus"}
         <div class="promoted-send" class:send-off={!send.enabled}>
@@ -24,7 +25,7 @@
 </div>
 
 <style>
-    .promoted-sends { height: var(--strip-send-height); flex-shrink: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+    .promoted-sends { flex-shrink: 0; min-width: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
     .promoted-send { height: var(--strip-send-row-height, 52px); box-sizing: border-box; padding: 3px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
     .send-destination { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; color: #7dd3fc; font-size: 0.65rem; line-height: 16px; }
     .send-arrow { flex-shrink: 0; font-size: 0.85rem; }

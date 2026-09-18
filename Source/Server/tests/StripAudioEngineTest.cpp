@@ -160,10 +160,19 @@ void testPreAndPostFaderOrderingAndBypass() {
   engine.processBlock(audio, 0.5f);
   CHECK(near(audio.getSample(0, 20), 2.0f)); // ((1 * 2) * .5) + 1
   CHECK(engine.latencySamples() == 12);
+  CHECK(engine.postFaderLatencySamples() == 12);
+  juce::AudioBuffer<float> preTap(2, 32);
+  fillStereo(audio, 1.0f, 0.5f);
+  engine.processBlock(audio, 0.0f, &preTap);
+  CHECK(near(preTap.getSample(0, 20), 2.0f));
+  CHECK(near(preTap.getSample(1, 20), 1.0f));
+  CHECK(near(audio.getSample(0, 20), 1.0f)); // Zero fader; post additive effect only.
   CHECK(engine.insertCount(fiddle::StripInsertPosition::preFader) == 1);
   CHECK(engine.insertCount(fiddle::StripInsertPosition::postFader) == 1);
 
   CHECK(engine.setBypassed("add", true));
+  CHECK(engine.latencySamples() == 0);
+  CHECK(engine.postFaderLatencySamples() == 0);
   fillStereo(audio, 1.0f, 1.0f);
   engine.processBlock(audio, 0.5f);
   CHECK(near(audio.getSample(0, 20), 1.0f));
@@ -217,6 +226,7 @@ void testPlaybackMonitoringDoesNotTakeControlGate() {
     CHECK(engine.consumeLatencyDisplayChange());
     CHECK(!engine.consumeLatencyDisplayChange());
     CHECK(engine.latencySamples() == 128);
+    CHECK(engine.postFaderLatencySamples() == (position == fiddle::StripInsertPosition::postFader ? 128 : 0));
     CHECK(changes == 2);
     engine.captureParameterFingerprints();
     CHECK(!engine.refreshPluginStateCaches());

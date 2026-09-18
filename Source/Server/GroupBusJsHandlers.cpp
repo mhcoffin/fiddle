@@ -49,6 +49,13 @@ void GroupBusJsHandlers::notify(bool changed) {
 }
 
 void GroupBusJsHandlers::registerHandlers() {
+  router_.registerHandler("setStripSendPreFader", [this](const juce::var &payload) {
+    const auto a = args(payload);
+    if (a.size() != 3 || !a[0].isString() || !a[1].isString() || !a[2].isBool()) return;
+    const auto strip = a[0].toString(), send = a[1].toString();
+    const bool preFader = bool(a[2]);
+    dispatch([this, strip, send, preFader] { notify(commands_.setStripSendPreFader(strip, send, preFader)); });
+  });
   router_.registerHandler("setStripSendVisible", [this](const juce::var &payload) {
     const auto a = args(payload);
     if (a.size() != 3 || !a[0].isString() || !a[1].isString() || !a[2].isBool()) return;

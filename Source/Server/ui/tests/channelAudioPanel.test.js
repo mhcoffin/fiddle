@@ -12,14 +12,16 @@ const panelSource = readFileSync(
 );
 
 test("instrument strips expose one spacious Audio FX panel", () => {
-    assert.match(mixerSource, /\/ Sends\$\{strip.sends/);
+    assert.match(mixerSource, /Manage \$\{location.toLowerCase\(\)\}-fader effects and sends/);
     assert.match(mixerSource, /requestStripAudioState/);
     assert.match(mixerSource, /<ChannelAudioPanel/);
 });
 
-test("channel audio exposes post-fader sends with destinations and levels", () => {
-    assert.match(panelSource, /Post-fader sends/);
-    for (const command of ["addStripSend", "updateStripSend", "removeStripSend"])
+test("channel audio exposes pre/post-fader sends with destinations and levels", () => {
+    assert.match(panelSource, /aria-label="Send tap"/);
+    assert.match(panelSource, /<option value="preFader">Pre-fader/);
+    assert.match(panelSource, /<option value="postFader">Post-fader/);
+    for (const command of ["addStripSend", "updateStripSend", "removeStripSend", "setStripSendPreFader"])
         assert.ok(panelSource.includes(command));
     assert.match(panelSource, /<Knob label="Send level" unit="dB"/);
     assert.match(panelSource, /Show on strip/);

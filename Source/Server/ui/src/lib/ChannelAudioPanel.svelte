@@ -64,14 +64,15 @@
                 {/if}
             </section>
 
-            <section class="insert-section" aria-label="Post-fader sends">
+            <section class="insert-section" aria-label="Sends">
                 <div class="section-heading">
                     <div>
-                        <h3>Post-fader sends</h3>
-                        <p>Send a copy after the fader and all strip effects. The normal output stays connected.</p>
+                        <h3>Sends</h3>
+                        <p>Post-fader follows the strip level and all strip effects. Pre-fader taps after pre-fader effects, independently of the strip level.</p>
                     </div>
                 </div>
                 <p>Use an audio bus for shared reverb or delay; set its effect to 100% wet. Soloed sources keep their returns.</p>
+                <p>The normal output stays connected. Mute, inactive layers, and solo suppression silence both types of send. Change the tap while stopped if effects add latency.</p>
                 <div class="send-add">
                     <select aria-label="New send destination" bind:value={sendDestination}>
                         <option value="">Choose audio bus…</option>
@@ -97,6 +98,11 @@
                                 {#each buses as bus (bus.id)}
                                     <option value={bus.id} disabled={(strip.sends || []).some((other) => other.id !== send.id && other.busId === bus.id)}>{bus.name}</option>
                                 {/each}
+                            </select>
+                            <select aria-label="Send tap" value={send.preFader ? "preFader" : "postFader"}
+                                onchange={(event) => dispatchCpp("setStripSendPreFader", strip.id, send.id, event.currentTarget.value === "preFader")}>
+                                <option value="postFader">Post-fader</option>
+                                <option value="preFader">Pre-fader</option>
                             </select>
                             <Knob label="Send level" unit="dB" min={-120} max={12} value={send.gainDb}
                                 toPosition={gainToPosition} fromPosition={positionToGain} format={formatGain} parse={parseGain}

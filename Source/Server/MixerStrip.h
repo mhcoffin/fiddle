@@ -233,7 +233,7 @@ public:
 
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg);
 
-  /// Latency contributed after this strip by its current direct-output bus.
+  /// Additional lead beyond the full strip rack for its longest routed path.
   /// MixerModel updates this whenever it publishes routing.
   void setDownstreamLatencySamples(int samples) noexcept;
 
@@ -245,7 +245,8 @@ public:
   void allNotesOff();
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
-                    bool anySoloed = false, bool routeAudible = true);
+                    bool anySoloed = false, bool routeAudible = true,
+                    juce::AudioBuffer<float> *preFaderOutput = nullptr);
 
   /// Load a plugin from a description. Must be called on the message thread.
   /// Initial state belongs to the strip, even if it leaves the mixer while

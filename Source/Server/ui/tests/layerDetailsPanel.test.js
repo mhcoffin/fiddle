@@ -23,10 +23,15 @@ test("every strip reserves the same operational space around its fader", () => {
 test("strip effects are grouped by signal position before the output selector", () => {
     assert.match(mixerSource, /\["Pre", "Post"\]/);
     assert.match(mixerSource, /insert\.location === location/);
-    assert.match(mixerSource, /location === "Post" && sendRows > 0/);
-    assert.ok(mixerSource.indexOf("<PromotedSends") < mixerSource.indexOf('class="ch-output-routing"'));
+    assert.match(mixerSource, /sendRows\[location\] > 0/);
+    assert.match(mixerSource, /preFader=\{location === "Pre"\}/);
+    assert.ok(mixerSource.indexOf("<PromotedSends") < mixerSource.indexOf('class="ch-strip-section ch-output-routing"'));
     assert.match(mixerSource, /horizontal=\{stripSize === "large"\}/);
-    assert.match(mixerSource, /\.ch-fx-section\s*\{[^}]*border-top: 1px solid/);
+    assert.match(mixerSource, /\.ch-strip-section\s*\{[^}]*background: #1b283b/);
+    assert.match(mixerSource, /ch-section-title">Instrument/);
+    assert.match(mixerSource, /ch-section-title">Output/);
+    assert.match(mixerSource, /ch-section-title">\{location\}-fader/);
+    assert.match(mixerSource, /ch-fx-empty">No inserts/);
 });
 
 test("rarely changed layer configuration lives in the details panel", () => {
@@ -38,6 +43,14 @@ test("rarely changed layer configuration lives in the details panel", () => {
     assert.match(detailsSource, /Inspect MIDI/);
     assert.match(detailsSource, /Refresh Library/);
     assert.doesNotMatch(detailsSource, /Audio output/);
+});
+
+test("section headings count inserts independently of sends and show active status", () => {
+    assert.match(mixerSource, /if inserts.length > 0\}<span class="ch-insert-count"/);
+    assert.match(mixerSource, /class:active=\{activeInserts > 0\}/);
+    assert.match(mixerSource, /!insert.bypassed && insert.status === "loaded"/);
+    assert.match(mixerSource, /stripSize === "compact" \? "" : " FX"/);
+    assert.match(mixerSource, /aria-label=\{`Manage[^\n]*insertSummary/);
 });
 
 test("operational instrument and effect controls remain on large strips", () => {
