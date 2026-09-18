@@ -90,6 +90,8 @@
                         <div class="send-row" class:bypassed={!send.enabled}>
                             <label class="send-enable"><input type="checkbox" checked={send.enabled}
                                 onchange={(event) => updateSend(send, { enabled: event.currentTarget.checked })} /> Enabled</label>
+                            <label class="send-enable"><input type="checkbox" checked={!!send.showOnStrip}
+                                onchange={(event) => dispatchCpp("setStripSendVisible", strip.id, send.id, event.currentTarget.checked)} /> Show on strip</label>
                             <select aria-label="Send destination" value={send.busId}
                                 onchange={(event) => updateSend(send, { busId: event.currentTarget.value })}>
                                 {#each buses as bus (bus.id)}

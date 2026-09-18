@@ -26,6 +26,7 @@ public:
   bool addStripSend(const juce::String &stripId, const juce::String &busId) override { call="addSend"; id=stripId; value=busId; return result; }
   bool updateStripSend(const juce::String &stripId, const juce::String &, const juce::String &busId, float gainDb, bool enabled) override { call="updateSend"; id=stripId; value=busId; gain=gainDb; flag=enabled; return result; }
   bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override { call="removeSend"; id=stripId; value=sendId; return result; }
+  bool setStripSendVisible(const juce::String &stripId, const juce::String &sendId, bool visible) override { call="showSend"; id=stripId; value=sendId; flag=visible; return result; }
   bool addGroupBus(const juce::String &name, const std::vector<juce::String> &stripIds) override { call="add"; value=name; ids=stripIds; return result; }
   bool removeGroupBus(const juce::String &busId) override { call="remove"; id=busId; return result; }
   bool renameGroupBus(const juce::String &busId, const juce::String &name) override { call="rename"; id=busId; value=name; return result; }
@@ -96,6 +97,12 @@ void run() {
   commands.result = false;
   CHECK(router.handleMessage("removeGroupBus", payload({"missing"})));
   CHECK(changed == 16);
+  commands.result = true;
+  CHECK(router.handleMessage("setStripSendVisible", payload({"strip", "send", true})));
+  CHECK(commands.call == "showSend" && commands.id == "strip" && commands.value == "send" && commands.flag);
+  CHECK(changed == 17);
+  CHECK(router.handleMessage("setStripSendVisible", payload({"strip", "send", "false"})));
+  CHECK(changed == 17);
 }
 } // namespace
 

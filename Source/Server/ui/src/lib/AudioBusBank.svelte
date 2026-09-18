@@ -275,7 +275,7 @@
     .identity span { color: #7dd3fc; font-size: .62rem; }
     /* Follow the mixer size's pre-fader span. One pixel compensates for
        the audio bank's local gap/tick geometry. */
-    .fx-zone { height: calc(var(--strip-pre-fader-height, 166px) - 1px); min-height: calc(var(--strip-pre-fader-height, 166px) - 1px); display: flex; flex-shrink: 0; flex-direction: column; gap: 5px; }
+    .fx-zone { height: calc(var(--strip-pre-fader-height, 166px) - 1px); min-height: calc(var(--strip-pre-fader-height, 166px) - 1px); margin-bottom: var(--strip-send-span, 0px); display: flex; flex-shrink: 0; flex-direction: column; gap: 5px; }
     .fx { width: 100%; min-height: 34px; padding: 5px 8px; flex-shrink: 0; border: 1px solid #36506f; border-radius: 5px; background: #10243a; color: #cbd5e1; font: inherit; font-size: .72rem; font-weight: 650; cursor: pointer; }
     .fx:hover, .fx.has-effects { border-color: #22d3ee; color: #cffafe; }
     .fx-summary { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 5px; overflow-y: auto; }

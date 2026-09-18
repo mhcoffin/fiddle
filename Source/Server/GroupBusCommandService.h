@@ -15,6 +15,7 @@ public:
   bool updateStripSend(const juce::String &stripId, const juce::String &sendId,
                        const juce::String &busId, float gainDb, bool enabled) override;
   bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override;
+  bool setStripSendVisible(const juce::String &stripId, const juce::String &sendId, bool visible) override;
   bool addGroupBus(const juce::String &name,
                    const std::vector<juce::String> &stripIds) override;
   bool removeGroupBus(const juce::String &busId) override;

@@ -362,8 +362,11 @@ bool MixerModel::setStripSends(const juce::String &stripId, std::vector<AudioSen
                      [&](const auto &b) { return b->id == send.busId; })) return false;
   }
   if ((*strip)->sends == sends) return false;
+  const bool audioChanged = (*strip)->sends.size() != sends.size() ||
+      !std::equal(sends.begin(), sends.end(), (*strip)->sends.begin(),
+                   [](const auto &a, const auto &b) { return a.sameAudioRoute(b); });
   (*strip)->sends = std::move(sends);
-  commitAudioGraph();
+  if (audioChanged) commitAudioGraph(); // A presentation-only edit must not touch DSP.
   return true;
 }
 

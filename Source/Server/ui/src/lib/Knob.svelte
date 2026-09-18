@@ -5,6 +5,7 @@
     let {
         value = 0, min = 0, max = 1, step = 0.5, fineStep = 0.1,
         label = "Value", unit = "", disabled = false,
+        compact = false,
         toPosition = (v) => (v - min) / (max - min),
         fromPosition = (p) => min + p * (max - min),
         format = (v) => v.toFixed(1),
@@ -110,7 +111,7 @@
 
 <svelte:window onblur={finishGesture} />
 
-<div class="knob-control" class:disabled>
+<div class="knob-control" class:disabled class:compact>
     <div class="knob" bind:this={knob} role="slider" tabindex={disabled ? -1 : 0}
         aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={current}
         aria-valuetext={`${format(current)} ${unit}`} aria-disabled={disabled} aria-orientation="vertical"
@@ -152,4 +153,8 @@
     input:focus { outline: 2px solid #38bdf8; outline-offset: 1px; }
     .disabled { opacity: 0.45; }
     .disabled .knob { cursor: default; }
+    .compact { gap: 2px; }
+    .compact .knob { width: 26px; height: 26px; flex-shrink: 0; }
+    .compact .readout { gap: 1px; font-size: 0.6rem; }
+    .compact input { width: 40px; height: 22px; padding: 2px; }
 </style>

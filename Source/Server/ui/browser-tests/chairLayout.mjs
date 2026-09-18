@@ -63,9 +63,15 @@ try {
                 const [stripId, id, busId, gainDb, enabled] = message.payload;
                 const strip = window.fixtureStrips.find((s) => s.id === stripId);
                 if (strip?.sends) {
-                    strip.sends = strip.sends.map((s) => s.id === id ? { id, busId, gainDb, enabled } : s);
+                    strip.sends = strip.sends.map((s) => s.id === id ? { ...s, id, busId, gainDb, enabled } : s);
                     queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
                 }
+            }
+            if (message.type === "setStripSendVisible") {
+                const [stripId, id, showOnStrip] = message.payload;
+                const strip = window.fixtureStrips.find((s) => s.id === stripId);
+                strip.sends = strip.sends.map((s) => s.id === id ? { ...s, showOnStrip } : s);
+                queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
             }
             if (message.type === "showView" && ["inspector", "audio-bank", "chairs", "bus-manager", "audio-performance"].includes(message.payload[0]))
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
@@ -95,6 +101,15 @@ try {
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
     });
     const sendRow = channelAudio.locator(".send-row");
+    await sendRow.getByRole("checkbox", { name: "Show on strip" }).check();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setStripSendVisible", payload: ["chair-0-0", "test-send", true] });
+    assert.equal(await page.locator(".promoted-send").count(), 1);
+    await sendRow.getByRole("checkbox", { name: "Show on strip" }).uncheck();
+    assert.equal(await page.locator(".promoted-sends").count(), 0);
+    assert.equal(await sendRow.getByRole("checkbox", { name: "Enabled", exact: true }).isChecked(), true,
+        "hiding a shortcut must not disable its send");
+    await sendRow.getByRole("checkbox", { name: "Show on strip" }).check();
     await sendRow.getByLabel("Send level in dB").fill("-6");
     await sendRow.getByLabel("Send level in dB").press("Tab");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.filter((m) => m.type === "updateStripSend").at(-1)),
@@ -170,6 +185,7 @@ try {
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
     });
     assert.equal(await sendRow.count(), 0);
+    assert.equal(await page.locator(".promoted-sends").count(), 0, "no reserved band without promoted sends");
     await channelAudio.getByRole("button", { name: "Close", exact: true }).click();
     const viewButton = page.getByRole("button", { name: "View", exact: true });
     for (const width of [800, 1280]) {
@@ -346,6 +362,102 @@ try {
     }
     assert.ok(sizes[0].scrollWidth < sizes[1].scrollWidth);
     assert.ok(sizes[1].scrollWidth < sizes[2].scrollWidth);
+    // Uneven promoted-send counts must never offset layer, chair, bus or Master
+    // faders. Long lists scroll within the band rather than taking more height.
+    await page.evaluate(() => {
+        const buses = ["bus-strings", "bus-hall", "bus-delay"].map((id, i) => ({
+            id, name: i === 0 ? "Strings" : i === 1 ? "A very long hall reverb destination" : "Delay", gainDb: 0,
+        }));
+        window.__dispatchFromCpp({ type: "setGroupBusState", data: buses });
+        window.fixtureStrips[0].sends = buses.map((bus, i) => ({
+            id: `promoted-${i}`, busId: bus.id, gainDb: -12, enabled: i !== 1, showOnStrip: true,
+        }));
+        window.fixtureStrips[0].audio = {
+            insertCount: 2,
+            preFaderInserts: [{ id: "pre-eq", name: "Pre EQ", status: "loaded" }],
+            postFaderInserts: [{ id: "post-comp", name: "Post compressor", status: "loaded" }],
+        };
+        window.fixtureStrips.find((s) => s.id === "chair-8-0").sends = [
+            { id: "one-send", busId: buses[0].id, gainDb: -18, enabled: true, showOnStrip: true },
+        ];
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+    });
+    for (const size of ["compact", "comfortable", "large"]) {
+        await viewButton.click(); await page.locator("#strip-size-select").selectOption(size);
+        await page.keyboard.press("Escape");
+        const geometry = await page.evaluate(() => {
+            const tracks = [...document.querySelectorAll(".fader-track")].map((e) => e.getBoundingClientRect());
+            const sends = document.querySelector(".promoted-sends");
+            const strip = document.querySelector(".channel-strip");
+            const pre = strip.querySelector('.ch-fx-section:not(.post-fader)');
+            const post = strip.querySelector('.ch-fx-section.post-fader');
+            const label = sends.querySelector('.destination').getBoundingClientRect();
+            const knob = sends.querySelector('.knob-control').getBoundingClientRect();
+            const dial = sends.querySelector('.knob').getBoundingClientRect();
+            const readout = sends.querySelector('.readout').getBoundingClientRect();
+            return { tops: tracks.map((r) => r.top), bottoms: tracks.map((r) => r.bottom),
+                bandHeight: sends.clientHeight, scrollHeight: sends.scrollHeight,
+                ordered: strip.querySelector('.ch-instrument-summary').getBoundingClientRect().bottom <= pre.getBoundingClientRect().top
+                    && pre.getBoundingClientRect().bottom <= post.getBoundingClientRect().top
+                    && post.getBoundingClientRect().bottom <= strip.querySelector('.ch-output-routing').getBoundingClientRect().top,
+                sendsInPost: post.contains(sends),
+                horizontal: label.right <= knob.left && label.bottom > knob.top,
+                horizontalReadout: dial.right <= readout.left && Math.abs((dial.top + dial.bottom - readout.top - readout.bottom) / 2) <= 1,
+                dialWidth: dial.width,
+                arrow: sends.querySelector('.send-arrow')?.textContent,
+                sectionTops: [...document.querySelectorAll('.channel-strip')].map((s) => [
+                    s.querySelector('.ch-fx-section').getBoundingClientRect().top,
+                    s.querySelector('.post-fader').getBoundingClientRect().top,
+                    s.querySelector('.ch-output-routing').getBoundingClientRect().top,
+                ]),
+                fieldsFit: [...document.querySelectorAll(".promoted-sends .knob-control")].every((control) => {
+                    const a = control.getBoundingClientRect(), b = control.closest(".promoted-sends").getBoundingClientRect();
+                    return a.left >= b.left - 1 && a.right <= b.right + 1;
+                }) };
+        });
+        assert.ok(Math.max(...geometry.tops) - Math.min(...geometry.tops) <= 1, `${size}: promoted fader tops align`);
+        assert.ok(Math.max(...geometry.bottoms) - Math.min(...geometry.bottoms) <= 1, `${size}: promoted fader bottoms align`);
+        assert.equal(geometry.bandHeight, size === "large" ? 72 : 104);
+        assert.ok(geometry.ordered, `${size}: VSTi, pre FX, post FX, output order`);
+        assert.ok(geometry.sendsInPost, `${size}: promoted sends are inside post-fader effects`);
+        assert.equal(geometry.horizontal, size === "large", `${size}: use horizontal send layout when space permits`);
+        assert.ok(geometry.horizontalReadout, `${size}: knob and readout are side by side`);
+        assert.equal(geometry.dialWidth, 26);
+        assert.equal(geometry.arrow, "→");
+        for (let section = 0; section < 3; ++section) {
+            const tops = geometry.sectionTops.map((s) => s[section]);
+            assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `${size}: section ${section} aligns across layers`);
+        }
+        if (size === "large") {
+            assert.equal(await page.locator('.ch-fx-section:not(.post-fader) .ch-fx-summary-name').first().innerText(), "Pre EQ");
+            assert.equal(await page.locator('.post-fader .ch-fx-summary-name').first().innerText(), "Post compressor");
+            assert.ok(await page.locator('.ch-fx-summary').evaluateAll((summaries) => summaries.every((summary) => {
+                const row = summary.querySelector('.ch-fx-summary-row');
+                return !row || row.getBoundingClientRect().bottom <= summary.getBoundingClientRect().bottom + 1;
+            })), "large: the first insert and its edit/bypass buttons fit without clipping");
+        }
+        assert.ok(geometry.scrollHeight > geometry.bandHeight);
+        assert.ok(geometry.fieldsFit, `${size}: compact knob readouts fit`);
+        if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+            await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, `promoted-${size}.png`) });
+    }
+    const promoted = page.locator(".promoted-sends").first();
+    await promoted.getByRole("slider", { name: "Send to Strings", exact: true }).press("ArrowUp");
+    assert.equal(await promoted.getByRole("slider", { name: "Send to Strings", exact: true }).getAttribute("aria-valuenow"), "-11.5");
+    assert.equal(await promoted.locator(".promoted-send").count(), 3, "editing the gain preserves promotion");
+    // A bus rename updates the promoted destination immediately.
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setGroupBusState", data: [
+        { id: "bus-strings", name: "Renamed return", gainDb: 0 },
+        { id: "bus-hall", name: "Hall", gainDb: 0 }, { id: "bus-delay", name: "Delay", gainDb: 0 },
+    ] }));
+    assert.equal(await promoted.locator(".destination").first().innerText(), "Renamed return");
+    await page.evaluate(() => {
+        window.fixtureStrips.forEach((s) => { s.sends = []; delete s.audio; });
+        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.__dispatchFromCpp({ type: "setGroupBusState", data: [
+            { id: "bus-strings", name: "Strings", gainDb: 0, muted: false, soloed: false },
+        ] });
+    });
     const routedChair = page.locator(".inst-group").nth(8);
     for (const bar of await routedChair.locator(".select-bar-top").all())
         await bar.evaluate(element => element.dispatchEvent(new MouseEvent("click", {

@@ -24,6 +24,24 @@ commit is one Undo step. The reusable `Knob.svelte` has no native/IPC dependency
 the panel supplies its gain curve, formatting, change callback, and history
 boundaries.
 
+Check **Show on strip** beside a send in Channel Audio to promote its destination
+name, knob, and editable level into the mixer strip. Unchecking hides only the
+shortcut; it does not disable the send. Promotion is saved with the project and
+supports Undo/Redo, and survives destination/level changes and bus-deletion Undo.
+Destination names follow bus renames; disabled sends are marked `(off)`.
+
+The strip groups controls in signal order: instrument editor, pre-fader FX,
+post-fader FX (including promoted sends), then output selector. Subtle dividers
+separate the sections; tooltips identify pre/post without extra headings.
+Send destinations have a right-arrow routing cue. The small knob and dB readout
+sit side by side. Large strips put the destination on that same row; narrower
+strips put it above the control pair so names and numbers have room.
+
+The mixer reserves the same send-band height across layers, chair sum strips,
+audio buses and Master, keeping the faders aligned. No band is reserved when
+none of the displayed layers has a promoted send. Up to two send rows are shown
+at once; longer lists scroll within that space. Inserts are not promotable.
+
 ## Signal and control semantics
 
 - Tap: instrument → pre-fader inserts → strip fader → post-fader inserts →

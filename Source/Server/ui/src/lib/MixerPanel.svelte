@@ -7,6 +7,7 @@
     import { parseMixerMeters } from "./mixerMeters.js";
     import MasterAudioPanel from "./MasterAudioPanel.svelte";
     import ChannelAudioPanel from "./ChannelAudioPanel.svelte";
+    import PromotedSends from "./PromotedSends.svelte";
     import BusAudioPanel from "./BusAudioPanel.svelte";
     import AudioBusBank from "./AudioBusBank.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
@@ -1034,12 +1035,18 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         return groups;
     });
     let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips));
+    // Every rendered layer shares the same send band; cap its height, not the
+    // number of promoted sends. Longer lists scroll without consuming faders.
+    let sendRows = $derived(Math.min(2, Math.max(0, ...strips
+        .filter((strip) => flatStripOrder.includes(strip.id))
+        .map((strip) => (strip.sends || []).filter((send) => send.showOnStrip).length))));
+    let sendRowHeight = $derived(stripSize === "large" ? 36 : 52);
 
 </script>
 
 <div
     class="mixer-container"
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 314 : 166}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 341 : 225}px; --strip-fx-height: {stripSize === "large" ? 207 : 91}px; --strip-send-row-height: {sendRowHeight}px; --strip-send-height: {sendRows * sendRowHeight}px; --strip-send-span: {sendRows ? sendRows * sendRowHeight + 5 : 0}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1356,20 +1363,24 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                     {/if}
                                                 </div>
 
-                                                {#if stripSize === "large"}
-                                                    <div class="ch-fx-zone">
+                                                <div class="ch-fx-zone">
+                                                    {#each ["Pre", "Post"] as location}
+                                                        {@const inserts = visibleStripInserts(strip).filter((insert) => insert.location === location)}
+                                                        <section class="ch-fx-section" class:post-fader={location === "Post"}
+                                                            aria-label={`${location}-fader effects`}>
                                                         <button
-                                                            class="ch-audio-fx ch-audio-fx-heading"
-                                                            class:has-effects={(strip.audio?.insertCount || 0) > 0}
+                                                            class="ch-audio-fx"
+                                                            class:has-effects={inserts.length > 0}
                                                             onclick={() => openChannelAudio(strip)}
-                                                            title="Audio effects and post-fader sends"
-                                                        >FX{strip.audio?.insertCount ? ` ${strip.audio.insertCount}` : ""} / Sends{strip.sends?.length ? ` ${strip.sends.length}` : ""}</button>
-                                                        <div class="ch-fx-summary" aria-label="Audio effect inserts">
-                                                            {#if (strip.audio?.insertCount || 0) > 0}
-                                                                {#each visibleStripInserts(strip) as insert (insert.id)}
+                                                            aria-label={`${location}-fader FX${location === "Post" ? " and sends" : ""}`}
+                                                            title={`${location}-fader audio effects${location === "Post" ? " and sends" : ""}`}
+                                                        >FX{inserts.length ? ` ${inserts.length}` : ""}{location === "Post" ? ` / Sends${strip.sends?.length ? ` ${strip.sends.length}` : ""}` : ""}</button>
+                                                        {#if stripSize === "large"}
+                                                        <div class="ch-fx-summary" aria-label={`${location}-fader audio effect inserts`}>
+                                                            {#if inserts.length > 0}
+                                                                {#each inserts as insert (insert.id)}
                                                                     <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
                                                                         <div class="ch-fx-summary-name" title={`${insert.location}-fader: ${insert.name || "Unavailable plug-in"}`}>
-                                                                            <span>{insert.location}</span>
                                                                             <strong>{insert.name || "Unavailable plug-in"}</strong>
                                                                         </div>
                                                                         <div class="ch-fx-summary-actions">
@@ -1390,15 +1401,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                                 <div class="ch-fx-empty">No audio effects</div>
                                                             {/if}
                                                         </div>
-                                                    </div>
-                                                {:else}
-                                                    <button
-                                                        class="ch-audio-fx"
-                                                        class:has-effects={(strip.audio?.insertCount || 0) > 0}
-                                                        onclick={() => openChannelAudio(strip)}
-                                                        title="Audio effects and post-fader sends"
-                                                    >FX{strip.audio?.insertCount ? ` ${strip.audio.insertCount}` : ""} / Sends{strip.sends?.length ? ` ${strip.sends.length}` : ""}</button>
-                                                {/if}
+                                                        {/if}
+                                                        {#if location === "Post" && sendRows > 0}
+                                                            <PromotedSends {strip} buses={groupBuses} horizontal={stripSize === "large"} />
+                                                        {/if}
+                                                        </section>
+                                                    {/each}
+                                                </div>
 
                                                 <label
                                                     class="ch-output-routing"
@@ -2107,7 +2116,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     .master-strip-top-spacer {
         flex-shrink: 0;
         /* Mirrors the fixed operational area above every channel fader. */
-        height: var(--strip-pre-fader-height, 128px);
+        height: calc(var(--strip-pre-fader-height, 128px) + var(--strip-send-span, 0px));
     }
     /* Mirrors the enlarged controls below each channel fader. */
     .master-strip-bot-spacer {
@@ -2598,13 +2607,24 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     }
     .ch-fx-zone {
         display: flex;
-        height: 180px;
-        min-height: 180px;
+        height: calc(var(--strip-fx-height) + var(--strip-send-span, 0px));
+        box-sizing: border-box;
+        border-bottom: 1px solid #334155;
+        padding-bottom: 6px;
         flex-shrink: 0;
         flex-direction: column;
+        gap: 6px;
+    }
+    .ch-fx-section {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        flex-direction: column;
+        border-top: 1px solid #334155;
+        padding-top: 6px;
         gap: 5px;
     }
-    .ch-audio-fx-heading { min-height: 32px; }
+    .ch-fx-section.post-fader { flex-basis: var(--strip-send-span, 0px); }
     .ch-fx-summary {
         display: flex;
         min-height: 0;
@@ -2623,7 +2643,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         font-size: 0.68rem;
     }
     .ch-fx-summary-row {
-        padding: 6px;
+        padding: 4px;
+        flex-shrink: 0;
         border: 1px solid #334155;
         border-radius: 5px;
         background: #0d1728;
@@ -2636,13 +2657,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         align-items: baseline;
         gap: 5px;
         min-width: 0;
-    }
-    .ch-fx-summary-name span {
-        flex-shrink: 0;
-        color: #7dd3fc;
-        font-size: 0.6rem;
-        font-weight: 700;
-        text-transform: uppercase;
+        line-height: 14px;
     }
     .ch-fx-summary-name strong {
         min-width: 0;
@@ -2657,12 +2672,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 5px;
-        margin-top: 5px;
+        margin-top: 3px;
     }
     .ch-fx-summary-actions button {
         min-width: 0;
-        min-height: 27px;
-        padding: 3px 5px;
+        min-height: 24px;
+        padding: 2px 5px;
+        line-height: 16px;
         border: 1px solid #3d4c62;
         border-radius: 4px;
         background: #172337;

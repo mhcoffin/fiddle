@@ -26,7 +26,9 @@ bool GroupBusCommandService::updateStripSend(const juce::String &stripId, const 
   const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
   if (found == sends.end()) return false;
   const auto gesture = found->busId == busId && found->enabled == enabled ? sendId : juce::String{};
-  *found = {sendId, busId, gainDb, enabled};
+  found->busId = busId;
+  found->gainDb = gainDb;
+  found->enabled = enabled;
   return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends), gesture));
 }
 
@@ -35,6 +37,17 @@ bool GroupBusCommandService::removeStripSend(const juce::String &stripId, const 
   if (!strip) return false;
   auto sends = strip->sends;
   sends.erase(std::remove_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; }), sends.end());
+  return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
+}
+
+bool GroupBusCommandService::setStripSendVisible(const juce::String &stripId,
+                                                const juce::String &sendId, bool visible) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip) return false;
+  auto sends = strip->sends;
+  const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
+  if (found == sends.end()) return false;
+  found->showOnStrip = visible;
   return undoManager_.perform(std::make_unique<SetStripSendsAction>(mixer_, stripId, strip->sends, std::move(sends)));
 }
 

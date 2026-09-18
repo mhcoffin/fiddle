@@ -463,7 +463,15 @@ void testPostFaderSends(int workers) {
   strip->setGainDb(juce::Decibels::gainToDecibels(0.5f));
   REQUIRE(f.router.handleMessage("addStripSend", juce::var(juce::Array<juce::var>{a, reverb})));
   const auto send = strip->sends.front().id;
+  REQUIRE(!strip->sends.front().showOnStrip);
+  REQUIRE(!f.commands.setStripSendVisible(a, "missing", true));
+  REQUIRE(f.commands.setStripSendVisible(a, send, true));
+  REQUIRE(strip->sends.front().showOnStrip);
+  REQUIRE(f.undo.undo() && !strip->sends.front().showOnStrip);
+  REQUIRE(f.undo.redo() && strip->sends.front().showOnStrip);
+  REQUIRE(!f.commands.setStripSendVisible(a, send, true));
   REQUIRE(f.commands.updateStripSend(a, send, reverb, 0, true));
+  REQUIRE(strip->sends.front().showOnStrip);
   REQUIRE(f.commands.addStripSend(b, reverb));
   REQUIRE(f.commands.updateStripSend(b, f.mixer.getStrip(b)->sends.front().id, reverb, 0, true));
   f.noteOn(1); f.noteOn(2);
@@ -493,6 +501,7 @@ void testPostFaderSends(int workers) {
   f.expectLevel(0.3f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
   REQUIRE(strip->sends.front().id == send);
+  REQUIRE(strip->sends.front().showOnStrip);
   REQUIRE(!f.commands.addStripSend(a, reverb));
   REQUIRE(!f.commands.addStripSend(a, "missing"));
   REQUIRE(!f.commands.updateStripSend(a, send, "missing", 0, true));
@@ -2234,7 +2243,7 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     addEffect(bus->audioEngine(), "bus-pre", 2.0f);
     const auto returnId = f.mixer.addGroupBus("Shared return");
     addEffect(f.mixer.getGroupBus(returnId)->audioEngine(), "return-fx", 0.25f);
-    REQUIRE(f.mixer.setStripSends(ids[0], {{"saved-send", returnId, -7.5f, true}}));
+    REQUIRE(f.mixer.setStripSends(ids[0], {{"saved-send", returnId, -7.5f, true, true}}));
     REQUIRE(f.mixer.setStripSends(ids[1], {{"disabled-send", returnId, -18, false}}));
     addEffect(bus->audioEngine(), "bus-post", 0.75f, 0, fiddle::StripInsertPosition::postFader);
     addEffect(f.mixer.getStrip(ids[0])->audioEngine(), "strip-pre", 0.5f);
@@ -2285,6 +2294,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(f.mixer.getStrip(ids[0])->directOutputBusId.toStdString() == busId);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.size() == 1);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().id == "saved-send");
+    REQUIRE(f.mixer.getStrip(ids[0])->sends.front().showOnStrip);
+    REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().showOnStrip);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().gainDb == -7.5f);
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().enabled);
     REQUIRE(f.mixer.getStrip(ids[0])->layerName == "Historical violin");

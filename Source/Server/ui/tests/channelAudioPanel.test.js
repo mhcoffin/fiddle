@@ -12,7 +12,7 @@ const panelSource = readFileSync(
 );
 
 test("instrument strips expose one spacious Audio FX panel", () => {
-    assert.match(mixerSource, /\/ Sends\{strip.sends/);
+    assert.match(mixerSource, /\/ Sends\$\{strip.sends/);
     assert.match(mixerSource, /requestStripAudioState/);
     assert.match(mixerSource, /<ChannelAudioPanel/);
 });
@@ -22,6 +22,9 @@ test("channel audio exposes post-fader sends with destinations and levels", () =
     for (const command of ["addStripSend", "updateStripSend", "removeStripSend"])
         assert.ok(panelSource.includes(command));
     assert.match(panelSource, /<Knob label="Send level" unit="dB"/);
+    assert.match(panelSource, /Show on strip/);
+    assert.match(panelSource, /setStripSendVisible/);
+    assert.match(mixerSource, /<PromotedSends/);
     assert.match(mixerSource, /buses=\{groupBuses\}/);
 });
 

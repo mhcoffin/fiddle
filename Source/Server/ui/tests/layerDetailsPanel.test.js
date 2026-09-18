@@ -13,11 +13,20 @@ const detailsSource = readFileSync(
 
 test("every strip reserves the same operational space around its fader", () => {
     assert.match(mixerSource, /--strip-pre-fader-height/);
-    assert.match(mixerSource, /height: var\(--strip-pre-fader-height/);
-    assert.match(mixerSource, /\.ch-fx-zone\s*\{[\s\S]*?height: 180px/);
+    assert.match(mixerSource, /height: calc\(var\(--strip-pre-fader-height.*var\(--strip-send-span/);
+    assert.match(mixerSource, /\.ch-fx-zone\s*\{[\s\S]*?height: calc\(var\(--strip-fx-height\).*var\(--strip-send-span/);
     assert.match(mixerSource, /\.master-strip-bot-spacer\s*\{[\s\S]*?height: 74px/);
     assert.match(mixerSource, /\.master-strip\s*\{[\s\S]*?box-sizing: border-box/);
     assert.match(mixerSource, /\.master-db\s*\{[\s\S]*?min-height: 28px/);
+});
+
+test("strip effects are grouped by signal position before the output selector", () => {
+    assert.match(mixerSource, /\["Pre", "Post"\]/);
+    assert.match(mixerSource, /insert\.location === location/);
+    assert.match(mixerSource, /location === "Post" && sendRows > 0/);
+    assert.ok(mixerSource.indexOf("<PromotedSends") < mixerSource.indexOf('class="ch-output-routing"'));
+    assert.match(mixerSource, /horizontal=\{stripSize === "large"\}/);
+    assert.match(mixerSource, /\.ch-fx-section\s*\{[^}]*border-top: 1px solid/);
 });
 
 test("rarely changed layer configuration lives in the details panel", () => {
