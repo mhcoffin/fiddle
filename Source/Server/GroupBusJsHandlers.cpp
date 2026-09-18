@@ -4,6 +4,7 @@
 #include "MessageRouter.h"
 
 #include <optional>
+#include <cmath>
 
 namespace fiddle {
 namespace {
@@ -49,6 +50,21 @@ void GroupBusJsHandlers::notify(bool changed) {
 }
 
 void GroupBusJsHandlers::registerHandlers() {
+  for (const bool bus : {false, true}) {
+    router_.registerHandler(bus ? "setGroupBusBalance" : "setStripBalance", [this, bus](const juce::var &payload) {
+      const auto a = args(payload);
+      if (a.size() != 2 || !a[0].isString() ||
+          !(a[1].isDouble() || a[1].isInt() || a[1].isInt64())) return;
+      const auto id = a[0].toString();
+      const auto value = static_cast<float>(double(a[1]));
+      if (!std::isfinite(value) || value < -1 || value > 1) return;
+      dispatch([this, bus, id, value] {
+        const bool changed = bus ? commands_.setGroupBusBalance(id, value) : commands_.setStripBalance(id, value);
+        if (changed && callbacks_.balanceChanged) callbacks_.balanceChanged(id, bus);
+        else notify(changed);
+      });
+    });
+  }
   router_.registerHandler("setStripSendPreFader", [this](const juce::var &payload) {
     const auto a = args(payload);
     if (a.size() != 3 || !a[0].isString() || !a[1].isString() || !a[2].isBool()) return;

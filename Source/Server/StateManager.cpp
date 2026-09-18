@@ -192,7 +192,7 @@ void StateManager::markDirty() {
   dirty_.store(true, std::memory_order_release);
 }
 
-juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
+juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLiveState) {
   juce::MemoryBlock blob;
 
   // Header
@@ -221,14 +221,14 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
   uint8_t dirtyFlag = isDirty() ? 1 : 0;
   blob.append(&dirtyFlag, 1);
 
-  const auto master = mixer.masterAudio().snapshotAll();
+  const auto master = mixer.masterAudio().snapshotAll(captureLiveState);
   appendMasterState(blob, master);
 
   // Generate the state identity embedded in the compatibility blob. Only an
   // actual version commit persists this state in the version object store;
   // persisting every shadow-blob rebuild leaked thousands of transient states.
   versioning::FiddleState state;
-  state.globalState = makeGlobalState(master, mixer, true);
+  state.globalState = makeGlobalState(master, mixer, captureLiveState);
 
   auto strips = mixer.getAllStrips();
   std::map<std::string, versioning::Hash> stripHashesById;
@@ -268,7 +268,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
       sb.pluginState.assign(data, data + cached.getSize());
     }
     const auto audioState =
-        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll());
+        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll(captureLiveState));
     if (!audioState.isEmpty()) {
       const auto *data = static_cast<const uint8_t *>(audioState.getData());
       sb.audioInsertState.assign(data, data + audioState.getSize());
@@ -338,7 +338,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer) {
     obj->setProperty("expressionMapSource", strip->expressionMapSourceXml);
     obj->setProperty(
         "audioInserts",
-        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll())
+        serializeStripAudioSnapshot(strip->audioEngine().snapshotAll(captureLiveState))
             .toBase64Encoding());
 
     // Lua plugin filenames (stored as basenames for portability)

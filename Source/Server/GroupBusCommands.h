@@ -23,6 +23,8 @@ public:
                               const juce::String &name) = 0;
   virtual bool moveGroupBus(const juce::String &busId, int newIndex) = 0;
   virtual bool setGroupBusGain(const juce::String &busId, float gainDb) = 0;
+  virtual bool setStripBalance(const juce::String &stripId, float balance) = 0;
+  virtual bool setGroupBusBalance(const juce::String &busId, float balance) = 0;
   virtual bool setGroupBusMute(const juce::String &busId, bool muted) = 0;
   virtual bool setGroupBusSolo(const juce::String &busId, bool soloed) = 0;
   virtual bool addGroupBusInsert(const juce::String &busId, int pluginUid,

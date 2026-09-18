@@ -570,6 +570,49 @@ void testPreFaderSends(int workers) {
   strip->unloadPlugin(); f.expectLevel(0.2f); // No stale tap when the instrument disappears.
 }
 
+void testBalanceRoutingAndHistory(int workers) {
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto id = f.instrument(0.2f, 1);
+  f.instrument(0.0f, 2); // Keep multiple independent strips in the parallel path.
+  const auto dry = f.mixer.addGroupBus("Dry"), pre = f.mixer.addGroupBus("Pre"), post = f.mixer.addGroupBus("Post");
+  REQUIRE(f.commands.setStripDirectOutput(id, dry));
+  REQUIRE(f.mixer.setStripSends(id, {{"pre", pre, 0, true, false, true}, {"post", post, 0, true}}));
+  f.noteOn(1);
+  const auto check = [&](float left, float right) {
+    for (int i = 0; i < 16; ++i) f.render(); // Complete the 10 ms control ramp.
+    const auto audio = f.render();
+    for (int i = 0; i < audio.getNumSamples(); ++i) {
+      REQUIRE(std::abs(audio.getSample(0, i) - left) < 1e-5f);
+      REQUIRE(std::abs(audio.getSample(1, i) - right) < 1e-5f);
+    }
+  };
+  check(0.6f, 0.6f);
+  f.undo.clear();
+  const auto controls = fiddle::AudioProcessingGate::controlCount();
+  f.undo.beginGesture();
+  REQUIRE(f.commands.setStripBalance(id, -0.5f));
+  REQUIRE(f.commands.setStripBalance(id, -1));
+  f.undo.endGesture();
+  REQUIRE(fiddle::AudioProcessingGate::controlCount() == controls);
+  check(0.6f, 0.2f); // Only the pre-fader return retains the original right side.
+  REQUIRE(f.undo.undo()); check(0.6f, 0.6f);
+  REQUIRE(!f.undo.canUndo()); // One drag = one edit.
+  REQUIRE(f.undo.redo()); check(0.6f, 0.2f);
+  REQUIRE(f.commands.setGroupBusBalance(pre, 1)); check(0.4f, 0.2f);
+  REQUIRE(f.commands.setGroupBusBalance(dry, 0.5f)); check(0.3f, 0.2f);
+  REQUIRE(f.commands.setGroupBusBalance(post, 1)); check(0.1f, 0.2f);
+  REQUIRE(f.commands.removeGroupBus(pre)); check(0.1f, 0);
+  REQUIRE(f.undo.undo()); check(0.1f, 0.2f);
+  REQUIRE(f.mixer.getGroupBus(pre)->audioEngine().balance() == 1);
+  REQUIRE(!f.commands.setStripBalance(id, -1));
+  REQUIRE(!f.commands.setStripBalance(id, 2));
+  REQUIRE(!f.commands.setGroupBusBalance(pre, std::numeric_limits<float>::quiet_NaN()));
+  REQUIRE(!f.commands.setGroupBusBalance("missing", 0));
+  REQUIRE(!f.commands.setStripBalance("missing", 0));
+  f.mixer.getStrip(id)->setMuted(true); check(0, 0);
+}
+
 void testPreFaderSendLatency(int workers, int preBusLatency) {
   MixerFixture f;
   f.mixer.setRenderWorkerCount(workers);
@@ -1185,6 +1228,43 @@ void testFrozenSaveCapturesEachPluginOnce() {
       f.mixer, branch, root, std::nullopt, false);
   REQUIRE(saved.kind == fiddle::versioning::ProjectSaveResult::Kind::Committed);
   REQUIRE(SignalProcessor::stateCaptures == before + 5);
+  // A balance-only edit publishes host compatibility state using frozen
+  // plug-in bytes, without taking control of the audio render thread.
+  REQUIRE(f.commands.setStripBalance(first, -0.25f));
+  REQUIRE(f.commands.setGroupBusBalance(f.mixer.getAllGroupBuses().front()->id, 0.5f));
+  const auto controls = fiddle::AudioProcessingGate::controlCount();
+  const auto blob = state.buildStateBlob(f.mixer, false);
+  REQUIRE(SignalProcessor::stateCaptures == before + 5);
+  REQUIRE(fiddle::AudioProcessingGate::controlCount() == controls);
+  const auto decoded = fiddle::StateManager::deserializeBlob(blob.getData(), blob.getSize());
+  REQUIRE(decoded && decoded->strips.size() == 2);
+  const auto &audioBytes = decoded->strips.front().audioInsertState;
+  REQUIRE(fiddle::deserializeStripAudioSnapshot(audioBytes.getData(), audioBytes.getSize()).balance == -0.25f);
+}
+
+void testSessionBalancePersistence() {
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("balance.sqlite");
+  juce::String id;
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(file));
+    MixerFixture f;
+    id = f.instrument(0.1f, 1);
+    auto *strip = f.mixer.getStrip(id);
+    REQUIRE(strip->audioEngine().setBalance(-0.75f));
+    db.saveStrip(*strip, 0);
+    db.saveStripAudio(id, strip->audioEngine().snapshotAll(false));
+    strip->setGainDb(-3);
+    db.saveStrip(*strip, 0); // Later gain edits must not reset the balance column.
+  }
+  {
+    fiddle::FiddleDatabase db;
+    REQUIRE(db.open(file));
+    const auto rows = db.loadAllStrips();
+    REQUIRE(rows.size() == 1 && rows.front().id == id);
+    REQUIRE(rows.front().audio.balance == -0.75f);
+  }
 }
 
 void testLibraryCatalogHistory() {
@@ -2353,6 +2433,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     auto *bus = f.mixer.getAllGroupBuses().front();
     busId = bus->id.toStdString();
     bus->setGainDb(-3.0f);
+    bus->audioEngine().setBalance(0.375f);
+    f.mixer.getStrip(ids[0])->audioEngine().setBalance(-0.5f);
     addEffect(bus->audioEngine(), "bus-pre", 2.0f);
     const auto returnId = f.mixer.addGroupBus("Shared return");
     addEffect(f.mixer.getGroupBus(returnId)->audioEngine(), "return-fx", 0.25f);
@@ -2412,6 +2494,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().preFader);
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().showOnStrip);
     REQUIRE(f.mixer.getStrip(ids[0])->sends.front().gainDb == -7.5f);
+    REQUIRE(f.mixer.getStrip(ids[0])->audioEngine().balance() == -0.5f);
+    REQUIRE(f.mixer.getGroupBus(busId)->audioEngine().balance() == 0.375f);
     REQUIRE(!f.mixer.getStrip(ids[1])->sends.front().enabled);
     REQUIRE(f.mixer.getStrip(ids[0])->layerName == "Historical violin");
     REQUIRE(f.mixer.getStrip(ids[0])->library == "Saved library");
@@ -2952,6 +3036,7 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("stereo balance, send taps and undo gestures", [] { for (int workers : {1, 2, 4}) testBalanceRoutingAndHistory(workers); });
   run("post-fader sends, solo-safe returns and history", [] { for (int workers : {1, 2, 4}) testPostFaderSends(workers); });
   run("pre-fader sends, mute/solo semantics and history", [] { for (int workers : {1, 2, 4}) testPreFaderSends(workers); });
   run("pre/post send sample alignment and device reprepare", [] { for (int workers : {1, 2, 4}) for (int latency : {7, 120}) testPreFaderSendLatency(workers, latency); });
@@ -2966,6 +3051,7 @@ int main() {
   run("meter snapshots avoid plugin queries and state capture", testMeterOnlySnapshots);
   run("plugin timings and buffer changes cover instruments and every FX path", testPluginTimingAndReprepare);
   run("save freezes each plugin state once for session and version persistence", testFrozenSaveCapturesEachPluginOnce);
+  run("session database retains balance without inserts", testSessionBalancePersistence);
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);

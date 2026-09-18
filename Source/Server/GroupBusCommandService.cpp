@@ -114,6 +114,22 @@ bool GroupBusCommandService::setGroupBusGain(const juce::String &busId,
   return true;
 }
 
+bool GroupBusCommandService::setStripBalance(const juce::String &id, float balance) {
+  auto *strip = mixer_.getStrip(id);
+  if (!strip || !std::isfinite(balance) || balance < -1 || balance > 1 ||
+      strip->audioEngine().balance() == balance) return false;
+  return undoManager_.perform(std::make_unique<SetBalanceAction>(
+      mixer_, id, false, strip->audioEngine().balance(), balance));
+}
+
+bool GroupBusCommandService::setGroupBusBalance(const juce::String &id, float balance) {
+  auto *bus = mixer_.getGroupBus(id);
+  if (!bus || !std::isfinite(balance) || balance < -1 || balance > 1 ||
+      bus->audioEngine().balance() == balance) return false;
+  return undoManager_.perform(std::make_unique<SetBalanceAction>(
+      mixer_, id, true, bus->audioEngine().balance(), balance));
+}
+
 bool GroupBusCommandService::setGroupBusMute(const juce::String &busId,
                                              bool muted) {
   auto *bus = mixer_.getGroupBus(busId);

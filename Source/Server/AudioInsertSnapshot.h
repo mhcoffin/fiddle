@@ -16,10 +16,11 @@ struct AudioInsertSnapshot {
 
 enum class StripInsertPosition { preFader, postFader };
 
-/// Complete ordered effect-rack state for one instrument strip.
+/// Complete ordered effect-rack and stereo-balance state for a strip or bus.
 struct StripAudioSnapshot {
   std::vector<AudioInsertSnapshot> preFaderInserts;
   std::vector<AudioInsertSnapshot> postFaderInserts;
+  float balance = 0.0f; // -1 left, 0 unchanged stereo, +1 right.
 };
 
 /// Compact self-describing representation used by versioned strip blobs and

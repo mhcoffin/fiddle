@@ -59,6 +59,18 @@ try {
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
             const message = request.params[0];
             window.fixtureMessages.push(message);
+            if (message.type === "setStripBalance") {
+                const [stripId, balance] = message.payload;
+                const strip = window.fixtureStrips.find(s => s.id === stripId);
+                strip.audio = { ...strip.audio, balance };
+                queueMicrotask(() => window.__dispatchFromCpp({ type: "setStripAudioState", data: { stripId, balance } }));
+            }
+            if (message.type === "setGroupBusBalance") {
+                const [id, balance] = message.payload;
+                queueMicrotask(() => window.__dispatchFromCpp({ type: "setGroupBusState", data: [
+                    { id, name: "Strings", gainDb: 0, audio: { balance } },
+                ] }));
+            }
             if (message.type === "updateStripSend") {
                 const [stripId, id, busId, gainDb, enabled] = message.payload;
                 const strip = window.fixtureStrips.find((s) => s.id === stripId);
@@ -94,6 +106,35 @@ try {
         ] });
     });
     await page.waitForSelector(".channel-strip");
+    const balanceInput = page.getByRole("textbox", { name: "Flute 1 stereo balance", exact: true });
+    assert.equal(await balanceInput.inputValue(), "C");
+    await balanceInput.fill("L25");
+    await balanceInput.press("Enter");
+    assert.equal(await balanceInput.inputValue(), "L25");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.slice(-3)), [
+        { type: "beginHistoryGesture", payload: [] },
+        { type: "setStripBalance", payload: ["chair-0-0", -0.25] },
+        { type: "endHistoryGesture", payload: [] },
+    ]);
+    await balanceInput.fill("oops");
+    await balanceInput.press("Enter");
+    assert.equal(await balanceInput.inputValue(), "L25");
+    await page.getByRole("button", { name: "Center Flute 1 stereo balance", exact: true }).click();
+    assert.equal(await balanceInput.inputValue(), "C");
+    const balanceKnob = page.getByRole("slider", { name: "Flute 1 stereo balance", exact: true });
+    assert.equal(await balanceKnob.locator("svg path").count(), 0, "balance has no indicator ring");
+    assert.equal(await balanceKnob.locator("svg line").count(), 1, "balance retains its needle");
+    await balanceKnob.focus();
+    await page.keyboard.press("End");
+    assert.equal(await balanceInput.inputValue(), "R100");
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setStripAudioState", data: { stripId: "chair-0-0", balance: -0.4 } }));
+    assert.equal(await balanceInput.inputValue(), "L40", "undo/native state updates the control");
+    const busBalance = page.getByRole("textbox", { name: "Strings stereo balance", exact: true });
+    await busBalance.fill("50R");
+    await busBalance.press("Enter");
+    assert.equal(await busBalance.inputValue(), "R50");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.slice(-3)[1]),
+        { type: "setGroupBusBalance", payload: ["bus-strings", 0.5] });
     // Exercise send controls through the real built Svelte UI, echoing model
     // snapshots just as the native backend does after successful commands.
     await page.locator(".ch-audio-fx").first().click();
@@ -107,6 +148,7 @@ try {
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
     });
     const sendRow = channelAudio.locator(".send-row");
+    assert.equal(await sendRow.locator(".knob svg path.value").count(), 1, "send level retains its indicator ring");
     await sendRow.getByRole("checkbox", { name: "Show on strip" }).check();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "setStripSendVisible", payload: ["chair-0-0", "test-send", true] });
@@ -316,6 +358,12 @@ try {
             `all fader bottoms must align: ${allBottoms.join(", ")}`);
         const firstChair = page.locator(".inst-group").first();
         const firstStrip = firstChair.locator(".channel-strip");
+        const balanceFits = await firstStrip.evaluate(strip => {
+            const rect = strip.getBoundingClientRect();
+            return [...strip.querySelectorAll(".balance-control button, .balance-control input, .balance-control .knob")]
+                .every(control => { const r = control.getBoundingClientRect(); return r.left >= rect.left && r.right <= rect.right; });
+        });
+        assert.ok(balanceFits, `${size}: balance controls fit the strip`);
         assert.equal(await firstChair.getByText("Flute 1", { exact: true }).count(), 1,
             "chair name must not be repeated as a patch label");
         assert.equal(await firstStrip.locator(".ch-strip-identity").innerText(), "SY WW");

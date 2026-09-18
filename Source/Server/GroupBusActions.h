@@ -5,6 +5,31 @@
 
 namespace fiddle {
 
+class SetBalanceAction final : public UndoableAction {
+public:
+  SetBalanceAction(MixerModel &mixer, juce::String id, bool bus, float before, float after)
+      : mixer_(mixer), id_(std::move(id)), bus_(bus), before_(before), after_(after) {}
+  void execute() override { set(after_); }
+  void undo() override { set(before_); }
+  juce::String getDescription() const override { return bus_ ? "Set bus balance" : "Set channel balance"; }
+  juce::String getCoalesceId() const override { return (bus_ ? "bus-balance:" : "strip-balance:") + id_; }
+  void coalesceWith(const UndoableAction &other) override {
+    after_ = static_cast<const SetBalanceAction &>(other).after_;
+  }
+private:
+  void set(float value) {
+    if (bus_) {
+      if (auto *bus = mixer_.getGroupBus(id_)) bus->audioEngine().setBalance(value);
+    } else {
+      if (auto *strip = mixer_.getStrip(id_)) strip->audioEngine().setBalance(value);
+    }
+  }
+  MixerModel &mixer_;
+  juce::String id_;
+  bool bus_;
+  float before_, after_;
+};
+
 class SetStripSendsAction final : public UndoableAction {
 public:
   SetStripSendsAction(MixerModel &mixer, juce::String stripId,

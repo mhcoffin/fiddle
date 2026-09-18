@@ -86,7 +86,8 @@ public:
   /// Build the state blob synchronously. Normally called on background thread.
   /// Builds a state blob for Dorico synchronization. Constantly called on
   /// changes.
-  juce::MemoryBlock buildStateBlob(MixerModel &mixer);
+  /// Control-only edits can reuse cached plug-in bytes, avoiding vendor calls.
+  juce::MemoryBlock buildStateBlob(MixerModel &mixer, bool captureLiveState = true);
 
   /// Commits the current live mixer state as a permanent snapshot node in the
   /// DAG.

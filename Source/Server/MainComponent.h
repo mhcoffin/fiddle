@@ -243,6 +243,8 @@ private:
   /// Throttle state for scheduleStateRebuild() — max once per second.
   uint32_t lastStateRebuildMs_ = 0;
   bool stateRebuildPending_ = false;
+  // A coalesced live-state request takes precedence over balance-only edits.
+  bool stateRebuildNeedsLiveCapture_ = false;
 
   /// Initialization splash screen state
   bool initComplete_ = false;
@@ -354,7 +356,7 @@ private:
   void saveStripToDB(const juce::String &stripId);
 
   /// Schedule a background rebuild of the shadow state blob.
-  void scheduleStateRebuild();
+  void scheduleStateRebuild(bool captureLiveState = true);
 
   /// Poll MixerStrip plug-in parameters for persistent changes (called from
   /// the timer). Opaque serialized state is intentionally not compared because

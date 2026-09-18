@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <juce_core/juce_core.h>
 
 namespace fiddle {
 class MessageRouter;
@@ -13,6 +14,7 @@ public:
     std::function<void(Task)> dispatch;
     std::function<void()> changed;
     std::function<void()> requested;
+    std::function<void(const juce::String &, bool)> balanceChanged;
   };
   GroupBusJsHandlers(MessageRouter &router, GroupBusCommands &commands,
                      Callbacks callbacks);

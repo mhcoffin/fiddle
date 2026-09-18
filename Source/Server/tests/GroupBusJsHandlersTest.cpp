@@ -33,6 +33,8 @@ public:
   bool renameGroupBus(const juce::String &busId, const juce::String &name) override { call="rename"; id=busId; value=name; return result; }
   bool moveGroupBus(const juce::String &busId, int newIndex) override { call="move"; id=busId; index=newIndex; return result; }
   bool setGroupBusGain(const juce::String &busId, float gainDb) override { call="gain"; id=busId; gain=gainDb; return result; }
+  bool setStripBalance(const juce::String &stripId, float value) override { call="strip-balance"; id=stripId; gain=value; return result; }
+  bool setGroupBusBalance(const juce::String &busId, float value) override { call="bus-balance"; id=busId; gain=value; return result; }
   bool setGroupBusMute(const juce::String &busId, bool muted) override { call="mute"; id=busId; flag=muted; return result; }
   bool setGroupBusSolo(const juce::String &busId, bool soloed) override { call="solo"; id=busId; flag=soloed; return result; }
   bool addGroupBusInsert(const juce::String &busId, int pluginUid, fiddle::StripInsertPosition position) override { call="addInsert"; id=busId; index=pluginUid; insertPosition=position; return result; }
@@ -115,6 +117,17 @@ void run() {
   commands.result = true;
   CHECK(router.handleMessage("setStripSendVisible", payload({"strip", "send", "false"})));
   CHECK(changed == 18);
+  CHECK(router.handleMessage("setStripBalance", payload({"strip", -0.5})));
+  CHECK(commands.call == "strip-balance" && commands.id == "strip" && commands.gain == -0.5f);
+  CHECK(router.handleMessage("setGroupBusBalance", payload({"bus", 1})));
+  CHECK(commands.call == "bus-balance" && commands.id == "bus" && commands.gain == 1);
+  CHECK(changed == 20);
+  for (const auto *name : {"setStripBalance", "setGroupBusBalance"})
+    for (const auto &bad : {payload({"strip", true}), payload({"strip", "0.5"}),
+                           payload({"strip", -2}), payload({"strip", 2}),
+                           payload({1, 0}), payload({"strip"})})
+      CHECK(router.handleMessage(name, bad));
+  CHECK(changed == 20);
 }
 } // namespace
 

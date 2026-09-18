@@ -1,4 +1,5 @@
 <script>
+    import BalanceControl from "./BalanceControl.svelte";
     import { onMount, onDestroy } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
@@ -1049,7 +1050,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 <div
     class="mixer-container"
     class:compact-strips={stripSize === "compact"}
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 356 : 286}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 404 : 334}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1439,6 +1440,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                         {/each}
                                                     </select>
                                                 </label>
+
+                                                <BalanceControl value={strip.audio?.balance ?? 0}
+                                                    label={`${strip.layerName || strip.library || "Layer"} stereo balance`}
+                                                    command="setStripBalance" id={strip.id} />
 
                                                 <!-- Vertical fader -->
                                                 <div class="ch-fader">

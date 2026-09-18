@@ -16,9 +16,6 @@ documented elsewhere; this list records the remaining work and intended order.
   correct rack-latency compensation, explicit mute/solo behavior, persistence,
   Undo/Redo, and promoted controls in the corresponding strip section. See
   [send smoke tests](post-fader-sends.md#pre-fader-smoke-test).
-- **Stereo balance/panning.** Start with a stereo balance control appropriate for
-  stereo sample-library outputs and define its pan law. Stereo width or dual-pan
-  controls can follow when a concrete need is established.
 - **Master and channel metering.** Add independent left/right meters, persistent
   resettable clip indicators, and Master true-peak plus integrated/short-term
   LUFS measurements.
@@ -55,6 +52,11 @@ documented elsewhere; this list records the remaining work and intended order.
   `.doricolib` XML fields and providing validation, Undo/Redo, and safe writes.
 
 ## Recently completed
+
+- **Stereo balance.** Channels and group/FX buses have smoothed balance
+  controls, persistence and Undo/Redo. See
+  [balance behavior and smoke test](stereo-balance.md). Stereo width or dual-pan
+  controls remain deferred.
 
 - **Aux/FX buses and post-fader sends.** Shared effects with independent send
   levels, enable/destination, latency compensation, solo-safe returns, tails,

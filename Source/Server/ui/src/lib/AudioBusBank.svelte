@@ -1,4 +1,5 @@
 <script>
+    import BalanceControl from "./BalanceControl.svelte";
     import { tick } from "svelte";
     import { dispatchCpp } from "./ipc.js";
 
@@ -86,7 +87,7 @@
                         </div>
                     </div>
                     <article class="channel" class:suppressed={bus.muted || (anySoloed && !bus.soloed && !soloSafeReturn(bus.id))}>
-                    <div class="fx-zone">
+                    <div class="fx-zone bus-fx-zone">
                         <button class="fx" class:has-effects={insertCount(bus) > 0} onclick={() => onOpenBusAudio(bus.id)}>
                             Audio FX{insertCount(bus) ? ` · ${insertCount(bus)}` : ""}
                         </button>
@@ -115,6 +116,8 @@
                             {/if}
                         </div>
                     </div>
+                    <BalanceControl value={bus.audio?.balance ?? 0} label={`${bus.name} stereo balance`}
+                        command="setGroupBusBalance" id={bus.id} />
                     <div class="fader">
                         <span class="tick">+12</span>
                         <div class="fader-meter-row">
@@ -249,6 +252,7 @@
 </aside>
 
 <style>
+    .fx-zone.bus-fx-zone { height: calc(var(--strip-pre-fader-height, 166px) - 50px); min-height: calc(var(--strip-pre-fader-height, 166px) - 50px); }
     .bank { display: flex; min-width: max-content; flex-direction: column; flex-shrink: 0; border-left: 3px solid #0e7490; background: #08111f; box-shadow: -10px 0 24px rgba(0,0,0,.28); }
     .bank.collapsed { min-width: 38px; width: 38px; }
     .header { position: relative; height: 25px; padding: 0 10px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; flex-shrink: 0; border: 0; border-bottom: 3px solid #22d3ee; background: #164e63; color: #cffafe; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }

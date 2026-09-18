@@ -24,6 +24,8 @@ public:
                       const juce::String &name) override;
   bool moveGroupBus(const juce::String &busId, int newIndex) override;
   bool setGroupBusGain(const juce::String &busId, float gainDb) override;
+  bool setStripBalance(const juce::String &stripId, float balance) override;
+  bool setGroupBusBalance(const juce::String &busId, float balance) override;
   bool setGroupBusMute(const juce::String &busId, bool muted) override;
   bool setGroupBusSolo(const juce::String &busId, bool soloed) override;
   bool addGroupBusInsert(const juce::String &busId, int pluginUid,

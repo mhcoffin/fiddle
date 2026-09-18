@@ -369,6 +369,9 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN lua_plugins TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
+  // Stereo balance defaults to unchanged stereo for existing sessions.
+  sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN balance REAL NOT NULL DEFAULT 0",
+               nullptr, nullptr, nullptr);
   // v10: persist per-strip monitoring state. Existing sessions retain the
   // historical behaviour: neither muted nor soloed.
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN muted INTEGER NOT NULL DEFAULT 0",
@@ -418,8 +421,8 @@ void FiddleDatabase::prepareStatements() {
     INSERT OR REPLACE INTO strips
       (id, position, library, family, is_solo, input_port, input_channel,
        plugin_uid, gain_db, expression_map, expression_map_path,
-       expression_map_source, active, lua_plugins, muted, soloed)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       expression_map_source, active, lua_plugins, muted, soloed, balance)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
        stmtSaveStrip_);
 
@@ -434,7 +437,7 @@ void FiddleDatabase::prepareStatements() {
 
   prep("SELECT id, position, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, active, "
-       "lua_plugins, muted, soloed, expression_map_path, expression_map_source "
+       "lua_plugins, muted, soloed, expression_map_path, expression_map_source, balance "
        "FROM strips ORDER BY position",
        stmtLoadStrips_);
 
@@ -697,6 +700,7 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
                     SQLITE_TRANSIENT);
   sqlite3_bind_int(stmtSaveStrip_, 15, realtime.muted ? 1 : 0);
   sqlite3_bind_int(stmtSaveStrip_, 16, realtime.soloed ? 1 : 0);
+  sqlite3_bind_double(stmtSaveStrip_, 17, strip.audioEngine().balance());
 
   if (sqlite3_step(stmtSaveStrip_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] saveStrip failed: " << sqlite3_errmsg(db_)
@@ -848,6 +852,9 @@ std::vector<StripRow> FiddleDatabase::loadAllStrips() {
     }
     sqlite3_finalize(audioStatement);
 
+    const float balance = static_cast<float>(sqlite3_column_double(stmtLoadStrips_, 17));
+    if (std::isfinite(balance) && balance >= -1 && balance <= 1) row.audio.balance = balance;
+
     rows.push_back(std::move(row));
   }
 
@@ -862,6 +869,14 @@ void FiddleDatabase::saveStripAudio(const juce::String &stripId,
     return;
 
   sqlite3_exec(db_, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr);
+  sqlite3_stmt *balanceStatement = nullptr;
+  if (sqlite3_prepare_v2(db_, "UPDATE strips SET balance = ? WHERE id = ?", -1,
+                        &balanceStatement, nullptr) == SQLITE_OK) {
+    sqlite3_bind_double(balanceStatement, 1, snapshot.balance);
+    sqlite3_bind_text(balanceStatement, 2, stripId.toRawUTF8(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(balanceStatement);
+  }
+  sqlite3_finalize(balanceStatement);
   sqlite3_stmt *deleteStatement = nullptr;
   if (sqlite3_prepare_v2(db_,
                          "DELETE FROM strip_audio_inserts WHERE strip_id = ?",

@@ -244,6 +244,7 @@ void testSnapshotSerializationRoundTrip() {
   pre.pluginState.append(bytes, sizeof(bytes));
   original.preFaderInserts.push_back(pre);
   original.postFaderInserts.push_back(makeSlot("post", 12, "Post Effect"));
+  original.balance = -0.375f;
 
   const auto encoded = fiddle::serializeStripAudioSnapshot(original);
   const auto restored = fiddle::deserializeStripAudioSnapshot(
@@ -254,6 +255,61 @@ void testSnapshotSerializationRoundTrip() {
   CHECK(restored.preFaderInserts[0].bypassed);
   CHECK(restored.preFaderInserts[0].pluginState.getSize() == sizeof(bytes));
   CHECK(restored.postFaderInserts[0].description.name == "Post Effect");
+  CHECK(restored.balance == original.balance);
+  const auto legacy = fiddle::serializeStripAudioSnapshot({});
+  CHECK(!juce::JSON::parse(legacy.toString()).hasProperty("balance"));
+  CHECK(fiddle::deserializeStripAudioSnapshot(legacy.getData(), legacy.getSize()).balance == 0);
+  for (const auto *bad : {"true", "\"left\"", "2", "-2", "null"}) {
+    const auto json = juce::String("{\"version\":1,\"balance\":") + bad + "}";
+    CHECK(fiddle::deserializeStripAudioSnapshot(json.toRawUTF8(), json.getNumBytesAsUTF8()).balance == 0);
+  }
+}
+
+void testStereoBalance() {
+  fiddle::StripAudioEngine engine;
+  // Unequal, opposite-polarity channels detect crossfeed, swapping and boosts.
+  for (float balance : {0.0f, -1.0f, 1.0f, -0.5f, 0.5f}) {
+    engine.setBalance(balance);
+    engine.prepareToPlay(48000, 64);
+    juce::AudioBuffer<float> audio(2, 64), tap(2, 64);
+    fillStereo(audio, 0.8f, -0.4f);
+    engine.processBlock(audio, 0.5f, &tap);
+    CHECK(near(audio.getSample(0, 32), 0.4f * (1 - std::max(0.0f, balance))));
+    CHECK(near(audio.getSample(1, 32), -0.2f * (1 + std::min(0.0f, balance))));
+    CHECK(near(tap.getSample(0, 32), 0.8f));
+    CHECK(near(tap.getSample(1, 32), -0.4f));
+    CHECK(engine.snapshotAll(false).balance == balance);
+    CHECK(static_cast<float>(engine.toJson()["balance"]) == balance);
+  }
+  CHECK(!engine.setBalance(2));
+  CHECK(!engine.setBalance(std::numeric_limits<float>::quiet_NaN()));
+  CHECK(!engine.setBalance(std::numeric_limits<float>::infinity()));
+  CHECK(engine.balance() == 0.5f);
+
+  engine.setBalance(0);
+  engine.prepareToPlay(48000, 512);
+  const auto controls = fiddle::AudioProcessingGate::controlCount();
+  CHECK(engine.setBalance(1));
+  CHECK(fiddle::AudioProcessingGate::controlCount() == controls);
+  int elapsed = 0;
+  for (int size : {1, 23, 128, 64, 512}) {
+    juce::AudioBuffer<float> audio(2, size);
+    fillStereo(audio, 1, -0.5f);
+    engine.processBlock(audio, 1);
+    for (int i = 0; i < size; ++i, ++elapsed) {
+      CHECK(near(audio.getSample(0, i), std::max(0.0f, 1.0f - elapsed / 480.0f)));
+      CHECK(near(audio.getSample(1, i), -0.5f));
+    }
+  }
+  // Balance is before post FX, not at the rack output. A post effect can
+  // deliberately generate a stereo tail even when one input is attenuated.
+  CHECK(engine.insertProcessor(makeSlot("post", 1, "Add"), fiddle::StripInsertPosition::postFader, 0,
+      std::make_unique<ArithmeticEffect>(ArithmeticEffect::Operation::add, 0.1f)));
+  juce::AudioBuffer<float> audio(2, 64);
+  fillStereo(audio, 0.8f, -0.4f);
+  engine.processBlock(audio, 0.5f);
+  CHECK(near(audio.getSample(0, 32), 0.1f));
+  CHECK(near(audio.getSample(1, 32), -0.1f));
 }
 
 } // namespace
@@ -266,6 +322,7 @@ int main() {
   testPreAndPostFaderOrderingAndBypass();
   testPlaybackMonitoringDoesNotTakeControlGate();
   testSnapshotSerializationRoundTrip();
+  testStereoBalance();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

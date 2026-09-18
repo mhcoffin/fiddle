@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cstring>
 #include <utility>
+#include <cmath>
 
 namespace fiddle {
 struct StripFaderState {
   std::atomic<float> gain{1.0f};
+  std::atomic<float> balance{0.0f};
   // Render-thread only, valid solely during the synchronous graph call.
   juce::AudioBuffer<float> *preFaderTap = nullptr;
 };
@@ -31,7 +33,13 @@ public:
         state_(std::move(state)) {}
 
   const juce::String getName() const override { return "Strip Gain"; }
-  void prepareToPlay(double, int) override {}
+  void prepareToPlay(double sampleRate, int) override {
+    rampLength_ = juce::jmax(1, static_cast<int>(sampleRate * 0.01));
+    lastBalance_ = state_->balance.load(std::memory_order_relaxed);
+    current_[0] = 1.0f - juce::jmax(0.0f, lastBalance_);
+    current_[1] = 1.0f + juce::jmin(0.0f, lastBalance_);
+    remaining_ = 0;
+  }
   void releaseResources() override {}
   void processBlock(juce::AudioBuffer<float> &audio,
                     juce::MidiBuffer &) override {
@@ -40,12 +48,11 @@ public:
       for (int ch = 0; ch < 2; ++ch)
         tap->copyFrom(ch, 0, audio, ch, 0, audio.getNumSamples());
     }
-    audio.applyGain(state_->gain.load(std::memory_order_relaxed));
+    applyFader(audio);
   }
   void processBlock(juce::AudioBuffer<double> &audio,
                     juce::MidiBuffer &) override {
-    audio.applyGain(
-        static_cast<double>(state_->gain.load(std::memory_order_relaxed)));
+    applyFader(audio);
   }
   double getTailLengthSeconds() const override { return 0.0; }
   bool acceptsMidi() const override { return false; }
@@ -67,7 +74,32 @@ public:
   }
 
 private:
+  template <typename Sample> void applyFader(juce::AudioBuffer<Sample> &audio) {
+    const float balance = state_->balance.load(std::memory_order_relaxed);
+    if (balance != lastBalance_) {
+      lastBalance_ = balance;
+      remaining_ = rampLength_;
+    }
+    const float target[2] = {1.0f - juce::jmax(0.0f, balance),
+                             1.0f + juce::jmin(0.0f, balance)};
+    const auto gain = static_cast<Sample>(state_->gain.load(std::memory_order_relaxed));
+    const int frames = audio.getNumSamples();
+    const int ramp = juce::jmin(frames, remaining_);
+    for (int channel = 0; channel < juce::jmin(2, audio.getNumChannels()); ++channel) {
+      if (ramp > 0) {
+        const float next = current_[channel] + (target[channel] - current_[channel]) * ramp / remaining_;
+        audio.applyGainRamp(channel, 0, ramp, gain * current_[channel], gain * next);
+        current_[channel] = next;
+      }
+      // JUCE's constant-gain path uses vector operations; no per-sample loop.
+      if (frames > ramp)
+        audio.applyGain(channel, ramp, frames - ramp, gain * target[channel]);
+    }
+    remaining_ -= ramp;
+  }
   std::shared_ptr<StripFaderState> state_;
+  float current_[2]{1.0f, 1.0f}, lastBalance_ = 0.0f;
+  int rampLength_ = 441, remaining_ = 0;
 };
 
 class HostedStripEffectProcessor final : public juce::AudioProcessor {
@@ -192,6 +224,8 @@ juce::MemoryBlock serializeStripAudioSnapshot(const StripAudioSnapshot &state) {
   for (const auto &insert : state.postFaderInserts)
     post.add(insertToJson(insert));
   root->setProperty("postFader", juce::var(post));
+  // Optional default preserves hashes of existing centered projects.
+  if (state.balance != 0.0f) root->setProperty("balance", state.balance);
   const auto json = juce::JSON::toString(juce::var(root), false).toStdString();
   return juce::MemoryBlock(json.data(), json.size());
 }
@@ -220,7 +254,22 @@ StripAudioSnapshot deserializeStripAudioSnapshot(const void *data,
   };
   append(root->getProperty("preFader"), result.preFaderInserts);
   append(root->getProperty("postFader"), result.postFaderInserts);
+  const auto balance = root->getProperty("balance");
+  if (balance.isDouble() || balance.isInt() || balance.isInt64()) {
+    const auto value = static_cast<float>(double(balance));
+    if (std::isfinite(value) && value >= -1.0f && value <= 1.0f)
+      result.balance = value;
+  }
   return result;
+}
+
+bool StripAudioEngine::setBalance(float value) noexcept {
+  if (!std::isfinite(value) || value < -1.0f || value > 1.0f) return false;
+  return faderState_->balance.exchange(value, std::memory_order_relaxed) != value;
+}
+
+float StripAudioEngine::balance() const noexcept {
+  return faderState_->balance.load(std::memory_order_relaxed);
 }
 
 StripAudioEngine::StripAudioEngine()
@@ -354,6 +403,7 @@ StripAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) co
 
 StripAudioSnapshot StripAudioEngine::snapshotAll(bool captureLiveState) const {
   StripAudioSnapshot result;
+  result.balance = balance();
   const auto append = [this, captureLiveState](const Rack &entries,
                              std::vector<AudioInsertSnapshot> &destination) {
     destination.reserve(entries.size());
@@ -624,6 +674,7 @@ void StripAudioEngine::captureParameterFingerprints() {
 
 juce::var StripAudioEngine::toJson() const {
   auto *object = new juce::DynamicObject();
+  object->setProperty("balance", balance());
   object->setProperty("latencySamples", latencySamples());
   object->setProperty("latencyMs", latencyMs());
   const auto append = [](const Rack &entries, StripInsertPosition position) {

@@ -34,9 +34,14 @@ public:
   void prepareToPlay(double sampleRate, int blockSize);
   void releaseResources();
 
+  // Atomic, allocation-free control; callers publish/history-track the edit.
+  bool setBalance(float balance) noexcept;
+  [[nodiscard]] float balance() const noexcept;
+
   /// Process one strip's stereo output in place. effectiveGain already
   /// includes its fader and the current active/mute/solo decision.
-  /// Optional tap storage is caller-preallocated and copied before gain/FX.
+  /// Optional tap storage is caller-preallocated and copied before gain,
+  /// stereo balance and post-fader FX (but after pre-fader FX).
   void processBlock(juce::AudioBuffer<float> &audio, float effectiveGain,
                     juce::AudioBuffer<float> *preFaderTap = nullptr);
 

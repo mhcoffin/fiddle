@@ -139,6 +139,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     if (bytes.empty())
       return;
     const auto snapshot = deserializeStripAudioSnapshot(bytes.data(), bytes.size());
+    engine.setBalance(snapshot.balance);
     auto insertRack = [&](const auto &rack, StripInsertPosition position) {
       for (int i = 0; i < static_cast<int>(rack.size()); ++i) {
         auto done = Session::completion(session);

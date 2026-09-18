@@ -5,7 +5,7 @@
     let {
         value = 0, min = 0, max = 1, step = 0.5, fineStep = 0.1,
         label = "Value", unit = "", disabled = false,
-        compact = false,
+        compact = false, showRing = true,
         toPosition = (v) => (v - min) / (max - min),
         fromPosition = (p) => min + p * (max - min),
         format = (v) => v.toFixed(1),
@@ -122,9 +122,11 @@
         onlostpointercapture={finishGesture} onkeydown={keyDown} onkeyup={keyUp}
         onblur={() => { if (keyActive) finishGesture(); }}>
         <svg viewBox="0 0 48 48" aria-hidden="true">
+            {#if showRing}
             <path class="track" d="M 9.86 38.14 A 20 20 0 1 1 38.14 38.14" pathLength="100" />
             <path class="value" d="M 9.86 38.14 A 20 20 0 1 1 38.14 38.14" pathLength="100"
                 stroke-dasharray={`${position * 100} 100`} />
+            {/if}
             <circle cx="24" cy="24" r="15" />
             <line x1="24" y1="13" x2="24" y2="19" transform={`rotate(${angle} 24 24)`} />
         </svg>

@@ -1502,7 +1502,7 @@ void MainComponent::saveStripToDB(const juce::String &stripId) {
   }
 }
 
-void MainComponent::scheduleStateRebuild() {
+void MainComponent::scheduleStateRebuild(bool captureLiveState) {
   if (projectRestoreService_ && projectRestoreService_->isLoading())
     return;
   // Historical edits are unpublished until saved onto their own branch. The
@@ -1510,6 +1510,7 @@ void MainComponent::scheduleStateRebuild() {
   if (isDetached_)
     return;
 
+  stateRebuildNeedsLiveCapture_ |= captureLiveState;
   auto now = juce::Time::getMillisecondCounter();
   if (now - lastStateRebuildMs_ < 1000) {
     // Too soon — mark pending; the timer will pick it up
@@ -1522,7 +1523,8 @@ void MainComponent::scheduleStateRebuild() {
     // A restore may start after this rebuild was queued.
     if (isDetached_ || (projectRestoreService_ && projectRestoreService_->isLoading()))
       return {};
-    return stateManager_.buildStateBlob(mixer_);
+    const bool capture = std::exchange(stateRebuildNeedsLiveCapture_, false);
+    return stateManager_.buildStateBlob(mixer_, capture);
   });
 }
 
@@ -1949,6 +1951,7 @@ void MainComponent::restoreStripAudio(MixerStrip &strip,
                                       bool publishWhenLoaded) {
   auto &audio = strip.audioEngine();
   audio.clear(false);
+  audio.setBalance(snapshot.balance);
   const auto stripId = strip.id;
   juce::Component::SafePointer<MainComponent> safeThis(this);
   const auto restoreRack = [&](const std::vector<AudioInsertSnapshot> &rack,
@@ -3314,7 +3317,8 @@ void MainComponent::timerCallback() {
       stateManager_.scheduleRebuild([this]() -> juce::MemoryBlock {
         if (isDetached_ || (projectRestoreService_ && projectRestoreService_->isLoading()))
           return {};
-        return stateManager_.buildStateBlob(mixer_);
+        const bool capture = std::exchange(stateRebuildNeedsLiveCapture_, false);
+        return stateManager_.buildStateBlob(mixer_, capture);
       });
     }
   }
@@ -3844,7 +3848,22 @@ void MainComponent::setupJsHandlers() {
             pushMixerState(true);
             scheduleStateRebuild();
           },
-          [this] { pushGroupBusState(); }});
+          [this] { pushGroupBusState(); },
+          [this](const juce::String &id, bool bus) {
+            // Balance gestures must not query vendor program/state APIs or
+            // rebuild the routing graph while the render thread is running.
+            if (bus) pushGroupBusState();
+            else if (auto *strip = mixer_.getStrip(id)) {
+              auto state = strip->audioEngine().toJson();
+              state.getDynamicObject()->setProperty("stripId", id);
+              broadcastMessage("setStripAudioState", state);
+            }
+            const bool wasDirty = stateManager_.isDirty();
+            stateManager_.markDirty();
+            broadcastMessage("setDirtyState", true);
+            if (!wasDirty) pushConfigStatus();
+            scheduleStateRebuild(false);
+          }});
   groupBusJsHandlers_->registerHandlers();
 
   masterAudioCommandService_ = std::make_unique<MasterAudioCommandService>(
