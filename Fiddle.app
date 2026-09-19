@@ -1,0 +1,1 @@
+build/release/FiddleServer_artefacts/Release/FiddleServer.app

@@ -1,137 +1,55 @@
 ---
 name: build-all
-description: Build all pieces of the Fiddle project correctly. Use whenever you need to compile C++, rebuild the Svelte UI, or install the VST3 plugin. Explains the exact sequence and what each step does.
+description: Build Fiddle's Release server, UI, tests, and VST3 plugin using the canonical build tree.
 ---
 
-# FiddleServer Build System
+# Fiddle build and launch
 
-## Overview
+Run from the repository root. The canonical build tree is `build/release`.
+Do not use the old Debug app directly under `build/` or any archived build.
 
-The Fiddle project has three independently buildable pieces, all rooted at `/Users/mhc/fiddle`:
+## Server and UI
 
-| Piece | Source | Output |
-|---|---|---|
-| **Svelte UI** | `Source/Server/ui/` | `Source/Server/ui/dist/` |
-| **C++ Server** | `Source/Server/*.cpp` | `build/FiddleServer_artefacts/Debug/FiddleServer.app` |
-| **VST3 Plugin** | `Source/NativePlugin/*.cpp` | `build/FiddleNative_artefacts/VST3/Fiddle.vst3` |
-
-> [!IMPORTANT]
-> The Svelte `dist/` is **automatically copied into the `.app` bundle** by the CMake `FiddleServerUI` target on every `cmake --build`. You **must run `pnpm build` first** so that CMake has a fresh dist to copy. If you only rebuild C++ without running `pnpm build`, the bundle gets the old UI.
-
-## Correct Build Sequence
-
-### Quick rebuild (UI-only change)
-
-When only `.svelte`, `.ts`, or `.css` files changed:
-
-```bash
-cd /Users/mhc/fiddle
-
-# 1. Rebuild Svelte
-cd Source/Server/ui && pnpm build && cd ../../..
-
-# 2. Re-run cmake to sync dist into the .app bundle
-cmake --build build --config Debug --target FiddleServerUI
+```sh
+./fiddle.sh build
 ```
 
-No C++ recompile needed — the `FiddleServerUI` target copies `dist/` into the app.
+CMake automatically rebuilds the Svelte UI with pnpm and syncs it into the app;
+it also builds/bundles the MCP resources. No separate manual UI build is needed.
+The app is `build/release/FiddleServer_artefacts/Release/FiddleServer.app`.
+The top-level `Fiddle.app` symlink points there. `./fiddle.sh path` prints the path.
 
-### Full rebuild (C++ or UI changed)
+For all default targets, run `./rebuild_all.sh`. Both build commands are
+incremental and do not launch the app or install the plugin.
 
-```bash
-cd /Users/mhc/fiddle
+## Tests
 
-# 1. Rebuild Svelte UI
-cd Source/Server/ui && pnpm build && cd ../../..
-
-# 2. Build everything (FiddleServer + FiddleServerUI + plugin + tests)
-cmake --build build --config Debug
+```sh
+./scripts/test.sh
 ```
 
-CMake will:
-- Run `FiddleServerUI` to sync the UI dist (always runs, even if C++ is unchanged)
-- Incrementally compile any changed C++ files
-- Link the new binary
+See `docs/automated-testing.md` for labels and browser regressions.
 
-### Full rebuild with VST3 plugin install
+## Launch and installation
 
-Use the existing `fiddle.sh` script, which also installs the plugin and launches the server:
+Only restart the user's app when requested. Save work and quit normally before
+running `./fiddle.sh open`; opening a running app will not reload a new binary.
+Do not force-kill Fiddle or delete WebView caches as a routine build step.
 
-```bash
-cd /Users/mhc/fiddle
-./fiddle.sh
+The plugin is built separately with:
+
+```sh
+cmake --build build/release --config Release --target FiddleNative
 ```
 
-This does: `pnpm build` → CMake `FiddleNative` → `FiddleServer` → copies `Fiddle.vst3` to `~/Library/Audio/Plug-Ins/VST3/` → launches the app.
+Locate the actual `.vst3` output under `build/release/FiddleNative_artefacts/`.
+Building does not install it. Only replace the installed plugin when authorized,
+with Dorico closed; then restart Dorico to load it. `fiddle.sh` never installs
+plugins or bumps the project version.
 
-## Component Details
+## Directory safety
 
-### Svelte UI
-- **Source**: `Source/Server/ui/src/`
-- **Build**: `cd Source/Server/ui && pnpm build`
-- **Output**: `Source/Server/ui/dist/` (index.html + hashed assets)
-- **Install**: CMake `FiddleServerUI` target copies `dist/` → `.app/Contents/MacOS/ui/`
-- **Package manager**: `pnpm` (not `npm`)
-
-### C++ FiddleServer
-- **Source**: `Source/Server/*.cpp`
-- **Build**: `cmake --build build --config Debug`
-- **Output**: `build/FiddleServer_artefacts/Debug/FiddleServer.app`
-- **Launch**: `open build/FiddleServer_artefacts/Debug/FiddleServer.app`
-  or `./build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/FiddleServer`
-
-### VST3 Plugin
-- **Source**: `Source/NativePlugin/*.cpp`
-- **Build**: `cmake --build build --config Debug --target FiddleNative`
-- **Output**: `build/FiddleNative_artefacts/VST3/Fiddle.vst3`
-- **Install**: `cp -R build/FiddleNative_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/`
-  After install, **Dorico must be restarted** to pick up the new plugin.
-
-### Unit Tests
-- **VersionStoreTest**: `cmake --build build --target VersionStoreTest && ./build/VersionStoreTest`
-- **ExpressionMapTest**: `cmake --build build --target ExpressionMapTest && ./build/ExpressionMapTest`
-- **GainMathTest**: `cmake --build build --target GainMathTest && ./build/GainMathTest`
-
-## Common Pitfalls
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Old UI shown after Svelte edit | Forgot to cmake after `pnpm build` | Run `cmake --build build --target FiddleServerUI` |
-| **UI JS globals missing / IPC broken after C++/JS refactor** | **Ran `cmake --build` without running `pnpm build` first — the `.app` bundle gets the old `dist/`** | **Always run `pnpm build` before `cmake --build` when any `.svelte`/`.js` file changed** |
-| Stale `.app` bundle running | Didn't kill old process | `pkill -f FiddleServer` before relaunching |
-| **New JS/CSS not loading after rebuild (old asset hash in log)** | **macOS WKWebView has TWO persistent caches for `juce://` resources** | **Clear both, then relaunch:**<br>`rm -rf ~/Library/Caches/com.antigravity.fiddleserver`<br>`rm -rf ~/Library/WebKit/com.antigravity.fiddleserver` |
-| `createdAt` / new field missing from UI JSON | Binary is stale | Check binary timestamp: `ls -la build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/FiddleServer` |
-| `InMemoryVersionStorage` is abstract | Added virtual method to `IVersionStorage` but not to the test mock | Implement the new method in `Source/Server/tests/InMemoryVersionStorage.h` |
-| Dorico not seeing plugin changes | Plugin installed but Dorico not restarted | Quit and relaunch Dorico |
-| **Dorico plays but nothing in Timeline/Event Log; clicks/pops in speakers** | **Installed VST3 plugin is stale** — `cmake --build` builds the plugin but does NOT copy it to `~/Library/Audio/Plug-Ins/VST3/` | **Reinstall:** `cp -R build/FiddleNative_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/` then **restart Dorico**. Check with `stat -f "%Sm"` on both paths to compare timestamps. |
-
-> [!CAUTION]
-> **Guaranteed-fresh deployment checklist.** After ANY UI change, run this exact sequence before relaunching. Skipping any step risks loading stale code:
-> ```bash
-> # 1. Build UI
-> cd Source/Server/ui && pnpm build && cd ../../..
-> # 2. Sync into .app bundle
-> cmake --build build --config Debug --target FiddleServerUI
-> # 3. Verify the bundle has ONLY the new JS hash (no stale files)
-> ls build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/ui/assets/index-*.js
-> # 4. Clear WKWebView caches (both locations!)
-> rm -rf ~/Library/Caches/com.antigravity.fiddleserver ~/Library/WebKit/com.antigravity.fiddleserver
-> # 5. Kill any running instance, then relaunch
-> ```
-> After launch, check the console log for `getResource: /assets/index-XXXX.js` — the hash **must** match step 3.
-
-## Verifying the Built Bundle
-
-Check that the `.app` bundle's `ui/index.html` references the latest asset hash:
-
-```bash
-cat build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/ui/index.html
-```
-
-The `src=./assets/index-*.js` hash should match the hash in `Source/Server/ui/dist/assets/`.
-
-To verify `createdAt` (or any new JSON key) is in the compiled binary:
-
-```bash
-strings build/FiddleServer_artefacts/Debug/FiddleServer.app/Contents/MacOS/FiddleServer | grep createdAt
-```
+Keep new configurations under `build/`. `build/_deps` supplies dependency sources
+to active builds: never delete or relocate the entire `build/` tree for a routine
+rebuild. Historical top-level build trees live in `archive/builds/`; their old
+CMake caches are not relocatable. See `README.md` and `archive/README.md`.

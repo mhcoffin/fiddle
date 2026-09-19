@@ -19,19 +19,19 @@ jobs:
           node-version: '22'
 
       - name: Configure
-        run: cmake -S . -B build-ci -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build/ci -DCMAKE_BUILD_TYPE=Release
 
       - name: Build test executables
         run: >-
-          cmake --build build-ci --config Release --parallel 3 --target
+          cmake --build build/ci --config Release --parallel 3 --target
           FiddleTests
 
       - name: Run stable tests
-        run: ctest --test-dir build-ci -C Release --output-on-failure --no-tests=error --output-junit stable-tests.xml -L stable
+        run: ctest --test-dir build/ci -C Release --output-on-failure --no-tests=error --output-junit stable-tests.xml -L stable
 
       - name: Confirm documented failures
         run: >-
-          ctest --test-dir build-ci -C Release --output-on-failure
+          ctest --test-dir build/ci -C Release --output-on-failure
           -L known-failure
 
       - name: Preserve test reports
@@ -40,6 +40,6 @@ jobs:
         with:
           name: test-results
           path: |
-            build-ci/stable-tests.xml
-            build-ci/Testing/Temporary/LastTest.log
-            build-ci/Testing/Temporary/LastTestsFailed.log
+            build/ci/stable-tests.xml
+            build/ci/Testing/Temporary/LastTest.log
+            build/ci/Testing/Temporary/LastTestsFailed.log

@@ -13,6 +13,16 @@ FiddleServer_artefacts/
 FiddlePilot_artefacts/
 Fiddle_artefacts/
 
+# Archived local builds; retain the three files historically tracked in them.
+/archive/builds/*
+!/archive/builds/build_check/
+/archive/builds/build_check/*
+!/archive/builds/build_check/midi_event.pb.cc
+!/archive/builds/build_check/midi_event.pb.h
+!/archive/builds/test_cmake/
+/archive/builds/test_cmake/*
+!/archive/builds/test_cmake/CMakeLists.txt
+
 # Node.js
 node_modules/
 package-lock.json

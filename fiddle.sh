@@ -1,59 +1,41 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Fiddle Server Build and Launch Script
-# This script builds the UI, builds the server, and launches it
+# One canonical app location, independent of the caller's working directory.
+fiddle_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fiddle_build="$fiddle_repo/build/release"
+fiddle_app="$fiddle_build/FiddleServer_artefacts/Release/FiddleServer.app"
 
-echo "🎻 Fiddle Server Build & Launch"
-echo "================================"
-
-# Step 1: Build the UI
-echo ""
-echo "📦 Building Svelte UI..."
-cd Source/Server/ui
-pnpm run build
-cd ../../..
-
-# Step 2: Build the Plugin
-echo ""
-echo "🔌 Building Fiddle Plugin (VST3)..."
-./scripts/bump_version.sh
-cmake --build build --target FiddleNative
-
-# Step 3: Build the Server
-echo ""
-echo "🔨 Building FiddleServer..."
-# Force clean the app bundle to ensure UI resources are updated
-rm -rf build/FiddleServer_artefacts/Debug/FiddleServer.app
-cmake --build build --target FiddleServer
-
-# Step 4: Install Plugin to system directory
-echo ""
-echo "📦 Installing Fiddle Plugin to ~/Library/Audio/Plug-Ins/VST3/..."
-rm -rf ~/Library/Audio/Plug-Ins/VST3/Fiddle.vst3
-
-# Check for VST3 in Debug folder first (CMake default on Mac for some generators)
-if [ -d "build/FiddleNative_artefacts/Debug/VST3/Fiddle.vst3" ]; then
-    cp -R build/FiddleNative_artefacts/Debug/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
-elif [ -d "build/FiddleNative_artefacts/VST3/Fiddle.vst3" ]; then
-    cp -R build/FiddleNative_artefacts/VST3/Fiddle.vst3 ~/Library/Audio/Plug-Ins/VST3/
-else
-    echo "❌ Error: Could not find built Fiddle.vst3!"
-    exit 1
-fi
-
-# Step 5: Kill any running FiddleServer
-echo ""
-echo "🛑 Stopping any running FiddleServer..."
-killall FiddleServer 2>/dev/null || echo "   (No running FiddleServer found)"
-
-# Step 6: Launch the new FiddleServer
-echo ""
-echo "🚀 Launching FiddleServer..."
-open build/FiddleServer_artefacts/Debug/FiddleServer.app
-
-echo ""
-echo "✅ Done! FiddleServer is starting..."
-echo "   Plugin installed to ~/Library/Audio/Plug-Ins/VST3/"
-echo "   Make sure to reload the Fiddle plugin in Dorico!"
-echo "   Check the Timeline tab to see instrument names!"
+case "${1:-open}" in
+  open)
+    if [[ ! -d "$fiddle_app" ]]; then
+      echo "Fiddle has not been built here. Run: $fiddle_repo/fiddle.sh build" >&2
+      exit 1
+    fi
+    echo "Opening $fiddle_app"
+    echo "If Fiddle is already running, quit it normally first to load a rebuilt version."
+    open "$fiddle_app"
+    ;;
+  build)
+    if [[ ! -f "$fiddle_build/CMakeCache.txt" ]]; then
+      cmake -S "$fiddle_repo" -B "$fiddle_build" -DCMAKE_BUILD_TYPE=Release
+    fi
+    cmake --build "$fiddle_build" --config Release --parallel "${FIDDLE_BUILD_JOBS:-3}" --target FiddleServer
+    echo "Built $fiddle_app (not launched)."
+    ;;
+  path)
+    printf '%s\n' "$fiddle_app"
+    ;;
+  reveal)
+    open -R "$fiddle_app"
+    ;;
+  help|-h|--help)
+    echo "Usage: $0 [open|build|path|reveal]"
+    echo "Defaults to opening the existing Release app; build compiles without launching."
+    echo "Never kills Fiddle, changes versions, or installs the Dorico plugin."
+    ;;
+  *)
+    echo "Unknown command: $1. Use --help." >&2
+    exit 2
+    ;;
+esac

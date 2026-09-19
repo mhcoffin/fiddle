@@ -1,22 +1,9 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-echo "===== Rebuilding Svelte UI ====="
-cd Source/Server/ui
-rm -rf node_modules dist
-echo "Installing dependencies..."
-npm install
-echo "Building UI..."
-npm run build
-cd ../../..
-
-echo "===== Rebuilding C++ Backend ====="
-rm -rf build
-mkdir build
-cd build
-echo "Configuring CMake..."
-cmake .. -DCMAKE_BUILD_TYPE=Release
-echo "Building Project..."
-cmake --build . --config Release
-
-echo "===== DONE! Everything is rebuilt. ====="
+# Incremental full build. Never remove shared dependencies or other build trees.
+fiddle_repo="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fiddle_build="$fiddle_repo/build/release"
+cmake -S "$fiddle_repo" -B "$fiddle_build" -DCMAKE_BUILD_TYPE=Release
+cmake --build "$fiddle_build" --config Release --parallel "${FIDDLE_BUILD_JOBS:-3}"
+echo "Release build complete. No app was restarted and no plugin was installed."
