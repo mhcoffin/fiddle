@@ -283,7 +283,7 @@ void testMeterOnlySnapshots() {
   const auto programs = SignalProcessor::programQueries;
   const auto captures = SignalProcessor::stateCaptures;
   const auto snapshot = f.mixer.meterLevels();
-  REQUIRE(snapshot.getDynamicObject()->getProperties().size() == 3);
+  REQUIRE(snapshot.getDynamicObject()->getProperties().size() == 7);
   REQUIRE(snapshot["strips"].getDynamicObject()->getProperties().size() == 2);
   REQUIRE(snapshot["buses"].getDynamicObject()->getProperties().size() == 1);
   REQUIRE(static_cast<double>(snapshot["strips"][juce::Identifier(a)][0]) == f.mixer.getStrip(a)->peakDb());
@@ -291,6 +291,14 @@ void testMeterOnlySnapshots() {
   REQUIRE(static_cast<double>(snapshot["buses"][juce::Identifier(busId)][0]) == f.mixer.getGroupBus(busId)->peakDb());
   REQUIRE(static_cast<double>(snapshot["buses"][juce::Identifier(busId)][1]) == f.mixer.getGroupBus(busId)->peakHoldDb());
   REQUIRE(static_cast<double>(snapshot["masterPeakDb"]) == f.mixer.masterAudio().peakDb());
+  const auto stereo = snapshot["stereoStrips"][juce::Identifier(a)];
+  REQUIRE(stereo.isArray() && stereo.size() == 6);
+  REQUIRE(static_cast<float>(stereo[0]) == f.mixer.getStrip(a)->meter().peak(0));
+  REQUIRE(static_cast<float>(stereo[2]) == f.mixer.getStrip(a)->meter().peak(1));
+  REQUIRE(!static_cast<bool>(stereo[4]) && !static_cast<bool>(stereo[5]));
+  REQUIRE(snapshot["stereoBuses"][juce::Identifier(busId)].size() == 6);
+  REQUIRE(snapshot["master"].size() == 6);
+  REQUIRE(snapshot["loudness"].hasProperty("integrated"));
   for (int i = 0; i < 100; ++i) {
     const auto json = juce::JSON::toString(f.mixer.meterLevels(), true);
     REQUIRE(!json.contains("pluginUid") && !json.contains("gainDb"));
@@ -299,6 +307,7 @@ void testMeterOnlySnapshots() {
   REQUIRE(SignalProcessor::stateCaptures == captures);
   f.mixer.removeStrip(b);
   REQUIRE(!f.mixer.meterLevels()["strips"].hasProperty(b));
+  REQUIRE(!f.mixer.meterLevels()["stereoStrips"].hasProperty(b));
   // Demonstrate the test detects the old full-state path's program queries.
   const auto full = f.mixer.toJson();
   REQUIRE(full.isNotEmpty() && SignalProcessor::programQueries > programs);

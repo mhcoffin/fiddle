@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseMixerMeters } from "../src/lib/mixerMeters.js";
+import { parseMixerMeters, formatLufs } from "../src/lib/mixerMeters.js";
+
+test("compact LUFS readings have one decimal and never show invalid measurements", () => {
+    assert.equal(formatLufs({ valid: true, integrated: -18.44 }, "integrated"), "-18.4");
+    assert.equal(formatLufs({ valid: true, shortTerm: -16.76 }, "shortTerm"), "-16.8");
+    for (const invalid of [undefined, {}, { valid: false, integrated: -18 },
+        { valid: true, incomplete: true, integrated: -18 }, { valid: true, integrated: null },
+        { valid: true, integrated: NaN }, { valid: true, integrated: Infinity }]) {
+        assert.equal(formatLufs(invalid, "integrated"), "—");
+    }
+});
 
 test("meter snapshots only contain levels, never control or plugin state", () => {
     const packet = {
@@ -10,7 +20,7 @@ test("meter snapshots only contain levels, never control or plugin state", () =>
         gainDb: 99, inserts: [{ name: "should not be copied" }],
     };
     const meters = parseMixerMeters(packet);
-    assert.deepEqual(Object.keys(meters), ["strips", "buses", "masterPeakDb"]);
+    assert.deepEqual(Object.keys(meters), ["strips", "buses", "masterPeakDb", "stereoStrips", "stereoBuses", "master", "loudness"]);
     assert.deepEqual(meters.strips.violin, [-12, -5]);
     assert.deepEqual(meters.buses.strings, [-8, -3]);
     assert.equal(meters.masterPeakDb, -2);
@@ -19,7 +29,9 @@ test("meter snapshots only contain levels, never control or plugin state", () =>
 });
 
 test("absent or invalid levels become silence without poisoning CSS values", () => {
-    assert.deepEqual(parseMixerMeters(null), { strips: {}, buses: {}, masterPeakDb: -120 });
+    assert.deepEqual(parseMixerMeters(null), { strips: {}, buses: {}, masterPeakDb: -120,
+        stereoStrips: {}, stereoBuses: {}, master: [-120, -120, -120, -120, false, false],
+        loudness: { valid: false, incomplete: false, seconds: 0, integrated: null, shortTerm: null, truePeakLeft: null, truePeakRight: null } });
     const meters = parseMixerMeters({ strips: { a: [NaN, Infinity], b: "bad" }, masterPeakDb: "bad" });
     assert.deepEqual(meters.strips, { a: [-120, -120] });
     assert.equal(meters.masterPeakDb, -120);
@@ -31,9 +43,26 @@ test("high-rate handler leaves configuration and chair grouping untouched", () =
     assert.ok(handler);
     assert.match(handler, /meters = parseMixerMeters\(data\)/);
     assert.doesNotMatch(handler, /strips\s*=|groupBuses\s*=|masterAudio\s*=/);
-    assert.match(source, /masterPeakDb=\{meters.masterPeakDb\}/);
-    assert.match(source, /busMeters=\{meters.buses\}/);
+    assert.match(source, /masterMeters=\{meters.master\}/);
+    assert.match(source, /busMeters=\{meters.stereoBuses\}/);
     assert.match(source, /peakDb=\{meters.masterPeakDb\}/);
+});
+
+test("stereo and loudness values are sanitized independently of configuration", () => {
+    const packet = { stereoStrips: { a: [-12, -10, -6, -1, true, false], b: "bad" },
+        stereoBuses: "bad", master: [NaN, Infinity, -6, -3, 1, true],
+        loudness: { valid: true, seconds: 12, integrated: -18, shortTerm: Infinity, truePeakLeft: -.5, truePeakRight: null } };
+    const result = parseMixerMeters(packet);
+    assert.deepEqual(result.stereoStrips, { a: [-12, -10, -6, -1, true, false] });
+    assert.deepEqual(result.stereoBuses, {});
+    assert.deepEqual(result.master, [-120, -120, -6, -3, false, true]);
+    assert.equal(result.loudness.integrated, -18);
+    assert.equal(result.loudness.shortTerm, null);
+    assert.equal(result.loudness.truePeakRight, null);
+    packet.loudness.valid = false;
+    packet.loudness.incomplete = true;
+    assert.equal(parseMixerMeters(packet).loudness.integrated, null);
+    assert.equal(parseMixerMeters(packet).loudness.incomplete, true);
 });
 
 test("server meter tick is coalesced and does not serialize full state", () => {

@@ -17,6 +17,22 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(JUCE)
 
+# EBU R128 / BS.1770 metering, built statically with its portable queue header.
+FetchContent_Declare(ebur128_source
+    GIT_REPOSITORY https://github.com/jiixyj/libebur128.git
+    GIT_TAG v1.2.6
+    GIT_SHALLOW TRUE)
+FetchContent_GetProperties(ebur128_source)
+if(NOT ebur128_source_POPULATED)
+    FetchContent_Populate(ebur128_source)
+endif()
+add_library(fiddle_ebur128 STATIC "${ebur128_source_SOURCE_DIR}/ebur128/ebur128.c")
+target_include_directories(fiddle_ebur128 PUBLIC "${ebur128_source_SOURCE_DIR}/ebur128"
+    PRIVATE "${ebur128_source_SOURCE_DIR}/ebur128/queue")
+if(MSVC)
+    target_compile_definitions(fiddle_ebur128 PRIVATE _USE_MATH_DEFINES)
+endif()
+
 # Fetch Protobuf
 FetchContent_Declare(
     protobuf
@@ -1199,7 +1215,23 @@ add_test(NAME mixer_integration COMMAND MixerIntegrationTest)
 set_tests_properties(mixer_integration PROPERTIES
     LABELS "audio;routing;persistence;integration;regression;stable")
 
-# One build target for local testing and CI. New *Test executables are included
+# The production renderer and its integration tests share background analysis.
+foreach(meter_target FiddleServer MixerIntegrationTest MasterAudioEngineTest)
+    target_sources(${meter_target} PRIVATE Source/Server/MasterLoudnessMeter.cpp)
+    target_link_libraries(${meter_target} PRIVATE fiddle_ebur128)
+endforeach()
+add_custom_command(TARGET FiddleServer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ebur128_source_SOURCE_DIR}/COPYING"
+    "$<TARGET_FILE_DIR:FiddleServer>/../Resources/libebur128-LICENSE.txt")
+
+juce_add_console_app(MeteringTest PRODUCT_NAME "MeteringTest")
+target_sources(MeteringTest PRIVATE Source/Server/tests/MeteringTest.cpp Source/Server/MasterLoudnessMeter.cpp)
+target_include_directories(MeteringTest PRIVATE Source/Server)
+target_link_libraries(MeteringTest PRIVATE juce::juce_audio_basics fiddle_ebur128)
+target_compile_features(MeteringTest PRIVATE cxx_std_17)
+add_test(NAME metering COMMAND MeteringTest)
+set_tests_properties(metering PROPERTIES LABELS "audio;regression;stable")
+
 juce_add_console_app(UndoManagerTest PRODUCT_NAME "UndoManagerTest")
 target_sources(UndoManagerTest PRIVATE Source/Server/tests/UndoManagerTest.cpp)
 target_include_directories(UndoManagerTest PRIVATE Source/Server)
@@ -1207,6 +1239,14 @@ target_link_libraries(UndoManagerTest PRIVATE juce::juce_core)
 target_compile_features(UndoManagerTest PRIVATE cxx_std_17)
 add_test(NAME undo_manager COMMAND UndoManagerTest)
 set_tests_properties(undo_manager PROPERTIES LABELS "undo;regression;stable")
+
+juce_add_console_app(DebugUiFeedTest PRODUCT_NAME "DebugUiFeedTest")
+target_sources(DebugUiFeedTest PRIVATE Source/Server/tests/DebugUiFeedTest.cpp)
+target_include_directories(DebugUiFeedTest PRIVATE Source/Server)
+target_link_libraries(DebugUiFeedTest PRIVATE juce::juce_core)
+target_compile_features(DebugUiFeedTest PRIVATE cxx_std_17)
+add_test(NAME debug_ui_feed COMMAND DebugUiFeedTest)
+set_tests_properties(debug_ui_feed PROPERTIES LABELS "ui;regression;stable")
 
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.

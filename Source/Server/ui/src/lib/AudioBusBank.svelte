@@ -1,14 +1,17 @@
 <script>
+    import StereoMeter from "./StereoMeter.svelte";
     import BalanceControl from "./BalanceControl.svelte";
     import { tick } from "svelte";
     import { dispatchCpp } from "./ipc.js";
+    import { formatLufs } from "./mixerMeters.js";
 
     let {
         buses = [],
         strips = [],
         master = { gainDb: 0, peakDb: -120, inserts: [] },
         busMeters = {},
-        masterPeakDb = -120,
+        masterMeters,
+        masterLoudness = {},
         onManage = () => {},
         onOpenBusAudio = () => {},
         onOpenMasterAudio = () => {},
@@ -140,10 +143,7 @@
                                     aria-label={`${bus.name} gain`}
                                 />
                             </div>
-                            <div class="meter-track">
-                                <div class="meter-fill" class:hot={busMeters[bus.id]?.[0] > 0} style="height: {dbToPos(busMeters[bus.id]?.[0] ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
-                                <div class="meter-hold" class:hot={busMeters[bus.id]?.[1] > 0} style="bottom: {dbToPos(busMeters[bus.id]?.[1] ?? MIN_DB, BUS_MAX_DB) * 100}%"></div>
-                            </div>
+                            <StereoMeter levels={busMeters[bus.id]} label={bus.name} kind="bus" id={bus.id} maximum={BUS_MAX_DB} />
                         </div>
                         <span class="tick">-∞</span>
                         <input
@@ -226,9 +226,7 @@
                                 aria-label="Master gain"
                             />
                         </div>
-                        <div class="meter-track">
-                            <div class="meter-fill" class:hot={masterPeakDb > 0} style="height: {dbToPos(masterPeakDb) * 100}%"></div>
-                        </div>
+                        <StereoMeter levels={masterMeters} label="Master" kind="master" />
                     </div>
                     <span class="tick">-∞</span>
                     <input
@@ -245,7 +243,26 @@
                         aria-label="Master gain in decibels"
                     />
                 </div>
-                <div class="master-spacer"></div>
+                <div class="master-loudness-row">
+                <button class="master-loudness" onclick={onOpenMasterAudio}
+                    aria-label="Open Master Audio loudness details"
+                    title={masterLoudness.incomplete
+                        ? "Measurement incomplete — reset and replay"
+                        : "Loudness in LUFS: Integrated since reset; Short-term over 3 seconds. Click for details."}>
+                    {#each [["Integrated", "integrated"], ["Short-term", "shortTerm"]] as [label, key]}
+                        <span class="loudness-reading">
+                            <span class="loudness-label">{label}</span>
+                            <span class="loudness-value">{formatLufs(masterLoudness, key)} <span class="loudness-unit">LUFS</span></span>
+                        </span>
+                    {/each}
+                </button>
+                <button class="loudness-reset" onclick={() => dispatchCpp("resetMasterLoudness")}
+                    aria-label="Reset loudness measurement" title="Reset loudness measurement">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M4 10a8 8 0 1 1 1.6 7M4 4v6h6" />
+                    </svg>
+                </button>
+                </div>
                 <div class="output">Output · Dorico</div>
                 </article>
             </section>
@@ -305,15 +322,22 @@
     .fader-meter-row { display: flex; min-height: 40px; width: 100%; flex: 1; gap: 2px; align-items: stretch; }
     .fader-track { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; }
     .fader-slider { width: 24px; height: 100%; margin: 0; writing-mode: vertical-lr; direction: rtl; cursor: pointer; accent-color: #3b82f6; -webkit-appearance: slider-vertical; appearance: slider-vertical; }
-    .meter-track { position: relative; width: 6px; flex-shrink: 0; overflow: hidden; border-radius: 2px; background: #0f172a; }
-    .meter-fill { position: absolute; inset: auto 0 0; border-radius: 2px; background: #22c55e; }
-    .meter-fill.hot, .meter-hold.hot { background: #ef4444; }
-    .meter-hold { position: absolute; left: 0; right: 0; height: 2px; background: #4ade80; }
     .fader-value { width: 100%; min-height: 28px; padding: 3px 5px; box-sizing: border-box; flex-shrink: 0; border: 1px solid #334155; border-radius: 3px; background: #0f172a; color: #cbd5e1; font-size: .75rem; text-align: center; -moz-appearance: textfield; }
     .mute-solo { display: flex; justify-content: center; gap: 8px; padding: 4px 0; }
     .ms { width: 32px; height: 28px; padding: 0; border: 1px solid #555; border-radius: 3px; background: #2a2a2a; color: #aaa; font-size: .8rem; font-weight: 700; cursor: pointer; }
     .mute.active { border-color: #f59e0b; background: rgba(245,158,11,.25); color: #fbbf24; }
     .solo.active { border-color: #22c55e; background: rgba(34,197,94,.2); color: #4ade80; }
     .output { min-height: 26px; display: grid; place-items: center; border-top: 1px solid #20374b; color: #7dd3fc; font-size: .64rem; }
-    .master-spacer { height: 36px; flex-shrink: 0; }
+    /* Reuses the old 36px Mute/Solo spacer; never changes fader geometry. */
+    .master-loudness-row { width: 100%; height: 36px; min-height: 36px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 24px; gap: 2px; align-items: center; }
+    .master-loudness { min-width: 0; height: 36px; box-sizing: border-box; padding: 1px 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; border: 1px solid transparent; border-radius: 4px; background: transparent; font: inherit; cursor: pointer; }
+    .master-loudness:hover { background: #152538; border-color: #36506f; }
+    .master-loudness:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    .loudness-reset { width: 24px; height: 32px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 4px; color: #94a3b8; background: transparent; cursor: pointer; }
+    .loudness-reset:hover { color: #a5d5df; background: #152538; border-color: #36506f; }
+    .loudness-reset:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 1px; }
+    .loudness-reading { min-width: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1px; white-space: nowrap; }
+    .loudness-label { color: #94a3b8; font-size: .6rem; line-height: 11px; }
+    .loudness-value { color: #a5d5df; font-size: .75rem; line-height: 16px; font-variant-numeric: tabular-nums; }
+    .loudness-unit { color: #71899c; font-size: .45rem; }
 </style>

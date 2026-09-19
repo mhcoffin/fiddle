@@ -322,8 +322,7 @@ void MainComponent::initMidiServer() {
       tempoObj->setProperty("samplePosition", (juce::int64)samplePos);
       tempoObj->setProperty("source", juce::String("metronome"));
       juce::var tempoVar(tempoObj.get());
-      safeCallAsync(
-          [this, tempoVar]() { broadcastMessage("setTempo", tempoVar); });
+      debugUiFeed_.push("setTempo", tempoVar);
     };
 
     auto noteToJson = [](const fiddle::Note &n) {
@@ -437,9 +436,7 @@ void MainComponent::initMidiServer() {
            juce::DynamicObject::Ptr obj = new juce::DynamicObject();
            obj->setProperty("noteData", noteVar);
            obj->setProperty("status", juce::String("started"));
-           safeCallAsync([this, obj]() {
-             broadcastMessage("updateNoteState", juce::var(obj.get()));
-           });
+           debugUiFeed_.push("updateNoteState", juce::var(obj.get()));
          },
          [this, noteToJson](const fiddle::Note &n) {
            pushLogMessage("<b>[Tracker]</b> Note OFF: " +
@@ -470,18 +467,14 @@ void MainComponent::initMidiServer() {
            juce::DynamicObject::Ptr obj = new juce::DynamicObject();
            obj->setProperty("noteData", noteVar);
            obj->setProperty("status", juce::String("ended"));
-           safeCallAsync([this, obj]() {
-             broadcastMessage("updateNoteState", juce::var(obj.get()));
-           });
+           debugUiFeed_.push("updateNoteState", juce::var(obj.get()));
          },
          [this, noteToJson](const fiddle::Note &n) {
            juce::var noteVar = juce::JSON::fromString(noteToJson(n));
            juce::DynamicObject::Ptr obj = new juce::DynamicObject();
            obj->setProperty("noteData", noteVar);
            obj->setProperty("status", juce::String("updated"));
-           safeCallAsync([this, obj]() {
-             broadcastMessage("updateNoteState", juce::var(obj.get()));
-           });
+           debugUiFeed_.push("updateNoteState", juce::var(obj.get()));
          },
          [this, midiEventToJson](const fiddle::MidiEvent &event,
                                  uint64_t absoluteSamples, int oldCCVal) {
@@ -519,29 +512,25 @@ void MainComponent::initMidiServer() {
              tempoObj->setProperty("samplePosition",
                                    (juce::int64)absoluteSamples);
              juce::var tempoVar(tempoObj.get());
-             safeCallAsync([this, tempoVar]() {
-               broadcastMessage("setTempo", tempoVar);
-             });
+             debugUiFeed_.push("setTempo", tempoVar);
            }
 
            juce::var eventVar = juce::JSON::fromString(
                midiEventToJson(event, absoluteSamples, oldCCVal));
-           safeCallAsync([this, eventVar]() {
-             broadcastMessage("pushMidiEvent", eventVar);
-           });
+           debugUiFeed_.push("pushMidiEvent", eventVar);
          }});
 
     subnoteGenerator.setCallbacks(
         {[this](const fiddle::Subnote &s) {
            pushSubnoteToWebView(s);
-           safeCallAsync([this, id = s.id()]() {
+           {
              juce::DynamicObject::Ptr nd = new juce::DynamicObject();
-             nd->setProperty("id", (juce::int64)id);
+             nd->setProperty("id", (juce::int64)s.id());
              juce::DynamicObject::Ptr obj = new juce::DynamicObject();
              obj->setProperty("noteData", juce::var(nd.get()));
              obj->setProperty("status", juce::String("subnote"));
-             broadcastMessage("updateNoteState", juce::var(obj.get()));
-           });
+             debugUiFeed_.push("updateNoteState", juce::var(obj.get()));
+           }
          },
          [this, noteToJson](const fiddle::Note &n) {
            pushLogMessage("<b>[Watchdog]</b> Note Timed Out: " +
@@ -550,9 +539,7 @@ void MainComponent::initMidiServer() {
            juce::DynamicObject::Ptr obj = new juce::DynamicObject();
            obj->setProperty("noteData", noteVar);
            obj->setProperty("status", juce::String("ended"));
-           safeCallAsync([this, obj]() {
-             broadcastMessage("updateNoteState", juce::var(obj.get()));
-           });
+           debugUiFeed_.push("updateNoteState", juce::var(obj.get()));
          }});
 
     server = std::make_unique<fiddle::MidiTcpServer>();
@@ -645,9 +632,7 @@ void MainComponent::initMidiServer() {
           beatObj->setProperty("noteNumber", noteNum);
           beatObj->setProperty("velocity", (int)event.note_on().velocity());
           juce::var beatVar(beatObj.get());
-          safeCallAsync([this, beatVar]() {
-            broadcastMessage("metronomeBeat", beatVar);
-          });
+          debugUiFeed_.push("metronomeBeat", beatVar);
         }
 
         // Still push to WebView so click notes are visible in Timeline,
@@ -2907,20 +2892,28 @@ void MainComponent::groupBusAudioChanged(const juce::String &busId) {
 }
 
 void MainComponent::pushLogMessage(const juce::String &msg, bool isError) {
-  std::lock_guard<std::mutex> lock(logMutex);
-  if (!webViewBridge_.isLoaded()) {
-    if (logQueue.size() < 1000) {
-      logQueue.push_back({msg, isError});
-    }
-    return;
-  }
+  juce::DynamicObject::Ptr obj = new juce::DynamicObject();
+  obj->setProperty("msg", msg.substring(0, 8192));
+  obj->setProperty("isError", isError);
+  debugUiFeed_.push("addLogMessage", juce::var(obj.get()));
+}
 
-  safeCallAsync([this, msg, isError]() {
-    juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-    obj->setProperty("msg", msg);
-    obj->setProperty("isError", isError);
-    broadcastMessage("addLogMessage", juce::var(obj.get()));
-  });
+void MainComponent::pushDebugUiBatch() {
+  const bool visible = debugWindow_ && debugWindow_->isDebugReady() &&
+                       debugWindow_->isVisible() && !debugWindow_->isMinimised();
+  debugUiFeed_.setActive(visible);
+  const auto now = juce::Time::getMillisecondCounterHiRes();
+  if (!visible || now - lastDebugUiPushMs_ < 100.0) return;
+  lastDebugUiPushMs_ = now;
+  const auto batch = debugUiFeed_.takeBatch();
+  if (batch.isVoid()) return;
+  const auto json = juce::JSON::toString(batch, true);
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  debugWindow_->getWebView().evaluateJavascript(
+      "window.__dispatchFromCpp && window.__dispatchFromCpp({type:'setDebugBatch',data:" + json + "})",
+      [safeThis](juce::WebBrowserComponent::EvaluationResult result) {
+        if (safeThis != nullptr) safeThis->debugUiFeed_.complete(result.getError() == nullptr);
+      });
 }
 
 void MainComponent::pushEventToWebView(const fiddle::MidiEvent &event) {
@@ -3226,6 +3219,7 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 }
 
 void MainComponent::timerCallback() {
+  pushDebugUiBatch();
   if (renderAhead_)
     renderAhead_->setAuditionNotesActive(noteTracker.hasActiveNotes());
 
@@ -3573,6 +3567,10 @@ void MainComponent::pushCurrentVersion() {
 
 void MainComponent::broadcastMessage(const juce::String &type,
                                      const juce::var &data) {
+  if (DebugUiFeed::accepts(type)) {
+    debugUiFeed_.push(type, data);
+    return;
+  }
   auto *envelope = new juce::DynamicObject();
   envelope->setProperty("type", type);
   envelope->setProperty("data", data);
@@ -3707,6 +3705,24 @@ void MainComponent::setupJsHandlers() {
   };
   jsRouter_.registerHandler("beginHistoryGesture", [this](const juce::var &) {
     safeCallAsync([this] { undoManager_.beginGesture(); });
+  });
+  jsRouter_.registerHandler("resetMeterClips", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 2 || !payload[0].isString() || !payload[1].isString()) return;
+    const auto kind = payload[0].toString(), id = payload[1].toString();
+    safeCallAsync([this, kind, id] {
+      if (kind == "strip") { if (auto *strip = mixer_.getStrip(id)) strip->meter().resetClips(); }
+      else if (kind == "bus") { if (auto *bus = mixer_.getGroupBus(id)) bus->meter().resetClips(); }
+      else if (kind == "master") mixer_.masterAudio().meter().resetClips();
+      else if (kind == "all") {
+        for (auto *strip : mixer_.getAllStrips()) strip->meter().resetClips();
+        for (auto *bus : mixer_.getAllGroupBuses()) bus->meter().resetClips();
+        mixer_.masterAudio().meter().resetClips();
+      }
+      pushMixerMeters(); // Meter resets are not project edits or Undo actions.
+    });
+  });
+  jsRouter_.registerHandler("resetMasterLoudness", [this](const juce::var &) {
+    safeCallAsync([this] { mixer_.masterAudio().loudness().reset(); pushMixerMeters(); });
   });
   jsRouter_.registerHandler("setMixerControls", [this](const juce::var &payload) {
     if (!payload.isArray() || payload.size() < 2 || !payload[0].isArray()) return;
@@ -4008,15 +4024,6 @@ void MainComponent::setupJsHandlers() {
     } else {
       webViewBridge_.setLoaded(true);
       std::cerr << "[WebView] Handshake: Main window ready" << std::endl;
-
-      std::vector<std::pair<juce::String, bool>> pending;
-      {
-        std::lock_guard<std::mutex> lock(logMutex);
-        pending.swap(logQueue);
-      }
-      for (const auto &item : pending) {
-        pushLogMessage(item.first, item.second);
-      }
 
       pushLogMessage("<i>Server started and listening for connections...</i>");
     }

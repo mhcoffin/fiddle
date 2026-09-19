@@ -1,4 +1,5 @@
 #pragma once
+#include "StereoMeter.h"
 #include "AudioSend.h"
 
 #include "AnnotationRecord.h"
@@ -80,6 +81,8 @@ struct MixerStrip {
   void setGainDb(float gain) noexcept;
   [[nodiscard]] float peakDb() const noexcept;
   [[nodiscard]] float peakHoldDb() const noexcept;
+  StereoMeter &meter() noexcept { return meter_; }
+  const StereoMeter &meter() const noexcept { return meter_; }
 
   // Plugin
   int pluginUid = 0; // scanned plugin uniqueId (0 = none)
@@ -317,8 +320,7 @@ private:
   std::atomic<double> currentSampleRate_{44100.0};
   std::atomic<int> currentBlockSize_{512};
   std::atomic<float> gainDb_{0.0f};
-  std::atomic<float> peakDb_{-120.0f};
-  std::atomic<float> peakHoldDb_{-120.0f};
+  StereoMeter meter_;
   std::atomic<int> downstreamLatencySamples_{0};
 
 };

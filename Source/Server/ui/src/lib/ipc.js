@@ -1,3 +1,6 @@
+import { isDebugMessage } from "./debugUiFeed.js";
+const isDebugWindow = new URLSearchParams(window.location?.search || "").get("mode") === "debug";
+
 // ── JS → C++ ──────────────────────────────────────────────────────────────────
 
 export function dispatchCpp(type, ...args) {
@@ -49,6 +52,7 @@ export function onFromCpp(type, handler) {
  * Routes to all registered handlers for that type.
  */
 window.__dispatchFromCpp = function (msg) {
+    if (!isDebugWindow && isDebugMessage(msg.type)) return;
     const arr = _handlers[msg.type];
     if (arr && arr.length > 0) {
         for (const h of [...arr]) h(msg.data);

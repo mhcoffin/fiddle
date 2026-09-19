@@ -6,6 +6,7 @@
     let {
         master = { gainDb: 0, peakDb: -120, latencyMs: 0, inserts: [] },
         peakDb = -120,
+        loudness = {},
         plugins = [],
         onClose = () => {},
     } = $props();
@@ -132,6 +133,24 @@
                 <div class="scale"><span>−60</span><span>−30</span><span>−12</span><span>0</span><span>+6 dB</span></div>
             </section>
 
+            <section class="loudness-section" aria-label="Master loudness">
+                <div class="section-heading">
+                    <div><h3>Loudness &amp; true peak</h3><p>Rendered Master audio since reset · {formatDuration(loudness.seconds)}</p></div>
+                    <button onclick={() => dispatchCpp("resetMasterLoudness")}>Reset measurement</button>
+                </div>
+                <div class="loudness-values">
+                    {#each [["Integrated", "integrated", "LUFS"], ["Short-term (3 s)", "shortTerm", "LUFS"], ["True peak L", "truePeakLeft", "dBTP"], ["True peak R", "truePeakRight", "dBTP"]] as [name, key, unit]}
+                        <div><span>{name}</span><strong>{loudness[key] == null ? "—" : loudness[key].toFixed(1)} <small>{unit}</small></strong></div>
+                    {/each}
+                </div>
+                {#if loudness.incomplete}
+                    <p class="print-warning">Analysis fell behind or received invalid samples. Measurement is incomplete; reset and replay. Audio playback is unaffected by analysis overruns.</p>
+                {:else}
+                    <p>Reset before playing a complete piece. Silence is gated from integrated loudness; short-term needs 3 seconds. True peaks are maxima since reset. These meters do not change the audio.</p>
+                {/if}
+                <button onclick={() => dispatchCpp("resetMeterClips", "all", "")}>Clear all clip indicators</button>
+            </section>
+
             <section class="print-section" aria-label="Print Master mix">
                 <div class="section-heading">
                     <div>
@@ -252,6 +271,16 @@
 </div>
 
 <style>
+    .loudness-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
+    .loudness-values > div { display: flex; flex-direction: column; gap: 6px; }
+    .loudness-values span, .loudness-section p { color: #94a3b8; font-size: .75rem; }
+    .loudness-values strong { color: #e0f2fe; font-variant-numeric: tabular-nums; }
+    .loudness-values small { font-size: .65rem; color: #94a3b8; }
+    .loudness-section > button { margin-top: 12px; }
+    @media (max-width: 680px) {
+        .loudness-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .loudness-section .section-heading { flex-wrap: wrap; }
+    }
     .backdrop {
         position: absolute;
         inset: 0;
@@ -305,13 +334,13 @@
     button:disabled { opacity: 0.38; cursor: default; }
     .close { min-width: 72px; }
     .content { padding: 24px 26px 32px; overflow-y: auto; }
-    .gain-section, .print-section, .insert-section {
+    .gain-section, .loudness-section, .print-section, .insert-section {
         border: 1px solid #26364d;
         border-radius: 10px;
         background: #0f1929;
         padding: 20px;
     }
-    .print-section, .insert-section { margin-top: 20px; }
+    .loudness-section, .print-section, .insert-section { margin-top: 20px; }
     .section-heading { justify-content: space-between; gap: 20px; }
     .gain-readout, .gain-entry {
         width: 104px;

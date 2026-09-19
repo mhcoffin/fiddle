@@ -31,11 +31,11 @@ void GroupBus::setSoloed(bool soloed) noexcept {
 }
 
 float GroupBus::peakDb() const noexcept {
-  return peakDb_.load(std::memory_order_relaxed);
+  return meter_.peak();
 }
 
 float GroupBus::peakHoldDb() const noexcept {
-  return peakHoldDb_.load(std::memory_order_relaxed);
+  return meter_.hold();
 }
 
 void GroupBus::prepareToPlay(double sampleRate, int blockSize) {
@@ -68,28 +68,13 @@ void GroupBus::processTo(juce::AudioBuffer<float> &destination,
   audioEngine_.processBlock(inputBuffer_, effectiveGain);
 
   const int channels = juce::jmin(2, destination.getNumChannels());
-  float blockPeak = 0.0f;
   if (faderAudible) {
     for (int channel = 0; channel < channels; ++channel) {
       destination.addFrom(channel, 0, inputBuffer_, channel, 0, numSamples);
-      blockPeak = juce::jmax(
-          blockPeak, inputBuffer_.getMagnitude(channel, 0, numSamples));
     }
   }
 
-  const float rate = static_cast<float>(
-      sampleRate_.load(std::memory_order_relaxed));
-  const float peakDecay = rate > 0.0f ? 20.0f * numSamples / rate : 0.0f;
-  const float holdDecay = rate > 0.0f ? 3.0f * numSamples / rate : 0.0f;
-  const float blockDb = faderAudible
-                            ? juce::Decibels::gainToDecibels(blockPeak, -120.0f)
-                            : -120.0f;
-  const float previousPeak = peakDb_.load(std::memory_order_relaxed);
-  const float previousHold = peakHoldDb_.load(std::memory_order_relaxed);
-  peakDb_.store(juce::jmax(blockDb, previousPeak - peakDecay),
-                std::memory_order_relaxed);
-  peakHoldDb_.store(juce::jmax(blockDb, previousHold - holdDecay),
-                    std::memory_order_relaxed);
+  meter_.process(faderAudible ? &inputBuffer_ : nullptr, numSamples, sampleRate_.load());
 }
 
 juce::var GroupBus::toJson() const {

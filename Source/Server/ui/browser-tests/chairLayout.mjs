@@ -106,6 +106,98 @@ try {
         ] });
     });
     await page.waitForSelector(".channel-strip");
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerMeters", data: {
+        stereoStrips: { "chair-0-0": [-12, -6, -30, -24, true, false] },
+        stereoBuses: { "bus-strings": [-15, -10, -9, -6, false, true] },
+        master: [-8, -3, -14, -9, false, false], masterPeakDb: -8,
+        loudness: { valid: true, incomplete: false, seconds: 61, integrated: -18.4, shortTerm: -16.7, truePeakLeft: -1.2, truePeakRight: -.8 },
+    } }));
+    const stereoMeter = page.locator(".channel-strip .stereo-meter").first();
+    assert.equal(await stereoMeter.locator(".meter-fill").count(), 2);
+    const heights = await stereoMeter.locator(".meter-fill").evaluateAll(elements => elements.map(e => parseFloat(e.style.height)));
+    assert.ok(heights[0] > heights[1], "left and right are independently displayed");
+    assert.equal(await stereoMeter.locator(".clip.clipped").count(), 1);
+    await stereoMeter.locator(".clip").first().click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "resetMeterClips", payload: ["strip", "chair-0-0"] });
+    assert.equal(await stereoMeter.locator(".clip.clipped").count(), 1, "clip state comes from backend, not optimistic local clearing");
+    const stripLoudness = page.getByRole("button", { name: "Open Master Audio loudness details", exact: true });
+    const stripReset = page.getByRole("button", { name: "Reset loudness measurement", exact: true });
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    await stripReset.click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages), [{ type: "resetMasterLoudness", payload: [] }]);
+    assert.equal(await page.getByRole("dialog", { name: "Master Audio", exact: true }).count(), 0,
+        "strip reset does not open Master Audio");
+    await stripReset.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(() => window.fixtureMessages.filter(m => m.type === "resetMasterLoudness").length), 2,
+        "strip reset supports keyboard activation");
+    const masterGain = page.getByRole("spinbutton", { name: "Master gain in decibels", exact: true });
+    await masterGain.fill("-1");
+    await masterGain.press("Tab");
+    assert.equal(await page.evaluate(() => window.fixtureMessages.filter(m => m.type === "resetMasterLoudness").length), 2,
+        "Master gain changes preserve accumulated loudness history");
+    await masterGain.fill("0");
+    await masterGain.press("Tab");
+    assert.match(await stripLoudness.innerText(), /Integrated[\s\S]*-18.4[\s\S]*Short-term[\s\S]*-16.7/);
+    await stripLoudness.click();
+    const masterDialog = page.getByRole("dialog", { name: "Master Audio", exact: true });
+    assert.match(await masterDialog.locator(".loudness-values").innerText(), /-18.4/);
+    assert.match(await masterDialog.locator(".loudness-section").innerText(), /1:01/);
+    await masterDialog.getByRole("button", { name: "Reset measurement", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "resetMasterLoudness" && m.payload.length === 0)));
+    await masterDialog.getByRole("button", { name: "Clear all clip indicators", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "resetMeterClips" && m.payload[0] === "all")));
+    // Flood the main window with legacy debug traffic while delivering live
+    // meters and exercising real controls. None of the diagnostic payloads
+    // should even be read by handlers in this window mode.
+    await page.evaluate(() => {
+        window.debugPayloadReads = 0;
+        let tick = 0;
+        window.debugFlood = setInterval(() => {
+            const data = { get noteData() { window.debugPayloadReads++; return { id: 1 }; }, status: "started" };
+            for (let i = 0; i < 1000; ++i) {
+                window.__dispatchFromCpp({ type: "updateNoteState", data });
+                window.__dispatchFromCpp({ type: "pushMidiEvent", data: { type: 5, cc: 11, value: i % 128 } });
+            }
+            window.__dispatchFromCpp({ type: "setMixerMeters", data: {
+                master: [-8, -3, -14, -9, false, false], masterPeakDb: -8,
+                loudness: { valid: true, seconds: 120 + tick++, integrated: -18.4, shortTerm: -16.7, truePeakLeft: -1.2, truePeakRight: -.8 },
+            } });
+        }, 20);
+    });
+    try {
+        await page.waitForFunction(() => document.querySelector('.loudness-section')?.textContent.includes('2:'));
+        await masterDialog.getByRole("slider", { name: "Master output gain", exact: true }).focus();
+        await page.keyboard.press("ArrowLeft");
+        await masterDialog.getByRole("button", { name: "Reset measurement", exact: true }).click();
+        assert.equal(await page.evaluate(() => window.debugPayloadReads), 0);
+        assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "setMasterGain")));
+        assert.ok(await page.evaluate(() => window.fixtureMessages.filter(m => m.type === "resetMasterLoudness").length >= 2));
+    } finally {
+        await page.evaluate(() => clearInterval(window.debugFlood));
+    }
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "master-metering.png") });
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerMeters", data: {
+        loudness: { valid: false, incomplete: true, seconds: 61, integrated: -18.4 },
+    } }));
+    assert.match(await masterDialog.locator(".loudness-section").innerText(), /Measurement is incomplete/);
+    assert.doesNotMatch(await masterDialog.locator(".loudness-values").innerText(), /-18.4/);
+    assert.deepEqual(await stripLoudness.locator(".loudness-value").allTextContents(), ["— LUFS", "— LUFS"]);
+    assert.match(await stripLoudness.getAttribute("title"), /Measurement incomplete/);
+    await masterDialog.getByRole("button", { name: "Close Master Audio", exact: true }).click();
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerMeters", data: {
+        loudness: { valid: true, seconds: 2, integrated: -19, shortTerm: null },
+    } }));
+    assert.deepEqual(await stripLoudness.locator(".loudness-value").allTextContents(), ["-19.0 LUFS", "— LUFS"]);
+    await stripLoudness.focus();
+    await page.keyboard.press("Enter");
+    assert.ok(await masterDialog.isVisible(), "LUFS readout supports keyboard activation");
+    await masterDialog.getByRole("button", { name: "Close Master Audio", exact: true }).click();
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerMeters", data: {
+        loudness: { valid: true, seconds: 61, integrated: -18.4, shortTerm: -16.7 },
+    } }));
     const balanceInput = page.getByRole("textbox", { name: "Flute 1 stereo balance", exact: true });
     assert.equal(await balanceInput.inputValue(), "C");
     await balanceInput.fill("L25");
@@ -388,6 +480,22 @@ try {
         console.log(`${size}: fader spans ${measured.audioFaders.map(fader => `${fader.name} ${fader.top}-${fader.bottom}`).join(", ")}; layers ${Math.min(...tops)}-${Math.max(...bottoms)}`);
         assert.ok(Math.max(...allTops) - Math.min(...allTops) <= 1,
             `all fader tops must align: ${allTops.join(", ")}`);
+        const loudnessFits = await stripLoudness.evaluate(button => {
+            const rect = button.getBoundingClientRect();
+            const strip = button.closest(".channel").getBoundingClientRect();
+            return rect.left >= strip.left && rect.right <= strip.right &&
+                [...button.querySelectorAll(".loudness-label, .loudness-value")].every(element => {
+                    const r = element.getBoundingClientRect();
+                    return r.left >= rect.left && r.right <= rect.right && r.top >= rect.top && r.bottom <= rect.bottom;
+                });
+        });
+        assert.ok(loudnessFits, `${size}: LUFS labels and digits fit the unchanged Master strip`);
+        assert.ok(await stripReset.evaluate(button => {
+            const rect = button.getBoundingClientRect();
+            const row = button.closest(".master-loudness-row").getBoundingClientRect();
+            const readings = button.previousElementSibling.getBoundingClientRect();
+            return rect.left >= readings.right && rect.right <= row.right && rect.top >= row.top && rect.bottom <= row.bottom;
+        }), `${size}: reset fits beside the LUFS readings without overlap`);
         if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
             await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, `${size}.png`) });
         }
@@ -811,6 +919,14 @@ try {
     assert.equal(await debugPage.getByRole("button", { name: "MIDI Capture", exact: true }).evaluate(button => button.classList.contains("active")), true);
     assert.equal(await debugPage.getByRole("button", { name: "Plugins", exact: true }).evaluate(button => button.classList.contains("active")), false);
     assert.equal(await debugPage.locator(".tab-nav button.active").count(), 1);
+    await debugPage.evaluate(() => window.__dispatchFromCpp({ type: "setDebugBatch", data: {
+        reset: true, dropped: 42,
+        messages: [{ type: "pushMidiEvent", data: { type: 5, channel: 1, port: 0, cc: 11, value: 73, timestamp: 44100 } }],
+    } }));
+    assert.match(await debugPage.locator(".debug-feed-status").innerText(), /42 display updates skipped/);
+    await debugPage.getByRole("button", { name: "Event Log", exact: true }).click();
+    assert.match(await debugPage.locator(".panel-eventlog").innerText(), /73/);
+    await debugPage.getByRole("button", { name: "MIDI Capture", exact: true }).click();
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await debugPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "debug-midi-capture.png") });
     await debugPage.close();

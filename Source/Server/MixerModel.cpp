@@ -399,6 +399,12 @@ juce::var MixerModel::meterLevels() const {
   auto *result = new juce::DynamicObject();
   auto *strips = new juce::DynamicObject();
   auto *buses = new juce::DynamicObject();
+  auto *stereoStrips = new juce::DynamicObject();
+  auto *stereoBuses = new juce::DynamicObject();
+  result->setProperty("stereoStrips", juce::var(stereoStrips));
+  result->setProperty("stereoBuses", juce::var(stereoBuses));
+  result->setProperty("master", masterAudio_.meter().toJson());
+  result->setProperty("loudness", masterAudio_.loudness().toJson());
   result->setProperty("strips", juce::var(strips));
   result->setProperty("buses", juce::var(buses));
   // This is the message-thread collection lock, never acquired by rendering.
@@ -408,12 +414,14 @@ juce::var MixerModel::meterLevels() const {
     levels.add(static_cast<double>(strip->peakDb()));
     levels.add(static_cast<double>(strip->peakHoldDb()));
     strips->setProperty(strip->id, juce::var(levels));
+    stereoStrips->setProperty(strip->id, strip->meter().toJson());
   }
   for (const auto &bus : groupBuses_) {
     juce::Array<juce::var> levels;
     levels.add(static_cast<double>(bus->peakDb()));
     levels.add(static_cast<double>(bus->peakHoldDb()));
     buses->setProperty(bus->id, juce::var(levels));
+    stereoBuses->setProperty(bus->id, bus->meter().toJson());
   }
   result->setProperty("masterPeakDb", static_cast<double>(masterAudio_.peakDb()));
   return juce::var(result);

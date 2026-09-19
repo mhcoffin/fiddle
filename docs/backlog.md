@@ -16,9 +16,11 @@ documented elsewhere; this list records the remaining work and intended order.
   correct rack-latency compensation, explicit mute/solo behavior, persistence,
   Undo/Redo, and promoted controls in the corresponding strip section. See
   [send smoke tests](post-fader-sends.md#pre-fader-smoke-test).
-- **Master and channel metering.** Add independent left/right meters, persistent
-  resettable clip indicators, and Master true-peak plus integrated/short-term
-  LUFS measurements.
+- **Master and channel metering — implemented.** Independent
+  left/right meters, latched resettable clip indicators, and Master true-peak
+  plus integrated/short-term LUFS with inline Master readings and manual reset.
+  Short playback/UI smoke test passed after the debug-feed responsiveness fix.
+  See [metering smoke test](metering.md#smoke-test) for extended checks.
 
 ## Priority 2 — finish and deliver complex mixes
 

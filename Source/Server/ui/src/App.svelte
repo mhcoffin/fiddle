@@ -10,6 +10,7 @@
   import MixerPanel from "./lib/MixerPanel.svelte";
   import LibraryManager from "./lib/LibraryManager.svelte";
   import { dispatchCpp, onFromCpp } from "./lib/ipc.js";
+  import { dispatchDebugBatch, debugHistoryLimit } from "./lib/debugUiFeed.js";
   import { historyShortcut, installHistoryGestures } from "./lib/historyGestures.js";
   import {
     DEFAULT_UI_ZOOM,
@@ -26,14 +27,17 @@
 
 
   // Use Svelte 5 Runes for reactivity
-  let logs = $state([]);
-  let activeNotes = $state([]);
-  let noteHistory = $state([]);
-  let diagnostics = $state([]);
+  // Histories are replaced immutably. Deep proxies make copying thousands of
+  // MIDI events expensive even when their pane is not rendered.
+  let logs = $state.raw([]);
+  let activeNotes = $state.raw([]);
+  let noteHistory = $state.raw([]);
+  let diagnostics = $state.raw([]);
+  let debugDropped = $state(0);
   let heartbeat = $state(0);
   // Ordered list of tempo changes: { bpm, samplePosition, timeSigNumerator, timeSigDenominator }
   // Used by the Timeline tempo track. Reset on transport start.
-  let tempoChanges = $state([]);
+  let tempoChanges = $state.raw([]);
   // Latest BPM (derived from the last entry in tempoChanges, default 120)
   let liveBpm = $derived(tempoChanges.length > 0 ? tempoChanges[tempoChanges.length - 1].bpm : 120);
   let hoveredNote = $state(null);
@@ -42,7 +46,7 @@
   const debugTabs = new Set(["timeline", "eventlog", "plugins", "capture"]);
   let activeTab = $state(debugTabs.has(urlParams.get("tab")) ? urlParams.get("tab") : "timeline");
   let channelInstruments = $state({});
-  let midiEvents = $state([]);
+  let midiEvents = $state.raw([]);
   let serverVersion = $state("");
 
   onFromCpp("showDebugTab", (tab) => {
@@ -52,7 +56,7 @@
   let connectionWarning = $state("");
   let instrumentMap = $state({}); // "port:channel" → { name, family, isSolo }
   let metronomeActive = $state(false); // true when tempo is derived from click track
-  let metronomeBeats = $state([]); // [{samplePosition, isDownbeat}] — actual beat positions from click track
+  let metronomeBeats = $state.raw([]); // [{samplePosition, isDownbeat}] — actual beat positions from click track
   let uiZoom = $state(readUiZoom(window.localStorage));
 
   const setUiZoom = (value) => {
@@ -108,6 +112,14 @@
 
   // ── C++ → JS message handlers ───────────────────────────────────────────────
 
+  onFromCpp("setDebugBatch", (batch) => {
+    dispatchDebugBatch(batch, {
+      reset: () => resetSession(false),
+      dispatch: (message) => window.__dispatchFromCpp(message),
+      dropped: (count) => { debugDropped += count; },
+    });
+  });
+
   onFromCpp("setHeartbeat", (val) => {
     heartbeat = val;
   });
@@ -126,7 +138,7 @@
           timeSigNumerator: n ?? 4,
           timeSigDenominator: d ?? 4,
           source: source || "host",
-        }];
+        }].slice(-debugHistoryLimit);
       }
     }
   });
@@ -137,7 +149,7 @@
       isDownbeat: !!isDownbeat,
       noteNumber: noteNumber ?? 0,
       velocity: velocity ?? 0,
-    }];
+    }].slice(-debugHistoryLimit);
   });
 
   onFromCpp("setServerVersion", (ver) => {
@@ -237,10 +249,10 @@
           activeNotes = [
             ...activeNotes,
             { ...noteData, id: idStr, subnoteCount: 0 },
-          ];
+          ].slice(-debugHistoryLimit);
         }
         if (!noteHistory.some((n) => n.id === idStr)) {
-          noteHistory = [...noteHistory, { ...noteData, id: idStr }];
+          noteHistory = [...noteHistory, { ...noteData, id: idStr }].slice(-debugHistoryLimit);
         }
       } else if (status === "ended") {
         activeNotes = activeNotes.filter((n) => n.id !== idStr);
@@ -272,18 +284,6 @@
         });
       }
 
-      // Debug: log the state of Legato for this note
-      const currentNote = noteHistory.find((n) => n.id === idStr);
-      if (
-        currentNote &&
-        currentNote.dimensions &&
-        currentNote.dimensions.Legato !== undefined
-      ) {
-        const isDef = currentNote.notation_is_default?.Legato;
-        console.log(
-          `[UI Debug] Note ${idStr} Legato=${currentNote.dimensions.Legato} isDefault=${isDef}`,
-        );
-      }
     } catch (e) {
       window.addLogMessage(
         `<b>[JS Crash]</b> updateNoteState: ${e.message}`,
@@ -473,6 +473,13 @@
       >
     </nav>
 
+    <div class="debug-feed-status" role="status">
+      Live debug view · paused while hidden · retains recent history only
+      {#if debugDropped > 0}
+        <span> · {debugDropped.toLocaleString()} display updates skipped to keep the UI responsive; live note history reset. MIDI routing and capture are unaffected.</span>
+      {/if}
+    </div>
+
     <main class="main-content">
       {#if activeTab === "timeline"}
         <div class="panel-timeline">
@@ -564,6 +571,8 @@
 </div>
 
 <style>
+  .debug-feed-status { flex-shrink: 0; padding: 6px 12px; color: #94a3b8; background: #111c2e; font-size: 11px; border-bottom: 1px solid #334155; }
+  .debug-feed-status span { color: #fbbf24; }
   :global(:root) {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
     line-height: 1.5;

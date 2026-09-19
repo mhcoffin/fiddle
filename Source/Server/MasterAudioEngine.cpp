@@ -139,6 +139,7 @@ void MasterAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
   AudioProcessingGate::Control control;
   sampleRate_ = sampleRate > 0.0 ? sampleRate : 44100.0;
   blockSize_ = juce::jmax(1, blockSize);
+  loudness_.prepare(sampleRate_);
   midiScratch_.ensureSize(4096);
   for (const auto &entry : inserts_)
     entry->hosted->prepareToPlay(sampleRate_, blockSize_);
@@ -150,6 +151,7 @@ void MasterAudioEngine::prepareToPlay(double sampleRate, int blockSize) {
 
 void MasterAudioEngine::releaseResources() {
   AudioProcessingGate::Control control;
+  loudness_.stop();
   prepared_.store(false, std::memory_order_release);
   graph_.releaseResources();
 }
@@ -168,15 +170,8 @@ void MasterAudioEngine::processBlock(juce::AudioBuffer<float> &audio) {
   for (int channel = 2; channel < audio.getNumChannels(); ++channel)
     audio.clear(channel, 0, audio.getNumSamples());
 
-  const float peak =
-      juce::jmax(stereo.getMagnitude(0, 0, stereo.getNumSamples()),
-                 stereo.getMagnitude(1, 0, stereo.getNumSamples()));
-  const float measured = juce::Decibels::gainToDecibels(peak, -120.0f);
-  const float previous = peakDb_.load(std::memory_order_relaxed);
-  const float decay = static_cast<float>(
-      20.0 * static_cast<double>(stereo.getNumSamples()) / sampleRate_);
-  peakDb_.store(juce::jmax(measured, previous - decay),
-                std::memory_order_relaxed);
+  meter_.process(&stereo, stereo.getNumSamples(), sampleRate_);
+  loudness_.submit(stereo);
 }
 
 void MasterAudioEngine::setOnChanged(ChangeCallback callback) {
@@ -414,7 +409,7 @@ float MasterAudioEngine::gainDb() const noexcept {
 }
 
 float MasterAudioEngine::peakDb() const noexcept {
-  return peakDb_.load(std::memory_order_relaxed);
+  return meter_.peak();
 }
 
 int MasterAudioEngine::latencySamples() const noexcept {

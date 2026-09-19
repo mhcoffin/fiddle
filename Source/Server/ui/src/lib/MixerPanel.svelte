@@ -1,4 +1,5 @@
 <script>
+    import StereoMeter from "./StereoMeter.svelte";
     import BalanceControl from "./BalanceControl.svelte";
     import { onMount, onDestroy } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
@@ -1479,18 +1480,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                                     handleGainValueInput(strip, "0")}
                                                             />
                                                         </div>
-                                                        <div class="meter-track">
-                                                            <div
-                                                                class="meter-fill"
-                                                                class:meter-hot={meters.strips[strip.id]?.[0] > 0}
-                                                                style="height: {dbToPos(meters.strips[strip.id]?.[0] ?? -120) * 100}%"
-                                                            ></div>
-                                                            <div
-                                                                class="meter-hold"
-                                                                class:meter-hot={meters.strips[strip.id]?.[1] > 0}
-                                                                style="bottom: {dbToPos(meters.strips[strip.id]?.[1] ?? -120) * 100}%"
-                                                            ></div>
-                                                        </div>
+                                                        <StereoMeter levels={meters.stereoStrips[strip.id]}
+                                                            label={strip.layerName || strip.library || "Layer"} kind="strip" id={strip.id} />
                                                     </div>
                                                     <span class="fader-tick fader-bot">-∞</span>
                                                     <input
@@ -1561,8 +1552,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 buses={groupBuses}
                 strips={strips}
                 master={masterAudio}
-                busMeters={meters.buses}
-                masterPeakDb={meters.masterPeakDb}
+                busMeters={meters.stereoBuses}
+                masterMeters={meters.master}
+                masterLoudness={meters.loudness}
                 onManage={() => { busManagerOpen = true; }}
                 onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
                 onOpenMasterAudio={() => { masterAudioOpen = true; }}
@@ -1594,6 +1586,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     {#if masterAudioOpen}
         <MasterAudioPanel
+            loudness={meters.loudness}
             master={masterAudio}
             peakDb={meters.masterPeakDb}
             plugins={scannedPlugins}
@@ -2325,38 +2318,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         align-items: center;
         justify-content: center;
         position: relative;
-    }
-
-    .meter-track {
-        width: 6px;
-        flex-shrink: 0;
-        background: #0f172a;
-        border-radius: 2px;
-        position: relative;
-        overflow: hidden;
-    }
-    .meter-fill {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: #22c55e;
-        border-radius: 2px;
-        will-change: height;
-    }
-    .meter-hot {
-        background: #ef4444;
-    }
-    .meter-hold {
-        position: absolute;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: #4ade80;
-        will-change: bottom;
-    }
-    .meter-hold.meter-hot {
-        background: #f87171;
     }
 
     .fader-slider {

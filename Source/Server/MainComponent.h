@@ -3,6 +3,7 @@
 #include "../AudioDiagnostics.h"
 #include "AgentControlServer.h"
 #include "DebugWindow.h"
+#include "DebugUiFeed.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
 #include "FiddleDatabase.h"
@@ -429,8 +430,9 @@ private:
   /// Broadcast whether the playback template is out-of-date to all UIs.
   void broadcastTemplateDirty();
 
-  std::mutex logMutex;
-  std::vector<std::pair<juce::String, bool>> logQueue;
+  DebugUiFeed debugUiFeed_;
+  double lastDebugUiPushMs_ = 0;
+  void pushDebugUiBatch();
 
   /// Post a callback to the message thread, guarded against destruction.
   /// If this MainComponent is destroyed before the callback fires, it is

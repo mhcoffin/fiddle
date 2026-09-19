@@ -1,6 +1,7 @@
 #pragma once
 
 #include "StripAudioEngine.h"
+#include "StereoMeter.h"
 
 #include <atomic>
 #include <juce_audio_basics/juce_audio_basics.h>
@@ -32,6 +33,8 @@ public:
   void setSoloed(bool soloed) noexcept;
   [[nodiscard]] float peakDb() const noexcept;
   [[nodiscard]] float peakHoldDb() const noexcept;
+  StereoMeter &meter() noexcept { return meter_; }
+  const StereoMeter &meter() const noexcept { return meter_; }
 
   void prepareToPlay(double sampleRate, int blockSize);
   void prepareIfNeeded(double sampleRate, int blockSize) {
@@ -60,8 +63,7 @@ private:
   std::atomic<float> gainDb_{0.0f};
   std::atomic<bool> muted_{false};
   std::atomic<bool> soloed_{false};
-  std::atomic<float> peakDb_{-120.0f};
-  std::atomic<float> peakHoldDb_{-120.0f};
+  StereoMeter meter_;
   std::atomic<double> sampleRate_{44100.0};
   juce::AudioBuffer<float> inputBuffer_;
   juce::AudioBuffer<float> inputStorage_;

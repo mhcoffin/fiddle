@@ -15,6 +15,15 @@ history. See [audio diagnostics](audio-diagnostics.md) for listening-test use.
 The mixer integration executable contains twenty-five scenarios, including meter-only
 snapshots that never query plug-in programs or capture state. UI tests verify that
 meter updates cannot overwrite controls and the timer cannot rebuild full state.
+Stereo/loudness tests cover channel independence, clip latching/reset, known-tone
+LUFS and true-peak results at 44.1/48/96 kHz, intersample peaks, queued resets,
+analysis overflow and invalid input. The browser fixture exercises meter reset
+commands and incomplete-measurement display. See [metering](metering.md).
+Debug-feed coverage checks a bounded producer queue, browser backpressure,
+hidden-window suppression, ordered batches and overflow reporting, concurrent
+producers, and isolation from mixer/library/history IPC. A browser flood test
+delivers continuous legacy debug traffic while updating Master meters and
+clicking Reset/moving the Master output fader. See [debug UI feed](debug-ui-feed.md).
 The library-refresh scenario checks batch/single-layer Undo with independent live
 presets, imported maps, pending/missing/empty players and bypass edits during
 loading. Forced second-row database failures must leave live state, rows and

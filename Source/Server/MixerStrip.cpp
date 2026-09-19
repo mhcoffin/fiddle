@@ -20,8 +20,8 @@ MixerStrip::RealtimeState MixerStrip::realtimeState() const noexcept {
       static_cast<int32_t>(assignment >> 32),
       static_cast<int32_t>(assignment),
       gainDb_.load(std::memory_order_relaxed),
-      peakDb_.load(std::memory_order_relaxed),
-      peakHoldDb_.load(std::memory_order_relaxed),
+      meter_.peak(),
+      meter_.hold(),
   };
 }
 
@@ -77,11 +77,11 @@ void MixerStrip::setGainDb(float gain) noexcept {
 }
 
 float MixerStrip::peakDb() const noexcept {
-  return peakDb_.load(std::memory_order_relaxed);
+  return meter_.peak();
 }
 
 float MixerStrip::peakHoldDb() const noexcept {
-  return peakHoldDb_.load(std::memory_order_relaxed);
+  return meter_.hold();
 }
 
 juce::MemoryBlock MixerStrip::cachedPluginState() const {
@@ -422,6 +422,7 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
   if (numSamples <= 0 || numSamples > currentBlockSize_.load(std::memory_order_relaxed))
     return; // Never advance MIDI or processor state for unsupported blocks.
   const double sampleRate = currentSampleRate_.load(std::memory_order_relaxed);
+  bool metered = false;
   midiScheduler_.renderBlock(currentTime, sampleRate, numSamples,
                              processMidiBuffer_);
 
@@ -450,47 +451,22 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
       const float effectiveGain =
           faderAudible ? juce::Decibels::decibelsToGain(db, -120.0f) : 0.0f;
       audioEngine_.processBlock(block, effectiveGain, audible ? preFaderOutput : nullptr);
+      meter_.process(faderAudible ? &block : nullptr, numSamples, sampleRate);
+      metered = true;
 
-      if (!faderAudible) {
-        // Strip is muted, solo-suppressed, or at -inf: decay meters and do
-        // not sum it into the shared mix. The instrument and strip graph have
-        // still processed the block, preserving MIDI and future effect tails.
-        float decay = 20.0f * numSamples / (float)sampleRate;
-        float holdDecay = 3.0f * numSamples / (float)sampleRate;
-        float prev = peakDb_.load(std::memory_order_relaxed);
-        peakDb_.store(juce::jmax(-120.0f, prev - decay),
-                      std::memory_order_relaxed);
-        float prevHold = peakHoldDb_.load(std::memory_order_relaxed);
-        peakHoldDb_.store(juce::jmax(-120.0f, prevHold - holdDecay),
-                          std::memory_order_relaxed);
-      } else {
+      if (faderAudible) {
         // The per-strip graph has already applied the fader gain. Mix its
         // stereo output into the buffer that will feed the Master graph.
         const int channelsToSum =
             juce::jmin((int)audioBuffer.getNumChannels(),
                        runtime->scratchBuffer.getNumChannels());
-        float blockPeak = 0.0f;
         for (int i = 0; i < channelsToSum; ++i) {
           audioBuffer.addFrom(i, 0, runtime->scratchBuffer, i, 0, numSamples);
-          blockPeak = juce::jmax(
-              blockPeak,
-              runtime->scratchBuffer.getMagnitude(i, 0, numSamples));
         }
-        const float blockDb =
-            juce::Decibels::gainToDecibels(blockPeak, -120.0f);
-        // Bar decay: ~20 dB/sec
-        const float decay = 20.0f * numSamples / (float)sampleRate;
-        const float prev = peakDb_.load(std::memory_order_relaxed);
-        peakDb_.store(juce::jmax(blockDb, prev - decay),
-                      std::memory_order_relaxed);
-        // Hold decay: ~3 dB/sec (slow)
-        const float holdDecay = 3.0f * numSamples / (float)sampleRate;
-        const float prevHold = peakHoldDb_.load(std::memory_order_relaxed);
-        peakHoldDb_.store(juce::jmax(blockDb, prevHold - holdDecay),
-                          std::memory_order_relaxed);
       }
     }
   }
+  if (!metered) meter_.process(nullptr, numSamples, sampleRate);
 }
 
 MixerStrip::InstrumentSnapshot MixerStrip::snapshotInstrument() const {

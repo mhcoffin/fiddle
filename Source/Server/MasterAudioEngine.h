@@ -2,6 +2,8 @@
 
 #include "AudioInsertSnapshot.h"
 #include "HostedPluginSlot.h"
+#include "StereoMeter.h"
+#include "MasterLoudnessMeter.h"
 
 #include <atomic>
 #include <functional>
@@ -70,6 +72,10 @@ public:
   void setGainDb(float gainDb, bool notify = true);
   [[nodiscard]] float gainDb() const noexcept;
   [[nodiscard]] float peakDb() const noexcept;
+  StereoMeter &meter() noexcept { return meter_; }
+  const StereoMeter &meter() const noexcept { return meter_; }
+  MasterLoudnessMeter &loudness() noexcept { return loudness_; }
+  const MasterLoudnessMeter &loudness() const noexcept { return loudness_; }
   [[nodiscard]] int latencySamples() const noexcept;
   [[nodiscard]] double latencyMs() const noexcept;
 
@@ -111,7 +117,8 @@ private:
   juce::AudioProcessorGraph graph_;
   std::shared_ptr<std::atomic<float>> gainLinear_;
   std::atomic<float> gainDb_{0.0f};
-  std::atomic<float> peakDb_{-120.0f};
+  StereoMeter meter_;
+  MasterLoudnessMeter loudness_;
   std::atomic<int> latencySamples_{0};
   std::atomic<double> sampleRate_{44100.0};
   int blockSize_ = 512;
