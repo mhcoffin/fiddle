@@ -33,12 +33,19 @@ test("master gain is finite and constrained", () => {
 });
 
 test("Master Audio exposes a transport-gated real-time WAV print control", () => {
-    assert.match(panelSource, /Print Master mix/);
-    assert.match(panelSource, /dispatchCpp\("startMixPrint"\)/);
+    assert.match(panelSource, /Print audio/);
+    assert.match(panelSource, /dispatchCpp\("startMixPrint", tailSeconds\)/);
     assert.match(panelSource, /dispatchCpp\("stopMixPrint"\)/);
     assert.match(panelSource, /requestMixPrintState/);
     assert.match(panelSource, /droppedBlocks/);
     assert.match(panelSource, /32-bit float/);
-    assert.match(panelSource, /Choose WAV &amp; arm/);
-    assert.match(panelSource, /transport Stop finishes it automatically/);
+    assert.match(panelSource, /Choose WAV & arm/);
+    assert.match(panelSource, /transport Stop finishes them together/);
+    assert.match(panelSource, /dispatchCpp\("startStemPrint", liveBusIds, includeMaster, tailSeconds\)/);
+    assert.match(panelSource, /<Knob label="Tail after Stop" unit="seconds" min=\{0\} max=\{60\}/);
+    assert.match(panelSource, /value=\{tailSeconds\} disabled=\{printState.armed\}/);
+    assert.match(panelSource, /Printing tail/);
+    assert.match(panelSource, /let tailSeconds = \$state\(5\)/);
+    assert.match(panelSource, /fieldset class="print-options" disabled=\{printState.armed\}/);
+    assert.match(panelSource, /outputCount === 0 \|\| outputCount > 64/);
 });

@@ -1586,6 +1586,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     {#if masterAudioOpen}
         <MasterAudioPanel
+            buses={groupBuses}
             loudness={meters.loudness}
             master={masterAudio}
             peakDb={meters.masterPeakDb}

@@ -7,6 +7,7 @@
 #include "ProjectSettings.h"
 #include "ParallelRenderPool.h"
 #include "RouteDelay.h"
+#include "BusPrintCapture.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
@@ -169,7 +170,8 @@ public:
   [[nodiscard]] juce::var pluginTimings(double now);
   [[nodiscard]] double maximumPathLatencyMs() const;
 
-  void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime);
+  void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
+                    BusPrintCapture *capture = nullptr);
 
   void prepareToPlay(double sampleRate, int blockSize);
   /// Local experimental setting, not part of project state. The count includes

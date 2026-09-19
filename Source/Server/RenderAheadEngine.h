@@ -17,7 +17,10 @@ public:
   ~RenderAheadEngine() override;
   juce::String start(double rate, int blockSize);
   void stop();
-  juce::String startMixPrint(const juce::File &file);
+  juce::String startMixPrint(const juce::File &file, double tailSeconds = 5.0);
+  juce::String startStemPrint(const juce::File &folder,
+                              const juce::StringArray &busIds, bool includeMaster,
+                              double tailSeconds = 5.0);
   bool beginMixPrintAt(double presentationTimeMs) noexcept;
   bool endMixPrintAt(double presentationTimeMs) noexcept;
   void stopMixPrint();

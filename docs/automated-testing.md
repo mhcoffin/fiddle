@@ -24,6 +24,14 @@ hidden-window suppression, ordered batches and overflow reporting, concurrent
 producers, and isolation from mixer/library/history IPC. A browser flood test
 delivers continuous legacy debug traffic while updating Master meters and
 clicking Reset/moving the Master output fader. See [debug UI feed](debug-ui-feed.md).
+Stem-print regressions verify common trimmed file lengths, bus-vs-Master sample
+content, Master-latency alignment, selected-bus mute/solo and shared FX behavior
+under 1/2/4 render workers, unique safe output paths, FIFO failure reporting,
+sample-cursor discontinuity detection despite host-clock jitter, pre-roll gaps,
+configurable aligned tails, and concurrent stop/capture lifetime safety.
+Browser coverage includes output selection, the tail knob/text entry, and
+locking while armed. See
+[stem printing](stem-printing.md).
 The library-refresh scenario checks batch/single-layer Undo with independent live
 presets, imported maps, pending/missing/empty players and bypass edits during
 loading. Forced second-row database failures must leave live state, rows and

@@ -26,12 +26,30 @@ void RenderAheadEngine::stop() {
   recorder_.publish();
 }
 
-juce::String RenderAheadEngine::startMixPrint(const juce::File &file) {
+juce::String RenderAheadEngine::startMixPrint(const juce::File &file, double tailSeconds) {
+  if (mixPrinter_.isArmed()) return "Finish the current print before arming another";
   auto stream = stream_.read();
   if (!stream.get() || !stream.get()->ring || !isThreadRunning())
     return "Audio rendering is not running";
   return mixPrinter_.start(file, stream.get()->ring->sampleRate,
-                           static_cast<int>(stream.get()->ring->blockSize));
+                           static_cast<int>(stream.get()->ring->blockSize), tailSeconds);
+}
+
+juce::String RenderAheadEngine::startStemPrint(const juce::File &folder,
+                                              const juce::StringArray &busIds,
+                                              bool includeMaster, double tailSeconds) {
+  auto stream = stream_.read();
+  if (!stream.get() || !stream.get()->ring || !isThreadRunning())
+    return "Audio rendering is not running";
+  std::vector<RealtimeMixPrinter::Stem> buses;
+  for (const auto &id : busIds) {
+    auto *bus = mixer_.getGroupBus(id);
+    if (!bus) return "A selected bus no longer exists; select outputs again";
+    buses.push_back({id, bus->name});
+  }
+  return mixPrinter_.startStems(folder, stream.get()->ring->sampleRate,
+      static_cast<int>(stream.get()->ring->blockSize), buses, includeMaster,
+      mixer_.masterAudio().latencySamples(), tailSeconds);
 }
 
 bool RenderAheadEngine::beginMixPrintAt(double presentationTimeMs) noexcept {
@@ -183,9 +201,10 @@ void RenderAheadEngine::run() {
       s.controlWaitCount.fetch_add(1, std::memory_order_relaxed);
       continue;
     }
-    mixer_.processBlock(s.scratch, plan.presentationTimeMs);
-    if (mixPrinter_.isArmed())
-      (void)mixPrinter_.push(s.scratch, plan.presentationTimeMs);
+    mixPrinter_.renderAndPush(s.scratch, plan.presentationTimeMs, plan.startFrame,
+        [&](BusPrintCapture *capture) {
+          mixer_.processBlock(s.scratch, plan.presentationTimeMs, capture);
+        });
     const bool pushed = ring.push(plan.startFrame, s.scratch.getReadPointer(0),
                                    s.scratch.getReadPointer(1), ring.blockSize);
     const auto end = juce::Time::getMillisecondCounterHiRes();

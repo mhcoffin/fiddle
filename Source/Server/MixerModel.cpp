@@ -468,7 +468,7 @@ void MixerModel::capturePluginStateCachesForSave() {
 }
 
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
-                              double currentTime) {
+                              double currentTime, BusPrintCapture *capture) {
   AudioProcessingGate::Render render;
   if (!render) { audioBuffer.clear(); return; }
   if (audioBuffer.getNumSamples() <= 0 || audioBuffer.getNumSamples() > currentBlockSize_) {
@@ -541,8 +541,14 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
         graph->busAudible[send.destinationIndex] = true;
     }
   }
-  for (size_t i = 0; i < graph->groupBuses.size(); ++i)
-    graph->groupBuses[i]->processTo(audioBuffer, graph->busAudible[i]);
+  for (size_t i = 0; i < graph->groupBuses.size(); ++i) {
+    auto *bus = graph->groupBuses[i];
+    bus->processTo(audioBuffer, graph->busAudible[i],
+                   capture ? capture->targetFor(bus->id) : nullptr);
+  }
+
+  if (capture)
+    capture->latencyChanged = capture->masterLatency != masterAudio_.latencySamples();
 
   masterAudio_.processBlock(audioBuffer);
 }

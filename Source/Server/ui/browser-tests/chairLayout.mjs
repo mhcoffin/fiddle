@@ -144,6 +144,57 @@ try {
     const masterDialog = page.getByRole("dialog", { name: "Master Audio", exact: true });
     assert.match(await masterDialog.locator(".loudness-values").innerText(), /-18.4/);
     assert.match(await masterDialog.locator(".loudness-section").innerText(), /1:01/);
+    const stemMode = masterDialog.getByRole("radio", { name: "Selected bus stems", exact: true });
+    const printTail = masterDialog.getByRole("textbox", { name: "Tail after Stop in seconds", exact: true });
+    const printTailKnob = masterDialog.getByRole("slider", { name: "Tail after Stop", exact: true });
+    assert.equal(await printTail.inputValue(), "5.0");
+    await printTailKnob.press("ArrowUp");
+    assert.equal(await printTail.inputValue(), "5.5");
+    await printTailKnob.press("Shift+ArrowDown");
+    assert.equal(await printTail.inputValue(), "5.4");
+    await printTailKnob.press("End");
+    assert.equal(await printTail.inputValue(), "60.0");
+    await printTailKnob.press("Home");
+    assert.equal(await printTail.inputValue(), "0.0");
+    await printTail.fill("8");
+    await printTail.press("Tab");
+    await stemMode.check();
+    const masterOutput = masterDialog.getByRole("checkbox", { name: "Master mix (includes Master processing)", exact: true });
+    const busOutput = masterDialog.getByRole("checkbox", { name: "Strings", exact: true });
+    await busOutput.check();
+    const armStems = masterDialog.getByRole("button", { name: "Choose folder & arm", exact: true });
+    await armStems.click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], true, 8]))));
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
+        await masterDialog.locator(".print-section").scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "stem-printing.png") });
+    }
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: {
+        armed: true, recording: false, stemMode: true, includeMaster: true, busIds: ["bus-strings"], tailSeconds: 8,
+        files: ["/fixture/00 Master.wav", "/fixture/01 Strings.wav"], filePath: "/fixture", fileName: "fixture",
+    } }));
+    assert.ok(await stemMode.isDisabled());
+    assert.ok(await busOutput.isDisabled());
+    assert.ok(await printTail.isDisabled());
+    assert.equal(await printTailKnob.getAttribute("aria-disabled"), "true");
+    assert.match(await masterDialog.locator(".print-status").innerText(), /2 synchronized stereo WAV files/);
+    await masterDialog.getByRole("button", { name: "Cancel armed print", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "stopMixPrint")));
+    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: { armed: false } }));
+    await masterOutput.uncheck();
+    await busOutput.uncheck();
+    assert.ok(await armStems.isDisabled(), "cannot arm zero outputs");
+    await busOutput.check();
+    await armStems.click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], false, 8]))));
+    await masterDialog.getByRole("radio", { name: "Master mix", exact: true }).check();
+    await printTail.fill("");
+    await printTail.press("Tab");
+    assert.equal(await printTail.inputValue(), "8.0", "invalid knob text restores the previous value");
+    await printTail.fill("0");
+    await printTail.press("Tab");
+    await masterDialog.getByRole("button", { name: "Choose WAV & arm", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startMixPrint" && JSON.stringify(m.payload) === "[0]")));
     await masterDialog.getByRole("button", { name: "Reset measurement", exact: true }).click();
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "resetMasterLoudness" && m.payload.length === 0)));
     await masterDialog.getByRole("button", { name: "Clear all clip indicators", exact: true }).click();

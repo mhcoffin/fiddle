@@ -3647,8 +3647,11 @@ void MainComponent::setupJsHandlers() {
   jsRouter_.registerHandler("requestMixPrintState", [this](const juce::var &) {
     safeCallAsync([this] { pushMixPrintState(); });
   });
-  jsRouter_.registerHandler("startMixPrint", [this](const juce::var &) {
-    safeCallAsync([this] {
+  jsRouter_.registerHandler("startMixPrint", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() > 1) return;
+    const auto tailSeconds = payload.size() == 1 ? static_cast<double>(payload[0]) : 5.0;
+    if (!std::isfinite(tailSeconds) || tailSeconds < 0 || tailSeconds > 60) return;
+    safeCallAsync([this, tailSeconds] {
       if (isTransportStarted_.load(std::memory_order_acquire)) {
         pushMixPrintState("Stop Dorico playback before arming a print");
         return;
@@ -3667,7 +3670,7 @@ void MainComponent::setupJsHandlers() {
           juce::FileBrowserComponent::saveMode |
               juce::FileBrowserComponent::canSelectFiles |
               juce::FileBrowserComponent::warnAboutOverwriting,
-          [safeThis, chooser](const juce::FileChooser &fc) {
+          [safeThis, chooser, tailSeconds](const juce::FileChooser &fc) {
             if (safeThis == nullptr)
               return;
             const auto results = fc.getResults();
@@ -3683,7 +3686,7 @@ void MainComponent::setupJsHandlers() {
             if (file.getFileExtension().isEmpty())
               file = file.withFileExtension(".wav");
             const auto error = safeThis->renderAhead_
-                                   ? safeThis->renderAhead_->startMixPrint(file)
+                                   ? safeThis->renderAhead_->startMixPrint(file, tailSeconds)
                                    : juce::String("Audio rendering is not running");
             safeThis->pushMixPrintState(error);
           });
@@ -3694,6 +3697,43 @@ void MainComponent::setupJsHandlers() {
       if (renderAhead_)
         renderAhead_->stopMixPrint();
       pushMixPrintState();
+    });
+  });
+  jsRouter_.registerHandler("startStemPrint", [this](const juce::var &payload) {
+    if (!payload.isArray() || (payload.size() != 2 && payload.size() != 3) || !payload[0].isArray() ||
+        !payload[1].isBool()) return;
+    const auto tailSeconds = payload.size() == 3 ? static_cast<double>(payload[2]) : 5.0;
+    if (!std::isfinite(tailSeconds) || tailSeconds < 0 || tailSeconds > 60) return;
+    juce::StringArray busIds;
+    for (const auto &value : *payload[0].getArray()) {
+      if (!value.isString() || value.toString().isEmpty() || busIds.contains(value.toString())) return;
+      busIds.add(value.toString());
+    }
+    const bool includeMaster = static_cast<bool>(payload[1]);
+    if (busIds.size() + (includeMaster ? 1 : 0) < 1 ||
+        busIds.size() + (includeMaster ? 1 : 0) > 64) return;
+    safeCallAsync([this, busIds, includeMaster, tailSeconds] {
+      if (isTransportStarted_.load() || (renderAhead_ && renderAhead_->mixPrintIsArmed())) {
+        pushMixPrintState("Stop Dorico playback and finish any current print before arming stems");
+        return;
+      }
+      auto chooser = std::make_shared<juce::FileChooser>(
+          "Choose parent folder for a new Fiddle stem take",
+          juce::File::getSpecialLocation(juce::File::userDesktopDirectory));
+      const juce::Component::SafePointer<MainComponent> safeThis(this);
+      chooser->launchAsync(juce::FileBrowserComponent::openMode |
+                              juce::FileBrowserComponent::canSelectDirectories,
+          [safeThis, chooser, busIds, includeMaster, tailSeconds](const juce::FileChooser &fc) {
+            if (safeThis == nullptr || fc.getResults().isEmpty()) return;
+            if (safeThis->isTransportStarted_.load()) {
+              safeThis->pushMixPrintState("Stop Dorico playback before arming stems");
+              return;
+            }
+            const auto error = safeThis->renderAhead_
+                ? safeThis->renderAhead_->startStemPrint(fc.getResult(), busIds, includeMaster, tailSeconds)
+                : juce::String("Audio rendering is not running");
+            safeThis->pushMixPrintState(error);
+          });
     });
   });
   jsRouter_.registerHandler("copyAudioDiagnosticsReport", [](const juce::var &payload) {

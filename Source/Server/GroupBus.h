@@ -52,7 +52,8 @@ public:
 
   /// Process the summed input through inserts and the bus fader, meter it, and
   /// add it to Master. A silent block is still processed so effect tails decay.
-  void processTo(juce::AudioBuffer<float> &destination, bool audible) noexcept;
+  void processTo(juce::AudioBuffer<float> &destination, bool audible,
+                 juce::AudioBuffer<float> *printOutput = nullptr) noexcept;
 
   StripAudioEngine &audioEngine() noexcept { return audioEngine_; }
   const StripAudioEngine &audioEngine() const noexcept { return audioEngine_; }

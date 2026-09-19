@@ -23,6 +23,7 @@
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
+#include "RealtimeMixPrinter.h"
 #include "NativePlugin/AudioConsumer.h"
 
 #include <algorithm>
@@ -2915,7 +2916,7 @@ void testParallelMixerEquivalence() {
   }
 }
 
-void checkRenderAheadWorkerAndRemapping(int workers) {
+void checkRenderAheadWorkerAndRemapping(int workers, double tailSeconds) {
   Sandbox sandbox;
   MixerFixture f;
   f.instrument(0.1f, 1);
@@ -2936,9 +2937,12 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
   f.noteOn(1, 1000);
   f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOff(1, 60), base + 1200);
   const auto printFile = sandbox.directory.getChildFile("parallel-print.wav");
-  REQUIRE(worker.startMixPrint(printFile).isEmpty());
+  REQUIRE(worker.startMixPrint(printFile, tailSeconds).isEmpty());
   REQUIRE(worker.beginMixPrintAt(base + 1000));
   REQUIRE(worker.endMixPrintAt(base + 1200));
+  // Recording must keep the renderer awake even with transport inactive,
+  // including the silent remainder of the selected tail.
+  if (tailSeconds > 0) worker.setTransportActive(false);
   juce::AudioBuffer<float> out(2, 512);
   int firstSound = -1, lastSound = -1;
   for (int frame = 0; frame < 48000 * 3 / 2; frame += 512) {
@@ -2961,18 +2965,22 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
   }
   REQUIRE(std::abs(firstSound - 48000) <= 1);
   REQUIRE(std::abs(lastSound - 57599) <= 1);
+  REQUIRE(worker.mixPrintNeedsFinalizing(base + 1500));
   worker.stopMixPrint();
   REQUIRE(static_cast<juce::int64>(worker.mixPrintState()["droppedBlocks"]) == 0);
   juce::AudioFormatManager formats;
   formats.registerBasicFormats();
   std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(printFile));
   REQUIRE(reader != nullptr);
-  REQUIRE(std::abs(reader->lengthInSamples - 9600) <= 1);
+  REQUIRE(std::abs(reader->lengthInSamples - (9600 + std::llround(tailSeconds * 48000))) <= 1);
   juce::AudioBuffer<float> printed(2, static_cast<int>(reader->lengthInSamples));
   REQUIRE(reader->read(&printed, 0, printed.getNumSamples(), 0, true, true));
   for (int channel = 0; channel < 2; ++channel)
-    for (int i = 1; i + 1 < printed.getNumSamples(); ++i)
-      REQUIRE(std::abs(printed.getSample(channel, i) - 0.1f) < 0.00001f);
+    for (int i = 1; i + 1 < printed.getNumSamples(); ++i) {
+      if (std::abs(i - 9600) <= 1) continue; // timestamp-to-sample rounding at note-off
+      REQUIRE(std::abs(printed.getSample(channel, i) - (i < 9600 ? 0.1f : 0.0f)) < 0.00001f);
+    }
+  worker.setTransportActive(true);
   REQUIRE(static_cast<juce::int64>(worker.diagnostics()["controlWaitCount"]) == 0);
   REQUIRE(double(worker.diagnostics()["controlWaitMs"]) == 0.0);
   {
@@ -3027,7 +3035,81 @@ void checkRenderAheadWorkerAndRemapping(int workers) {
 }
 
 void testRenderAheadWorkerAndRemapping() {
-  for (int workers : {1, 2, 4}) checkRenderAheadWorkerAndRemapping(workers);
+  for (int workers : {1, 2, 4})
+    for (double tail : {0.0, 0.1}) checkRenderAheadWorkerAndRemapping(workers, tail);
+}
+
+void testStemPrintRouting(int workers) {
+  Sandbox sandbox;
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto a = f.instrument(0.2f, 1), b = f.instrument(0.1f, 2);
+  REQUIRE(f.commands.addGroupBus("Strings", {a}));
+  const auto group = f.mixer.getAllGroupBuses().back()->id;
+  REQUIRE(f.commands.addGroupBus("Reverb", {}));
+  const auto fx = f.mixer.getAllGroupBuses().back()->id;
+  addEffect(f.mixer.getGroupBus(group)->audioEngine(), "group-gain-delay", 0.5f, 7);
+  f.mixer.getGroupBus(group)->setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  fiddle::AudioSend send;
+  send.id = "send"; send.busId = fx; send.gainDb = juce::Decibels::gainToDecibels(0.25f);
+  REQUIRE(f.mixer.setStripSends(a, {send}));
+  addEffect(f.mixer.getGroupBus(fx)->audioEngine(), "fx-gain-delay", 2.0f, 11);
+  fiddle::MasterInsertSnapshot insert;
+  insert.slotId = "master-delay"; insert.description = description(false);
+  REQUIRE(f.mixer.masterAudio().insertProcessor(insert, 0,
+      std::make_unique<SignalProcessor>(false, 0.5f, 13)));
+  f.mixer.masterAudio().setGainDb(juce::Decibels::gainToDecibels(0.5f));
+  f.mixer.refreshAudioRouting();
+  f.now = 1000;
+  fiddle::RealtimeMixPrinter printer;
+  REQUIRE(printer.startStems(sandbox.directory, f.sampleRate, f.blockSize,
+      {{group, "Strings"}, {fx, "Reverb"}}, true, 13).isEmpty());
+  const auto files = printer.state()["files"];
+  REQUIRE(printer.beginAt(f.now));
+  f.noteOn(1, 2.0); f.noteOn(2, 3.0);
+  std::vector<float> live;
+  for (int block = 0; block < 8; ++block) {
+    if (block == 4) f.mixer.setGroupBusMute(group, true);
+    if (block == 6) { f.mixer.setGroupBusMute(group, false); f.mixer.setGroupBusSolo(fx, true); }
+    juce::AudioBuffer<float> out(2, f.blockSize); out.clear();
+    printer.renderAndPush(out, f.now, uint64_t(block * f.blockSize), [&](fiddle::BusPrintCapture *capture) {
+      f.mixer.processBlock(out, f.now, capture);
+    });
+    live.insert(live.end(), out.getReadPointer(0), out.getReadPointer(0) + f.blockSize);
+    f.now += 1000.0 * f.blockSize / f.sampleRate;
+  }
+  printer.stop();
+  REQUIRE(!static_cast<bool>(printer.state()["incomplete"]));
+  juce::AudioFormatManager formats; formats.registerBasicFormats();
+  std::vector<juce::AudioBuffer<float>> audio;
+  for (const auto &path : *files.getArray()) {
+    std::unique_ptr<juce::AudioFormatReader> reader(formats.createReaderFor(juce::File(path.toString())));
+    REQUIRE(reader && reader->lengthInSamples == 512);
+    audio.emplace_back(2, 512);
+    REQUIRE(reader->read(&audio.back(), 0, 512, 0, true, true));
+  }
+  for (int i = 0; i < 512; ++i) REQUIRE(audio[0].getSample(0, i) == live[i]);
+  // Both bus stems and Master begin at the same latency-compensated note;
+  // direct-to-Master instrument B appears only in Master.
+  int onset = -1;
+  for (int i = 0; i < 250; ++i) {
+    const bool sounding = std::abs(live[i]) > 0.00001f;
+    REQUIRE((audio[1].getSample(0, i) > 0.00001f) == sounding);
+    REQUIRE((audio[2].getSample(0, i) > 0.00001f) == sounding);
+    if (sounding) {
+      if (onset < 0) onset = i;
+      REQUIRE(std::abs(audio[1].getSample(0, i) - 0.05f) < 0.00001f);
+      REQUIRE(std::abs(audio[2].getSample(0, i) - 0.1f) < 0.00001f);
+      if (i < 150) REQUIRE(std::abs(live[i] - 0.0375f) < 0.00001f);
+      if (i > 160) REQUIRE(std::abs(live[i] - 0.0625f) < 0.00001f);
+    }
+  }
+  // Fixture routes MIDI directly rather than advancing it by Master latency.
+  REQUIRE(onset >= 108 && onset <= 110);
+  REQUIRE(audio[1].getMagnitude(0, 330, 40) == 0); // Bus mute.
+  REQUIRE(audio[2].getSample(0, 350) > 0.09f); // Shared return still audible.
+  REQUIRE(audio[1].getMagnitude(0, 450, 40) == 0); // FX-only solo.
+  REQUIRE(std::abs(live[480] - 0.025f) < 0.00001f);
 }
 
 } // namespace
@@ -3045,6 +3127,9 @@ int main() {
     }
   };
   run("production routing and audibility", testProductionRoutingAndAudibility);
+  run("synchronized stem files, routing, audibility and Master latency", [] {
+    for (int workers : {1, 2, 4}) testStemPrintRouting(workers);
+  });
   run("stereo balance, send taps and undo gestures", [] { for (int workers : {1, 2, 4}) testBalanceRoutingAndHistory(workers); });
   run("post-fader sends, solo-safe returns and history", [] { for (int workers : {1, 2, 4}) testPostFaderSends(workers); });
   run("pre-fader sends, mute/solo semantics and history", [] { for (int workers : {1, 2, 4}) testPreFaderSends(workers); });

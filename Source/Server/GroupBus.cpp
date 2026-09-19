@@ -56,7 +56,8 @@ void GroupBus::beginBlock(int numSamples) noexcept {
 }
 
 void GroupBus::processTo(juce::AudioBuffer<float> &destination,
-                         bool audible) noexcept {
+                         bool audible, juce::AudioBuffer<float> *printOutput) noexcept {
+  if (printOutput) printOutput->clear();
   const int numSamples = destination.getNumSamples();
   if (numSamples <= 0 || numSamples > inputBuffer_.getNumSamples())
     return;
@@ -71,6 +72,8 @@ void GroupBus::processTo(juce::AudioBuffer<float> &destination,
   if (faderAudible) {
     for (int channel = 0; channel < channels; ++channel) {
       destination.addFrom(channel, 0, inputBuffer_, channel, 0, numSamples);
+      if (printOutput)
+        printOutput->copyFrom(channel, 0, inputBuffer_, channel, 0, numSamples);
     }
   }
 

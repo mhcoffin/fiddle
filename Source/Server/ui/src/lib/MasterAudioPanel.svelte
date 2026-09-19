@@ -1,5 +1,6 @@
 <script>
     import { onDestroy, onMount } from "svelte";
+    import Knob from "./Knob.svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { clampMasterGain, groupEffects } from "./masterAudioUi.js";
 
@@ -8,12 +9,20 @@
         peakDb = -120,
         loudness = {},
         plugins = [],
+        buses = [],
         onClose = () => {},
     } = $props();
 
     let adding = $state(false);
     let query = $state("");
     let gainEntry = $state(false);
+    let stemMode = $state(false);
+    let includeMaster = $state(true);
+    let tailSeconds = $state(5);
+    let validTail = $derived(Number.isFinite(tailSeconds) && tailSeconds >= 0 && tailSeconds <= 60);
+    let selectedBusIds = $state([]);
+    let liveBusIds = $derived(selectedBusIds.filter(id => buses.some(bus => bus.id === id)));
+    let outputCount = $derived(liveBusIds.length + (includeMaster ? 1 : 0));
     let printState = $state({
         armed: false,
         recording: false,
@@ -57,7 +66,15 @@
     };
 
     const unsubscribePrint = onFromCpp("setMixPrintState", (state) => {
-        if (state && typeof state === "object") printState = state;
+        if (state && typeof state === "object") {
+            printState = state;
+            if (state.armed) {
+                if (Number.isFinite(state.tailSeconds)) tailSeconds = state.tailSeconds;
+                stemMode = Boolean(state.stemMode);
+                includeMaster = state.includeMaster !== false;
+                selectedBusIds = Array.isArray(state.busIds) ? state.busIds : [];
+            }
+        }
     });
     let printPoll;
     onMount(() => {
@@ -151,34 +168,64 @@
                 <button onclick={() => dispatchCpp("resetMeterClips", "all", "")}>Clear all clip indicators</button>
             </section>
 
-            <section class="print-section" aria-label="Print Master mix">
+            <section class="print-section" aria-label="Print audio">
                 <div class="section-heading">
                     <div>
-                        <h3>Print Master mix</h3>
+                        <h3>Print audio</h3>
                         <p>Select the passage in Dorico first, then arm a transport-synchronized WAV.</p>
                     </div>
                     {#if printState.armed}
                         <button class="stop-print" disabled={printState.finalizing} onclick={() => dispatchCpp("stopMixPrint")}>
-                            {printState.recording ? "Stop & finish WAV" : printState.finalizing ? "Finishing…" : "Cancel armed print"}
+                            {printState.recording ? "Stop & finish" : printState.finalizing ? "Finishing…" : "Cancel armed print"}
                         </button>
                     {:else}
-                        <button class="primary" onclick={() => dispatchCpp("startMixPrint")}>Choose WAV &amp; arm</button>
+                        <button class="primary" disabled={!validTail || (stemMode && (outputCount === 0 || outputCount > 64))}
+                            onclick={() => stemMode ? dispatchCpp("startStemPrint", liveBusIds, includeMaster, tailSeconds) : dispatchCpp("startMixPrint", tailSeconds)}>
+                            {stemMode ? "Choose folder & arm" : "Choose WAV & arm"}
+                        </button>
                     {/if}
                 </div>
+                <fieldset class="print-options" disabled={printState.armed}>
+                    <legend>Print options</legend>
+                    <label><input type="radio" bind:group={stemMode} value={false} /> Master mix</label>
+                    <label><input type="radio" bind:group={stemMode} value={true} /> Selected bus stems</label>
+                    {#if stemMode}
+                        <div class="stem-outputs">
+                            <label><input type="checkbox" bind:checked={includeMaster} /> Master mix (includes Master processing)</label>
+                            {#each buses as bus (bus.id)}
+                                <label><input type="checkbox" bind:group={selectedBusIds} value={bus.id} /> {bus.name}</label>
+                            {/each}
+                            {#if !buses.length}<p>No audio buses yet. Create buses and route your instruments or sends to them first.</p>{/if}
+                        </div>
+                        <p>{outputCount} selected · maximum 64 files. Each take gets a new folder; existing files are never replaced.</p>
+                        <p>Bus stems include bus effects and levels, follow mute/solo, and exclude Master processing. Shared FX are separate stems. Direct-to-Master instruments appear only in the Master mix.</p>
+                    {/if}
+                    <div class="print-tail"><span>Tail after Stop</span>
+                        <Knob label="Tail after Stop" unit="seconds" min={0} max={60}
+                            step={0.5} fineStep={0.1} value={tailSeconds} disabled={printState.armed}
+                            oninput={(value) => { tailSeconds = value; }} />
+                    </div>
+                    <p>Continue recording effects after Dorico stops. Use 0 for an exact cutoff, or increase for long reverbs (up to 60 seconds).</p>
+                </fieldset>
                 <div class="print-status" class:recording={printState.recording} class:armed={printState.armed && !printState.recording}>
-                    <strong>{printState.recording ? "Printing" : printState.finalizing ? "Finishing WAV" : printState.armed ? "Armed" : printState.fileName ? "Last print" : "Ready"}</strong>
+                    <strong>{printState.incomplete ? "Incomplete take" : printState.capturingTail ? "Printing tail" : printState.recording ? "Printing" : printState.finalizing ? "Finishing WAV" : printState.armed ? "Armed" : printState.fileName ? "Last print" : "Ready"}</strong>
                     <span>{formatDuration(printState.durationSeconds)} · {printState.format || "Stereo WAV · 32-bit float"}{printState.sampleRate ? ` · ${Math.round(printState.sampleRate)} Hz` : ""}</span>
                     {#if printState.filePath}
                         <span class="print-path" title={printState.filePath}>{printState.filePath}</span>
                     {/if}
+                    {#if printState.files?.length > 1}
+                        <span>{printState.files.length} synchronized stereo WAV files</span>
+                    {/if}
                 </div>
                 {#if printState.armed && !printState.recording && !printState.finalizing}
-                    <div class="print-instructions">Waiting for Dorico playback. The next transport Start begins the WAV; transport Stop finishes it automatically.</div>
+                    <div class="print-instructions">Waiting for Dorico playback. The next transport Start begins every file; transport Stop finishes them together after the {printState.tailSeconds ?? tailSeconds}-second tail.</div>
+                {:else if printState.capturingTail}
+                    <div class="print-instructions">Capturing the {printState.tailSeconds}-second effect tail. Wait for completion before auditioning notes or starting another passage. Stop &amp; finish ends the tail immediately.</div>
                 {:else if printState.recording}
-                    <div class="print-instructions">Recording follows Dorico's transport and will finish automatically when playback stops.</div>
+                    <div class="print-instructions">Recording follows Dorico's transport and finishes automatically after playback stops and the selected tail completes.</div>
                 {/if}
                 {#if Number(printState.droppedBlocks || 0) > 0}
-                    <div class="print-warning">The disk writer dropped {printState.droppedBlocks} audio block{Number(printState.droppedBlocks) === 1 ? "" : "s"}; this WAV is incomplete.</div>
+                    <div class="print-warning">The disk writer dropped {printState.droppedBlocks} audio block{Number(printState.droppedBlocks) === 1 ? "" : "s"}; this take is incomplete.</div>
                 {/if}
                 {#if printState.error}
                     <div class="print-warning">{printState.error}</div>
@@ -271,6 +318,13 @@
 </div>
 
 <style>
+    .print-options { margin: 16px 0 0; padding: 12px; border: 1px solid #334155; border-radius: 6px; color: #cbd5e1; font-size: .8rem; }
+    .print-options legend { color: #94a3b8; padding: 0 5px; }
+    .print-options label { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+    .print-options input { accent-color: #38bdf8; }
+    .print-options .print-tail { display: flex; align-items: center; gap: 12px; margin-top: 10px; border-top: 1px solid #334155; padding-top: 12px; }
+    .print-options p { font-size: .75rem; line-height: 1.5; margin-top: 8px; }
+    .stem-outputs { margin-top: 8px; border-top: 1px solid #334155; padding-top: 8px; max-height: 180px; overflow-y: auto; }
     .loudness-values { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 12px 0; }
     .loudness-values > div { display: flex; flex-direction: column; gap: 6px; }
     .loudness-values span, .loudness-section p { color: #94a3b8; font-size: .75rem; }

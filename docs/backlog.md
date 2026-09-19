@@ -12,6 +12,10 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 1 — complete the conventional stereo mixer
 
+- **Investigate send-alignment regression tests.** The 2026-09-19 full test run
+  fails the pre/post-send sample-alignment/device-reprepare and send-path
+  continuity assertions in `MixerIntegrationTest.cpp`. Printing/tail regressions
+  pass; these two failures still need diagnosis before claiming a clean suite.
 - **Pre-fader sends — implemented, awaiting smoke test.** Per-send pre/post tap,
   correct rack-latency compensation, explicit mute/solo behavior, persistence,
   Undo/Redo, and promoted controls in the corresponding strip section. See
@@ -24,12 +28,6 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 2 — finish and deliver complex mixes
 
-- **Mix automation.** Automate at least fader, stereo balance, mute, send level,
-  and plug-in bypass against the Dorico timeline. Investigate whether Dorico CC
-  or VST parameters can provide a useful first control path before building a
-  full automation-lane editor.
-- **Stem printing.** Print selected group buses and the Master to synchronized
-  WAV files in one real-time pass, with clear names and identical start times.
 - **Input trim and gain staging.** Add a trim before pre-fader inserts so the
   level driving compressors and saturation is independent of the mix fader.
 - **General link/VCA groups.** Support arbitrary temporary or persistent linked
@@ -46,6 +44,10 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Deferred scope
 
+- Mix automation. Existing score dynamics and CC1/7/11 cover the immediate
+  musical needs. Revisit effect/send/parameter automation when a concrete use
+  case warrants it; preserve the isolated CC102–119 musical protocol and do not
+  appropriate instrument controllers implicitly.
 - Surround or immersive output.
 - Multi-output instruments.
 - External audio tracks, recording, comping, and waveform editing.
@@ -54,6 +56,11 @@ documented elsewhere; this list records the remaining work and intended order.
   `.doricolib` XML fields and providing validation, Undo/Redo, and safe writes.
 
 ## Recently completed
+
+- **Stem printing.** Print selected group/FX buses and optionally Master to
+  synchronized stereo WAVs in one real-time pass. Includes sample-cursor loss
+  detection and a 0–60 second effect-tail control with knob/text entry. User
+  smoke test passed on 2026-09-19. See [stem printing](stem-printing.md).
 
 - **Stereo balance.** Channels and group/FX buses have smoothed balance
   controls, persistence and Undo/Redo. See
