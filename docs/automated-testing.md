@@ -29,8 +29,9 @@ content, Master-latency alignment, selected-bus mute/solo and shared FX behavior
 under 1/2/4 render workers, unique safe output paths, FIFO failure reporting,
 sample-cursor discontinuity detection despite host-clock jitter, pre-roll gaps,
 configurable aligned tails, and concurrent stop/capture lifetime safety.
-Browser coverage includes output selection, the tail knob/text entry, and
-locking while armed. See
+Browser coverage includes the independent View → Print Audio pane, output
+selection, the tail knob/text entry, locking while armed, and hiding/reopening
+without stopping a take or continuing hidden-window polling. See
 [stem printing](stem-printing.md).
 The library-refresh scenario checks batch/single-layer Undo with independent live
 presets, imported maps, pending/missing/empty players and bypass edits during
@@ -115,10 +116,13 @@ also checks loaded/unassigned/missing instrument controls, editor and assignment
 messages, library visibility, and the selector-to-editor transition. It
 checks Edit/Hide updates from editor visibility notifications (including a
 simulated native-window close), unchanged Save enablement, and equal 32-pixel
-VSTi/Audio FX button heights. It
-also opens Audio Performance with 30 fixture plugins, verifies row ordering and
-fixed header/footer controls, copies a report with plugin/device metadata, and
-checks the Audio Settings dispatch. It
+VSTi/Audio FX button heights. It opens isolated Chairs, Audio Bus Manager,
+Audio Performance and Print pages without mounting a duplicate mixer. It checks
+chair editing, shared Undo commands, live selection changes and deleted-selection
+filtering in the bus window, Close/Cmd-W dispatch, narrow-window layout, and
+print polling suspension without stopping a take. Audio Performance uses 30
+fixture plugins to verify row ordering and fixed header/footer controls, copies
+a report with plugin/device metadata, and checks the Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.
 It also opens the Library Manager with fixture data, clicks Update Layers once,
 checks the project command dispatch and linkage counts after simulated Undo,

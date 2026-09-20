@@ -23,12 +23,16 @@ test("history is capped at 120 observations and throttled independently of meter
     assert.equal(report.marks[0].time, "heard crackle");
 });
 
-test("panel uses native modal focus handling and offers marked, copyable diagnostics", () => {
+test("panel opens a separate window and offers marked, copyable diagnostics only while visible", () => {
     const source = readFileSync(new URL("../src/lib/AudioDiagnostics.svelte", import.meta.url), "utf8");
-    assert.match(source, /dialog\.showModal\(\)/);
+    assert.match(source, /dispatchCpp\("showView", "audio-performance"\)/);
+    assert.doesNotMatch(source, /showModal/);
     assert.match(source, /Mark crackle/);
     assert.match(source, /copyAudioDiagnosticsReport/);
-    assert.match(source, /unsubscribe\(\); unsubscribeView\(\); clearInterval\(timer\)/);
+    assert.match(source, /return unsubscribe/);
+    assert.match(source, /if \(!visible\) return/);
+    assert.match(source, /return \(\) => clearInterval\(timer\)/);
+    assert.match(source, /if \(standalone && visible\) history/);
     assert.doesNotMatch(source, /showAudioSettings|delay-slider|setRenderWorkerCount/);
     assert.match(source, /buildConfiguration/);
     assert.match(source, /renderBeforeLongGapMs/);

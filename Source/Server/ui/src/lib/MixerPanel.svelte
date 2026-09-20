@@ -13,8 +13,6 @@
     import BusAudioPanel from "./BusAudioPanel.svelte";
     import AudioBusBank from "./AudioBusBank.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
-    import BusManager from "./BusManager.svelte";
-    import ChairManager from "./ChairManager.svelte";
     import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
@@ -62,13 +60,11 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
         inserts: [],
     });
     let masterAudioOpen = $state(false);
-    let busManagerOpen = $state(false);
     let groupBuses = $state([]);
     let busAudioBusId = $state("");
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
-    let chairManagerOpen = $state(false);
     let audioBankReveal = $state(0);
     let chairs = $state([]);
     let layerCatalog = $state([]);
@@ -240,6 +236,14 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     // ── Selection state ───────────────────────────────────
     let selectedIds = $state(new Set());
+    let lastSentSelection = "";
+    $effect(() => {
+        const selection = JSON.stringify([...selectedIds]);
+        if (selection !== lastSentSelection) {
+            lastSentSelection = selection;
+            dispatchCpp("setMixerSelection", [...selectedIds]);
+        }
+    });
     let lastClickedId = $state(null);
     let inspectorStripId = $state(null);
     let inspectorOpen = $state(false);
@@ -263,8 +267,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     onFromCpp("showMixerView", (view) => {
         if (view === "inspector") showInspector();
         else if (view === "audio-bank") audioBankReveal += 1;
-        else if (view === "chairs") chairManagerOpen = true;
-        else if (view === "bus-manager") busManagerOpen = true;
     });
 
     // ── Resize drag logic ─────────────────────────────────
@@ -341,11 +343,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         const handleKeyDown = (e) => {
             if (e.key !== "Escape") return;
             if (layerPickerChair) layerPickerChair = null;
-            else if (chairManagerOpen) chairManagerOpen = false;
             else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
             else if (busAudioBusId) busAudioBusId = "";
-            else if (busManagerOpen) busManagerOpen = false;
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
         };
@@ -1084,27 +1084,22 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             <ToolbarMenu label="View">
                 {#snippet children(close)}
                     <div class="view-group">
-                        <span class="view-group-title">Workspace</span>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "inspector"); }}>Layer Inspector</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-bank"); }}>Audio Buses &amp; Master</button>
+                        <span class="view-group-title">Windows</span>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "print"); }}>Print Audio…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "bus-manager"); }}>Audio Bus Manager…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "project-history"); }}>Project History</button>
-                    </div>
-                    <div class="view-group">
-                        <span class="view-group-title">Setup</span>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "bus-manager"); }}>Audio Buses…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
-                    </div>
-                    <div class="view-group">
-                        <span class="view-group-title">Diagnostics</span>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-performance"); }}>Audio Performance</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "timeline"); }}>Timeline</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "event-log"); }}>Event Log</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "midi-capture"); }}>MIDI Capture</button>
                     </div>
-                    <span class="view-group-title">Layout</span>
+                    <span class="view-group-title">Mixer layout</span>
+                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "inspector"); }}>Layer Inspector</button>
+                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-bank"); }}>Audio Buses &amp; Master</button>
                     <div class="display-controls">
                         <label class="display-control-label" for="strip-size-select">Strip size</label>
                         <select id="strip-size-select" class="toolbar-select" value={stripSize}
@@ -1555,7 +1550,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 busMeters={meters.stereoBuses}
                 masterMeters={meters.master}
                 masterLoudness={meters.loudness}
-                onManage={() => { busManagerOpen = true; }}
+                onManage={() => dispatchCpp("showView", "bus-manager")}
                 onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
                 onOpenMasterAudio={() => { masterAudioOpen = true; }}
                 revealRequest={audioBankReveal}
@@ -1586,7 +1581,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     {#if masterAudioOpen}
         <MasterAudioPanel
-            buses={groupBuses}
             loudness={meters.loudness}
             master={masterAudio}
             peakDb={meters.masterPeakDb}
@@ -1652,17 +1646,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 }}
             />
         {/if}
-    {/if}
-    {#if chairManagerOpen}
-        <ChairManager onClose={() => { chairManagerOpen = false; }} />
-    {/if}
-    {#if busManagerOpen}
-        <BusManager
-            buses={groupBuses}
-            {strips}
-            selectedStripIds={[...selectedIds]}
-            onClose={() => { busManagerOpen = false; }}
-        />
     {/if}
     {#if layerPickerChair}
         <LayerPicker

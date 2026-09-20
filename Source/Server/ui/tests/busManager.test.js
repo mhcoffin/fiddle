@@ -13,8 +13,12 @@ const detailsSource = readFileSync(
 );
 
 test("the bus bank opens a spacious Bus Manager", () => {
-    assert.match(mixerSource, /<BusManager/);
-    assert.match(mixerSource, /onManage=\{\(\) => \{ busManagerOpen = true;/);
+    const tool = readFileSync(new URL("../src/lib/ToolPane.svelte", import.meta.url), "utf8");
+    assert.match(tool, /<BusManager/);
+    assert.match(tool, /setMixerSelection/);
+    assert.match(tool, /selectedIds.filter/);
+    assert.match(mixerSource, /onManage=\{\(\) => dispatchCpp\("showView", "bus-manager"\)/);
+    assert.match(mixerSource, /dispatchCpp\("setMixerSelection", \[\.\.\.selectedIds\]\)/);
     assert.match(mixerSource, /requestGroupBusState/);
     assert.match(managerSource, /Create from selection/);
     assert.match(managerSource, /addGroupBus/);

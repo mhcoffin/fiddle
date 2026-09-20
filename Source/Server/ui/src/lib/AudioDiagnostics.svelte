@@ -3,13 +3,12 @@
     import { onFromCpp, dispatchCpp } from "./ipc.js";
     import { audioCpuLabel, appendDiagnosticSample, diagnosticReport, pluginTimingRows } from "./audioDiagnostics.js";
 
+    let { standalone = false, visible = true, onClose = () => {} } = $props();
     let data = $state(null);
     let receivedAt = $state(0);
     let now = $state(Date.now());
     let history = $state([]);
     let marks = $state([]);
-    let open = $state(false);
-    let dialog = $state(null);
     let copied = $state(false);
     const fixed = (value, digits = 1) => Number.isFinite(value) ? value.toFixed(digits) : "—";
     const nativeValue = (key) => data?.returnFresh && now - receivedAt < 3000 ? data[key] : "—";
@@ -22,19 +21,15 @@
             now = Date.now();
             receivedAt = now;
             data = value;
-            history = appendDiagnosticSample(history, value, now);
+            if (standalone && visible) history = appendDiagnosticSample(history, value, now);
         });
-        const timer = setInterval(() => { now = Date.now(); }, 1000);
-        const unsubscribeView = onFromCpp("showMixerView", (view) => {
-            if (view === "audio-performance") { open = true; copied = false; }
-        });
-        return () => { unsubscribe(); unsubscribeView(); clearInterval(timer); };
+        return unsubscribe;
     });
 
     $effect(() => {
-        if (!dialog) return;
-        if (open && !dialog.open) dialog.showModal();
-        else if (!open && dialog.open) dialog.close();
+        if (!visible) return;
+        const timer = setInterval(() => { now = Date.now(); }, 1000);
+        return () => clearInterval(timer);
     });
 
     function markCrackle() {
@@ -47,16 +42,18 @@
     }
 </script>
 
+{#if !standalone}
 <button class="cpu" class:hot={data?.running && data?.peakLoad >= 100}
     title="Audio block time-budget usage. Click for peaks, overruns and return-buffer diagnostics."
-    aria-label="Audio performance" aria-haspopup="dialog"
-    onclick={() => { open = true; copied = false; }}>{label.replace(/^Audio CPU/, "CPU")}</button>
+    aria-label="Audio performance"
+    onclick={() => dispatchCpp("showView", "audio-performance")}>{label.replace(/^Audio CPU/, "CPU")}</button>
 
-<dialog bind:this={dialog} onclose={() => { open = false; }} aria-labelledby="audio-diagnostics-title">
+{:else}
+<dialog open aria-labelledby="audio-diagnostics-title">
     <header>
         <div><h2 id="audio-diagnostics-title">Audio performance</h2>
             <p>100% takes one block's duration to render. A queued reserve can absorb a brief spike. This is not total machine CPU.</p></div>
-        <button onclick={() => { open = false; }}>Close</button>
+        <button onclick={onClose}>Close</button>
     </header>
     <div class="content">
         <div class="headline">{label}<span>Recent peak {fixed(data?.peakLoad)}%</span></div>
@@ -160,6 +157,7 @@
         <span>{marks.length} listening marks · {history.length} recent samples</span>
     </footer>
 </dialog>
+{/if}
 
 <style>
     button { color: #e2e8f0; background: #182638; border: 1px solid #64748b; border-radius: 6px; padding: 9px 14px; font-size: 14px; cursor: pointer; white-space: nowrap; }
@@ -167,9 +165,8 @@
     button:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
     .cpu { height: 30px; padding: 4px 8px; border-color: transparent; background: transparent; font-size: .75rem; font-variant-numeric: tabular-nums; color: #94a3b8; }
     .cpu.hot { border-color: #fb923c; background: #431407; color: #fed7aa; }
-    dialog { width: min(920px, 92vw); max-height: 88vh; padding: 0; background: #0f1929; color: #e2e8f0; border: 1px solid #64748b; border-radius: 12px; font-size: 15px; }
+    dialog { position:relative; margin:0; box-sizing:border-box; width:100%; max-width:none; height:100vh; max-height:none; padding:0; background:#0f1929; color:#e2e8f0; border:0; border-radius:0; font-size:15px; }
     dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
-    dialog::backdrop { background: #0009; }
     header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 20px; padding: 22px 26px; border-bottom: 1px solid #334155; }
     h2, h3 { margin: 0 0 10px; }
     p { color: #aebdd0; line-height: 1.5; margin: 8px 0; }

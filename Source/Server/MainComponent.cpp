@@ -2128,6 +2128,7 @@ void MainComponent::restoreDoricoProject(
 
 MainComponent::~MainComponent() {
   stopTimer();
+  toolWindows_.clear();
   agentControlServer_.reset();
   // Stop incoming transport/MIDI callbacks before destroying the render
   // worker they wake.
@@ -2808,6 +2809,9 @@ void MainComponent::pushMasterAudioState() {
 }
 
 void MainComponent::pushMixPrintState(const juce::String &errorOverride) {
+  if (errorOverride.isNotEmpty()) printErrorOverride_ = errorOverride;
+  const auto print = toolWindows_.find("print");
+  if (print == toolWindows_.end()) return;
   juce::var state;
   if (renderAhead_) {
     state = renderAhead_->mixPrintState();
@@ -2824,13 +2828,22 @@ void MainComponent::pushMixPrintState(const juce::String &errorOverride) {
     empty->setProperty("droppedBlocks", static_cast<juce::int64>(0));
     empty->setProperty("droppedSamples", static_cast<juce::int64>(0));
     empty->setProperty("error", "Audio rendering is not running");
-    empty->setProperty("format", "Stereo WAV · 32-bit float");
+    empty->setProperty("format", juce::String::fromUTF8("Stereo WAV · 32-bit float"));
     state = juce::var(empty);
   }
-  if (errorOverride.isNotEmpty())
+  if (printErrorOverride_.isNotEmpty())
     if (auto *object = state.getDynamicObject())
-      object->setProperty("error", errorOverride);
-  broadcastMessage("setMixPrintState", state);
+      object->setProperty("error", printErrorOverride_);
+  // Export needs only bus identity, not processor state or the debug feed.
+  juce::Array<juce::var> buses;
+  for (auto *bus : mixer_.getAllGroupBuses()) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("id", bus->id);
+    item->setProperty("name", bus->name);
+    buses.add(juce::var(item));
+  }
+  state.getDynamicObject()->setProperty("buses", buses);
+  print->second->sendMessage("setMixPrintState", state);
 }
 
 void MainComponent::pushMixerMeters() {
@@ -2936,6 +2949,30 @@ void MainComponent::pushToDebugWindow(const juce::String &js) {
 }
 
 void MainComponent::showView(const juce::String &viewId) {
+  static const std::map<juce::String, juce::String> tools{
+      {"print", "Print Audio"}, {"chairs", "Chairs"},
+      {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"}};
+  if (const auto spec = tools.find(viewId); spec != tools.end()) {
+    auto &window = toolWindows_[viewId];
+    if (!window) {
+      const auto settings = db_.loadWindowSettings("tool-" + viewId);
+      const auto bounds = settings.found ? juce::Rectangle<int>(settings.x, settings.y, settings.width, settings.height)
+                                         : juce::Rectangle<int>{};
+      window = std::make_unique<ToolWindow>(viewId, spec->second, webViewBridge_.createWebOptions(),
+          bounds, viewId == "print" ? 760 : 1040, 780,
+          [this, viewId](juce::Rectangle<int> bounds) {
+            WindowSettings settings;
+            settings.windowId = "tool-" + viewId;
+            settings.x = bounds.getX(); settings.y = bounds.getY();
+            settings.width = bounds.getWidth(); settings.height = bounds.getHeight();
+            settings.visible = false; // Restore geometry, not unsolicited windows at launch.
+            db_.saveWindowSettings(settings);
+          });
+    }
+    window->show();
+    refreshToolWindow(viewId);
+    return;
+  }
   if (viewId == "library-manager") {
     showLibraryManagerWindow();
     return;
@@ -2967,8 +3004,7 @@ void MainComponent::showView(const juce::String &viewId) {
   // Mixer-owned panes and dialogs share one typed command, regardless of
   // whether the request came from the native menu or the toolbar directory.
   static const juce::StringArray mixerViews{
-      "main", "inspector", "audio-bank", "chairs", "bus-manager",
-      "audio-performance"};
+      "main", "inspector", "audio-bank"};
   if (!mixerViews.contains(viewId))
     return;
   if (auto *window = findParentComponentOfClass<juce::DocumentWindow>()) {
@@ -2984,6 +3020,28 @@ void MainComponent::showView(const juce::String &viewId) {
   const auto json = juce::JSON::toString(juce::var(message));
   webViewBridge_.getMainWebComponent().evaluateJavascript(
       "window.__dispatchFromCpp && window.__dispatchFromCpp(" + json + ")");
+}
+
+void MainComponent::refreshToolWindow(const juce::String &id) {
+  const auto found = toolWindows_.find(id);
+  if (found == toolWindows_.end()) return;
+  if (id == "print") pushMixPrintState();
+  else if (id == "audio-performance") pushAudioDiagnostics();
+  else if (id == "chairs") {
+    pushChairState();
+    pushUndoState();
+    broadcastTemplateDirty();
+    found->second->sendMessage("setDoricoInstruments",
+        juce::JSON::fromString(instrumentBrowser_.getInstrumentsAsJson()));
+  } else if (id == "bus-manager") {
+    pushMixerState(false);
+    pushGroupBusState();
+    pushUndoState();
+    juce::Array<juce::var> selection;
+    for (const auto &strip : mixerSelection_)
+      if (mixer_.getStrip(strip)) selection.add(strip);
+    found->second->sendMessage("setMixerSelection", selection);
+  }
 }
 
 void MainComponent::toggleDebugWindow() {
@@ -3503,7 +3561,10 @@ void MainComponent::pushAudioDiagnostics() {
   data->setProperty("minimumQueuedFrames", static_cast<juce::int64>(returnDiagnostics_.minimum_queued_frames()));
   data->setProperty("safetyMuteVersion", int(returnDiagnostics_.safety_mute_version()));
   data->setProperty("droppedMidiEvents", static_cast<juce::int64>(returnDiagnostics_.dropped_midi_events()));
-  // Main mixer only: no full-state rebuild, persistence, database query or broadcast.
+  // Only the CPU badge and performance window need this snapshot. Hidden
+  // windows retain the latest state without scheduling JavaScript work.
+  if (const auto performance = toolWindows_.find("audio-performance"); performance != toolWindows_.end())
+    performance->second->sendMessage("setAudioDiagnostics", juce::var(data));
   const auto json = juce::JSON::toString(juce::var(data), true);
   diagnosticsUpdatePending_ = true;
   juce::Component::SafePointer<MainComponent> safeThis(this);
@@ -3571,6 +3632,14 @@ void MainComponent::broadcastMessage(const juce::String &type,
     debugUiFeed_.push(type, data);
     return;
   }
+  static const juce::StringArray chairTopics{
+      "setChairState", "setDoricoInstruments", "setTemplateDirty", "setUndoState",
+      "chairOperationResult", "chairTemplateResult"};
+  static const juce::StringArray busTopics{"setGroupBusState", "setMixerState", "setUndoState"};
+  for (auto &[id, window] : toolWindows_)
+    if ((id == "chairs" && chairTopics.contains(type)) ||
+        (id == "bus-manager" && busTopics.contains(type)))
+      window->sendMessage(type, data);
   auto *envelope = new juce::DynamicObject();
   envelope->setProperty("type", type);
   envelope->setProperty("data", data);
@@ -3647,6 +3716,43 @@ void MainComponent::setupJsHandlers() {
   jsRouter_.registerHandler("requestMixPrintState", [this](const juce::var &) {
     safeCallAsync([this] { pushMixPrintState(); });
   });
+  jsRouter_.registerHandler("hidePrintWindow", [this](const juce::var &) {
+    safeCallAsync([this] {
+      if (const auto print = toolWindows_.find("print"); print != toolWindows_.end())
+        print->second->closeButtonPressed();
+    });
+  });
+  jsRouter_.registerHandler("hideToolWindow", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1) return;
+    const auto id = payload[0].toString();
+    safeCallAsync([this, id] {
+      if (const auto window = toolWindows_.find(id); window != toolWindows_.end())
+        window->second->closeButtonPressed();
+    });
+  });
+  jsRouter_.registerHandler("toolWindowReady", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1) return;
+    const auto id = payload[0].toString();
+    safeCallAsync([this, id] {
+      if (const auto window = toolWindows_.find(id); window != toolWindows_.end()) {
+        window->second->ready();
+        refreshToolWindow(id);
+      }
+    });
+  });
+  jsRouter_.registerHandler("setMixerSelection", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1 || !payload[0].isArray()) return;
+    mixerSelection_.clear();
+    juce::Array<juce::var> selection;
+    for (const auto &value : *payload[0].getArray()) {
+      const auto id = value.toString();
+      if (mixer_.getStrip(id) && !mixerSelection_.contains(id)) {
+        mixerSelection_.add(id); selection.add(id);
+      }
+    }
+    if (const auto window = toolWindows_.find("bus-manager"); window != toolWindows_.end())
+      window->second->sendMessage("setMixerSelection", selection);
+  });
   jsRouter_.registerHandler("startMixPrint", [this](const juce::var &payload) {
     if (!payload.isArray() || payload.size() > 1) return;
     const auto tailSeconds = payload.size() == 1 ? static_cast<double>(payload[0]) : 5.0;
@@ -3685,6 +3791,7 @@ void MainComponent::setupJsHandlers() {
             auto file = results[0];
             if (file.getFileExtension().isEmpty())
               file = file.withFileExtension(".wav");
+            safeThis->printErrorOverride_.clear();
             const auto error = safeThis->renderAhead_
                                    ? safeThis->renderAhead_->startMixPrint(file, tailSeconds)
                                    : juce::String("Audio rendering is not running");
@@ -3729,6 +3836,7 @@ void MainComponent::setupJsHandlers() {
               safeThis->pushMixPrintState("Stop Dorico playback before arming stems");
               return;
             }
+            safeThis->printErrorOverride_.clear();
             const auto error = safeThis->renderAhead_
                 ? safeThis->renderAhead_->startStemPrint(fc.getResult(), busIds, includeMaster, tailSeconds)
                 : juce::String("Audio rendering is not running");

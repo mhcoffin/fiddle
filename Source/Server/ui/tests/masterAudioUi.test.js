@@ -8,6 +8,7 @@ const panelSource = readFileSync(
     new URL("../src/lib/MasterAudioPanel.svelte", import.meta.url),
     "utf8",
 );
+const printSource = readFileSync(new URL("../src/lib/PrintPanel.svelte", import.meta.url), "utf8");
 
 const plugins = [
     { uid: 3, name: "Hall", manufacturer: "Zed", category: "Reverb", valid: true, compatibleAsEffect: true },
@@ -32,7 +33,16 @@ test("master gain is finite and constrained", () => {
     assert.equal(clampMasterGain("nope"), 0);
 });
 
-test("Master Audio exposes a transport-gated real-time WAV print control", () => {
+test("printing lives in an independent pane rather than Master FX", () => {
+    assert.doesNotMatch(panelSource, /startMixPrint|requestMixPrintState|print-section/);
+    assert.match(panelSource, /resetMasterLoudness/);
+    assert.match(panelSource, /Master inserts/);
+    assert.match(printSource, /dispatchCpp\("hidePrintWindow"\)/);
+    assert.match(printSource, /setToolWindowVisible/);
+});
+
+test("Print Audio exposes transport-gated WAV controls", () => {
+    const panelSource = printSource;
     assert.match(panelSource, /Print audio/);
     assert.match(panelSource, /dispatchCpp\("startMixPrint", tailSeconds\)/);
     assert.match(panelSource, /dispatchCpp\("stopMixPrint"\)/);

@@ -108,15 +108,9 @@
         dispatchCpp("installChairTemplate");
     };
 
-    const closeFromBackdrop = (event) => {
-        if (event.target === event.currentTarget) onClose();
-    };
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={closeFromBackdrop}>
-    <dialog class="panel" aria-label="Chair Manager" open>
+<dialog class="panel" aria-label="Chair Manager" open>
         <header>
             <div>
                 <h2>Chair Manager</h2>
@@ -284,12 +278,13 @@
                 </section>
             </div>
         {/if}
-    </dialog>
-</div>
+</dialog>
 
 <style>
-    .backdrop { position:absolute; inset:0; z-index:55; display:flex; justify-content:flex-end; background:rgba(2,6,23,.66); backdrop-filter:blur(2px); }
-    .panel { position:relative; margin:0 0 0 auto; padding:0; width:min(1000px, calc(100% - 48px)); height:100%; display:flex; flex-direction:column; background:#0b1220; color:#e2e8f0; border:0; border-left:1px solid #334155; box-shadow:-16px 0 40px rgba(0,0,0,.42); }
+    header { flex-shrink: 0; flex-wrap: wrap; }
+    .content { flex: 1; min-height: 0; }
+    @media (max-width: 650px) { .header-actions { flex-wrap: wrap; } header { padding: 16px; } .content { padding: 16px; } }
+    .panel { position:relative; margin:0; padding:0; width:100%; max-width:none; height:100vh; max-height:none; box-sizing:border-box; display:flex; flex-direction:column; border:0; border-radius:0; background:#0b1220; color:#e2e8f0; overflow:hidden; }
     header,.header-actions,.intro-row,.family-heading,.chair-row,.add-heading,.add-footer { display:flex; align-items:center; }
     header { justify-content:space-between; gap:24px; padding:22px 26px; border-bottom:1px solid #273449; background:#111c2e; }
     h2,h3,h4,p { margin:0; } h2 { font-size:1.45rem; color:#f8fafc; } h3 { font-size:1.05rem; color:#f1f5f9; } h4 { font-size:.9rem; text-transform:uppercase; letter-spacing:.08em; color:#94a3b8; }

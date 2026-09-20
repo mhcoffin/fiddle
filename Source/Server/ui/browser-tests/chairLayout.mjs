@@ -37,6 +37,21 @@ try {
     page.setDefaultTimeout(10000);
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
+    async function openTool(id) {
+        const tool = await context.newPage();
+        tool.setDefaultTimeout(10000);
+        tool.on("pageerror", error => errors.push(error.message));
+        await tool.setViewportSize({ width: 1040, height: 780 });
+        await tool.addInitScript(() => {
+            window.fixtureMessages = [];
+            window.__JUCE__ = { backend: { emitEvent: (_event, request) => window.fixtureMessages.push(request.params[0]) } };
+        });
+        await tool.goto(`http://127.0.0.1:${server.address().port}/?mode=${id}`);
+        await tool.waitForSelector(".tool-pane");
+        assert.equal(await tool.locator(".mixer-container").count(), 0);
+        assert.ok(await tool.evaluate(id => window.fixtureMessages.some(m => m.type === "toolWindowReady" && m.payload[0] === id), id));
+        return tool;
+    }
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.waitForSelector(".mixer-container");
     await page.evaluate(() => {
@@ -91,7 +106,7 @@ try {
                 strip.sends = strip.sends.map((s) => s.id === id ? { ...s, preFader } : s);
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
             }
-            if (message.type === "showView" && ["inspector", "audio-bank", "chairs", "bus-manager", "audio-performance"].includes(message.payload[0]))
+            if (message.type === "showView" && ["inspector", "audio-bank"].includes(message.payload[0]))
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
         } } };
         window.__dispatchFromCpp({ type: "setPluginList", data: [
@@ -144,9 +159,33 @@ try {
     const masterDialog = page.getByRole("dialog", { name: "Master Audio", exact: true });
     assert.match(await masterDialog.locator(".loudness-values").innerText(), /-18.4/);
     assert.match(await masterDialog.locator(".loudness-section").innerText(), /1:01/);
-    const stemMode = masterDialog.getByRole("radio", { name: "Selected bus stems", exact: true });
-    const printTail = masterDialog.getByRole("textbox", { name: "Tail after Stop in seconds", exact: true });
-    const printTailKnob = masterDialog.getByRole("slider", { name: "Tail after Stop", exact: true });
+    assert.equal(await masterDialog.locator(".print-section").count(), 0, "printing is no longer hidden in Master FX");
+    await masterDialog.getByRole("button", { name: "Close Master Audio", exact: true }).click();
+    await page.getByRole("button", { name: "View", exact: true }).click();
+    await page.getByRole("button", { name: "Print Audio…", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "showView" && m.payload[0] === "print")));
+    await stripLoudness.click();
+
+    // The native window loads this isolated entry point, not another mixer.
+    const printPage = await context.newPage();
+    printPage.on("pageerror", error => errors.push(error.message));
+    await printPage.setViewportSize({ width: 760, height: 780 });
+    await printPage.addInitScript(() => {
+        window.fixtureMessages = [];
+        window.__JUCE__ = { backend: { emitEvent: (_event, request) => window.fixtureMessages.push(request.params[0]) } };
+    });
+    await printPage.goto(new URL("?mode=print", page.url()).href);
+    const printPane = printPage.getByRole("main", { name: "Print Audio", exact: true });
+    await printPane.waitFor();
+    assert.equal(await printPage.locator(".mixer-container").count(), 0);
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "requestMixPrintState")));
+    assert.ok(await printPage.evaluate(() => !window.fixtureMessages.some(m => m.type === "signalReady")));
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: {
+        armed: false, buses: [{ id: "bus-strings", name: "Strings" }],
+    } }));
+    const stemMode = printPane.getByRole("radio", { name: "Selected bus stems", exact: true });
+    const printTail = printPane.getByRole("textbox", { name: "Tail after Stop in seconds", exact: true });
+    const printTailKnob = printPane.getByRole("slider", { name: "Tail after Stop", exact: true });
     assert.equal(await printTail.inputValue(), "5.0");
     await printTailKnob.press("ArrowUp");
     assert.equal(await printTail.inputValue(), "5.5");
@@ -159,42 +198,62 @@ try {
     await printTail.fill("8");
     await printTail.press("Tab");
     await stemMode.check();
-    const masterOutput = masterDialog.getByRole("checkbox", { name: "Master mix (includes Master processing)", exact: true });
-    const busOutput = masterDialog.getByRole("checkbox", { name: "Strings", exact: true });
+    const masterOutput = printPane.getByRole("checkbox", { name: "Master mix (includes Master processing)", exact: true });
+    const busOutput = printPane.getByRole("checkbox", { name: "Strings", exact: true });
     await busOutput.check();
-    const armStems = masterDialog.getByRole("button", { name: "Choose folder & arm", exact: true });
+    const armStems = printPane.getByRole("button", { name: "Choose folder & arm", exact: true });
     await armStems.click();
-    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], true, 8]))));
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], true, 8]))));
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
-        await masterDialog.locator(".print-section").scrollIntoViewIfNeeded();
-        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "stem-printing.png") });
+        await printPane.locator(".print-section").scrollIntoViewIfNeeded();
+        await printPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "stem-printing.png") });
     }
-    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: {
-        armed: true, recording: false, stemMode: true, includeMaster: true, busIds: ["bus-strings"], tailSeconds: 8,
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: {
+        armed: true, recording: false, stemMode: true, includeMaster: true, busIds: ["bus-strings"], tailSeconds: 8, buses: [{ id: "bus-strings", name: "Strings" }],
         files: ["/fixture/00 Master.wav", "/fixture/01 Strings.wav"], filePath: "/fixture", fileName: "fixture",
     } }));
     assert.ok(await stemMode.isDisabled());
     assert.ok(await busOutput.isDisabled());
     assert.ok(await printTail.isDisabled());
     assert.equal(await printTailKnob.getAttribute("aria-disabled"), "true");
-    assert.match(await masterDialog.locator(".print-status").innerText(), /2 synchronized stereo WAV files/);
-    await masterDialog.getByRole("button", { name: "Cancel armed print", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "stopMixPrint")));
-    await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: { armed: false } }));
+    assert.match(await printPane.locator(".print-status").innerText(), /2 synchronized stereo WAV files/);
+    await printPane.getByRole("button", { name: "Cancel armed print", exact: true }).click();
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "stopMixPrint")));
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: { armed: false, buses: [{ id: "bus-strings", name: "Strings" }] } }));
     await masterOutput.uncheck();
     await busOutput.uncheck();
     assert.ok(await armStems.isDisabled(), "cannot arm zero outputs");
     await busOutput.check();
     await armStems.click();
-    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], false, 8]))));
-    await masterDialog.getByRole("radio", { name: "Master mix", exact: true }).check();
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "startStemPrint" && JSON.stringify(m.payload) === JSON.stringify([["bus-strings"], false, 8]))));
+    await printPane.getByRole("radio", { name: "Master mix", exact: true }).check();
     await printTail.fill("");
     await printTail.press("Tab");
     assert.equal(await printTail.inputValue(), "8.0", "invalid knob text restores the previous value");
     await printTail.fill("0");
     await printTail.press("Tab");
-    await masterDialog.getByRole("button", { name: "Choose WAV & arm", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "startMixPrint" && JSON.stringify(m.payload) === "[0]")));
+    await printPane.getByRole("button", { name: "Choose WAV & arm", exact: true }).click();
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "startMixPrint" && JSON.stringify(m.payload) === "[0]")));
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixPrintState", data: {
+        armed: true, recording: true, capturingTail: true, stemMode: true, includeMaster: false,
+        busIds: ["bus-strings"], tailSeconds: 8, buses: [{ id: "bus-strings", name: "Strings" }],
+        files: ["/fixture/01 Strings.wav"], fileName: "fixture", durationSeconds: 42,
+    } }));
+    assert.match(await printPane.locator(".print-status").innerText(), /Printing tail/);
+    const stopsBeforeClose = await printPage.evaluate(() => window.fixtureMessages.filter(m => m.type === "stopMixPrint").length);
+    await printPane.getByRole("button", { name: "Close Print Audio", exact: true }).click();
+    assert.ok(await printPage.evaluate(() => window.fixtureMessages.some(m => m.type === "hidePrintWindow")));
+    assert.equal(await printPage.evaluate(() => window.fixtureMessages.filter(m => m.type === "stopMixPrint").length), stopsBeforeClose);
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setToolWindowVisible", data: false }));
+    const pollsBeforeHide = await printPage.evaluate(() => window.fixtureMessages.filter(m => m.type === "requestMixPrintState").length);
+    await printPage.waitForTimeout(600);
+    assert.equal(await printPage.evaluate(() => window.fixtureMessages.filter(m => m.type === "requestMixPrintState").length), pollsBeforeHide);
+    await printPage.evaluate(() => window.__dispatchFromCpp({ type: "setToolWindowVisible", data: true }));
+    assert.ok(await printPage.evaluate(count => window.fixtureMessages.filter(m => m.type === "requestMixPrintState").length > count, pollsBeforeHide));
+    assert.match(await printPane.locator(".print-status").innerText(), /Printing tail/);
+    await printPage.setViewportSize({ width: 480, height: 420 });
+    assert.ok(await printPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await printPage.close();
     await masterDialog.getByRole("button", { name: "Reset measurement", exact: true }).click();
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "resetMasterLoudness" && m.payload.length === 0)));
     await masterDialog.getByRole("button", { name: "Clear all clip indicators", exact: true }).click();
@@ -815,8 +874,12 @@ try {
     assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "redo");
     await viewButton.click();
     await page.getByRole("button", { name: "Chairs…", exact: true }).click();
-    const manager = page.getByRole("dialog", { name: "Chair Manager", exact: true });
-    await page.evaluate(() => {
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "showView" && m.payload[0] === "chairs")));
+    assert.equal(await page.getByRole("dialog", { name: "Chair Manager", exact: true }).count(), 0);
+    const chairPage = await openTool("chairs");
+    await chairPage.evaluate(chairs => { window.fixtureChairs = chairs; }, await page.evaluate(() => window.fixtureChairs));
+    const manager = chairPage.getByRole("dialog", { name: "Chair Manager", exact: true });
+    await chairPage.evaluate(() => {
         window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
         window.__dispatchFromCpp({ type: "setUndoState", data: {
             canUndo: true, canRedo: false, undoDescription: "Edit chair 'New flute'", redoDescription: "",
@@ -825,26 +888,76 @@ try {
     const firstName = manager.getByRole("textbox", { name: "Name for Flute 1", exact: true });
     await firstName.fill("New flute");
     await firstName.press("Enter");
-    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+    assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "updateChair", payload: [{ id: "chair-0", name: "New flute" }] });
-    await page.evaluate(() => window.__dispatchFromCpp({ type: "setChairState",
+    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setChairState",
         data: window.fixtureChairs.map(c => c.id === "chair-0" ? { ...c, name: "New flute" } : c) }));
     await manager.getByRole("button", { name: "Undo", exact: true }).click();
-    assert.equal((await page.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
-    await page.evaluate(() => window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs }));
+    assert.equal((await chairPage.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
+    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs }));
     assert.equal(await firstName.inputValue(), "Flute 1");
     await manager.getByRole("combobox", { name: "Player type for Flute 1", exact: true }).selectOption("section");
-    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+    assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "updateChair", payload: [{ id: "chair-0", name: "Flute 1", role: "section" }] });
     const firstRow = manager.locator(".chair-row").first();
     await firstRow.getByRole("button", { name: "Delete", exact: true }).click();
     await firstRow.getByRole("button", { name: "Confirm delete", exact: true }).click();
-    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+    assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "deleteChair", payload: ["chair-0"] });
     assert.equal(await manager.getByRole("button", { name: "Redo", exact: true }).isDisabled(), true);
     await manager.getByRole("button", { name: "Close", exact: true }).click();
+    assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["chairs"] });
+    await manager.getByRole("button", { name: "Undo", exact: true }).focus();
+    await chairPage.keyboard.press("Meta+z");
+    assert.equal((await chairPage.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await chairPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "chairs-window.png") });
+    await chairPage.setViewportSize({ width: 480, height: 420 });
+    assert.ok(await chairPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await chairPage.keyboard.press("Meta+w");
+    assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["chairs"] });
+    await chairPage.close();
+
+    const busPage = await openTool("bus-manager");
+    await busPage.evaluate(() => {
+        window.__dispatchFromCpp({ type: "setMixerState", data: [
+            { id: "one", directOutputBusId: "strings", sends: [] }, { id: "two", sends: [{ busId: "strings" }] },
+        ] });
+        window.__dispatchFromCpp({ type: "setGroupBusState", data: [{ id: "strings", name: "Strings", gainDb: 0 }] });
+        window.__dispatchFromCpp({ type: "setMixerSelection", data: ["one", "two"] });
+        window.__dispatchFromCpp({ type: "setUndoState", data: { canUndo: true, canRedo: false } });
+    });
+    const busManager = busPage.getByRole("dialog", { name: "Audio Bus Manager", exact: true });
+    assert.match(await busManager.innerText(), /2 selected strips/);
+    assert.match(await busManager.innerText(), /1 routed strip · 1 sends/);
+    await busManager.getByRole("textbox", { name: "New group bus name", exact: true }).fill("Selected submix");
+    await busManager.getByRole("button", { name: "Create from selection", exact: true }).click();
+    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "addGroupBus", payload: ["Selected submix", '["one","two"]'] });
+    await busPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixerSelection", data: ["two"] }));
+    assert.match(await busManager.innerText(), /1 selected strip will/);
+    await busPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixerState", data: [{ id: "one" }] }));
+    assert.match(await busManager.innerText(), /ready for manual strip assignment/);
+    await busManager.getByRole("textbox", { name: "Bus name", exact: true }).fill("Reverb");
+    await busManager.getByRole("textbox", { name: "Bus name", exact: true }).press("Tab");
+    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "renameGroupBus", payload: ["strings", "Reverb"] });
+    await busManager.getByRole("button", { name: "Undo", exact: true }).click();
+    assert.equal((await busPage.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
+    assert.ok(await busManager.getByRole("button", { name: "Redo", exact: true }).isDisabled());
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await busPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bus-manager-window.png") });
+    await busPage.setViewportSize({ width: 480, height: 420 });
+    assert.ok(await busPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+    await busManager.getByRole("button", { name: "Close", exact: true }).click();
+    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["bus-manager"] });
+    await busPage.close();
+    await page.getByRole("button", { name: "Audio performance", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "showView" && m.payload[0] === "audio-performance")));
+    assert.equal(await page.getByRole("dialog", { name: "Audio performance", exact: true }).count(), 0);
+    const performancePage = await openTool("audio-performance");
     // Audio diagnostics use isolated fixtures, never the live server/device.
-    await page.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
+    await performancePage.evaluate(() => window.__dispatchFromCpp({ type: "setAudioDiagnostics", data: {
         running: true, ageMs: 0, load: 70, peakLoad: 88, sampleRate: 44100,
         blockSize: 512, buildConfiguration: "Release", returnFresh: true, returnSampleRate: 44100,
         returnProtocol: 2, requestedDelayMs: 1000, effectiveDelayMs: 1000,
@@ -857,8 +970,7 @@ try {
             ageMs: 100, blockSize: 512, sampleRate: 44100,
         })),
     } }));
-    await page.getByRole("button", { name: "Audio performance", exact: true }).click();
-    const performance = page.getByRole("dialog", { name: "Audio performance", exact: true });
+    const performance = performancePage.getByRole("dialog", { name: "Audio performance", exact: true });
     await performance.waitFor({ state: "visible" });
     assert.match(await performance.innerText(), /61.2 ms queued · 69.7 ms target/);
     assert.match(await performance.innerText(), /Render-ahead reserve · Idle/);
@@ -872,11 +984,11 @@ try {
     assert.match(await performance.locator("tbody tr").first().innerText(), /Violin 30/);
     for (const name of ["Close", "Mark crackle", "Copy report"]) {
         const rect = await performance.getByRole("button", { name, exact: true }).boundingBox();
-        assert.ok(rect && rect.y >= 0 && rect.y + rect.height <= 900, `${name} must stay visible with many plugins`);
+        assert.ok(rect && rect.y >= 0 && rect.y + rect.height <= 780, `${name} must stay visible with many plugins`);
     }
     await performance.getByRole("button", { name: "Mark crackle", exact: true }).click();
     await performance.getByRole("button", { name: "Copy report", exact: true }).click();
-    const copied = await page.evaluate(() => window.fixtureMessages.findLast(x => x.type === "copyAudioDiagnosticsReport"));
+    const copied = await performancePage.evaluate(() => window.fixtureMessages.findLast(x => x.type === "copyAudioDiagnosticsReport"));
     assert.ok(copied, "copy button must dispatch a diagnostic report");
     const report = JSON.parse(copied.payload[0]);
     assert.equal(report.marks.length, 1);
@@ -884,12 +996,13 @@ try {
     assert.equal(report.samples[0].device.bufferSize, 512);
     assert.equal(report.samples[0].renderAhead.targetMs, 69.7);
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
-        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-performance.png") });
+        await performancePage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-performance.png") });
     await performance.locator("tbody tr").first().scrollIntoViewIfNeeded();
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
-        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-plugin-timings.png") });
+        await performancePage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "audio-plugin-timings.png") });
     await performance.getByRole("button", { name: "Close", exact: true }).click();
-    await performance.waitFor({ state: "hidden" });
+    assert.deepEqual(await performancePage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["audio-performance"] });
+    await performancePage.close();
     await viewButton.click();
     await page.getByRole("button", { name: "Settings…", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),

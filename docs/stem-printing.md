@@ -1,6 +1,12 @@
 # Real-time stem printing
 
-In **Master Audio → Print audio**, choose **Selected bus stems**, check the
+Open **View → Windows → Print Audio** in the application menu, or **Print Audio**
+under the **Windows** heading in the mixer toolbar's View menu.
+Printing has its own non-modal window, separate from Master Audio effects.
+Closing the window hides it without cancelling or stopping a take; reopen it
+from View to check progress or finish. Hidden windows stop polling print status.
+
+Choose **Selected bus stems**, check the
 group/FX buses to export, and optionally include **Master mix**. Choose a parent
 folder and arm. Each take creates a new timestamped, uniquely named subfolder;
 existing stem files are never overwritten. Numbered, sanitized names distinguish

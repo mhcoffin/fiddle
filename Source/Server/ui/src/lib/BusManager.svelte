@@ -5,6 +5,7 @@
         buses = [],
         strips = [],
         selectedStripIds = [],
+        undoState = { canUndo: false, canRedo: false },
         onClose = () => {},
     } = $props();
 
@@ -26,16 +27,17 @@
     };
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="backdrop" onclick={(event) => event.target === event.currentTarget && onClose()}>
-    <dialog class="panel" aria-label="Bus Manager" open>
+<dialog class="panel" aria-label="Audio Bus Manager" open>
         <header>
             <div>
-                <h2>Bus Manager</h2>
+                <h2>Audio Bus Manager</h2>
                 <p>Create stereo buses for submixes or shared send effects.</p>
             </div>
-            <button class="close" onclick={onClose}>Close</button>
+            <div class="actions">
+                <button disabled={!undoState.canUndo} onclick={() => dispatchCpp("undo")}>Undo</button>
+                <button disabled={!undoState.canRedo} onclick={() => dispatchCpp("redo")}>Redo</button>
+                <button class="close" onclick={onClose}>Close</button>
+            </div>
         </header>
 
         <div class="content">
@@ -124,12 +126,13 @@
                 {/if}
             </section>
         </div>
-    </dialog>
-</div>
+</dialog>
 
 <style>
-    .backdrop { position: absolute; inset: 0; z-index: 54; display: flex; justify-content: center; align-items: flex-start; padding: 5vh 32px; box-sizing: border-box; background: rgba(2, 6, 23, 0.7); backdrop-filter: blur(3px); }
-    .panel { margin: 0; padding: 0; width: min(1040px, 100%); max-height: 90vh; display: flex; flex-direction: column; border: 1px solid #334155; border-radius: 12px; background: #0b1220; color: #e2e8f0; box-shadow: 0 24px 70px rgba(0,0,0,.52); }
+    header { flex-shrink: 0; flex-wrap: wrap; }
+    .content { flex: 1; min-height: 0; }
+    @media (max-width: 650px) { .create-controls { flex-wrap: wrap; } header { padding: 16px; } .content { padding: 16px; } }
+    .panel { position:relative; margin:0; padding:0; width:100%; max-width:none; height:100vh; max-height:none; box-sizing:border-box; display:flex; flex-direction:column; border:0; border-radius:0; background:#0b1220; color:#e2e8f0; overflow:hidden; }
     header, .section-heading, .create, .create-controls, .bus-row, .gain, .monitor, .actions { display: flex; align-items: center; }
     header { justify-content: space-between; gap: 24px; padding: 24px 28px; border-bottom: 1px solid #273449; background: #111c2e; }
     h2, h3, p { margin: 0; }

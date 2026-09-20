@@ -17,6 +17,7 @@ public:
   static constexpr int kAudioBankMenuItemId = 103;
   static constexpr int kLibraryManagerMenuItemId = 104;
   static constexpr int kHistoryMenuItemId = 105;
+  static constexpr int kPrintMenuItemId = 106;
   static constexpr int kChairsMenuItemId = 111;
   static constexpr int kBusesMenuItemId = 112;
   static constexpr int kPluginsMenuItemId = 113;
@@ -139,27 +140,26 @@ public:
       // remain a reliable way to reach this command.
       menu.addItem(kRestartMenuItemId, "Restart Fiddle");
     } else if (menuIndex == 1) {
-      juce::PopupMenu workspace;
-      workspace.addItem(kMainMixerMenuItemId, "Main Mixer");
-      workspace.addItem(kInspectorMenuItemId, "Layer Inspector");
-      workspace.addItem(kAudioBankMenuItemId, "Audio Buses & Master");
-      workspace.addItem(kLibraryManagerMenuItemId, "Library Manager");
-      workspace.addItem(kHistoryMenuItemId, "Project History");
-      menu.addSubMenu("Workspace", workspace);
+      juce::PopupMenu windows;
+      windows.addItem(kMainMixerMenuItemId, "Main Mixer");
+      windows.addItem(kPrintMenuItemId, "Print Audio...");
+      windows.addItem(kChairsMenuItemId, "Chairs...");
+      windows.addItem(kBusesMenuItemId, "Audio Bus Manager...");
+      windows.addItem(kSettingsMenuItemId, "Settings...");
+      windows.addItem(kLibraryManagerMenuItemId, "Library Manager");
+      windows.addItem(kHistoryMenuItemId, "Project History");
+      windows.addSeparator();
+      windows.addItem(kAudioPerformanceMenuItemId, "Audio Performance");
+      windows.addItem(kPluginsMenuItemId, "Plug-ins...");
+      windows.addItem(kTimelineMenuItemId, "Timeline");
+      windows.addItem(kEventLogMenuItemId, "Event Log");
+      windows.addItem(kMidiCaptureMenuItemId, "MIDI Capture");
+      menu.addSubMenu("Windows", windows);
 
-      juce::PopupMenu setup;
-      setup.addItem(kChairsMenuItemId, "Chairs...");
-      setup.addItem(kBusesMenuItemId, "Audio Buses...");
-      setup.addItem(kPluginsMenuItemId, "Plug-ins...");
-      setup.addItem(kSettingsMenuItemId, "Settings...");
-      menu.addSubMenu("Setup", setup);
-
-      juce::PopupMenu diagnostics;
-      diagnostics.addItem(kAudioPerformanceMenuItemId, "Audio Performance");
-      diagnostics.addItem(kTimelineMenuItemId, "Timeline");
-      diagnostics.addItem(kEventLogMenuItemId, "Event Log");
-      diagnostics.addItem(kMidiCaptureMenuItemId, "MIDI Capture");
-      menu.addSubMenu("Diagnostics", diagnostics);
+      juce::PopupMenu layout;
+      layout.addItem(kInspectorMenuItemId, "Layer Inspector");
+      layout.addItem(kAudioBankMenuItemId, "Audio Buses & Master");
+      menu.addSubMenu("Mixer layout", layout);
     }
     return menu;
   }
@@ -215,6 +215,7 @@ private:
     case kAudioBankMenuItemId: return "audio-bank";
     case kLibraryManagerMenuItemId: return "library-manager";
     case kHistoryMenuItemId: return "project-history";
+    case kPrintMenuItemId: return "print";
     case kChairsMenuItemId: return "chairs";
     case kBusesMenuItemId: return "bus-manager";
     case kPluginsMenuItemId: return "plugins";
