@@ -204,6 +204,21 @@ integration/acceptance work below.
 
 ## Next stages
 
+The read-only [technique catalog](technique-catalog.md) has a native
+`technique_catalog` fixture suite, pure UI scope/filter tests, and a separate
+optional rendered test:
+
+```sh
+node Source/Server/ui/browser-tests/techniqueCatalog.mjs
+```
+
+It uses the same Playwright/browser environment variables as the chair-layout
+test. To audit real libraries without touching the live project, set
+`FIDDLE_TECHNIQUE_SCAN_TOOL` to `build/release/TechniqueCatalogTest` (absolute
+path) and `FIDDLE_TECHNIQUE_SCAN_ARGS` to a JSON argument array of pairs such as
+`["--installed", "/path/to/DefaultLibraryAdditions", "--reference", "/path/to/Art-Conductor"]`.
+No vendor data is part of the fixture tests or checked into the repository.
+
 1. Add rendered UI interaction tests, replacing fragile source checks where
    practical. Exercise selection, button enablement, dialogs, and undo.
 2. Build a small host for the actual Fiddle VST3, with an isolated server

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <functional>
 #include <juce_core/juce_core.h>
 #include <map>
 #include <set>
@@ -28,6 +29,11 @@ public:
     std::vector<int> defaultValues;
     // Maps CC value to technique name (e.g., 0 -> "Natural")
     std::map<int, juce::String> techniques;
+    // Source metadata for versioned repair previews. Legacy playback still
+    // uses `techniques`; retaining these IDs does not change the live decoder.
+    std::map<int, std::set<std::string>> sourceTechniqueIDs;
+    bool sourceIdentityAmbiguous = false;
+    std::set<int> ambiguousSourceValues;
   };
 
   ExpressionMap() = default;
@@ -42,6 +48,7 @@ public:
 
     dimensions.clear();
     ccToDimensionIdx.clear();
+    usedReservedControllers.clear();
 
     // Find the ExpressionMapDefinition named "Fiddle"
     auto *exprMapDefs = xml->getChildByName("expressionMapDefinitions");
@@ -65,6 +72,16 @@ public:
     }
     if (!fiddleMap)
       return false;
+    std::function<void(const juce::XmlElement &)> collectControllers = [&](const juce::XmlElement &element) {
+      const auto *type = element.getChildByName("type");
+      const auto *param = element.getChildByName("param1");
+      if (type && param && (type->getAllSubText().trim() == "kControlChange" || type->getAllSubText().trim() == "kCC")) {
+        const int cc = param->getAllSubText().trim().getIntValue();
+        if (cc >= 102 && cc <= 119) usedReservedControllers.insert(cc);
+      }
+      for (const auto *child : element.getChildIterator()) collectControllers(*child);
+    };
+    collectControllers(*fiddleMap);
 
     // ---------------------------------------------------------------
     // Step 1: Parse techniqueAddOns → build techniqueID → {cc, value, offValue}
@@ -175,6 +192,7 @@ public:
             // Build human-readable name from techniqueID
             juce::String displayName = humanizeTechniqueID(techID);
             dim.techniques[addOn.ccValue] = displayName;
+            rememberIdentity(dim, addOn.ccValue, techID);
 
             // Derive default value from switchOffActions
             if (addOn.offValue >= 0) {
@@ -189,6 +207,8 @@ public:
 
       // Validate: all add-ons in this MEG should use the same CC
       if (ccNumbers.size() > 1) {
+        dim.sourceIdentityAmbiguous = true;
+        for (const auto &[value, ids] : dim.sourceTechniqueIDs) dim.ambiguousSourceValues.insert(value);
         std::cerr << "[ExpressionMap] WARNING: MEG '" << dim.name
                   << "' uses multiple CCs:";
         for (int cc : ccNumbers)
@@ -258,6 +278,7 @@ public:
                 int ccVal = p2->getAllSubText().trim().getIntValue();
                 juce::String displayName = humanizeTechniqueID(techID);
                 articulationDim.techniques[ccVal] = displayName;
+                rememberIdentity(articulationDim, ccVal, techID);
                 articulationDim.ccNumber = 102;
 
                 // Record dynamics mode for this base switch
@@ -297,6 +318,7 @@ public:
   }
 
   const std::vector<Dimension> &getDimensions() const { return dimensions; }
+  const std::set<int> &getUsedReservedControllers() const { return usedReservedControllers; }
 
   const Dimension *getDimensionForCC(int cc) const {
     auto it = ccToDimensionIdx.find(cc);
@@ -318,6 +340,22 @@ private:
   std::map<int, int> ccToDimensionIdx;
   // Maps CC102 value → whether dynamics uses CC1 (true) or velocity (false)
   std::map<int, bool> baseSwitchDynamicsCC1;
+  std::set<int> usedReservedControllers;
+
+  static void rememberIdentity(Dimension &dim, int value, const juce::String &raw) {
+    std::set<std::string> ids;
+    for (auto id : juce::StringArray::fromTokens(raw, ",+", "")) {
+      id = id.trim();
+      if (id.isNotEmpty()) ids.insert(id.toStdString());
+    }
+    const auto found = dim.sourceTechniqueIDs.find(value);
+    if (found != dim.sourceTechniqueIDs.end() && found->second != ids) {
+      dim.sourceIdentityAmbiguous = true;
+      dim.ambiguousSourceValues.insert(value);
+      ids.insert(found->second.begin(), found->second.end());
+    }
+    dim.sourceTechniqueIDs[value] = std::move(ids);
+  }
 
   /// Convert "pt.staccato" → "Staccato", "pt.user.glissando" → "Glissando",
   /// "pt.staccato+pt.tenuto" → "Staccato+Tenuto", etc.

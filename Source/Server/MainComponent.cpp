@@ -220,6 +220,7 @@ void MainComponent::initExpressionMapLibrary() {
   }
 
   if (doricolibFile.exists()) {
+    bridgeExpressionMapFile_ = doricolibFile;
     if (expressionMap.loadFromDoricolib(doricolibFile)) {
       pushLogMessage("<b>[ExpressionMap]</b> Loaded from " +
                      doricolibFile.getFileName());
@@ -2951,7 +2952,8 @@ void MainComponent::pushToDebugWindow(const juce::String &js) {
 void MainComponent::showView(const juce::String &viewId) {
   static const std::map<juce::String, juce::String> tools{
       {"print", "Print Audio"}, {"chairs", "Chairs"},
-      {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"}};
+      {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"},
+      {"technique-catalog", "Technique Catalog"}};
   if (const auto spec = tools.find(viewId); spec != tools.end()) {
     auto &window = toolWindows_[viewId];
     if (!window) {
@@ -3026,6 +3028,11 @@ void MainComponent::refreshToolWindow(const juce::String &id) {
   const auto found = toolWindows_.find(id);
   if (found == toolWindows_.end()) return;
   if (id == "print") pushMixPrintState();
+  else if (id == "technique-catalog") {
+    if (!techniqueCatalogScan_.running() && techniqueCatalogScan_.state()["report"].isVoid())
+      scanTechniqueCatalog(false);
+    pushTechniqueCatalogState(true);
+  }
   else if (id == "audio-performance") pushAudioDiagnostics();
   else if (id == "chairs") {
     pushChairState();
@@ -3042,6 +3049,80 @@ void MainComponent::refreshToolWindow(const juce::String &id) {
       if (mixer_.getStrip(strip)) selection.add(strip);
     found->second->sendMessage("setMixerSelection", selection);
   }
+}
+
+void MainComponent::scanTechniqueCatalog(bool includeReference) {
+  if (techniqueCatalogScan_.running()) return;
+  TechniqueCatalog::Request request;
+  request.includeReference = includeReference;
+  request.decoder = expressionMap.getDimensions();
+  request.reservedControllers = expressionMap.getUsedReservedControllers();
+  std::map<juce::String, juce::String> chairNames;
+  if (auto *repository = db_.getLibraryRoutingRepository())
+    for (const auto &chair : repository->listChairs()) chairNames[chair.id] = chair.name;
+  const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+#if JUCE_MAC
+  // Platform discovery stays outside the portable parser/scanner. Additional
+  // sources can always be selected explicitly on other installations.
+  const juce::File resources("/Applications/Dorico 6.app/Contents/Resources");
+  for (const auto *name : {"playingTechniqueDefinitions.xml", "scoreLibrary.xml"})
+    request.sources.push_back({resources.getChildFile(name), "builtin", {}});
+  request.sources.push_back({home.getChildFile("Library/Application Support/Steinberg/Dorico 6/DefaultLibraryAdditions"), "installed", {}});
+#endif
+  if (bridgeExpressionMapFile_ != juce::File{})
+    request.sources.push_back({bridgeExpressionMapFile_, "bridge", {}});
+  std::map<std::string, juce::File> indexed;
+  for (const auto &entry : xmapLibrary_.getEntries()) indexed[entry.entityID] = entry.sourceFile;
+  const auto addUsage = [&](const juce::String &id, const juce::String &label, const juce::String &scope,
+                            const juce::String &sourcePath = {}, const juce::String &xml = {}) {
+    auto path = sourcePath;
+    if (path.isEmpty()) {
+      const auto found = indexed.find(id.toStdString());
+      if (found != indexed.end()) path = found->second.getFullPathName();
+    }
+    if (xml.isNotEmpty()) {
+      // Distinguish exact saved project XML from an external map with the same
+      // identity. This pseudo-path is a label; no file is created or read.
+      path = home.getChildFile("Fiddle catalog snapshots").getChildFile(juce::String::toHexString(label.hashCode64()) + ".doricolib").getFullPathName();
+    }
+    request.usage.push_back({id, label, scope, path});
+    if (juce::File::isAbsolutePath(path)) request.sources.push_back({juce::File(path), "assigned", xml});
+  };
+  for (auto *strip : mixer_.getAllStrips()) {
+    const auto assignment = strip->snapshotExpressionMap();
+    BridgeReachability::Assignment audit;
+    audit.chairId = strip->chairId.isNotEmpty() ? strip->chairId : "unassigned:" + strip->id;
+    const auto chairName = chairNames.find(strip->chairId);
+    audit.chairName = chairName != chairNames.end() ? chairName->second : "Unassigned chair · " + strip->id;
+    audit.layerId = strip->id;
+    audit.layerName = strip->layerName.isNotEmpty() ? strip->layerName : strip->id;
+    audit.assigned = assignment.data != nullptr;
+    if (assignment.data) audit.map = *assignment.data;
+    request.assignments.push_back(std::move(audit));
+    if (assignment.data)
+      addUsage(assignment.data->entityID, strip->layerName + " [" + strip->id + "]", "project", assignment.sourcePath, assignment.sourceXml);
+  }
+  if (auto *repository = db_.getLibraryRoutingRepository())
+    for (const auto &ref : repository->listExpressionMapReferences()) addUsage(ref.mapId, ref.label, "library");
+  for (const auto &source : techniqueCatalogExtraSources_) request.sources.push_back({source, "additional", {}});
+  if (includeReference) request.sources.push_back({home.getChildFile("Art-Conductor"), "reference", {}});
+  techniqueCatalogIncludeReference_ = includeReference;
+  techniqueCatalogScan_.start(std::move(request));
+  pushTechniqueCatalogState(true);
+}
+
+void MainComponent::pushTechniqueCatalogState(bool force) {
+  const auto found = toolWindows_.find("technique-catalog");
+  if (found == toolWindows_.end()) return;
+  auto state = techniqueCatalogScan_.state();
+  state.getDynamicObject()->setProperty("includeReference", techniqueCatalogIncludeReference_);
+  juce::Array<juce::var> extraSources;
+  for (const auto &source : techniqueCatalogExtraSources_) extraSources.add(source.getFullPathName());
+  state.getDynamicObject()->setProperty("extraSources", extraSources);
+  if (!force && techniqueCatalogLastState_["running"] == state["running"] &&
+      techniqueCatalogLastState_["files"] == state["files"] && techniqueCatalogLastState_["report"] == state["report"]) return;
+  techniqueCatalogLastState_ = state;
+  found->second->sendMessage("setTechniqueCatalogState", state);
 }
 
 void MainComponent::toggleDebugWindow() {
@@ -3674,6 +3755,59 @@ void MainComponent::pushLibraryCatalogHistory() {
 }
 
 void MainComponent::setupJsHandlers() {
+  jsRouter_.registerHandler("requestTechniqueCatalogState", [this](const juce::var &) { pushTechniqueCatalogState(); });
+  jsRouter_.registerHandler("scanTechniqueCatalog", [this](const juce::var &payload) {
+    if (payload.isArray() && payload.size() == 1 && payload[0].isBool()) scanTechniqueCatalog(bool(payload[0]));
+  });
+  jsRouter_.registerHandler("cancelTechniqueCatalogScan", [this](const juce::var &) { techniqueCatalogScan_.cancel(); });
+  jsRouter_.registerHandler("previewBridgeRepairs", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 2 || !payload[0].isBool() || !payload[1].isArray() || payload[1].size() > 2048) return;
+    BridgeRepairPlan::Options options;
+    options.preserveIdentities = bool(payload[0]);
+    for (const auto &id : *payload[1].getArray()) {
+      if (!id.isString() || id.toString().length() > 1024) return;
+      options.additions.insert(id.toString().toStdString());
+    }
+    techniqueCatalogScan_.previewRepairs(std::move(options));
+    pushTechniqueCatalogState(true);
+  });
+  jsRouter_.registerHandler("exportBridgeRepairPlan", [this](const juce::var &payload) {
+    if (!payload.isArray() || payload.size() != 1 || !payload[0].isString() || techniqueCatalogScan_.running()) return;
+    const auto state = techniqueCatalogScan_.state();
+    const auto plan = state["report"]["repairPlan"];
+    if (!plan.isObject() || bool(plan["cancelled"]) || bool(state["report"]["cancelled"]) || plan["planId"] != payload[0]) return;
+    // Export only the immutable reviewed proposal, never arbitrary UI text or
+    // an installable .doricolib. Capture it before the asynchronous chooser.
+    auto exportData = plan.clone();
+    exportData.getDynamicObject()->setProperty("snapshotAt", state["report"]["scannedAt"]);
+    const auto text = juce::JSON::toString(exportData);
+    auto chooser = std::make_shared<juce::FileChooser>("Export repair plan (review JSON, not a Dorico map)",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Fiddle Bridge Repair Plan.json"), "*.json");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
+        juce::FileBrowserComponent::warnAboutOverwriting, [safeThis, chooser, text](const juce::FileChooser &fc) {
+          if (!safeThis || fc.getResult() == juce::File{}) return;
+          const auto file = fc.getResult();
+          const bool success = file.hasFileExtension("json") && file.replaceWithText(text);
+          const auto window = safeThis->toolWindows_.find("technique-catalog");
+          if (window != safeThis->toolWindows_.end()) window->second->sendMessage("bridgeRepairExportResult",
+              !file.hasFileExtension("json") ? juce::String("Use a .json filename; this review plan is not a Dorico map.") :
+              success ? "Repair plan exported: " + file.getFullPathName() : "Could not write the repair plan: " + file.getFullPathName());
+        });
+  });
+  jsRouter_.registerHandler("addTechniqueCatalogSource", [this](const juce::var &) {
+    if (techniqueCatalogScan_.running()) return;
+    auto chooser = std::make_shared<juce::FileChooser>("Choose a Dorico library file or folder (read-only)", juce::File{}, "*.doricolib;*.xml");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::canSelectDirectories,
+        [safeThis, chooser](const juce::FileChooser &fc) {
+          if (!safeThis || safeThis->techniqueCatalogScan_.running() || !fc.getResult().exists()) return;
+          const auto source = fc.getResult();
+          auto &sources = safeThis->techniqueCatalogExtraSources_;
+          if (std::find(sources.begin(), sources.end(), source) == sources.end()) sources.push_back(source);
+          safeThis->scanTechniqueCatalog(safeThis->techniqueCatalogIncludeReference_);
+        });
+  });
   jsRouter_.registerHandler("setLibraryDraftDirty", [this](const juce::var &payload) {
     if (payload.isArray() && payload.size() > 0) libraryDraftDirty_ = (bool)payload[0];
   });

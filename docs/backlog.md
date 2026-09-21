@@ -4,6 +4,19 @@ This is the prioritized product backlog for making Fiddle a practical end-to-end
 stereo mixing environment for Dorico projects. Features already implemented are
 documented elsewhere; this list records the remaining work and intended order.
 
+## Expression-map foundation — current focus
+
+- **Dorico bridge configuration.** Read-only vocabulary catalog and current-chair
+  assigned-map audit and repair-plan preview/export implemented, awaiting user
+  smoke test. Export currently produces a review JSON, not an installable map.
+  Next: use the plan to define a canonical-ID, versioned bridge specification and
+  generate matching
+  Dorico maps/decoders. One universal profile by default, with chair-level profiles
+  as an escape hatch; every layer in a chair shares its bridge profile. Provide
+  an advanced user-facing review/preview/export/assignment workflow, explicit
+  updates, rollback and Dorico acceptance tests. See
+  [design and audit limits](dorico-bridge-profiles.md).
+
 ## Priority 0 — deliverable audio
 
 - **Validate Dorico offline export.** Detect and report VST3 offline processing.

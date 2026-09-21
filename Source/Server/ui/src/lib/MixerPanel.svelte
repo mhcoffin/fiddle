@@ -1090,6 +1090,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "bus-manager"); }}>Audio Bus Manager…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "technique-catalog"); }}>Technique Catalog…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "project-history"); }}>Project History</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-performance"); }}>Audio Performance</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>

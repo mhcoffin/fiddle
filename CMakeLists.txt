@@ -227,6 +227,9 @@ target_sources(FiddleServer PRIVATE
     Source/Server/AnnotatorChain.h
     Source/Server/FiddleConfig.h
     Source/Server/ExpressionMapParser.cpp
+    Source/Server/TechniqueCatalog.cpp
+    Source/Server/BridgeReachability.cpp
+    Source/Server/BridgeRepairPlan.cpp
     Source/Server/ExpressionMapParser.h
     Source/Server/ExpressionMapLibrary.cpp
     Source/Server/ExpressionMapLibrary.h
@@ -507,6 +510,7 @@ juce_add_console_app(ExpressionMapTest
 target_sources(ExpressionMapTest PRIVATE
     Source/Server/tests/ExpressionMapParserTest.cpp
     Source/Server/tests/ExpressionMapAnnotatorTest.cpp
+    Source/Server/BridgeReachability.cpp
     Source/Server/ExpressionMapParser.cpp
     Source/Server/NoteInspection.cpp
     "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
@@ -643,6 +647,39 @@ add_test(NAME expression_map_js_handlers COMMAND ExpressionMapJsHandlersTest)
 set_tests_properties(expression_map_js_handlers PROPERTIES
     LABELS "expression-map;regression;stable"
 )
+
+add_executable(TechniqueCatalogTest
+    Source/Server/tests/TechniqueCatalogTest.cpp
+    Source/Server/TechniqueCatalog.cpp
+    Source/Server/BridgeReachability.cpp
+    Source/Server/BridgeRepairPlan.cpp
+)
+target_link_libraries(TechniqueCatalogTest PRIVATE juce::juce_core)
+target_compile_features(TechniqueCatalogTest PRIVATE cxx_std_17)
+add_test(NAME technique_catalog COMMAND TechniqueCatalogTest)
+set_tests_properties(technique_catalog PROPERTIES LABELS "expression-map;regression;stable")
+
+add_executable(BridgeReachabilityTest
+    Source/Server/tests/BridgeReachabilityTest.cpp
+    Source/Server/BridgeReachability.cpp
+    Source/Server/ExpressionMapParser.cpp
+)
+target_link_libraries(BridgeReachabilityTest PRIVATE juce::juce_core)
+target_compile_features(BridgeReachabilityTest PRIVATE cxx_std_17)
+add_test(NAME bridge_reachability COMMAND BridgeReachabilityTest)
+set_tests_properties(bridge_reachability PROPERTIES LABELS "expression-map;regression;stable")
+
+add_executable(BridgeRepairPlanTest
+    Source/Server/tests/BridgeRepairPlanTest.cpp
+    Source/Server/BridgeRepairPlan.cpp
+    Source/Server/BridgeReachability.cpp
+    Source/Server/TechniqueCatalog.cpp
+    Source/Server/ExpressionMapParser.cpp
+)
+target_link_libraries(BridgeRepairPlanTest PRIVATE juce::juce_core)
+target_compile_features(BridgeRepairPlanTest PRIVATE cxx_std_17)
+add_test(NAME bridge_repair_plan COMMAND BridgeRepairPlanTest)
+set_tests_properties(bridge_repair_plan PROPERTIES LABELS "expression-map;regression;stable")
 
 find_program(NODE_EXECUTABLE node REQUIRED)
 # Discover every UI regression file, including newly added ones. These include

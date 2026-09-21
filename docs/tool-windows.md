@@ -3,7 +3,7 @@
 The application View menu separates **Windows** from **Mixer layout**. The
 mixer toolbar's View menu uses the same two headings.
 
-Chairs, Audio Bus Manager, Audio Performance and Print Audio use the shared
+Chairs, Audio Bus Manager, Audio Performance, Print Audio and Technique Catalog use the shared
 `ToolWindow` native host and an isolated `ToolPane` UI entry point. Each tool
 has one reusable, non-modal window: opening it again brings that window forward.
 Close, the native close button and Cmd/Ctrl-W hide it, retaining its current UI.

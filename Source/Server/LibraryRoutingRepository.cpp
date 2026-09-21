@@ -446,6 +446,19 @@ LibraryRoutingRepository::listPatches(const std::string &libraryId) const {
   return result;
 }
 
+std::vector<LibraryRoutingRepository::ExpressionMapReference>
+LibraryRoutingRepository::listExpressionMapReferences() const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, "SELECT p.expression_map_id, COALESCE(l.name, p.library_id), p.name "
+      "FROM library_patches p LEFT JOIN libraries l ON l.id = p.library_id "
+      "WHERE p.expression_map_id <> '' ORDER BY p.library_id, p.position");
+  std::vector<ExpressionMapReference> result;
+  if (statement)
+    while (sqlite3_step(statement.get()) == SQLITE_ROW)
+      result.push_back({columnText(statement.get(), 0), columnText(statement.get(), 1) + " / " + columnText(statement.get(), 2)});
+  return result;
+}
+
 int LibraryRoutingRepository::patchUsageCount(
     const std::string &patchId) const {
   std::lock_guard<std::mutex> lock(databaseMutex_);

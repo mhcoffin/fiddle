@@ -96,6 +96,9 @@ public:
   std::optional<LibraryPatchRow> getPatch(const std::string &patchId) const;
   std::vector<LibraryPatchRow>
   listPatches(const std::string &libraryId = {}) const;
+  // Catalog auditing must not copy potentially large plug-in state blobs.
+  struct ExpressionMapReference { std::string mapId, label; };
+  std::vector<ExpressionMapReference> listExpressionMapReferences() const;
   int patchUsageCount(const std::string &patchId) const;
   /// Count linked layers whose library-owned setup no longer matches the
   /// current catalog patch. Layer-owned mixer controls are ignored.

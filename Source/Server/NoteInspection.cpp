@@ -1,24 +1,6 @@
 #include "NoteInspection.h"
 
-#include <cctype>
-
 namespace fiddle {
-
-std::string techniqueIdFromDisplay(const std::string &display) {
-  if (display.empty())
-    return {};
-  if (display.size() > 3 && display[0] == 'p' && display[1] == 't' &&
-      display[2] == '.')
-    return display;
-
-  std::string id = "pt.";
-  for (const char c : display) {
-    if (c == ' ' || c == '-' || c == '_')
-      continue;
-    id += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  }
-  return id;
-}
 
 std::set<std::string> collectInputTechniqueIds(const fiddle::Note &note) {
   std::set<std::string> result;

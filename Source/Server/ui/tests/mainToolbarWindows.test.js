@@ -29,7 +29,7 @@ test("native View menu separates windows from mixer layout and tools share an is
     assert.match(native, /case kPrintMenuItemId: return "print"/);
     assert.match(component, /viewId == "print"/);
     assert.match(component, /make_unique<ToolWindow>/);
-    assert.match(entry, /\['print', 'chairs', 'bus-manager', 'audio-performance'\].includes\(toolId\) \? ToolPane : App/);
+    assert.match(entry, /\['print', 'chairs', 'bus-manager', 'audio-performance', 'technique-catalog'\].includes\(toolId\) \? ToolPane : App/);
     assert.match(window, /index.html\?mode=/);
     assert.match(native, /addSubMenu\("Windows", windows\)/);
     assert.match(native, /addSubMenu\("Mixer layout", layout\)/);

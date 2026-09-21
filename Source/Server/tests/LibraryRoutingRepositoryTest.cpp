@@ -78,6 +78,24 @@ fiddle::ChairRow makeChair(std::string id, fiddle::DoricoRole role,
   return chair;
 }
 
+void testExpressionMapReferencesAreReadOnlyMetadata() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto patch = soloViolinPatch();
+  CHECK(repository.upsertPatch(patch));
+  auto unmapped = patch;
+  unmapped.id = "unmapped";
+  unmapped.expressionMapId.clear();
+  CHECK(repository.upsertPatch(unmapped));
+  const auto changes = sqlite3_total_changes(fixture.database);
+  const auto references = repository.listExpressionMapReferences();
+  CHECK(references.size() == 1);
+  CHECK(references[0].mapId == patch.expressionMapId);
+  CHECK(references[0].label == "Vienna / Synchron Solo Violin 1");
+  CHECK(sqlite3_total_changes(fixture.database) == changes);
+  CHECK(repository.getPatch(patch.id)->pluginState == patch.pluginState);
+}
+
 void testCatalogSnapshotsAreAtomicAndRevisionSafe() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
@@ -634,6 +652,7 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
+  testExpressionMapReferencesAreReadOnlyMetadata();
   testCatalogSnapshotsAreAtomicAndRevisionSafe();
   testAtomicChairEditsAndRestoration();
   testLayerSetupBatchIsAtomicAndPreservesMix();
