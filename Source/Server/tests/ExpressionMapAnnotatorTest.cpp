@@ -1,5 +1,6 @@
 #include "../ExpressionMapAnnotator.h"
 #include "../ExpressionMapData.h"
+#include "../ExpressionMapParser.h"
 #include "../NoteInspection.h"
 #include "../BridgeReachability.h"
 #include "../NoteStreamTracker.h"
@@ -527,6 +528,112 @@ static void testResolveMatchNaturalFallback() {
 // ---------------------------------------------------------------------------
 // Test: null emData
 // ---------------------------------------------------------------------------
+
+static void testNaturalFallbackAddOnsAndCompoundLengths() {
+  std::cout << "--- testNaturalFallbackAddOnsAndCompoundLengths ---" << std::endl;
+  // Minimal vendor-shaped fixture: natural is implicit in incoming notes,
+  // while the map spells it out and supplies a separate mute add-on.
+  auto map = std::make_shared<ExpressionMapData>();
+  A_CHECK(parseExpressionMapXml(R"xml(
+    <root><expressionMapDefinitions><entities>
+    <ExpressionMapDefinition><name>Fallback regression</name>
+      <playingTechniqueCombinations>
+        <playingTechniqueCombination><name>Natural long</name><techniqueIDs>pt.natural</techniqueIDs><conditionString>NoteLength &gt; kShort</conditionString></playingTechniqueCombination>
+        <playingTechniqueCombination><name>Natural very short</name><techniqueIDs>pt.natural</techniqueIDs><conditionString>NoteLength == kVeryShort</conditionString></playingTechniqueCombination>
+        <playingTechniqueCombination><name>Natural short</name><techniqueIDs>pt.natural</techniqueIDs><conditionString>NoteLength &lt;= kShort AND NoteLength &gt; kVeryShort</conditionString></playingTechniqueCombination>
+        <playingTechniqueCombination><name>Staccato</name><techniqueIDs>pt.staccato</techniqueIDs></playingTechniqueCombination>
+      </playingTechniqueCombinations>
+      <techniqueAddOns><techniqueAddOn><name>Con Sordino</name><techniqueIDs>pt.muted</techniqueIDs>
+        <switchOnActions><switchOnAction><type>kKeySwitch</type><param1>23</param1><param2>127</param2></switchOnAction></switchOnActions>
+      </techniqueAddOn></techniqueAddOns>
+    </ExpressionMapDefinition></entities></expressionMapDefinitions></root>)xml", *map));
+
+  for (auto category : {LengthCategory::VeryShort, LengthCategory::Short,
+                        LengthCategory::Medium, LengthCategory::Long,
+                        LengthCategory::VeryLong}) {
+    const std::string expected = category == LengthCategory::VeryShort ? "Natural very short"
+        : category == LengthCategory::Short ? "Natural short" : "Natural long";
+    for (const auto& input : std::vector<std::set<std::string>>{
+             {}, {"pt.flautando"}, {"pt.muted"}, {"pt.muted", "pt.flautando"},
+             {"pt.natural", "pt.muted"}}) {
+      auto match = map->resolveMatch(input, category);
+      A_CHECK(match.base != nullptr);
+      if (match.base) A_CHECK_EQ(match.base->name, expected);
+      A_CHECK_EQ(match.addOns.size(), input.count("pt.muted"));
+      if (!match.addOns.empty()) A_CHECK_EQ(match.addOns.front()->name, std::string("Con Sordino"));
+    }
+  }
+  // Existing explicit base + add-on selection remains unchanged.
+  auto staccato = map->resolveMatch({"pt.staccato", "pt.muted"});
+  A_CHECK(staccato.base && staccato.base->name == "Staccato");
+  A_CHECK_EQ(staccato.addOns.size(), size_t(1));
+
+  ExpressionMapAnnotator annotator(map);
+  AnnotatorContext ctx;
+  auto note = makeNotePT("pt.muted");
+  (*note.mutable_notation_techniques())["extra"] = "pt.flautando";
+  annotator.onNoteStart(note, ctx);
+  auto* record = annotator.lastAnnotationRecord();
+  A_CHECK(record != nullptr);
+  if (record) {
+    A_CHECK_EQ(record->addOnNames.size(), size_t(1));
+    A_CHECK(record->unmatchedTechniques == std::set<std::string>{"pt.flautando"});
+  }
+  bool emittedMute = false;
+  for (const auto& action : note.pre_note())
+    emittedMute |= action.type() == MidiInstruction::KEY_SWITCH && action.param1() == 23;
+  A_CHECK(emittedMute);
+}
+
+static void testCompoundConditionParsing() {
+  std::cout << "--- testCompoundConditionParsing ---" << std::endl;
+  for (const auto* expression : {
+           "NoteLength <= kShort AND NoteLength > kVeryShort",
+           "NoteLength > kVeryShort AND NoteLength <= kShort"}) {
+    const auto condition = parseConditionString(expression);
+    A_CHECK(!condition.empty());
+    A_CHECK(!condition.evaluate(0.09));
+    A_CHECK(!condition.evaluate(0.1875));
+    A_CHECK(condition.evaluate(0.1876));
+    A_CHECK(condition.evaluate(0.28));
+    A_CHECK(condition.evaluate(0.375));
+    A_CHECK(!condition.evaluate(0.3751));
+    A_CHECK(!condition.evaluate(0.55));
+  }
+  for (const auto* expression : {
+           "NoteLength == kShort OR NoteLength == kMedium",
+           "NoteLength == kMedium OR NoteLength == kShort"}) {
+    const auto condition = parseConditionString(expression);
+    A_CHECK(!condition.evaluate(0.09));
+    A_CHECK(condition.evaluate(0.28));
+    A_CHECK(condition.evaluate(0.55));
+    A_CHECK(!condition.evaluate(1.1));
+  }
+  // AND binds more tightly than OR. Whitespace is not semantically significant.
+  const auto mixed = parseConditionString(
+      "  NoteLength==kVeryShort OR\tNoteLength>kShort AND NoteLength<=kMedium  ");
+  A_CHECK(mixed.evaluate(0.09));
+  A_CHECK(!mixed.evaluate(0.28));
+  A_CHECK(mixed.evaluate(0.55));
+  A_CHECK(!mixed.evaluate(1.1));
+  // Never silently turn a malformed length condition into an unconditional switch.
+  for (const auto* expression : {"NoteLength > kUnknown", "NoteLength > kShort AND",
+                                "NoteLength > kShort garbage"}) {
+    auto condition = parseConditionString(expression);
+    A_CHECK(!condition.empty());
+    A_CHECK(!condition.evaluate(1.1));
+  }
+  // An empty-PT natural switch must not bypass its length condition via
+  // the last-resort fallback (including a malformed condition).
+  for (const auto* expression : {"NoteLength == kVeryShort", "NoteLength > kUnknown"}) {
+    ExpressionMapData map;
+    TechniqueCombination base;
+    base.name = "Empty-PT natural";
+    base.condition = parseConditionString(expression);
+    map.combinations.push_back(base);
+    A_CHECK(map.resolveMatch({"pt.muted"}, LengthCategory::Long).base == nullptr);
+  }
+}
 
 static void testNullExpressionMap() {
   std::cout << "--- testNullExpressionMap ---" << std::endl;
@@ -1362,6 +1469,8 @@ void runAnnotatorTests() {
   testEmitDynamicsCCToCCDifferentTarget();
   testResolveMatchTier2();
   testResolveMatchNaturalFallback();
+  testNaturalFallbackAddOnsAndCompoundLengths();
+  testCompoundConditionParsing();
   testNullExpressionMap();
   testEmptyTechniques();
   testNoMatch();

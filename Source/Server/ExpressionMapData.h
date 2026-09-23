@@ -2,8 +2,10 @@
 
 
 
+#include <cctype>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fiddle {
@@ -54,8 +56,12 @@ struct NoteCondition {
   enum class Threshold { VeryShort, Short, Medium, Long, VeryLong };
   Operator op = Operator::None;
   Threshold threshold = Threshold::Medium;
+  enum class Logic { All, Any };
+  Logic logic = Logic::All;
+  std::vector<NoteCondition> terms;
+  bool valid = true;
 
-  bool empty() const { return op == Operator::None; }
+  bool empty() const { return valid && op == Operator::None && terms.empty(); }
 
   /// Return the threshold in seconds (at 120 BPM reference).
   static double thresholdSeconds(Threshold t) {
@@ -85,6 +91,16 @@ struct NoteCondition {
   /// For EQ, checks if the duration falls in the named bucket
   /// (e.g. `== kShort` means 0.1875 < d ≤ 0.375).
   bool evaluate(double durationSeconds) const {
+    if (!valid)
+      return false;
+    if (!terms.empty()) {
+      for (const auto &term : terms) {
+        const bool matches = term.evaluate(durationSeconds);
+        if (logic == Logic::All && !matches) return false;
+        if (logic == Logic::Any && matches) return true;
+      }
+      return logic == Logic::All;
+    }
     if (op == Operator::None)
       return true;
     double upper = thresholdSeconds(threshold);
@@ -102,25 +118,57 @@ struct NoteCondition {
   }
 };
 
-/// Parse "NoteLength > kShort" etc. into a NoteCondition.
-inline NoteCondition parseConditionString(const std::string &s) {
+/// Parse whitespace-free length comparisons with AND/OR (AND binds tighter).
+/// Unsupported/malformed length expressions fail closed, never becoming an
+/// unconditional switch or borrowing a threshold from another clause.
+inline NoteCondition parseCompactLengthCondition(const std::string &s) {
   NoteCondition nc;
-  if (s.empty() || s.find("NoteLength") == std::string::npos)
+  for (const std::string separator : {"OR", "AND"}) {
+    if (s.find(separator) == std::string::npos) continue;
+    nc.logic = separator == "OR" ? NoteCondition::Logic::Any : NoteCondition::Logic::All;
+    size_t start = 0;
+    while (true) {
+      const auto end = s.find(separator, start);
+      auto term = parseCompactLengthCondition(s.substr(start, end - start));
+      nc.valid = nc.valid && term.valid;
+      nc.terms.push_back(std::move(term));
+      if (end == std::string::npos) break;
+      start = end + separator.size();
+    }
     return nc;
-  // Extract operator (check two-char operators first)
-  if      (s.find(">=") != std::string::npos) nc.op = NoteCondition::Operator::GE;
-  else if (s.find("<=") != std::string::npos) nc.op = NoteCondition::Operator::LE;
-  else if (s.find("==") != std::string::npos) nc.op = NoteCondition::Operator::EQ;
-  else if (s.find(">")  != std::string::npos) nc.op = NoteCondition::Operator::GT;
-  else if (s.find("<")  != std::string::npos) nc.op = NoteCondition::Operator::LT;
-  else return nc;
-  // Extract threshold (check longer names first to avoid prefix collisions)
-  if      (s.find("kVeryShort") != std::string::npos) nc.threshold = NoteCondition::Threshold::VeryShort;
-  else if (s.find("kVeryLong")  != std::string::npos) nc.threshold = NoteCondition::Threshold::VeryLong;
-  else if (s.find("kShort")     != std::string::npos) nc.threshold = NoteCondition::Threshold::Short;
-  else if (s.find("kMedium")    != std::string::npos) nc.threshold = NoteCondition::Threshold::Medium;
-  else if (s.find("kLong")      != std::string::npos) nc.threshold = NoteCondition::Threshold::Long;
+  }
+  if (s.compare(0, 10, "NoteLength") != 0) {
+    nc.valid = false;
+    return nc;
+  }
+  auto comparison = s.substr(10);
+  size_t operatorSize = 2;
+  if      (comparison.compare(0, 2, ">=") == 0) nc.op = NoteCondition::Operator::GE;
+  else if (comparison.compare(0, 2, "<=") == 0) nc.op = NoteCondition::Operator::LE;
+  else if (comparison.compare(0, 2, "==") == 0) nc.op = NoteCondition::Operator::EQ;
+  else {
+    operatorSize = 1;
+    if      (comparison.compare(0, 1, ">") == 0) nc.op = NoteCondition::Operator::GT;
+    else if (comparison.compare(0, 1, "<") == 0) nc.op = NoteCondition::Operator::LT;
+    else { nc.valid = false; return nc; }
+  }
+  const auto threshold = comparison.substr(operatorSize);
+  if      (threshold == "kVeryShort") nc.threshold = NoteCondition::Threshold::VeryShort;
+  else if (threshold == "kVeryLong") nc.threshold = NoteCondition::Threshold::VeryLong;
+  else if (threshold == "kShort") nc.threshold = NoteCondition::Threshold::Short;
+  else if (threshold == "kMedium") nc.threshold = NoteCondition::Threshold::Medium;
+  else if (threshold == "kLong") nc.threshold = NoteCondition::Threshold::Long;
+  else nc.valid = false;
   return nc;
+}
+
+inline NoteCondition parseConditionString(const std::string &s) {
+  // Preserve the existing treatment of empty/non-length conditions.
+  if (s.find("NoteLength") == std::string::npos) return {};
+  std::string compact;
+  for (unsigned char c : s)
+    if (!std::isspace(c)) compact += static_cast<char>(c);
+  return parseCompactLengthCondition(compact);
 }
 
 /// Duration percentage overrides from the expression map's
@@ -497,21 +545,28 @@ struct ExpressionMapData {
     }
 
     // ── Tier 6: Fall back to pt.natural ───────────────────────────
+    // Natural is implicit in incoming notes. Falling back to it must not
+    // discard independently supported techniques such as Con Sordino.
+    const auto withAddOns = [&](const TechniqueCombination *base) -> MatchResult {
+      auto remaining = techniques;
+      for (const auto &t : base->techniqueIDs) remaining.erase(t);
+      return {base, findAddOnsCovering(remaining)};
+    };
     // First look for pt.natural among condition-filtered bases
     for (auto &bc : bases) {
       if (bc.combo->techniqueIDs.count("pt.natural"))
-        return {bc.combo, {}};
+        return withAddOns(bc.combo);
     }
     // Then look for an unconditional pt.natural in full list
     for (auto &c : combinations) {
       if (!c.isAddOn && c.techniqueIDs.count("pt.natural") &&
           c.condition.empty())
-        return {&c, {}};
+        return withAddOns(&c);
     }
     // Last resort: first base switch with empty technique set (Natural)
     for (auto &c : combinations) {
-      if (!c.isAddOn && c.techniqueIDs.empty())
-        return {&c, {}};
+      if (!c.isAddOn && c.techniqueIDs.empty() && c.condition.empty())
+        return withAddOns(&c);
     }
     return {}; // no match at all
   }
