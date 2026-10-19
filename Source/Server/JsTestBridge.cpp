@@ -14,7 +14,9 @@ JsTestBridge::~JsTestBridge() {
 }
 
 void JsTestBridge::run() {
-  if (!listenerSocket_.createListener(port_)) {
+  // Loopback only: this evaluates arbitrary JavaScript in the UI without
+  // authentication, so it must never be reachable from the network.
+  if (!listenerSocket_.createListener(port_, "127.0.0.1")) {
     DBG("JsTestBridge: Failed to create listener on port " << port_);
     return;
   }

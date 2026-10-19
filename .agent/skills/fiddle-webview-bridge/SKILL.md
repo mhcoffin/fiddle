@@ -1,105 +1,64 @@
 ---
 name: fiddle-webview-bridge
-description: Automates UI testing and DOM verification for FiddleServer's native macOS WKWebView by communicating over a custom C++ TCP bridge on port 9223 (main window) and 9224 (History window).
+description: Run JavaScript in the running FiddleServer's WKWebView UI (main window on port 9223, History window on 9224) to read DOM/app state or drive controls. Use for live-app UI checks; use browser-tests/*.mjs for built-UI regression tests.
 ---
 
-# Fiddle WebView JS Bridge
+# Fiddle WebView JS bridge
 
-## ⚠️ CRITICAL: Do NOT Use Chrome, Playwright, or CDP
+FiddleServer's UI runs in a native macOS WKWebView, which has no Chrome DevTools
+endpoint. `JsTestBridge` (`Source/Server/JsTestBridge.cpp`) is the scripted way to
+reach the live app: it evaluates a JavaScript string on the JUCE message thread
+and returns the result.
 
-FiddleServer's UI runs inside a **native macOS `WKWebView`**, not a Chrome/Chromium window.
+## Protocol
 
-> [!CAUTION]
-> **Never** use `open_browser_url`, the Playwright browser subagent, `http://localhost:9223/json/list`, or any Chrome DevTools Protocol (CDP) approach. These will always fail with `ERR_CONNECTION_REFUSED` — there is no Chrome process, only a native Apple WebKit view that does not expose CDP.
+Raw TCP, not HTTP. Request: 4-byte little-endian length + UTF-8 script.
+Response: 4-byte little-endian length + result. Objects and primitives come back
+JSON-stringified; errors start with `ERROR:`.
 
-The **only** way to run JavaScript in FiddleServer's UI is through the custom TCP bridge described below.
+| Window | Port | Available |
+| --- | --- | --- |
+| Main (Mixer / Setup) | 9223 | Whenever the app is running |
+| History | 9224 | Only while the History window exists: restored at launch if it was open last session, otherwise after `openHistoryWindow()` |
 
----
-
-## How It Works
-
-FiddleServer runs a custom C++ TCP server (`JsTestBridge`) that:
-1. Accepts connections on a local port
-2. Receives a 4-byte LE length-prefixed JavaScript string
-3. Evaluates it on the JUCE message thread inside the `WKWebView`
-4. Returns the result as a length-prefixed string
-
-**Ports:**
-| Window | Port |
-|---|---|
-| Main window (Mixer / Setup) | `9223` |
-| History window | `9224` (only exists after History window is opened) |
-
----
+The bridge listens on `127.0.0.1` only and has no authentication. The client
+must run on the same Mac as the app; an agent in a VM or cloud container cannot
+reach it through its own `localhost`.
 
 ## Usage
 
-The `validate-webview.js` Node.js script handles the TCP framing. Always run from the repo root `/Users/mhc/fiddle`.
+Run from the repository root. `--port` must come before the script.
 
-```bash
-# Main window (default port 9223)
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "<JS expression>"
-
-# History window — --port MUST come BEFORE the JS argument
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js --port 9224 "<JS expression>"
-```
-
-### Output format
-```
-[Port 9223] Evaluating JavaScript: document.title
---- RESULT ---
-OK:"Fiddle"
---------------
-```
-Objects and primitives are JSON-stringified. Errors begin with `ERROR:`.
-
----
-
-## Examples
-
-**Verify the app is running:**
 ```bash
 node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "document.title"
+node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js --port 9224 "<JS>"
 ```
 
-**Count mixer strips:**
-```bash
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "document.querySelectorAll('.mixer-strip').length"
-```
+Examples:
 
-**Open the History window, then query it (two separate commands):**
 ```bash
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "window.__JUCE__.backend.openHistoryWindow(); 'OK'"
+# Count mixer strips
+node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js \
+  "document.querySelectorAll('.mixer-strip').length"
+
+# Open History, wait for it to load, then query it
+node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js \
+  "window.__JUCE__.backend.openHistoryWindow(); 'OK'"
 sleep 4
 node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js --port 9224 \
-  "document.querySelectorAll('.timestamp').length + ' rows'"
-```
-
-**Inspect multiple DOM values:**
-```bash
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js \
   "Array.from(document.querySelectorAll('.timestamp')).map(e => e.textContent.trim()).join(' | ')"
-```
 
-**Click a button (check DOM in a follow-up command):**
-```bash
+# Click, then read the result in a separate call so the UI can update
 node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js \
   "document.querySelector('.branch-btn').click(); 'Clicked'"
 ```
 
----
+The script times out after 6 s. A refused connection means the app is not
+running, the target window does not exist, or the client is not on the Mac.
 
-## Common Mistakes
+## Other ways to test the UI
 
-| Mistake | Why it fails |
-|---|---|
-| `open_browser_url('http://localhost:9223')` | Not an HTTP server — raw TCP socket only |
-| Playwright / browser subagent connecting to port 9223/9224 | Not a CDP endpoint; always refuses |
-| Querying port 9224 before History window is open | Port 9224 only exists after `openHistoryWindow()` is called |
-| `--port 9224` placed after the JS arg | `--port` **must** come before the JS argument |
-
----
-
-## Files
-- `SKILL.md`: This file.
-- `scripts/validate-webview.js`: Node.js TCP client handling length-prefixed framing.
+- **Built-UI regressions:** `Source/Server/ui/browser-tests/*.mjs` use Playwright
+  and Chrome against the built `dist/` with a fixture backend and no live
+  Fiddle state. See `docs/automated-testing.md`.
+- **App state without the DOM:** the MCP control tools (`docs/mcp-control.md`).

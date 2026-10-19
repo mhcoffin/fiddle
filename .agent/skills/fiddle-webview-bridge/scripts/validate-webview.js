@@ -2,7 +2,7 @@ const net = require('net');
 
 function evalJS(script, port) {
     return new Promise((resolve, reject) => {
-        const client = net.createConnection({ port }, () => {
+        const client = net.createConnection({ host: '127.0.0.1', port }, () => {
             const buf = Buffer.from(script, 'utf8');
             const lengthBuf = Buffer.alloc(4);
             lengthBuf.writeUInt32LE(buf.length, 0);

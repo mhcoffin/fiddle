@@ -1,20 +1,13 @@
 # Fiddle Project — Agent Instructions
 
-## ⛔ NEVER use browser tabs, Playwright, or CDP to debug the UI
+## UI testing
 
-FiddleServer's UI runs inside a native **macOS WKWebView**, not Chrome. There is no CDP endpoint. Opening `localhost:9223` in a browser will always fail with `ERR_CONNECTION_REFUSED`.
-
-## ✅ Use the TCP bridge to run JavaScript in the WebView
-
-```bash
-# Main window (Mixer / Setup)
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "<JS expression>"
-
-# History window (open automatically on launch; port 9224)
-node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js --port 9224 "<JS expression>"
-```
-
-Full docs: `.agent/skills/fiddle-webview-bridge/SKILL.md`
+- **Live app:** the UI is a native macOS WKWebView with no CDP endpoint. Run
+  JavaScript in it through the TCP bridge (main window port 9223, History 9224):
+  `node .agent/skills/fiddle-webview-bridge/scripts/validate-webview.js "<JS>"`.
+  See `.agent/skills/fiddle-webview-bridge/SKILL.md`.
+- **Built-UI regression tests:** `Source/Server/ui/browser-tests/*.mjs` run with
+  Playwright against the built `dist/`; see `docs/automated-testing.md`.
 
 ---
 
