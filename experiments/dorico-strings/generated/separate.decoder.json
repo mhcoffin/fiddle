@@ -1,0 +1,767 @@
+{
+  "schema_version": 1,
+  "profile_id": "fiddle.experimental.strings.v1",
+  "variant": "separate",
+  "map_revision": 2,
+  "runtime_compatible": false,
+  "dorico_verified": false,
+  "spec_fingerprint": "9c67fe08c6917bfde7a3cdbc7767b7861323efb51668ce14fa72d2dd86fead3c",
+  "map_entity_id": "xmap.user.Fiddle.Experimental.Strings.v1.separate.r2",
+  "map_file": "separate.doricolib",
+  "map_sha256": "459f9b44ca625e14ad658bc5328f93a9170e1d2204c46d991d1e1cd182bfbb5b",
+  "base_cc": 102,
+  "tables": {
+    "102": {
+      "name": "articulation_and_length",
+      "values": {
+        "0": {
+          "techniques": [],
+          "length": "kVeryShort"
+        },
+        "1": {
+          "techniques": [],
+          "length": "kShort"
+        },
+        "2": {
+          "techniques": [],
+          "length": "kMedium"
+        },
+        "3": {
+          "techniques": [],
+          "length": "kLong"
+        },
+        "4": {
+          "techniques": [],
+          "length": "kVeryLong"
+        },
+        "5": {
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kVeryShort"
+        },
+        "6": {
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kShort"
+        },
+        "7": {
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kMedium"
+        },
+        "8": {
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kLong"
+        },
+        "9": {
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kVeryLong"
+        },
+        "10": {
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kVeryShort"
+        },
+        "11": {
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kShort"
+        },
+        "12": {
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kMedium"
+        },
+        "13": {
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kLong"
+        },
+        "14": {
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kVeryLong"
+        },
+        "15": {
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "16": {
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "17": {
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "18": {
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "19": {
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "20": {
+          "techniques": [
+            "pt.accent",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "21": {
+          "techniques": [
+            "pt.accent",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "22": {
+          "techniques": [
+            "pt.accent",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "23": {
+          "techniques": [
+            "pt.accent",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "24": {
+          "techniques": [
+            "pt.accent",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "25": {
+          "techniques": [
+            "pt.marcato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "26": {
+          "techniques": [
+            "pt.marcato",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "27": {
+          "techniques": [
+            "pt.marcato",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "28": {
+          "techniques": [
+            "pt.marcato",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "29": {
+          "techniques": [
+            "pt.marcato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "30": {
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kVeryShort"
+        },
+        "31": {
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kShort"
+        },
+        "32": {
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kMedium"
+        },
+        "33": {
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kLong"
+        },
+        "34": {
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kVeryLong"
+        },
+        "35": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato"
+          ],
+          "length": "kVeryShort"
+        },
+        "36": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato"
+          ],
+          "length": "kShort"
+        },
+        "37": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato"
+          ],
+          "length": "kMedium"
+        },
+        "38": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato"
+          ],
+          "length": "kLong"
+        },
+        "39": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato"
+          ],
+          "length": "kVeryLong"
+        },
+        "40": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato"
+          ],
+          "length": "kVeryShort"
+        },
+        "41": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato"
+          ],
+          "length": "kShort"
+        },
+        "42": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato"
+          ],
+          "length": "kMedium"
+        },
+        "43": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato"
+          ],
+          "length": "kLong"
+        },
+        "44": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato"
+          ],
+          "length": "kVeryLong"
+        },
+        "45": {
+          "techniques": [
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "46": {
+          "techniques": [
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "47": {
+          "techniques": [
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "48": {
+          "techniques": [
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "49": {
+          "techniques": [
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "50": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "51": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "52": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "53": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "54": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "55": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "56": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "57": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "58": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "59": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccato",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "60": {
+          "techniques": [
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryShort"
+        },
+        "61": {
+          "techniques": [
+            "pt.staccatissimo"
+          ],
+          "length": "kShort"
+        },
+        "62": {
+          "techniques": [
+            "pt.staccatissimo"
+          ],
+          "length": "kMedium"
+        },
+        "63": {
+          "techniques": [
+            "pt.staccatissimo"
+          ],
+          "length": "kLong"
+        },
+        "64": {
+          "techniques": [
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryLong"
+        },
+        "65": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryShort"
+        },
+        "66": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo"
+          ],
+          "length": "kShort"
+        },
+        "67": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo"
+          ],
+          "length": "kMedium"
+        },
+        "68": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo"
+          ],
+          "length": "kLong"
+        },
+        "69": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryLong"
+        },
+        "70": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryShort"
+        },
+        "71": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo"
+          ],
+          "length": "kShort"
+        },
+        "72": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo"
+          ],
+          "length": "kMedium"
+        },
+        "73": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo"
+          ],
+          "length": "kLong"
+        },
+        "74": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo"
+          ],
+          "length": "kVeryLong"
+        },
+        "75": {
+          "techniques": [
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "76": {
+          "techniques": [
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "77": {
+          "techniques": [
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "78": {
+          "techniques": [
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "79": {
+          "techniques": [
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "80": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "81": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "82": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "83": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "84": {
+          "techniques": [
+            "pt.accent",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        },
+        "85": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryShort"
+        },
+        "86": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kShort"
+        },
+        "87": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kMedium"
+        },
+        "88": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kLong"
+        },
+        "89": {
+          "techniques": [
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.tenuto"
+          ],
+          "length": "kVeryLong"
+        }
+      }
+    },
+    "103": {
+      "name": "connection",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.legato"
+          ]
+        },
+        "2": {
+          "techniques": [
+            "pt.nonLegato"
+          ]
+        }
+      }
+    },
+    "106": {
+      "name": "vibrato",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.nonVibrato"
+          ]
+        },
+        "2": {
+          "techniques": [
+            "pt.conVibrato"
+          ]
+        },
+        "3": {
+          "techniques": [
+            "pt.vibrato"
+          ]
+        },
+        "4": {
+          "techniques": [
+            "pt.wideVibrato"
+          ]
+        }
+      }
+    },
+    "107": {
+      "name": "mute",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.muted"
+          ]
+        },
+        "2": {
+          "techniques": [
+            "pt.open1"
+          ]
+        }
+      }
+    },
+    "108": {
+      "name": "position",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.sulPonticello"
+          ]
+        },
+        "2": {
+          "techniques": [
+            "pt.sulTasto"
+          ]
+        },
+        "3": {
+          "techniques": [
+            "pt.pdlt"
+          ]
+        },
+        "4": {
+          "techniques": [
+            "pt.bowOnBridge"
+          ]
+        },
+        "5": {
+          "techniques": [
+            "pt.bowOnTailpiece"
+          ]
+        }
+      }
+    },
+    "116": {
+      "name": "flautando",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.flautando"
+          ]
+        }
+      }
+    },
+    "117": {
+      "name": "overpressure",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.overpressure"
+          ]
+        }
+      }
+    },
+    "118": {
+      "name": "fouette",
+      "values": {
+        "0": {
+          "techniques": []
+        },
+        "1": {
+          "techniques": [
+            "pt.fouette"
+          ]
+        }
+      }
+    }
+  },
+  "reset_policy": "Init sets emitted CCs to zero; add-on off sets its CC to zero. Host restoration/order must be tested."
+}

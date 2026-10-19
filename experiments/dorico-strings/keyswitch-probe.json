@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "map_revision": 3,
+  "musical_range": [55, 103],
+  "velocity": 127,
+  "modifiers": [
+    {"axis_id": "flautando", "on_note": 0, "off_note": 1},
+    {"axis_id": "overpressure", "on_note": 2, "off_note": 3},
+    {"axis_id": "fouette", "on_note": 4, "off_note": 5}
+  ]
+}

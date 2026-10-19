@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "map_revision": 2,
+  "profile_id": "fiddle.experimental.strings.v1",
+  "status": "experimental-not-runtime-compatible",
+  "scope": "Bowed orchestral strings; proposed budget, not complete built-in coverage",
+  "base_cc": 102,
+  "shortening": [null, "pt.staccato", "pt.staccatissimo"],
+  "tenuto": [null, "pt.tenuto"],
+  "accent": [null, "pt.accent", "pt.marcato"],
+  "lengths": ["kVeryShort", "kShort", "kMedium", "kLong", "kVeryLong"],
+  "axes": [
+    {"id": "connection", "cc": 103, "prototype": true, "natural_cancels": false, "values": [null, "pt.legato", "pt.nonLegato"]},
+    {"id": "excitation", "cc": 104, "prototype": false, "natural_cancels": true, "values": [null, "pt.plucked", "pt.pizzicato", "pt.bartoksnapPizzicato", "pt.buzzPizzicato", "pt.guitarPizzicato", "pt.nailPizzicato", "pt.pizzicatoAllaChitarra", "pt.pizzicatoSecco"]},
+    {"id": "bow_stroke", "cc": 105, "prototype": false, "natural_cancels": true, "values": [null, "pt.colle", "pt.detache", "pt.detacheLance", "pt.jete", "pt.martellato", "pt.martele", "pt.portatoloure", "pt.ricochet", "pt.saltando", "pt.sautille", "pt.spiccato"]},
+    {"id": "vibrato", "cc": 106, "prototype": true, "natural_cancels": false, "values": [null, "pt.nonVibrato", "pt.conVibrato", "pt.vibrato", "pt.wideVibrato"]},
+    {"id": "mute", "cc": 107, "prototype": true, "natural_cancels": false, "values": [null, "pt.muted", "pt.open1"]},
+    {"id": "position", "cc": 108, "prototype": true, "natural_cancels": true, "values": [null, "pt.sulPonticello", "pt.sulTasto", "pt.pdlt", "pt.bowOnBridge", "pt.bowOnTailpiece"]},
+    {"id": "repetition", "cc": 109, "prototype": false, "natural_cancels": false, "values": [null, "pt.tremolo"]},
+    {"id": "harmonics", "cc": 110, "prototype": false, "natural_cancels": false, "values": [null, "pt.naturalHarmonic1", "pt.naturalHarmonic2", "pt.artificialHarmonic", "pt.halfHarmonic"]},
+    {"id": "bow_direction", "cc": 111, "prototype": false, "natural_cancels": false, "values": [null, "pt.upbow", "pt.downbow"]},
+    {"id": "dynamic_shape", "cc": 112, "prototype": false, "natural_cancels": false, "values": [null, "pt.crescendo", "pt.diminuendo", "pt.crescendoDiminuendo", "pt.diminuendoCrescendo", "pt.volumeSwell"]},
+    {"id": "trill", "cc": 113, "prototype": false, "natural_cancels": false, "values": [null, "pt.trill", "pt.trill.half", "pt.trill.whole"]},
+    {"id": "arpeggio", "cc": 114, "prototype": false, "natural_cancels": false, "values": [null, "pt.arpeggioUp", "pt.arpeggioDown"]},
+    {"id": "col_legno", "cc": 115, "prototype": false, "natural_cancels": true, "values": [null, "pt.colLegnoBattuto", "pt.colLegnoTratto"]},
+    {"id": "flautando", "cc": 116, "prototype": true, "natural_cancels": false, "values": [null, "pt.flautando"]},
+    {"id": "overpressure", "cc": 117, "prototype": true, "natural_cancels": false, "values": [null, "pt.overpressure"]},
+    {"id": "fouette", "cc": 118, "prototype": true, "natural_cancels": false, "values": [null, "pt.fouette"]},
+    {"id": "lh_pizzicato", "cc": 119, "prototype": false, "natural_cancels": false, "values": [null, "pt.lhPizzicato"]}
+  ],
+  "packed_probe": {"cc": 116, "axis_ids": ["flautando", "overpressure", "fouette"]},
+  "alias_notes": {"pt.bowed": "Aliases pt.natural in Dorico; not given a distinct wire value."},
+  "deferred": {
+    "source_metadata_not_encoded": ["pt.ppp", "pt.pp", "pt.p", "pt.mp", "pt.mf", "pt.f", "pt.ff", "pt.fff", "pt.ffp", "pt.fp", "pt.pf", "pt.sf", "pt.sfp", "pt.sfz"],
+    "needs_more_capacity_or_semantic_review": ["pt.soft", "pt.ghostNote", "pt.laissezVibrer", "pt.fadeIn", "pt.fadeOut", "pt.muffledStrings", "pt.sonsXylophoniques", "pt.pince", "pt.glissandoUp", "pt.glissandoDown", "pt.portamentoUp", "pt.portamentoDown", "pt.slide", "pt.smear"],
+    "other_string_families": ["pt.harpHarmonic", "pt.pinchHarmonic", "pt.palmMuting", "pt.strumUp", "pt.strumDown", "pt.leftHandTap", "pt.rightHandTap", "pt.rightHandTapTapping"]
+  }
+}

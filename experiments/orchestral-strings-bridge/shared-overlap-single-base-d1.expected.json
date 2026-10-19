@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "test_id": "shared-overlap-single-base-d1",
+  "map_entity_id": "xmap.user.Fiddle.OrchestralStrings.Diagnostic.SingleBase.d1",
+  "map_revision": 1,
+  "map_sha256": "3be1857c32f5c5d94305e9f4361dfca27b2edaf3d311b193d323a07cb6584b79",
+  "status": "conditional-hypotheses-require-active-PT-and-live-timing-checks",
+  "simultaneous_note_order": "not asserted; match onset group and pitch, not serialized note order",
+  "voice": "notation only; no voice identity is expected in MIDI",
+  "natural_base_normalized_to_empty": true,
+  "length_category_asserted": false,
+  "unlisted_addon_dimensions": "unspecified; missing initialization is unknown, not zero",
+  "notes": [
+    {
+      "note": 1,
+      "bar": 1,
+      "beat": 1,
+      "voice": 1,
+      "pitch": 60,
+      "quarter_offset": 0,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 2,
+      "bar": 1,
+      "beat": 1,
+      "voice": 2,
+      "pitch": 79,
+      "quarter_offset": 0,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 3,
+      "bar": 1,
+      "beat": 2,
+      "voice": 2,
+      "pitch": 74,
+      "quarter_offset": 1,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 4,
+      "bar": 1,
+      "beat": 3,
+      "voice": 2,
+      "pitch": 76,
+      "quarter_offset": 2,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 5,
+      "bar": 1,
+      "beat": 4,
+      "voice": 2,
+      "pitch": 77,
+      "quarter_offset": 3,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 6,
+      "bar": 2,
+      "beat": 1,
+      "voice": 1,
+      "pitch": 60,
+      "quarter_offset": 4,
+      "written_duration_quarters": 3,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 7,
+      "bar": 2,
+      "beat": 1,
+      "voice": 2,
+      "pitch": 79,
+      "quarter_offset": 4,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 8,
+      "bar": 2,
+      "beat": 2,
+      "voice": 2,
+      "pitch": 74,
+      "quarter_offset": 5,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 9,
+      "bar": 2,
+      "beat": 3,
+      "voice": 2,
+      "pitch": 76,
+      "quarter_offset": 6,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 10,
+      "bar": 2,
+      "beat": 4,
+      "voice": 2,
+      "pitch": 77,
+      "quarter_offset": 7,
+      "written_duration_quarters": 1,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 11,
+      "bar": 3,
+      "beat": 1,
+      "voice": 1,
+      "pitch": 60,
+      "quarter_offset": 8,
+      "written_duration_quarters": 1,
+      "techniques": []
+    },
+    {
+      "note": 12,
+      "bar": 3,
+      "beat": 1,
+      "voice": 2,
+      "pitch": 72,
+      "quarter_offset": 8,
+      "written_duration_quarters": 1,
+      "techniques": []
+    }
+  ],
+  "controls": [
+    {
+      "bar": 1,
+      "old_note": 1,
+      "next_note": 3
+    }
+  ],
+  "overlap_probes": [
+    {
+      "bar": 2,
+      "old_note": 6,
+      "overlapping_notes": [
+        8,
+        9
+      ],
+      "post_release_note": 10
+    }
+  ],
+  "acceptance": "Both voices must show the same active PT timeline first. Prove actual overlap and inspect clears/reassertions, not just final note-start state. No distinct-technique overlap or independent voice claim.",
+  "source_map": "Fiddle-Orchestral-Strings-r2.doricolib",
+  "source_map_sha256": "31e8826434ecda621459343e95725ca31e1c495053f309e9fc70f4c5b0b92647",
+  "score_file": "shared-overlap-r2.musicxml",
+  "score_sha256": "ded3bf5e72fd1be92607ba0331d82ee4f080fc8791305cd626055343cdbb3520",
+  "reference_allocation": "allocation.json",
+  "base_value_during_notes": 2,
+  "unchanged_addon_allocation": true,
+  "caveat": "Init CC102=0 is retained; every musical note must observe base 2. This diagnostic cannot test original note-length/base-articulation coverage."
+}

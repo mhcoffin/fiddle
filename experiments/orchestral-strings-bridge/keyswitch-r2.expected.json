@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "test_id": "active-keyswitches-r2",
+  "map_entity_id": "xmap.user.Fiddle.OrchestralStrings.Inspection.r2",
+  "map_revision": 2,
+  "map_sha256": "31e8826434ecda621459343e95725ca31e1c495053f309e9fc70f4c5b0b92647",
+  "status": "desired-states-not-observed-results",
+  "natural_base_normalized_to_empty": true,
+  "length_category_asserted": false,
+  "unlisted_addon_dimensions": "unspecified; missing initialization is unknown, not zero",
+  "notes": [
+    {
+      "note": 1,
+      "bar": 1,
+      "beat": 1,
+      "quarter_offset": 0,
+      "pitch": 72,
+      "techniques": []
+    },
+    {
+      "note": 2,
+      "bar": 1,
+      "beat": 2,
+      "quarter_offset": 1,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques"
+      ]
+    },
+    {
+      "note": 3,
+      "bar": 1,
+      "beat": 3,
+      "quarter_offset": 2,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques",
+        "pt.strumUp"
+      ]
+    },
+    {
+      "note": 4,
+      "bar": 1,
+      "beat": 4,
+      "quarter_offset": 3,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques",
+        "pt.strumDown"
+      ]
+    },
+    {
+      "note": 5,
+      "bar": 2,
+      "beat": 1,
+      "quarter_offset": 4,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques"
+      ]
+    },
+    {
+      "note": 6,
+      "bar": 2,
+      "beat": 2,
+      "quarter_offset": 5,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques",
+        "pt.vibrato"
+      ]
+    },
+    {
+      "note": 7,
+      "bar": 2,
+      "beat": 3,
+      "quarter_offset": 6,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques",
+        "pt.strumUp",
+        "pt.vibrato"
+      ]
+    },
+    {
+      "note": 8,
+      "bar": 2,
+      "beat": 4,
+      "quarter_offset": 7,
+      "pitch": 72,
+      "techniques": [
+        "pt.sonsXylophoniques",
+        "pt.strumDown",
+        "pt.vibrato"
+      ]
+    },
+    {
+      "note": 9,
+      "bar": 3,
+      "beat": 1,
+      "quarter_offset": 8,
+      "pitch": 72,
+      "techniques": []
+    },
+    {
+      "note": 10,
+      "bar": 3,
+      "beat": 2,
+      "quarter_offset": 9,
+      "pitch": 72,
+      "techniques": [
+        "pt.strumUp"
+      ]
+    },
+    {
+      "note": 11,
+      "bar": 3,
+      "beat": 3,
+      "quarter_offset": 10,
+      "pitch": 72,
+      "techniques": [
+        "pt.strumDown"
+      ]
+    },
+    {
+      "note": 12,
+      "bar": 3,
+      "beat": 4,
+      "quarter_offset": 11,
+      "pitch": 72,
+      "techniques": []
+    }
+  ]
+}

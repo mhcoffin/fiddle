@@ -1,0 +1,1159 @@
+{
+  "round": 1,
+  "map_revision": 1,
+  "status": "packing-inconclusive-generator-delimiter-defect",
+  "expected_note6_corrected": true,
+  "captures": {
+    "separate": {
+      "file": "separate.mid",
+      "sha256": "c52cd6c2ef25af07b6a34f204985adac5dc4fdf0dcdf3d76545c214c2c8a48ce",
+      "map_sha256": "c812da80059937032dc7978f1b324340754371c1432338340e61f4c07260d283",
+      "spec_fingerprint": "b37176de60f4c46813ba026b3fca355c9753c4efc0142ffec9183327e62c2e9a",
+      "ppqn": 480,
+      "track": 1,
+      "notes": [
+        {
+          "index": 1,
+          "tick": 0,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [],
+          "length": "kVeryShort",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 2,
+          "tick": 480,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 3,
+          "tick": 963,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 4,
+          "tick": 1440,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 5,
+          "tick": 1920,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 6,
+          "tick": 2403,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 7,
+          "tick": 2880,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 8,
+          "tick": 3360,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.accent",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 9,
+          "tick": 3844,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 10,
+          "tick": 4321,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 11,
+          "tick": 4802,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 12,
+          "tick": 5280,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.fouette",
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 13,
+          "tick": 5760,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 14,
+          "tick": 6244,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 15,
+          "tick": 6720,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 16,
+          "tick": 7203,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.vibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        }
+      ],
+      "warnings": [],
+      "failures": [
+        "Note 4 (Staccato + tenuto): expected ['pt.staccato', 'pt.tenuto'], received ['pt.staccato']",
+        "Note 5 (Staccato + tenuto + accent): expected ['pt.staccato', 'pt.tenuto', 'pt.accent'], received ['pt.accent']",
+        "Note 6 (Staccatissimo + marcato): expected ['pt.staccatissimo', 'pt.marcato'], received ['pt.marcato']"
+      ],
+      "reserved_cc_events": [
+        {
+          "index": 3,
+          "tick": 0,
+          "cc": 102,
+          "value": 0
+        },
+        {
+          "index": 4,
+          "tick": 0,
+          "cc": 103,
+          "value": 0
+        },
+        {
+          "index": 5,
+          "tick": 0,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 6,
+          "tick": 0,
+          "cc": 107,
+          "value": 0
+        },
+        {
+          "index": 7,
+          "tick": 0,
+          "cc": 108,
+          "value": 0
+        },
+        {
+          "index": 8,
+          "tick": 0,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 9,
+          "tick": 0,
+          "cc": 117,
+          "value": 0
+        },
+        {
+          "index": 10,
+          "tick": 0,
+          "cc": 118,
+          "value": 0
+        },
+        {
+          "index": 12,
+          "tick": 0,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 15,
+          "tick": 470,
+          "cc": 102,
+          "value": 32
+        },
+        {
+          "index": 19,
+          "tick": 950,
+          "cc": 102,
+          "value": 17
+        },
+        {
+          "index": 22,
+          "tick": 1430,
+          "cc": 102,
+          "value": 32
+        },
+        {
+          "index": 27,
+          "tick": 1910,
+          "cc": 102,
+          "value": 7
+        },
+        {
+          "index": 31,
+          "tick": 2390,
+          "cc": 102,
+          "value": 12
+        },
+        {
+          "index": 35,
+          "tick": 2870,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 36,
+          "tick": 2870,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 40,
+          "tick": 3340,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 41,
+          "tick": 3350,
+          "cc": 102,
+          "value": 7
+        },
+        {
+          "index": 42,
+          "tick": 3350,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 46,
+          "tick": 3820,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 47,
+          "tick": 3830,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 48,
+          "tick": 3830,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 52,
+          "tick": 4300,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 53,
+          "tick": 4310,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 54,
+          "tick": 4310,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 55,
+          "tick": 4310,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 59,
+          "tick": 4780,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 60,
+          "tick": 4780,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 61,
+          "tick": 4790,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 62,
+          "tick": 4790,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 63,
+          "tick": 4790,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 64,
+          "tick": 4790,
+          "cc": 117,
+          "value": 1
+        },
+        {
+          "index": 68,
+          "tick": 5260,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 69,
+          "tick": 5260,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 70,
+          "tick": 5260,
+          "cc": 117,
+          "value": 0
+        },
+        {
+          "index": 71,
+          "tick": 5270,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 72,
+          "tick": 5270,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 73,
+          "tick": 5270,
+          "cc": 118,
+          "value": 1
+        },
+        {
+          "index": 74,
+          "tick": 5270,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 75,
+          "tick": 5270,
+          "cc": 117,
+          "value": 1
+        },
+        {
+          "index": 79,
+          "tick": 5740,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 80,
+          "tick": 5740,
+          "cc": 118,
+          "value": 0
+        },
+        {
+          "index": 81,
+          "tick": 5740,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 82,
+          "tick": 5740,
+          "cc": 117,
+          "value": 0
+        },
+        {
+          "index": 83,
+          "tick": 5750,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 84,
+          "tick": 5750,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 85,
+          "tick": 5750,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 86,
+          "tick": 5750,
+          "cc": 117,
+          "value": 1
+        },
+        {
+          "index": 90,
+          "tick": 6220,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 91,
+          "tick": 6220,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 92,
+          "tick": 6220,
+          "cc": 117,
+          "value": 0
+        },
+        {
+          "index": 93,
+          "tick": 6230,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 94,
+          "tick": 6230,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 95,
+          "tick": 6230,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 99,
+          "tick": 6700,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 100,
+          "tick": 6700,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 101,
+          "tick": 6710,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 102,
+          "tick": 6710,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 106,
+          "tick": 7180,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 107,
+          "tick": 7190,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 108,
+          "tick": 7190,
+          "cc": 106,
+          "value": 3
+        },
+        {
+          "index": 112,
+          "tick": 7660,
+          "cc": 106,
+          "value": 0
+        }
+      ]
+    },
+    "packed": {
+      "file": "packed.mid",
+      "sha256": "66bedf43a1c9d9ac38304b05ab3cf03109e6861cb95bed40343a5e350feb3456",
+      "map_sha256": "9dfac4f279f59eab80fba7616ff557d24c429594784c62395003b949daa83523",
+      "spec_fingerprint": "d1b4fb25cd71a2da5fd29744a9bdceaeb88fc6dd31c8daf60dcd24733f0101c0",
+      "ppqn": 480,
+      "track": 1,
+      "notes": [
+        {
+          "index": 1,
+          "tick": 0,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [],
+          "length": "kVeryShort",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 2,
+          "tick": 480,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 3,
+          "tick": 963,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.tenuto"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 4,
+          "tick": 1440,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.staccato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 5,
+          "tick": 1920,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.accent"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 6,
+          "tick": 2403,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.marcato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 7,
+          "tick": 2880,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 8,
+          "tick": 3360,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.accent",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 9,
+          "tick": 3844,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 10,
+          "tick": 4321,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 11,
+          "tick": 4802,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 12,
+          "tick": 5280,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 13,
+          "tick": 5760,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato",
+            "pt.overpressure"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 14,
+          "tick": 6244,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.flautando",
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 15,
+          "tick": 6720,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.nonVibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        },
+        {
+          "index": 16,
+          "tick": 7203,
+          "port": 0,
+          "channel": 1,
+          "pitch": 72,
+          "techniques": [
+            "pt.vibrato"
+          ],
+          "length": "kMedium",
+          "missing_ccs": [],
+          "invalid_ccs": []
+        }
+      ],
+      "warnings": [],
+      "failures": [
+        "Note 4 (Staccato + tenuto): expected ['pt.staccato', 'pt.tenuto'], received ['pt.staccato']",
+        "Note 5 (Staccato + tenuto + accent): expected ['pt.staccato', 'pt.tenuto', 'pt.accent'], received ['pt.accent']",
+        "Note 6 (Staccatissimo + marcato): expected ['pt.staccatissimo', 'pt.marcato'], received ['pt.marcato']",
+        "Note 11 (Overpressure added): expected ['pt.nonVibrato', 'pt.flautando', 'pt.overpressure'], received ['pt.nonVibrato', 'pt.overpressure']",
+        "Note 12 (Fouette attribute added): expected ['pt.nonVibrato', 'pt.flautando', 'pt.overpressure', 'pt.fouette'], received ['pt.nonVibrato', 'pt.overpressure']",
+        "Note 13 (Fouette expires): expected ['pt.nonVibrato', 'pt.flautando', 'pt.overpressure'], received ['pt.nonVibrato', 'pt.overpressure']"
+      ],
+      "reserved_cc_events": [
+        {
+          "index": 3,
+          "tick": 0,
+          "cc": 102,
+          "value": 0
+        },
+        {
+          "index": 4,
+          "tick": 0,
+          "cc": 103,
+          "value": 0
+        },
+        {
+          "index": 5,
+          "tick": 0,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 6,
+          "tick": 0,
+          "cc": 107,
+          "value": 0
+        },
+        {
+          "index": 7,
+          "tick": 0,
+          "cc": 108,
+          "value": 0
+        },
+        {
+          "index": 8,
+          "tick": 0,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 10,
+          "tick": 0,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 13,
+          "tick": 470,
+          "cc": 102,
+          "value": 32
+        },
+        {
+          "index": 17,
+          "tick": 950,
+          "cc": 102,
+          "value": 17
+        },
+        {
+          "index": 20,
+          "tick": 1430,
+          "cc": 102,
+          "value": 32
+        },
+        {
+          "index": 25,
+          "tick": 1910,
+          "cc": 102,
+          "value": 7
+        },
+        {
+          "index": 29,
+          "tick": 2390,
+          "cc": 102,
+          "value": 12
+        },
+        {
+          "index": 33,
+          "tick": 2870,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 34,
+          "tick": 2870,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 38,
+          "tick": 3340,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 39,
+          "tick": 3350,
+          "cc": 102,
+          "value": 7
+        },
+        {
+          "index": 40,
+          "tick": 3350,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 44,
+          "tick": 3820,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 45,
+          "tick": 3830,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 46,
+          "tick": 3830,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 50,
+          "tick": 4300,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 51,
+          "tick": 4310,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 52,
+          "tick": 4310,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 53,
+          "tick": 4310,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 57,
+          "tick": 4780,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 58,
+          "tick": 4780,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 59,
+          "tick": 4790,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 60,
+          "tick": 4790,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 61,
+          "tick": 4790,
+          "cc": 116,
+          "value": 2
+        },
+        {
+          "index": 65,
+          "tick": 5260,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 66,
+          "tick": 5260,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 67,
+          "tick": 5270,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 68,
+          "tick": 5270,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 69,
+          "tick": 5270,
+          "cc": 116,
+          "value": 2
+        },
+        {
+          "index": 73,
+          "tick": 5740,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 74,
+          "tick": 5740,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 75,
+          "tick": 5750,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 76,
+          "tick": 5750,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 77,
+          "tick": 5750,
+          "cc": 116,
+          "value": 2
+        },
+        {
+          "index": 81,
+          "tick": 6220,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 82,
+          "tick": 6220,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 83,
+          "tick": 6230,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 84,
+          "tick": 6230,
+          "cc": 116,
+          "value": 1
+        },
+        {
+          "index": 85,
+          "tick": 6230,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 89,
+          "tick": 6700,
+          "cc": 116,
+          "value": 0
+        },
+        {
+          "index": 90,
+          "tick": 6700,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 91,
+          "tick": 6710,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 92,
+          "tick": 6710,
+          "cc": 106,
+          "value": 1
+        },
+        {
+          "index": 96,
+          "tick": 7180,
+          "cc": 106,
+          "value": 0
+        },
+        {
+          "index": 97,
+          "tick": 7190,
+          "cc": 102,
+          "value": 2
+        },
+        {
+          "index": 98,
+          "tick": 7190,
+          "cc": 106,
+          "value": 3
+        },
+        {
+          "index": 102,
+          "tick": 7660,
+          "cc": 106,
+          "value": 0
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+[
+  {"label": "Unmarked", "techniques": []},
+  {"label": "Staccato", "techniques": ["pt.staccato"]},
+  {"label": "Tenuto", "techniques": ["pt.tenuto"]},
+  {"label": "Staccato + tenuto", "techniques": ["pt.staccato", "pt.tenuto"]},
+  {"label": "Staccato + tenuto + accent", "techniques": ["pt.staccato", "pt.tenuto", "pt.accent"]},
+  {"label": "Staccatissimo + marcato", "techniques": ["pt.staccatissimo", "pt.marcato"]},
+  {"label": "Non vibrato begins", "techniques": ["pt.nonVibrato"]},
+  {"label": "Accent under non vibrato", "techniques": ["pt.nonVibrato", "pt.accent"]},
+  {"label": "Accent expires", "techniques": ["pt.nonVibrato"]},
+  {"label": "Flautando begins", "techniques": ["pt.nonVibrato", "pt.flautando"]},
+  {"label": "Overpressure added", "techniques": ["pt.nonVibrato", "pt.flautando", "pt.overpressure"]},
+  {"label": "Fouette attribute added", "techniques": ["pt.nonVibrato", "pt.flautando", "pt.overpressure", "pt.fouette"]},
+  {"label": "Fouette expires", "techniques": ["pt.nonVibrato", "pt.flautando", "pt.overpressure"]},
+  {"label": "Overpressure ends", "techniques": ["pt.nonVibrato", "pt.flautando"]},
+  {"label": "Flautando ends", "techniques": ["pt.nonVibrato"]},
+  {"label": "Vibrato replaces non vibrato", "techniques": ["pt.vibrato"]}
+]
