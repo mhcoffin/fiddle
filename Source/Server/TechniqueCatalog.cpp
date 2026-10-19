@@ -1,4 +1,5 @@
 #include "TechniqueCatalog.h"
+#include "ChairCoverage.h"
 #include <algorithm>
 
 namespace fiddle {
@@ -224,6 +225,8 @@ juce::var TechniqueCatalog::scan(const Request &request, Cancel cancelled, Progr
     } else b.add(source);
   }
   auto report = b.finish();
+  report.getDynamicObject()->setProperty("chairCoverage", ChairCoverage::analyze(
+      request.assignments, report, ChairCoverage::Limits{}, b.cancelled));
   if (!b.stopped()) report.getDynamicObject()->setProperty("repairPlan", BridgeRepairPlan::build(
       request.decoder, request.reservedControllers, request.assignments, report, {}, b.cancelled));
   report.getDynamicObject()->setProperty("cancelled", b.stopped());

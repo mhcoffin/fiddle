@@ -22,14 +22,18 @@ struct ProjectSettings {
   int playbackDelayMs = 1000;
   std::set<std::string> lockedChairIds;
   std::map<std::string, ChairLevelState> chairLevels;
+  // Immutable bridge documents and endpoint assignments. No live verification
+  // status is persisted: reopening a score requires a fresh Dorico export check.
+  std::string bridgeMapsJson;
   bool operator==(const ProjectSettings &other) const {
     return playbackDelayMs == other.playbackDelayMs &&
-           lockedChairIds == other.lockedChairIds && chairLevels == other.chairLevels;
+           lockedChairIds == other.lockedChairIds && chairLevels == other.chairLevels &&
+           bridgeMapsJson == other.bridgeMapsJson;
   }
 
   std::string serialize() const {
     std::ostringstream stream;
-    stream << "FIDDLE_SETTINGS_V2\n" << std::setprecision(17)
+    stream << (bridgeMapsJson.empty() ? "FIDDLE_SETTINGS_V2\n" : "FIDDLE_SETTINGS_V3\n") << std::setprecision(17)
            << playbackDelayMs << '\n' << lockedChairIds.size() << '\n';
     for (const auto &id : lockedChairIds)
       stream << std::quoted(id) << '\n';
@@ -39,16 +43,18 @@ struct ProjectSettings {
       for (const auto &[strip, weight] : level.weights)
         stream << std::quoted(strip) << ' ' << weight << '\n';
     }
+    if (!bridgeMapsJson.empty()) stream << std::quoted(bridgeMapsJson) << '\n';
     return stream.str();
   }
   static ProjectSettings deserialize(const std::string &text) {
     ProjectSettings settings;
     std::istringstream stream(text);
-    const bool version2 = text.rfind("FIDDLE_SETTINGS_V2\n", 0) == 0;
+    const bool version3 = text.rfind("FIDDLE_SETTINGS_V3\n", 0) == 0;
+    if (version3) settings.bridgeMapsJson = "invalid truncated bridge project";
+    const bool version2 = version3 || text.rfind("FIDDLE_SETTINGS_V2\n", 0) == 0;
     if (version2) { std::string header; std::getline(stream, header); }
     int delay = 1000;
-    if (!(stream >> delay))
-      return settings;
+    if (!(stream >> delay)) return settings;
     settings.playbackDelayMs = std::clamp(delay, 0, 5000);
     std::string id;
     if (version2) {
@@ -75,6 +81,8 @@ struct ProjectSettings {
         }
         if (settings.lockedChairIds.count(id)) settings.chairLevels[id] = std::move(level);
       }
+      if (version3 && (!(stream >> std::quoted(settings.bridgeMapsJson)) || settings.bridgeMapsJson.empty()))
+        settings.bridgeMapsJson = "invalid truncated bridge project";
       return settings;
     }
     while (stream >> std::quoted(id))

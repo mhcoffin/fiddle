@@ -97,7 +97,7 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
   addUnit(rootUnit);
 
   // Create a SINGLE shared program list (ID=1) — all channels use the
-  // same 128 GM instruments. Creating 768 separate lists (768×128 = 98K
+  // same 128 GM instruments. Creating 256 separate lists (256×128 = 32K
   // entries) would overwhelm the host.
   constexpr ProgramListID sharedListId = 1;
   auto *programList =
@@ -109,11 +109,11 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
   }
   addProgramList(programList);
 
-  // Create 768 channel units (48 ports × 16 channels), each referencing
+  // Create 256 channel units (16 ports × 16 channels), each referencing
   // the shared program list. One unit per channel is required for
   // getUnitByBus() to correctly map busIndex+channel → unitId.
   for (int ch = 0; ch < kNumChannels; ++ch) {
-    UnitID unitId = ch + 1; // Units 1-768
+    UnitID unitId = ch + 1; // Units 1-256
 
     int port = ch / kChannelsPerPort + 1;   // 1-based
     int portCh = ch % kChannelsPerPort + 1; // 1-based
@@ -276,6 +276,10 @@ void FiddleController::sendProgramChangeToProcessor(int channel, int program) {
 
 //----------------------------------------------------------------------
 IPlugView *PLUGIN_API FiddleController::createView(FIDString name) {
+#ifdef FIDDLE_MIDI_PROBE
+  // Host generic parameter view only; no misleading production connection UI.
+  return nullptr;
+#endif
   if (name && strcmp(name, ViewType::kEditor) == 0)
     return new FiddlePlugView(this);
   return nullptr;

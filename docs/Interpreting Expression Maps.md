@@ -28,7 +28,12 @@ Extend the basic mutual exclusion groups that are provided by default to help Do
 
 # Translating Expression Maps to code
 
+> **Historical Fiddle design note.** Daniel's explanation above is retained as
+> source material. The universal-map architecture described below is superseded
+> by [four orchestral section bridge maps](orchestral-bridge-maps.md) as of
+> 2026-09-24. Do not read the older assertion of equivalent note information as
+> proof of complete transport coverage; that requires host validation.
+
 As Daniel says, Dorico determines the playback techniques that apply to each note by examining the time line. Our universal expression map (UEM) captures changes to the timeline and transmits them to the Fiddle server. The Fiddle server then determines the playback techniques that apply to each note. So each Note in the Fiddle server has a list of playback techniques that apply to it. This information is equivalent to what Dorico obtains by examining the time line.
 
 Without Fiddle, Dorico would play back the notes using the an expression map that is specific to the VSTi that is being used. We want to do the same. We'd like to make the playback identical to what Dorico would produce without Fiddle. We want the user to load into the Fiddle server their VSTi plugin along with an expression map for that plugin. 
-

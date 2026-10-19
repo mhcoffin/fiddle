@@ -2,6 +2,10 @@
 
 #include "AudioConsumer.h"
 #include "TcpRelay.h"
+#include "HostMidiBlock.h"
+#ifdef FIDDLE_MIDI_PROBE
+#include "MidiProbeCapture.h"
+#endif
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
 #include <array>
@@ -61,8 +65,11 @@ public:
   }
 
 private:
-  void processEvents(Steinberg::Vst::IEventList *events,
-                     Steinberg::int64 hostSamples);
+  HostMidiBlock inputBlock_;
+#ifdef FIDDLE_MIDI_PROBE
+  std::unique_ptr<MidiProbeCapture> probeCapture_;
+#endif
+  std::atomic<uint64_t> droppedHostInputs_{0};
   void replayProgramState();
 
   // 16 event input buses (ports), 16 channels each = 256 total.

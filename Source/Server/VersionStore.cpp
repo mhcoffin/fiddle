@@ -536,6 +536,8 @@ FiddleState VersionStore::threeWayMerge(const FiddleState &ancestor,
 
   FiddleState result;
   result.globalState = target.globalState;
+  if (target.globalState.projectSettings.bridgeMapsJson == ancestor.globalState.projectSettings.bridgeMapsJson)
+    result.globalState.projectSettings.bridgeMapsJson = mergeParent.globalState.projectSettings.bridgeMapsJson;
   // Routing topology is a project-wide ordered graph, not a bag of strips.
   // Until topology-specific conflict resolution is introduced, retain the
   // checked-out target's chair/layer graph just as we do for global state.
@@ -598,6 +600,14 @@ MergeResult VersionStore::merge(const BranchId &sourceBranchId,
     return result;
   }
 
+  const auto &oldBridges = ancestorState->globalState.projectSettings.bridgeMapsJson;
+  const auto &targetBridges = targetState->globalState.projectSettings.bridgeMapsJson;
+  const auto &sourceBridges = sourceState->globalState.projectSettings.bridgeMapsJson;
+  if (targetBridges != oldBridges && sourceBridges != oldBridges && targetBridges != sourceBridges) {
+    result.kind = MergeResult::Error;
+    result.error = "Bridge map assignments changed on both branches; reconcile them before merging";
+    return result;
+  }
   FiddleState mergedState =
       threeWayMerge(*ancestorState, *targetState, *sourceState, mpWins);
   Hash mergedStateHash = mergedState.computeHash();

@@ -14,6 +14,10 @@ public:
     juce::String chairId, chairName, layerId, layerName;
     ExpressionMapData map;
     bool assigned = true;
+    // Additional provenance/dependency data for chair coverage. Defaults keep
+    // standalone reachability fixtures source-compatible.
+    juce::String sourceXml, sourcePath;
+    bool hasProcessors = false;
   };
   static juce::var audit(const std::vector<ExpressionMap::Dimension> &decoder,
                         const std::vector<Assignment> &assignments,

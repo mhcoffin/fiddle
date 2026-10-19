@@ -116,6 +116,7 @@ int main(int argc, char **argv) {
   CHECK(!worker.running());
   const auto snapshot = worker.state()["report"];
   CHECK(snapshot["repairPlan"].isObject());
+  CHECK(snapshot["chairCoverage"].isObject());
   BridgeRepairPlan::Options options; options.preserveIdentities = false;
   CHECK(worker.previewRepairs(options));
   for (int i = 0; i < 500 && worker.running(); ++i) juce::Thread::sleep(10);
@@ -123,6 +124,7 @@ int main(int argc, char **argv) {
   const auto preview = worker.state()["report"];
   CHECK(preview["files"] == snapshot["files"]);
   CHECK(preview["scannedAt"] == snapshot["scannedAt"]);
+  CHECK(preview["chairCoverage"] == snapshot["chairCoverage"]);
   CHECK(!bool(preview["repairPlan"]["preserveIdentities"]));
   std::cout << (failures ? "FAIL" : "PASS") << ": technique catalog fixtures (" << failures << " failures)\n";
   return failures ? 1 : 0;

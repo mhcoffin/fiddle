@@ -22,6 +22,7 @@ struct InstrumentAssignment {
   int bankLSB = 0;       // Bank Select LSB (CC32)
   bool isSolo;           // true = solo player, false = section player
   int flatIndex = -1;    // Stable MIDI slot; sequential when unspecified
+  juce::String expressionMapID = "xmap.user.Fiddle.1";
 };
 
 /**
@@ -30,16 +31,19 @@ struct InstrumentAssignment {
  * Uses the VE Pro-style endpoint config approach (not the template
  * generator approach, which has a hard 16-channel limit).
  *
- * Produces five files from a list of EnsembleSlots:
+ * Produces the endpoint, template, and preset files plus referenced maps:
  *   EndpointConfigs/Fiddle/endpointconfig.xml
  *   PlaybackTemplateSpecs/Fiddle/playbacktemplatespec.xml
  *   PluginPresetLibraries/Fiddle/presets.xml
  *   PluginPresetLibraries/Fiddle/presets_for_instruments.xml
- *   DefaultLibraryAdditions/Fiddle_Universal.doricolib
+ *   DefaultLibraryAdditions/Fiddle-Bridge-<revision fingerprint>.doricolib
+ *   DefaultLibraryAdditions/Fiddle_Universal.doricolib (unassigned inputs)
  */
 class DoricoConfigGenerator {
 public:
-  DoricoConfigGenerator();
+  // An explicit directory allows isolated installation tests without touching
+  // the user's Dorico configuration. Normal application calls use Dorico 6.
+  explicit DoricoConfigGenerator(juce::File destination = {});
 
   /**
    * Expand EnsembleSlots into individual InstrumentAssignments.
@@ -64,11 +68,13 @@ public:
    *
    * @param assignments  The expanded instrument assignments
    * @param numChannels  Total channels to declare in playback template
+   * @param bridgeMapsJson Complete versioned bridge registry and endpoint pins
    * @return Result indicating success or failure with details
    */
   juce::Result generateAndInstallFiles(
       const std::vector<InstrumentAssignment> &assignments, int numChannels,
-      const std::vector<BrowsableInstrument> &browserInstruments);
+      const std::vector<BrowsableInstrument> &browserInstruments,
+      const juce::String &bridgeMapsJson = {});
 
   /**
    * Get the resolved Dorico application support base directory.
@@ -77,6 +83,7 @@ public:
   juce::File getDoricoBasePath() const;
 
 private:
+  juce::File destination_;
   // Placeholder UUID for the Fiddle VST3 plugin.
   // TODO: Replace with the actual UUID from the compiled VST3 binary.
   static constexpr const char *kFiddlePluginId =

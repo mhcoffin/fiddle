@@ -1,0 +1,8 @@
+{
+  "Name": "Fiddle MIDI Probe", "Version": "@FIDDLE_VERSION@",
+  "Factory Info": {"Vendor": "Antigravity", "URL": "", "E-Mail": "", "Flags": {"Unicode": true, "Classes Discardable": false, "Component Non Discardable": false}},
+  "Classes": [
+    {"CID": "472C6B180B184E7693E656AA50E8CF21", "Category": "Audio Module Class", "Name": "Fiddle MIDI Probe", "Vendor": "Antigravity", "Version": "@FIDDLE_VERSION@", "SDKVersion": "VST 3.7.12", "Sub Categories": ["Instrument", "Synth"], "Class Flags": 2, "Cardinality": 2147483647, "Snapshots": []},
+    {"CID": "71B31943B1204DD5AF83A6F125E90792", "Category": "Component Controller Class", "Name": "Fiddle MIDI Probe Controller", "Vendor": "Antigravity", "Version": "@FIDDLE_VERSION@", "SDKVersion": "VST 3.7.12", "Sub Categories": [], "Class Flags": 0, "Cardinality": 2147483647, "Snapshots": []}
+  ]
+}

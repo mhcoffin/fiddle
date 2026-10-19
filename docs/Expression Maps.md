@@ -1,5 +1,10 @@
 # Background
 
+> **Scope note, 2026-09-24:** this is an early downstream library-map design
+> note, followed by viewer/editor backlog items. It is not the current upstream
+> bridge work plan. Follow [Orchestral bridge maps](orchestral-bridge-maps.md) for
+> section profiles; treat the older implementation to-dos below as historical.
+
 Dorico has a system for mapping expression map names to VST3 parameter names. 
 This is done through a system of "Expression Maps" which are XML files Each entry in an expression map specifies a set of playback techniques. It maps this set to a collection of keyswitches, CC events, and other parameters that are sent to the VST3 plugin when the technique is played. 
 

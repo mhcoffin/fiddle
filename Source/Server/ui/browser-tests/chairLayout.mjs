@@ -879,12 +879,23 @@ try {
     const chairPage = await openTool("chairs");
     await chairPage.evaluate(chairs => { window.fixtureChairs = chairs; }, await page.evaluate(() => window.fixtureChairs));
     const manager = chairPage.getByRole("dialog", { name: "Chair Manager", exact: true });
+    assert.match(await manager.innerText(), /Assign project bridge revisions/);
     await chairPage.evaluate(() => {
         window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
         window.__dispatchFromCpp({ type: "setUndoState", data: {
             canUndo: true, canRedo: false, undoDescription: "Edit chair 'New flute'", redoDescription: "",
         } });
     });
+    const installTemplate = manager.getByRole("button", { name: "Install Playback Template", exact: true });
+    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setTemplateDirty", data: false }));
+    assert.ok(await installTemplate.isDisabled());
+    // A changed bridge pin arrives through the same dirty-state channel as a
+    // changed chair. Reinstall becomes available without reopening the panel.
+    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setTemplateDirty", data: true }));
+    await installTemplate.click();
+    assert.equal((await chairPage.evaluate(() => window.fixtureMessages.at(-1))).type, "installChairTemplate");
+    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "chairTemplateResult", data: "Installed playback template. Restart Dorico and apply the Fiddle playback template." }));
+    assert.match(await manager.innerText(), /Restart Dorico and apply/);
     const firstName = manager.getByRole("textbox", { name: "Name for Flute 1", exact: true });
     await firstName.fill("New flute");
     await firstName.press("Enter");

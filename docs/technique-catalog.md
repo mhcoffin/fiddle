@@ -1,5 +1,15 @@
 # Technique catalog and coverage audit
 
+## Current plan versus existing tools (2026-09-24)
+
+The active design is [four orchestral section bridge maps](orchestral-bridge-maps.md).
+The **Repair plan** and **Chair coverage** tabs still expose earlier diagnostic
+algorithms; they have not been relabeled or removed. Do not use their proposals
+as the current install plan. In particular, Chair coverage's candidate-product
+count is not an estimate of entries needed with mutex-grouped add-ons. A shared
+scan budget can be exhausted before a later chair is evaluated; zero evaluated
+does not mean zero requirements. See the [superseded analyzer record](chair-coverage-algorithm.md).
+
 Open **View → Windows → Technique Catalog** (or Technique Catalog under the
 mixer toolbar's View menu). This is a read-only first step toward an extensible
 Dorico-to-Fiddle expression map. It does not generate/install a map, change a
@@ -92,7 +102,7 @@ The optional `ui/browser-tests/techniqueCatalog.mjs` exercises scopes, searches,
 pagination, read-only window commands and polling suspension. It supports an
 opt-in real-data scan without connecting to a running Fiddle instance.
 
-Next: use this audit to define a curated vocabulary and a Dorico test score for
-individual techniques, combinations, cancellation and mid-passage starts. Only
-after that should a generator create the bridge map and matching decoder from
-one versioned definition.
+Next work is defined by the [orchestral bridge plan](orchestral-bridge-maps.md#next-work-in-order):
+focused cancellation/composition tests, four explicit allocation tables, then
+matched map/decoder generation and host validation. These diagnostics can inform
+that work; their older repair/enumeration schemes do not define the generator.

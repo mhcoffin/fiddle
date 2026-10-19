@@ -11,6 +11,7 @@
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapCommandService.h"
 #include "ExpressionMapJsHandlers.h"
+#include "BridgeMapCommands.h"
 #include "FiddleConfig.h"
 #include "MasterAudioCommandService.h"
 #include "MasterAudioJsHandlers.h"
@@ -235,6 +236,37 @@ void MainComponent::initExpressionMapLibrary() {
                    "Fiddle_Universal.doricolib",
                    true);
   }
+  // Explicit, session-only laboratory opt-in. Never infer a protocol from note
+  // pitches, expression maps on layers, or a saved project. Invalid requested
+  // configuration stops initialization before the MIDI listener is created.
+  const auto experimentalPath = juce::SystemStats::getEnvironmentVariable(
+      "FIDDLE_EXPERIMENTAL_BRIDGE", {});
+  if (experimentalPath.isNotEmpty()) {
+    const auto port = juce::SystemStats::getEnvironmentVariable("FIDDLE_EXPERIMENTAL_BRIDGE_PORT", {});
+    const auto channel = juce::SystemStats::getEnvironmentVariable("FIDDLE_EXPERIMENTAL_BRIDGE_CHANNEL", {});
+    const juce::File file = juce::File::isAbsolutePath(experimentalPath)
+        ? juce::File(experimentalPath) : juce::File();
+    juce::String error;
+    std::shared_ptr<const ExperimentalBridgeProfile> profile;
+    if (port.isEmpty() || channel.isEmpty() || !port.containsOnly("0123456789")
+        || !channel.containsOnly("0123456789") || port != juce::String(port.getIntValue())
+        || channel != juce::String(channel.getIntValue())
+        || port.getIntValue() > 15 || channel.getIntValue() < 1 || channel.getIntValue() > 16
+        || !file.existsAsFile()
+        || file.getSize() > 1024 * 1024) {
+      error = "Specify a decoder file, zero-based port (0-15), and channel (1-16).";
+    } else {
+      profile = ExperimentalBridgeProfile::parse(juce::JSON::parse(file), error);
+    }
+    if (!profile || !noteTracker.setExperimentalBridge(port.getIntValue(), channel.getIntValue(), profile)) {
+      addInitMessage("Experimental bridge configuration rejected: " + error);
+      pushLogMessage("Experimental bridge configuration rejected; MIDI server not started. " + error, true);
+      return;
+    }
+    pushLogMessage("Experimental Strings F r6 bridge enabled for port " + port
+                     + ", channel " + channel + ". Session only; all other endpoints use the legacy map.");
+  }
+
   // Wire metronome tracker unconditionally — prominence annotations
   // work even without an expression map.
   noteTracker.setMetronomeTracker(&metronomeTracker_);
@@ -690,7 +722,7 @@ void MainComponent::initMidiServer() {
           std::cerr << "[MainComponent] Panic: CC " << ccNum
                     << " → panicStrips on port " << port << " ch " << ch - 1
                     << std::endl;
-        } else {
+        } else if (!noteTracker.consumesExperimentalCC(port, ch, ccNum)) {
           // Route CC through annotator-aware path.
           // ch from Dorico is 1-based; JUCE controllerEvent also uses 1-16.
           juce::MidiMessage ccMsg =
@@ -737,6 +769,7 @@ void MainComponent::initMidiServer() {
         const auto branchId = event.load_config().branch_id();
         const auto versionId = event.load_config().version_id();
         safeCallAsync([this, legacyBranchName, branchId, versionId]() {
+          if (bridgeMapCommands_) bridgeMapCommands_->invalidateVerification();
           pushLogMessage("<b>[Host]</b> Dorico project connected");
           if (!legacyBranchName.empty() || !branchId.empty() ||
               !versionId.empty()) {
@@ -766,6 +799,12 @@ void MainComponent::initMidiServer() {
                            "Failed to deserialize state blob</span>");
             return;
           }
+          BridgeMapProject checkedBridges;
+          juce::String bridgeError;
+          if (!BridgeMapProject::parse(juce::String(restored->projectSettings.bridgeMapsJson), checkedBridges, bridgeError)) {
+            pushLogMessage("Bridge restore rejected: " + bridgeError, true);
+            return;
+          }
 
           pushLogMessage("<b>[Restore]</b> Restoring state from Dorico: '" +
                          configName + "' (" +
@@ -776,6 +815,8 @@ void MainComponent::initMidiServer() {
 
           // Clear and rebuild mixer from blob
           mixer_.clear();
+          if (mixer_.onBridgeMapsChanged)
+            mixer_.onBridgeMapsChanged(restored->projectSettings.bridgeMapsJson);
           mixer_.setProjectSettings(restored->projectSettings);
           undoManager_.clear();
 
@@ -3097,6 +3138,9 @@ void MainComponent::scanTechniqueCatalog(bool includeReference) {
     audit.layerId = strip->id;
     audit.layerName = strip->layerName.isNotEmpty() ? strip->layerName : strip->id;
     audit.assigned = assignment.data != nullptr;
+    audit.sourceXml = assignment.sourceXml;
+    audit.sourcePath = assignment.sourcePath;
+    audit.hasProcessors = !strip->luaPlugins.empty();
     if (assignment.data) audit.map = *assignment.data;
     request.assignments.push_back(std::move(audit));
     if (assignment.data)
@@ -3755,6 +3799,7 @@ void MainComponent::pushLibraryCatalogHistory() {
 }
 
 void MainComponent::setupJsHandlers() {
+  setupBridgeMapHandlers();
   jsRouter_.registerHandler("requestTechniqueCatalogState", [this](const juce::var &) { pushTechniqueCatalogState(); });
   jsRouter_.registerHandler("scanTechniqueCatalog", [this](const juce::var &payload) {
     if (payload.isArray() && payload.size() == 1 && payload[0].isBool()) scanTechniqueCatalog(bool(payload[0]));
@@ -4479,6 +4524,12 @@ void MainComponent::setupJsHandlers() {
   });
   jsRouter_.registerHandler(
       "saveSelectedInstruments", [this](const juce::var &payload) {
+        if (!mixer_.projectSettings().bridgeMapsJson.empty()) {
+          safeCallAsync([this] {
+            broadcastMessage("setSaveResult", juce::var("Error: Install from Chairs when using project bridge maps; this preserves their MIDI destinations."));
+          });
+          return;
+        }
         juce::Array<juce::var> args;
         if (payload.isArray())
           args = *payload.getArray();
@@ -5544,6 +5595,10 @@ void MainComponent::setupJsHandlers() {
                                                                 &payload) {
     safeCallAsync([this]() {
       std::cerr << "[BuildTemplate] Starting..." << std::endl;
+      if (!mixer_.projectSettings().bridgeMapsJson.empty()) {
+        broadcastMessage("buildPlaybackTemplateResult", juce::var("Error: Install from Chairs when using project bridge maps; this preserves their MIDI destinations."));
+        return;
+      }
 
       // 1. Load all libraries and their instruments
       auto libs = db_.listLibraries();
@@ -6427,6 +6482,10 @@ void MainComponent::syncMixerToLayers() {
 }
 
 void MainComponent::installChairPlaybackTemplate() {
+  if (isTransportStarted_.load(std::memory_order_acquire) || noteTracker.hasActiveNotes()) {
+    broadcastMessage("chairTemplateResult", juce::var("Error: Stop playback and release notes before installing a playback template"));
+    return;
+  }
   auto *repository = db_.getLibraryRoutingRepository();
   const auto chairs = repository ? repository->listChairs()
                                   : std::vector<ChairRow>{};
@@ -6484,7 +6543,8 @@ void MainComponent::installChairPlaybackTemplate() {
 
   DoricoConfigGenerator generator;
   const auto result = generator.generateAndInstallFiles(
-      assignments, maxFlatIndex + 1, browserInstruments);
+      assignments, maxFlatIndex + 1, browserInstruments,
+      juce::String(mixer_.projectSettings().bridgeMapsJson));
   if (result.failed()) {
     broadcastMessage("chairTemplateResult",
                      juce::var("Error: " + result.getErrorMessage()));
@@ -6543,7 +6603,7 @@ void MainComponent::installChairPlaybackTemplate() {
   broadcastTemplateDirty();
   broadcastMessage("chairTemplateResult",
                    juce::var("Installed playback template with " +
-                             juce::String((int)chairs.size()) + " chairs"));
+                             juce::String((int)chairs.size()) + " chairs. Restart Dorico and apply the Fiddle playback template, then verify the assigned maps in Bridge maps."));
 }
 
 juce::String MainComponent::computeChairFingerprint() {
@@ -6560,6 +6620,10 @@ juce::String MainComponent::computeChairFingerprint() {
             juce::String(chair.displayOrder) + "|" +
             juce::String(chair.flatIndex) + "\n";
   }
+  // Draft/unassigned revisions do not change the installed template. Pinned
+  // endpoint/revision changes do, including Undo and version checkout.
+  const auto bridgeJson = juce::JSON::parse(juce::String(mixer_.projectSettings().bridgeMapsJson));
+  data += juce::JSON::toString(bridgeJson["assignments"], true);
   return juce::String(data.hashCode64());
 }
 

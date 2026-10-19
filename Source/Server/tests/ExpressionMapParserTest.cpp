@@ -479,6 +479,101 @@ static void testVSLDualityTimingOptions(const juce::File &examplesDir) {
 // ---------------------------------------------------------------------------
 extern void runAnnotatorTests();
 
+// Isolated wire probes must remain ordinary Dorico XML readable by the real
+// parser. This is not a test of Dorico's switch selection or the live decoder.
+static void testExperimentalStringsProbes(const juce::File &examplesDir) {
+  const auto generated = examplesDir.getParentDirectory().getChildFile(
+      "experiments/dorico-strings/generated");
+  for (const auto *variant : {"separate", "packed", "keyswitch", "velocity", "dimensions", "high-vibrato"}) {
+    const bool highVibrato = std::string(variant) == "high-vibrato";
+    const bool dimensions = std::string(variant) == "dimensions" || highVibrato;
+    const bool velocity = std::string(variant) == "velocity" || dimensions;
+    const bool keyswitch = std::string(variant) == "keyswitch" || velocity;
+    ExpressionMapData data;
+    const auto file = generated.getChildFile(juce::String(variant) + ".doricolib");
+    CHECK(file.existsAsFile());
+    if (!file.existsAsFile())
+      continue;
+    const bool parsed = parseExpressionMap(file, data);
+    CHECK(parsed);
+    if (!parsed)
+      continue;
+    CHECK_EQ(data.entityID,
+             std::string("xmap.user.Fiddle.Experimental.Strings.v1.") + variant + (highVibrato ? ".r6" : dimensions ? ".r5" : velocity ? ".r4" : keyswitch ? ".r3" : ".r2"));
+    int bases = 0, addons = 0, compoundBases = 0, keyAddons = 0;
+    for (const auto &entry : data.combinations) {
+      if (entry.isAddOn)
+        ++addons;
+      else {
+        ++bases;
+        CHECK(!entry.condition.empty());
+        CHECK(entry.switchOffActions.empty());
+        if (entry.techniqueIDs == std::set<std::string>{
+                "pt.staccato", "pt.tenuto", "pt.accent"})
+          ++compoundBases;
+      }
+      CHECK_EQ(entry.switchOnActions.size(), size_t(1));
+      for (const auto &action : entry.switchOnActions) {
+        if (keyswitch && action.type == SwitchActionType::KeySwitch) {
+          ++keyAddons;
+          CHECK(entry.isAddOn);
+          if (highVibrato && action.param1 == 127) {
+            const int expectedVelocity = entry.techniqueIDs.count("pt.nonVibrato") ? 2
+                : entry.techniqueIDs.count("pt.conVibrato") ? 64
+                : entry.techniqueIDs.count("pt.vibrato") ? 126
+                : entry.techniqueIDs.count("pt.wideVibrato") ? 127 : -1;
+            CHECK_EQ(action.param2, expectedVelocity);
+            CHECK_EQ(entry.switchOffActions.size(), size_t(1));
+            if (!entry.switchOffActions.empty()) {
+              CHECK(entry.switchOffActions.front().type == SwitchActionType::KeySwitch);
+              CHECK_EQ(entry.switchOffActions.front().param1, 127);
+              CHECK_EQ(entry.switchOffActions.front().param2, 1);
+            }
+            continue;
+          }
+          if (velocity) {
+            const int expectedPitch = !dimensions || entry.techniqueIDs.count("pt.flautando") ? 0
+                : entry.techniqueIDs.count("pt.overpressure") ? 1 : 2;
+            CHECK_EQ(action.param1, expectedPitch);
+            const int expectedVelocity = entry.techniqueIDs.count("pt.flautando") ? 1
+                : entry.techniqueIDs.count("pt.overpressure") ? 63 : 126;
+            CHECK_EQ(action.param2, expectedVelocity);
+          } else {
+            CHECK(action.param1 == 0 || action.param1 == 2 || action.param1 == 4);
+            CHECK_EQ(action.param2, 127);
+          }
+          CHECK_EQ(entry.switchOffActions.size(), size_t(1));
+          if (!entry.switchOffActions.empty()) {
+            CHECK(entry.switchOffActions.front().type == SwitchActionType::KeySwitch);
+            CHECK_EQ(entry.switchOffActions.front().param1, velocity ? action.param1 : action.param1 + 1);
+            CHECK_EQ(entry.switchOffActions.front().param2, velocity ? action.param2 + 1 : 127);
+          }
+          continue;
+        }
+        CHECK(action.type == SwitchActionType::ControlChange ||
+              action.type == SwitchActionType::CC);
+        CHECK(action.param1 >= 102 && action.param1 <= 119);
+        CHECK(action.param2 >= 0 && action.param2 <= 127);
+      }
+    }
+    CHECK_EQ(bases, 90);
+    CHECK_EQ(compoundBases, 5);
+    CHECK_EQ(keyAddons, highVibrato ? 7 : keyswitch ? 3 : 0);
+    CHECK_EQ(addons, std::string(variant) == "packed" ? 20 : 16);
+    if (std::string(variant) == "packed") {
+      const auto *compound = findByTechniques(
+          data, {"pt.flautando", "pt.overpressure", "pt.fouette"});
+      CHECK(compound != nullptr);
+      if (compound) {
+        CHECK(compound->isAddOn);
+        CHECK_EQ(compound->switchOnActions.front().param1, 116);
+        CHECK_EQ(compound->switchOnActions.front().param2, 7);
+        CHECK_EQ(compound->switchOffActions.size(), size_t(1));
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -517,6 +612,7 @@ int main(int argc, char *argv[]) {
   testVSLDimensionStrings(examplesDir);
   testBWWAClarinet(examplesDir);
   testVSLDualityTimingOptions(examplesDir);
+  testExperimentalStringsProbes(examplesDir);
 
   // Run annotator tests
   runAnnotatorTests();

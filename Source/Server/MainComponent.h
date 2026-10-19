@@ -37,6 +37,7 @@
 namespace fiddle {
 
 class ExpressionMapCommandService;
+class BridgeMapCommands;
 class ExpressionMapJsHandlers;
 class MixerCommandService;
 class MixerJsHandlers;
@@ -163,6 +164,7 @@ private:
   std::unique_ptr<PluginCommandService> pluginCommandService_;
   std::unique_ptr<PluginJsHandlers> pluginJsHandlers_;
   std::unique_ptr<ExpressionMapCommandService> expressionMapCommandService_;
+  std::unique_ptr<BridgeMapCommands> bridgeMapCommands_;
   std::unique_ptr<ExpressionMapJsHandlers> expressionMapJsHandlers_;
   std::unique_ptr<versioning::VersionStore> versionStore_;
   StateManager stateManager_;
@@ -280,6 +282,8 @@ private:
   void timerCallback() override;
 
   void setupJsHandlers();
+  void setupBridgeMapHandlers();
+  void pushBridgeMapState();
   AgentControlServer::Response
   handleAgentControlRequest(const juce::String &method,
                             const juce::var &params);

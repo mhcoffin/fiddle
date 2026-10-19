@@ -180,13 +180,11 @@ public:
 
     auto techniqueIDs = collectInputTechniqueIds(note);
 
-    // Recompute length category from written duration (note is now complete)
-    LengthCategory lengthCat = LengthCategory::VeryLong;
-    if (note.duration_samples() > 0 && ctx.sampleRate > 0) {
-      double durationSec =
-          static_cast<double>(note.duration_samples()) / ctx.sampleRate;
-      lengthCat = classifyLength(durationSec);
-    }
+    // Use the same written-length category as note-on. A staccato note's
+    // performed duration can be much shorter and must not select another
+    // length-conditioned switch's release actions. Without bridge metadata,
+    // the shared helper still falls back to the completed duration.
+    const auto lengthCat = inputLengthCategory(note, ctx.sampleRate);
 
     auto match = resolveWithCache(techniqueIDs, lengthCat);
 

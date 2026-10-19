@@ -228,6 +228,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/FiddleConfig.h
     Source/Server/ExpressionMapParser.cpp
     Source/Server/TechniqueCatalog.cpp
+    Source/Server/ChairCoverage.cpp
     Source/Server/BridgeReachability.cpp
     Source/Server/BridgeRepairPlan.cpp
     Source/Server/ExpressionMapParser.h
@@ -502,6 +503,50 @@ endif()
 
 # ==============================================================================
 # ExpressionMapTest — test executable for expression map parser
+# FiddleMidiProbe is opt-in and never included in installation of FiddleNative.
+if(APPLE)
+    get_target_property(FIDDLE_NATIVE_SOURCES FiddleNative SOURCES)
+    add_library(FiddleMidiProbe MODULE EXCLUDE_FROM_ALL ${FIDDLE_NATIVE_SOURCES})
+    target_include_directories(FiddleMidiProbe PRIVATE "${VST3_SDK}" "${CMAKE_CURRENT_BINARY_DIR}" Source/NativePlugin)
+    target_link_libraries(FiddleMidiProbe PRIVATE libprotobuf "-framework CoreFoundation" "-framework AppKit")
+    target_compile_definitions(FiddleMidiProbe PRIVATE DEVELOPMENT=0 RELEASE=1 FIDDLE_MIDI_PROBE=1 FIDDLE_PROBE_VERSION="${FIDDLE_VERSION}")
+    target_compile_features(FiddleMidiProbe PRIVATE cxx_std_17)
+    set_target_properties(FiddleMidiProbe PROPERTIES
+        BUNDLE TRUE BUNDLE_EXTENSION "vst3" MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "Fiddle MIDI Probe"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${FIDDLE_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${FIDDLE_VERSION}"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.antigravity.fiddle.midiprobe"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativePlugin/Info.plist.in"
+        OUTPUT_NAME "Fiddle MIDI Probe" PREFIX "" SUFFIX ""
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/FiddleMidiProbe_artefacts/VST3")
+    configure_file(Source/NativePlugin/probe-moduleinfo.json.in "${CMAKE_BINARY_DIR}/probe-moduleinfo.json" @ONLY)
+    set(FIDDLE_PROBE_BUNDLE "${CMAKE_BINARY_DIR}/FiddleMidiProbe_artefacts/VST3/Fiddle MIDI Probe.vst3")
+    add_custom_command(TARGET FiddleMidiProbe POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${FIDDLE_PROBE_BUNDLE}/Contents/Resources"
+        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/probe-moduleinfo.json" "${FIDDLE_PROBE_BUNDLE}/Contents/Resources/moduleinfo.json")
+    add_executable(MidiProbeSmokeTest EXCLUDE_FROM_ALL Source/NativePlugin/tests/MidiProbeSmokeTest.cpp
+        "${VST3_SDK}/pluginterfaces/base/funknown.cpp"
+        "${VST3_SDK}/pluginterfaces/base/coreiids.cpp"
+        "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp")
+    target_include_directories(MidiProbeSmokeTest PRIVATE "${VST3_SDK}" Source/NativePlugin)
+    target_compile_definitions(MidiProbeSmokeTest PRIVATE DEVELOPMENT=0 RELEASE=1 FIDDLE_MIDI_PROBE=1)
+    target_compile_features(MidiProbeSmokeTest PRIVATE cxx_std_17)
+    target_link_libraries(MidiProbeSmokeTest PRIVATE "-framework CoreFoundation")
+    add_dependencies(MidiProbeSmokeTest FiddleMidiProbe)
+    add_test(NAME midi_probe_smoke COMMAND MidiProbeSmokeTest "${FIDDLE_PROBE_BUNDLE}")
+    set_tests_properties(midi_probe_smoke PROPERTIES LABELS "midi;plugin;regression;stable")
+endif()
+
+add_executable(HostMidiBlockTest Source/NativePlugin/tests/HostMidiBlockTest.cpp "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
+target_include_directories(HostMidiBlockTest PRIVATE "${VST3_SDK}" "${CMAKE_CURRENT_BINARY_DIR}" Source/NativePlugin)
+target_compile_definitions(HostMidiBlockTest PRIVATE DEVELOPMENT=0 RELEASE=1)
+target_compile_features(HostMidiBlockTest PRIVATE cxx_std_17)
+target_link_libraries(HostMidiBlockTest PRIVATE libprotobuf)
+add_test(NAME host_midi_block COMMAND HostMidiBlockTest)
+set_tests_properties(host_midi_block PROPERTIES LABELS "midi;realtime;regression;stable")
+
+# ExpressionMapTest — test executable for expression map parser
 # ==============================================================================
 juce_add_console_app(ExpressionMapTest
     PRODUCT_NAME "ExpressionMapTest"
@@ -651,6 +696,7 @@ set_tests_properties(expression_map_js_handlers PROPERTIES
 add_executable(TechniqueCatalogTest
     Source/Server/tests/TechniqueCatalogTest.cpp
     Source/Server/TechniqueCatalog.cpp
+    Source/Server/ChairCoverage.cpp
     Source/Server/BridgeReachability.cpp
     Source/Server/BridgeRepairPlan.cpp
 )
@@ -674,6 +720,7 @@ add_executable(BridgeRepairPlanTest
     Source/Server/BridgeRepairPlan.cpp
     Source/Server/BridgeReachability.cpp
     Source/Server/TechniqueCatalog.cpp
+    Source/Server/ChairCoverage.cpp
     Source/Server/ExpressionMapParser.cpp
 )
 target_link_libraries(BridgeRepairPlanTest PRIVATE juce::juce_core)
@@ -682,6 +729,15 @@ add_test(NAME bridge_repair_plan COMMAND BridgeRepairPlanTest)
 set_tests_properties(bridge_repair_plan PROPERTIES LABELS "expression-map;regression;stable")
 
 find_program(NODE_EXECUTABLE node REQUIRED)
+add_executable(ChairCoverageTest
+    Source/Server/tests/ChairCoverageTest.cpp
+    Source/Server/ChairCoverage.cpp
+    Source/Server/ExpressionMapParser.cpp
+)
+target_link_libraries(ChairCoverageTest PRIVATE juce::juce_core)
+target_compile_features(ChairCoverageTest PRIVATE cxx_std_17)
+add_test(NAME chair_coverage COMMAND ChairCoverageTest)
+set_tests_properties(chair_coverage PROPERTIES LABELS "expression-map;regression;stable")
 # Discover every UI regression file, including newly added ones. These include
 # pure model tests and source-contract checks; they are not browser interaction tests.
 file(GLOB UI_TEST_FILES CONFIGURE_DEPENDS
@@ -733,6 +789,17 @@ target_link_libraries(TransportTest PRIVATE
 target_compile_features(TransportTest PRIVATE cxx_std_17)
 add_test(NAME transport COMMAND TransportTest)
 set_tests_properties(transport PROPERTIES LABELS stable)
+
+add_executable(ExperimentalBridgeTest
+    Source/Server/tests/ExperimentalBridgeTest.cpp
+    Source/Server/NoteInspection.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
+target_include_directories(ExperimentalBridgeTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(ExperimentalBridgeTest PRIVATE juce::juce_core juce::juce_events libprotobuf)
+target_compile_features(ExperimentalBridgeTest PRIVATE cxx_std_17)
+target_compile_definitions(ExperimentalBridgeTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME experimental_bridge COMMAND ExperimentalBridgeTest)
+set_tests_properties(experimental_bridge PROPERTIES LABELS "midi;regression;stable")
 
 # ==============================================================================
 # MidiTcpServerTest — duplicate plug-in connection diagnostics
@@ -1167,10 +1234,13 @@ juce_add_console_app(DoricoConfigGeneratorTest
 target_sources(DoricoConfigGeneratorTest PRIVATE
     Source/Server/tests/DoricoConfigGeneratorTest.cpp
     Source/Server/DoricoConfigGenerator.cpp
+    Source/Server/BridgeMapDocument.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
 )
 
-target_include_directories(DoricoConfigGeneratorTest PRIVATE Source/Server)
-target_link_libraries(DoricoConfigGeneratorTest PRIVATE juce::juce_core)
+target_include_directories(DoricoConfigGeneratorTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(DoricoConfigGeneratorTest PRIVATE juce::juce_core juce::juce_cryptography libprotobuf)
+target_compile_definitions(DoricoConfigGeneratorTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(DoricoConfigGeneratorTest PRIVATE cxx_std_17)
 juce_generate_juce_header(DoricoConfigGeneratorTest)
 
@@ -1238,7 +1308,8 @@ target_link_libraries(MixerIntegrationTest PRIVATE
     juce::juce_audio_utils juce::juce_gui_extra
     libprotobuf lua_static sol2 SQLite::SQLite3)
 target_compile_definitions(MixerIntegrationTest PRIVATE
-    JUCE_PLUGINHOST_VST3=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+    JUCE_PLUGINHOST_VST3=1 JUCE_MODAL_LOOPS_PERMITTED=1
+    FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 target_compile_features(MixerIntegrationTest PRIVATE cxx_std_20)
 juce_generate_juce_header(MixerIntegrationTest)
 option(FIDDLE_TEST_THREAD_SANITIZER "Instrument mixer/hosted-slot concurrency tests with TSan" OFF)
@@ -1249,6 +1320,8 @@ if(FIDDLE_TEST_THREAD_SANITIZER)
     endforeach()
 endif()
 add_test(NAME mixer_integration COMMAND MixerIntegrationTest)
+add_test(NAME experimental_bridge_mixer COMMAND MixerIntegrationTest --experimental-bridge-only)
+set_tests_properties(experimental_bridge_mixer PROPERTIES LABELS "midi;audio;integration;regression;stable")
 set_tests_properties(mixer_integration PROPERTIES
     LABELS "audio;routing;persistence;integration;regression;stable")
 
@@ -1284,6 +1357,29 @@ target_link_libraries(DebugUiFeedTest PRIVATE juce::juce_core)
 target_compile_features(DebugUiFeedTest PRIVATE cxx_std_17)
 add_test(NAME debug_ui_feed COMMAND DebugUiFeedTest)
 set_tests_properties(debug_ui_feed PROPERTIES LABELS "ui;regression;stable")
+
+add_executable(BridgeMapDocumentTest
+    Source/Server/tests/BridgeMapDocumentTest.cpp
+    Source/Server/NoteInspection.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
+target_include_directories(BridgeMapDocumentTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(BridgeMapDocumentTest PRIVATE juce::juce_events libprotobuf)
+target_compile_features(BridgeMapDocumentTest PRIVATE cxx_std_17)
+target_compile_definitions(BridgeMapDocumentTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME bridge_map_document COMMAND BridgeMapDocumentTest)
+set_tests_properties(bridge_map_document PROPERTIES LABELS "midi;persistence;regression;stable")
+foreach(bridge_target FiddleServer MixerIntegrationTest BridgeMapDocumentTest)
+    target_sources(${bridge_target} PRIVATE Source/Server/BridgeMapDocument.cpp)
+    target_link_libraries(${bridge_target} PRIVATE juce::juce_cryptography)
+endforeach()
+target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp)
+add_custom_command(TARGET FiddleServer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r1/Fiddle-Orchestral-Woodwinds-r1.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r1/Fiddle-Orchestral-Brass-r1.doricolib"
+        "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
 
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.

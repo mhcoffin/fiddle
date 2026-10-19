@@ -1,5 +1,26 @@
 # Fiddle
 
+## Current bridge-map work
+
+The authoritative plan is [Orchestral bridge maps](docs/orchestral-bridge-maps.md):
+four section profiles using the hand-built base switches plus mutex-grouped
+add-ons. Earlier universal-map and chair-specific Cartesian generation proposals
+are superseded; existing diagnostics and historical test evidence are retained.
+Supported bridge behavior is limited to **one Dorico voice per MIDI channel**.
+With multiple voices sharing a channel, Dorico's output is treated as practically
+unpredictable and exact agreement with direct Dorico playback is not promised.
+The shared-voice diagnostics are historical and no longer block bridge work.
+The current [strings r3 candidate](experiments/orchestral-strings-bridge/r3/README.md)
+uses 32 add-on dimensions plus the base dimension (33 conduits, 19 spare),
+with guitar/jazz extensions deferred to later profiles or customization.
+The [woodwind and brass r1 candidates](experiments/orchestral-winds-bridge/README.md)
+use 36 and 37 conduits respectively, with shared PT encodings matching strings.
+The [Bridge maps workspace](docs/bridge-map-authoring.md) now imports, edits,
+versions and assigns these maps, deriving each decoder from its stored source.
+Dorico export verification is explicit; production host acceptance is pending.
+**Chairs → Install Playback Template** now installs those pinned maps with matching
+endpoint/preset references. See the [template smoke test](docs/bridge-map-authoring.md#template-smoke-test).
+
 ## Open the current app (macOS)
 
 Double-click **Fiddle.app** at the top of this repository, or run:

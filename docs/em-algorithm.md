@@ -1,3 +1,13 @@
+# Historical downstream expression-map matching sketch
+
+> **Historical, not the current bridge-generation plan or a specification of
+> current playback code.** See [Orchestral bridge maps](orchestral-bridge-maps.md)
+> for upstream transport. In particular, add-on PTs can belong to mutex groups;
+> the broad non-exclusion statement below does not prohibit that. The proposed
+> automatic MEG-default expansion and length handling below must not be copied
+> into the new decoder. Current downstream behavior is implemented in
+> `ExpressionMapData.h` and `ExpressionMapAnnotator.h` and tested separately.
+
 The expression map has a list of base switches and a list of add-on switches. Each base switch consist of one or more playback techniques. They are mutually exclusive. Each base switch maps to a set of MIDI signals. 
 
 Add-on switches also consist of one or more playback techniques. They are not mutually exclusive. They add MIDI signals to the set provided by the base switch.
@@ -73,5 +83,4 @@ The goal of this step is to determine the base switch and add-on switches for ea
     - If there is a conflict between covering more PTs and preferring more specific add-on switches, we will prefer covering more PTs.
 
 6. **Caching.** Since many notes will have the same set of PTs and length classification, we cache the results of steps 4–5. The cache key is the tuple (expanded PT set, length category).
-
 

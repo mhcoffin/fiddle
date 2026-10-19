@@ -1,6 +1,8 @@
 #pragma once
 
 #include "ExpressionMap.h"
+#include "ExperimentalBridgeProfile.h"
+#include "BridgeMapDocument.h"
 #include "MetronomeTempoTracker.h"
 #include "midi_event.pb.h"
 #include <algorithm> // Added for std::find
@@ -28,6 +30,27 @@ inline void noteOffLog(const std::string &msg) {
  */
 class NoteStreamTracker {
 public:
+  void setBridgeMaps(const BridgeMapProject &project) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); bridgeConfigurationInvalid_ = false;
+    for (const auto &[ep, hash] : project.assignments)
+      compiledBridges.emplace(Endpoint{uint32_t(ep.first), uint32_t(ep.second)},
+                              project.documents.at(hash)->compiled);
+  }
+  void rejectBridgeMaps() {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); bridgeConfigurationInvalid_ = true;
+  }
+  void unverifyBridge(int port, int channel) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
+    if (it != compiledBridges.end()) { it->second.reset(); it->second.verified = false; }
+  }
+  void verifyBridge(int port, int channel) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
+    if (it != compiledBridges.end()) { it->second.reset(); it->second.verified = true; }
+  }
   struct Callbacks {
     std::function<void(const fiddle::Note &)> onNoteStarted;
     std::function<void(const fiddle::Note &)> onNoteEnded;
@@ -39,14 +62,41 @@ public:
 
   std::function<void(const juce::String &)> uiLogger;
 
-  NoteStreamTracker() {
-    for (auto &chan : currentCCs)
-      chan.fill(0);
-  }
+  NoteStreamTracker() = default;
 
   void setCallbacks(Callbacks cbs) { callbacks = std::move(cbs); }
 
   void setExpressionMap(const ExpressionMap *map) { expMap = map; }
+
+  // Session-only experimental opt-in for one chair endpoint, shared by every
+  // layer. Refuse a decoder change while that endpoint has sounding notes.
+  bool setExperimentalBridge(int port, int channel,
+                            std::shared_ptr<const ExperimentalBridgeProfile> profile) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    if (port < 0 || port >= 16 || toChannelIndex(channel) < 0) return false;
+    for (const auto &note : activeNotes)
+      if (int(note.port()) == port && int(note.channel()) == channel) return false;
+    const Endpoint endpoint{uint32_t(port), uint32_t(channel)};
+    experimentalBridges.erase(endpoint);
+    currentCCs.erase(endpoint);
+    if (profile) experimentalBridges.emplace(endpoint, std::move(profile));
+    return true;
+  }
+
+  bool consumesExperimentalCC(int port, int channel, int cc) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto compiled = compiledBridges.find({uint32_t(port), uint32_t(channel)});
+    if (compiled != compiledBridges.end()) return compiled->second.consumesCC(cc);
+    const auto it = experimentalBridges.find({uint32_t(port), uint32_t(channel)});
+    return it != experimentalBridges.end() && it->second.consumesCC(cc);
+  }
+
+  std::pair<uint64_t, uint64_t> experimentalErrors(int port, int channel) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto it = experimentalBridges.find({uint32_t(port), uint32_t(channel)});
+    return it == experimentalBridges.end() ? std::pair<uint64_t, uint64_t>{0, 0}
+      : std::pair<uint64_t, uint64_t>{it->second.invalidCommands, it->second.rejectedNotes};
+  }
 
   void setMetronomeTracker(const MetronomeTempoTracker *tracker) {
     metronomeTracker_ = tracker;
@@ -72,11 +122,18 @@ public:
     //           << (int)event.event_case() << " Ch=" << event.channel()
     //           << std::endl;
 
+    if (bridgeConfigurationInvalid_) return;
     uint64_t sessionTimestamp = getSessionSamples();
     uint64_t absoluteSamples =
         event.has_host_sample_position()
             ? event.host_sample_position()
             : (sessionTimestamp + event.timestamp_samples());
+
+    const auto compiled = compiledBridges.find({event.port(), event.channel()});
+    const auto bridge = experimentalBridges.find({event.port(), event.channel()});
+    if (compiled != compiledBridges.end() && compiled->second.consume(event)) return;
+    if (compiled == compiledBridges.end() && bridge != experimentalBridges.end() && bridge->second.consume(event))
+      return; // Never expose protocol keys as musical notes or raw output MIDI.
 
     if (event.has_note_on()) {
       int vel = event.note_on().velocity();
@@ -105,9 +162,11 @@ public:
       uint8_t newVal = (uint8_t)event.cc().controller_value();
 
       if (const int channelIndex = toChannelIndex(channel);
-          channelIndex >= 0) {
-        uint8_t oldVal = currentCCs[(size_t)channelIndex][ccNum % 128];
-        currentCCs[(size_t)channelIndex][ccNum % 128] = newVal;
+          channelIndex >= 0 && event.port() < 16 && ccNum < 128
+          && event.cc().controller_value() < 128) {
+        auto &ccs = currentCCs[{event.port(), channel}];
+        uint8_t oldVal = ccs[ccNum];
+        ccs[ccNum] = newVal;
 
         if (oldVal != newVal) {
           if (uiLogger) {
@@ -119,8 +178,7 @@ public:
           // on this channel. This captures the full CC history per-note
           // for later playback.
           if (ccNum < 128) {
-            uint64_t currentSamples =
-                sessionTimestamp + event.timestamp_samples();
+            uint64_t currentSamples = absoluteSamples;
             for (auto &note : activeNotes) {
               if (note.port() == event.port() && note.channel() == channel) {
                 auto &lane = (*note.mutable_cc_automation())[ccNum];
@@ -136,9 +194,8 @@ public:
 
           // Expression map enrichment: update notation dimensions/techniques
           // on the most recently started note (30ms jitter window).
-          {
-            uint64_t currentSamples =
-                sessionTimestamp + event.timestamp_samples();
+          if (compiled == compiledBridges.end() && bridge == experimentalBridges.end()) {
+            uint64_t currentSamples = absoluteSamples;
             for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
               auto &note = activeNotes[i];
               if (note.port() == event.port() && note.channel() == channel) {
@@ -198,8 +255,9 @@ public:
   void resetForTransportStop() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     activeNotes.clear();
-    for (auto &channel : currentCCs)
-      channel.fill(0);
+    currentCCs.clear();
+    for (auto &[endpoint, bridge] : experimentalBridges) bridge.reset();
+    for (auto &[endpoint, bridge] : compiledBridges) bridge.reset();
   }
 
   uint64_t getSessionSamples() const {
@@ -213,11 +271,13 @@ public:
   /// Get the current value of a CC on a given channel.
   /// @param channel  Dorico-convention channel (1-based for real instruments).
   /// @param ccNum    CC number (0–127).
-  uint8_t getCC(int channel, int ccNum) const {
+  /// @param port     Zero-based Dorico port; omitted callers refer to port 0.
+  uint8_t getCC(int channel, int ccNum, int port = 0) const {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const int channelIndex = toChannelIndex((uint32_t)channel);
-    if (channelIndex >= 0 && ccNum >= 0 && ccNum < 128)
-      return currentCCs[(size_t)channelIndex][(size_t)ccNum];
+    const auto it = currentCCs.find({uint32_t(port), uint32_t(channel)});
+    if (channelIndex >= 0 && ccNum >= 0 && ccNum < 128 && it != currentCCs.end())
+      return it->second[(size_t)ccNum];
     return 0;
   }
 
@@ -235,7 +295,11 @@ private:
   const MetronomeTempoTracker *metronomeTracker_ = nullptr;
 
   std::vector<fiddle::Note> activeNotes;
-  std::array<std::array<uint8_t, 128>, 16> currentCCs;
+  using Endpoint = std::pair<uint32_t, uint32_t>; // zero-based port, 1-based channel
+  std::map<Endpoint, std::array<uint8_t, 128>> currentCCs;
+  std::map<Endpoint, ExperimentalBridgeState> experimentalBridges;
+  std::map<Endpoint, BridgeDecoderState> compiledBridges;
+  bool bridgeConfigurationInvalid_ = false;
   uint64_t nextNoteId = 1;
   bool enrichNoteWithCC(fiddle::Note &note, int ccNum, int val) {
     if (expMap == nullptr)
@@ -279,6 +343,8 @@ private:
     const auto &noteOn = event.note_on();
     const uint32_t channel = event.channel();
     const int channelIndex = toChannelIndex(channel);
+    if (channelIndex < 0 || event.port() >= 16 || noteOn.note_number() >= 128
+        || noteOn.velocity() >= 128) return;
 
     fiddle::Note note;
     note.set_id(nextNoteId++);
@@ -289,17 +355,31 @@ private:
     note.set_start_sample(absoluteSamples);
 
     // Enrich note with notation dimensions from ExpressionMap
-    if (expMap != nullptr && channelIndex >= 0) {
+    auto &ccs = currentCCs[{event.port(), channel}];
+    const auto compiled = compiledBridges.find({event.port(), channel});
+    const auto bridge = experimentalBridges.find({event.port(), channel});
+    if (compiled != compiledBridges.end()) {
+      if (!compiled->second.annotate(note)) {
+        if (uiLogger) uiLogger("[Bridge] Note withheld: verify the assigned map and initialize all dimensions");
+        return;
+      }
+    } else if (bridge != experimentalBridges.end()) {
+      if (!bridge->second.annotate(note)) {
+        ++bridge->second.rejectedNotes;
+        if (uiLogger) uiLogger("[Experimental bridge] Note withheld: incomplete/invalid technique state");
+        return;
+      }
+    } else if (expMap != nullptr && channelIndex >= 0) {
       for (const auto &dim : expMap->getDimensions()) {
         if (dim.ccNumber >= 0 && dim.ccNumber < 128) {
           uint8_t val =
-              currentCCs[(size_t)channelIndex][dim.ccNumber % 128];
+              ccs[dim.ccNumber];
           enrichNoteWithCC(note, dim.ccNumber, val);
         }
       }
 
       // Set dynamics mode based on current CC102 (base switch) value
-      uint8_t cc102Val = currentCCs[(size_t)channelIndex][102];
+      uint8_t cc102Val = ccs[102];
       if (expMap->dynamicsUsesCC1((int)cc102Val)) {
         note.set_dynamics_mode(fiddle::Note::CC);
       } else {
@@ -310,7 +390,7 @@ private:
     // Seed all CC automation lanes with current values at offset 0
     if (channelIndex >= 0) {
       for (int cc = 0; cc < 128; ++cc) {
-        uint8_t val = currentCCs[(size_t)channelIndex][(size_t)cc];
+        uint8_t val = ccs[(size_t)cc];
         if (val != 0) { // Only seed non-zero CCs to keep notes compact
           auto &lane = (*note.mutable_cc_automation())[cc];
           auto *pt = lane.add_points();

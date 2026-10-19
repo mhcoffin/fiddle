@@ -6,15 +6,57 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Expression-map foundation — current focus
 
-- **Dorico bridge configuration.** Read-only vocabulary catalog and current-chair
-  assigned-map audit and repair-plan preview/export implemented, awaiting user
-  smoke test. Export currently produces a review JSON, not an installable map.
-  Next: use the plan to define a canonical-ID, versioned bridge specification and
-  generate matching
-  Dorico maps/decoders. One universal profile by default, with chair-level profiles
-  as an escape hatch; every layer in a chair shares its bridge profile. Provide
-  an advanced user-facing review/preview/export/assignment workflow, explicit
-  updates, rollback and Dorico acceptance tests. See
+- **Four orchestral bridge maps — current plan (2026-09-24).** Follow
+  [Orchestral bridge maps](orchestral-bridge-maps.md), the authoritative decision
+  record. Woodwinds, brass, bowed orchestral strings, and pitched percussion;
+  other instruments and unpitched percussion are deferred. Start with the
+  hand-built map's 25 bases, then built-in PT add-ons with meaningful mutex
+  groups and one CC/KS conduit per dimension. All layers of a chair share its
+  section profile. **Supersedes universal-map and chair-specific base-only
+  Cartesian generation.** Independent-conduit add-ons passed bounded tests;
+  shared-conduit failures are not a general rejection of add-ons.
+  **Routing scope (2026-10-15): one Dorico voice per MIDI channel.** Multiple
+  voices sharing a channel are outside fidelity acceptance: treat Dorico output
+  as practically unpredictable and do not require exact duplication by the bridge.
+  Shared-voice overlap/d1/d2 results are historical; further isolation of those
+  cases is no longer a prerequisite.
+  **Strings curation (2026-10-16):** [r3](../experiments/orchestral-strings-bridge/r3/README.md)
+  is the current candidate: 32 add-on dimensions + one base, 33/52 conduits,
+  19 spare, 87 add-on switches and 91 distinct encoded PT IDs. Nineteen fringe
+  PTs are deferred with explicit reasons; genuine string pizzicato variants
+  remain. Historical r2 allocations/captures are frozen. A guitar bridge and
+  a structured bridge editor are later work. Source-derived decoding and advanced
+  XML revision editing are implemented; r3 host acceptance is pending.
+  **Woodwinds/brass (2026-10-16):** [r1 candidates](../experiments/orchestral-winds-bridge/README.md)
+  are generated with complete inventories and allocation tables. Woodwinds:
+  35 add-on dimensions + base, 36 conduits, 16 spare, 68 encoded PT IDs. Brass:
+  36 add-on dimensions + base, 37 conduits, 15 spare, 75 encoded PT IDs. Shared
+  PTs have identical encodings across these maps and strings r3. Local checks
+  pass; source-derived runtime decoders exist, with host acceptance pending.
+  Pitched percussion is the remaining ungenerated section candidate.
+  Next: focused Off/cancellation/composition and note-length transition tests
+  within one voice per channel; four explicit instrument,
+  vocabulary and allocation tables with exact switch/conduit counts; matched
+  versioned map/decoder generation and host acceptance; then coordinated
+  endpoint/PBT installation. Retain the [built-in inventory](dorico-built-in-technique-groups.md)
+  and [historical live evidence](../experiments/dorico-strings/live-results.md).
+  The four production profiles are not yet generated or installed.
+- **Bridge authoring foundation — implemented (2026-10-16).** The
+  [Bridge maps workspace](bridge-map-authoring.md) supports templates, map/bundle
+  import/export, advanced XML revisions, versioned assignments, and session-only
+  Dorico export checks. Remaining: structured editing, compiled-profile coverage,
+  host acceptance, and a portable full-project host snapshot. Chairs template
+  installation now uses pinned map IDs in both endpoint and preset XML, installs
+  immutable map files, preserves routing, and flags changed pins for reinstallation.
+- **Custom PT configuration — second project.** Extend the reviewed built-in
+  dimensions where appropriate, with an advanced user-facing
+  review/preview/export/assignment workflow, explicit updates, and rollback.
+  Read-only vocabulary catalog, current-chair audit, and repair-plan preview/
+  export and the chair-sizing analyzer are already implemented; exported plans
+  are review JSON, not installable maps. Their allocation/product assumptions
+  are not the current generation strategy. Keep them as legacy diagnostics;
+  update their UI labels or replace them before presenting section-profile
+  readiness or entry estimates. Do not allocate one CC per missing PT. See
   [design and audit limits](dorico-bridge-profiles.md).
 
 ## Priority 0 — deliverable audio

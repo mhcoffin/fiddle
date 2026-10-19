@@ -1,5 +1,6 @@
 #include "ProjectRestoreService.h"
 #include "LuaPlugin.h"
+#include "BridgeMapDocument.h"
 
 #include <map>
 #include <set>
@@ -67,6 +68,10 @@ bool ProjectRestoreService::isLoading() const {
 
 ProjectRestoreService::Result
 ProjectRestoreService::restore(const versioning::FiddleState &state) {
+  BridgeMapProject bridgeProject;
+  juce::String bridgeError;
+  if (!BridgeMapProject::parse(juce::String(state.globalState.projectSettings.bridgeMapsJson), bridgeProject, bridgeError))
+    return {false, false, "Invalid saved bridge project: " + bridgeError.toStdString()};
   const bool topology = state.routingState.schemaVersion >= 1;
   if (state.routingState.schemaVersion > 2 || (topology && !repository_))
     return {false, false, "Unsupported or unavailable routing schema"};
@@ -131,6 +136,9 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   session->mixer = &mixer_;
   session->callbacks = callbacks_;
   mixer_.clear();
+  // Also invalidate session verification when restoring an identical registry.
+  if (mixer_.onBridgeMapsChanged)
+    mixer_.onBridgeMapsChanged(state.globalState.projectSettings.bridgeMapsJson);
   mixer_.setProjectSettings(state.globalState.projectSettings);
   mixer_.masterAudio().clear(false);
 

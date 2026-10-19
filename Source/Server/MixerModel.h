@@ -11,6 +11,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <map>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <vector>
@@ -288,6 +289,7 @@ private:
   std::atomic<int> playbackDelayMs_{1000};
   std::set<std::string> lockedChairIds_; // message-thread project metadata
   std::map<std::string, ChairLevelState> chairLevels_;
+  std::string bridgeMapsJson_;
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
@@ -295,12 +297,16 @@ private:
 public:
   int getPlaybackDelayMs() const;
   ProjectSettings projectSettings() const {
-    return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_};
+    return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_, bridgeMapsJson_};
   }
+  std::function<void(const std::string &)> onBridgeMapsChanged;
   void setProjectSettings(const ProjectSettings &settings) {
+    const bool bridgeChanged = bridgeMapsJson_ != settings.bridgeMapsJson;
+    bridgeMapsJson_ = settings.bridgeMapsJson;
     lockedChairIds_ = settings.lockedChairIds;
     chairLevels_ = settings.chairLevels;
     setPlaybackDelayMs(settings.playbackDelayMs);
+    if (bridgeChanged && onBridgeMapsChanged) onBridgeMapsChanged(bridgeMapsJson_);
   }
   void setPlaybackDelayMs(int ms);
   ChairLevelState captureChairLevel(const std::string &id) const;

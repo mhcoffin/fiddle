@@ -1,13 +1,16 @@
 #include "DoricoConfigGenerator.h"
+#include "BridgeMapDocument.h"
 #include <iostream>
 
 namespace fiddle {
 
-DoricoConfigGenerator::DoricoConfigGenerator() {}
+DoricoConfigGenerator::DoricoConfigGenerator(juce::File destination)
+    : destination_(std::move(destination)) {}
 
 // ── Path Resolution ────────────────────────────────────────────────────────
 
 juce::File DoricoConfigGenerator::findDoricoBasePath() const {
+  if (destination_ != juce::File{}) return destination_;
   // Always target the latest Dorico version.
   // Directories will be created as needed during installation.
   juce::File home =
@@ -104,24 +107,123 @@ std::vector<InstrumentAssignment> DoricoConfigGenerator::expandSlots(
 
 juce::Result DoricoConfigGenerator::generateAndInstallFiles(
     const std::vector<InstrumentAssignment> &assignments, int numChannels,
-    const std::vector<BrowsableInstrument> &browserInstruments) {
+    const std::vector<BrowsableInstrument> &browserInstruments,
+    const juce::String &bridgeMapsJson) {
 
   if (assignments.empty())
     return juce::Result::fail("No instruments selected.");
 
   juce::File baseDir = findDoricoBasePath();
 
-  // Create required directories (VE Pro-style layout)
-  juce::File ecDir = baseDir.getChildFile("EndpointConfigs/Fiddle");
-  juce::File ptsDir = baseDir.getChildFile("PlaybackTemplateSpecs/Fiddle");
-  juce::File pplDir = baseDir.getChildFile("PluginPresetLibraries/Fiddle");
-  juce::File dlaDir = baseDir.getChildFile("DefaultLibraryAdditions");
-
-  for (auto *dir : {&ecDir, &ptsDir, &pplDir, &dlaDir}) {
-    if (!dir->createDirectory())
-      return juce::Result::fail("Failed to create directory: " +
-                                dir->getFullPathName());
+  // Validate the pinned sources and every destination before changing files.
+  // Resolve by physical port/channel, never by chair order, name, or family.
+  BridgeMapProject bridges;
+  juce::String error;
+  if (!BridgeMapProject::parse(bridgeMapsJson, bridges, error))
+    return juce::Result::fail("Invalid project bridge maps: " + error);
+  auto resolved = assignments;
+  std::set<BridgeMapProject::Endpoint> endpoints;
+  std::map<juce::String, std::shared_ptr<const BridgeMapDocument>> used;
+  bool needsLegacy = false;
+  for (size_t i = 0; i < resolved.size(); ++i) {
+    auto &a = resolved[i];
+    const int flat = a.flatIndex >= 0 ? a.flatIndex : int(i);
+    const BridgeMapProject::Endpoint endpoint{flat / 16, flat % 16 + 1};
+    if (flat < 0 || flat >= 256 || !endpoints.insert(endpoint).second)
+      return juce::Result::fail("Duplicate or invalid MIDI destination in playback template");
+    const auto pin = bridges.assignments.find(endpoint);
+    a.expressionMapID = kExpressionMapId;
+    if (pin == bridges.assignments.end()) needsLegacy = true;
+    else {
+      const auto doc = bridges.documents.at(pin->second);
+      a.expressionMapID = doc->entityId;
+      used[pin->second] = doc;
+    }
   }
+  for (const auto &[endpoint, hash] : bridges.assignments)
+    if (!endpoints.count(endpoint))
+      return juce::Result::fail("Bridge assignment at port " + juce::String(endpoint.first + 1)
+          + ", channel " + juce::String(endpoint.second)
+          + " has no chair. Remove or reassign it in Bridge maps before installing.");
+  if (numChannels < 1 || numChannels > 256
+      || (endpoints.rbegin()->first * 16 + endpoints.rbegin()->second) > numChannels)
+    return juce::Result::fail("Playback template does not declare all assigned MIDI destinations");
+
+  // Keep immutable maps from older installs. Reject identity collisions rather
+  // than letting Dorico choose between different definitions with one map ID.
+  const auto libraryDir = baseDir.getChildFile("DefaultLibraryAdditions");
+  for (const auto &file : libraryDir.findChildFiles(juce::File::findFiles, false, "Fiddle-Bridge-*.doricolib")) {
+    const auto xml = juce::parseXML(file);
+    const auto *defs = xml ? xml->getChildByName("expressionMapDefinitions") : nullptr;
+    const auto *entities = defs ? defs->getChildByName("entities") : nullptr;
+    const auto *map = entities ? entities->getFirstChildElement() : nullptr;
+    if (!map) return juce::Result::fail("Invalid installed bridge file: " + file.getFileName());
+    for (const auto &[hash, doc] : used) {
+      if (map->getChildElementAllSubText("entityID", {}) != doc->entityId) continue;
+      auto existing = BridgeMapDocument::compile(file.loadFileAsString(), error, doc->musicalLow, doc->musicalHigh);
+      if (!existing || existing->contentHash != hash)
+        return juce::Result::fail("An installed bridge has different content under Dorico ID " + doc->entityId
+            + ". Publish a new revision in Bridge maps before installing.");
+    }
+  }
+
+  // Build a complete staged package first, including the legacy resource when
+  // any input is unassigned. No partial template is published on validation or
+  // generation failure.
+  const auto stage = juce::File::getSpecialLocation(juce::File::tempDirectory)
+      .getChildFile("fiddle-dorico-" + juce::Uuid().toString());
+  struct Cleanup { juce::File dir; ~Cleanup() { dir.deleteRecursively(); } } cleanup{stage};
+  const auto stageEc = stage.getChildFile("EndpointConfigs/Fiddle");
+  const auto stagePts = stage.getChildFile("PlaybackTemplateSpecs/Fiddle");
+  const auto stagePpl = stage.getChildFile("PluginPresetLibraries/Fiddle");
+  const auto stageLib = stage.getChildFile("DefaultLibraryAdditions");
+  for (const auto &dir : {stageEc, stagePts, stagePpl, stageLib})
+    if (!dir.createDirectory()) return juce::Result::fail("Could not stage playback template");
+  auto result = writeEndpointConfigXml(stageEc, resolved, browserInstruments);
+  if (result.wasOk()) result = writePlaybackTemplateSpecXml(stagePts);
+  if (result.wasOk()) result = writePresetsXml(stagePpl, resolved);
+  if (result.wasOk()) result = writePresetsForInstrumentsXml(stagePpl, resolved, browserInstruments);
+  if (result.wasOk() && needsLegacy) result = writeExpressionMapLib(stageLib);
+  if (result.failed()) return result;
+  for (const auto &[hash, doc] : used) {
+    const auto file = stageLib.getChildFile("Fiddle-Bridge-" + hash + ".doricolib");
+    const auto installed = libraryDir.getChildFile(file.getFileName());
+    if (installed.existsAsFile() && installed.loadFileAsString() != doc->sourceXml)
+      return juce::Result::fail("Immutable bridge file has changed: " + installed.getFileName());
+    if (!file.replaceWithData(doc->sourceXml.toRawUTF8(), doc->sourceXml.getNumBytesAsUTF8()))
+      return juce::Result::fail("Could not stage bridge source");
+  }
+
+  // Publish maps before endpoint references, rolling back replaced files if a
+  // write fails. This is a filesystem operation, not proof of Dorico assignment.
+  struct Previous { juce::File file; bool existed; juce::MemoryBlock data; };
+  std::vector<Previous> previous;
+  auto files = stageLib.findChildFiles(juce::File::findFiles, false);
+  for (const auto &file : stage.findChildFiles(juce::File::findFiles, true))
+    if (file.getParentDirectory() != stageLib) files.add(file);
+  for (const auto &file : files) {
+    const auto target = baseDir.getChildFile(file.getRelativePathFrom(stage));
+    if (file.getParentDirectory() == stageLib && target.existsAsFile()
+        && file.hasIdenticalContentTo(target)) continue;
+    Previous before{target, target.existsAsFile(), {}};
+    if ((target.exists() && !before.existed)
+        || (before.existed && !target.loadFileAsData(before.data)) || !target.getParentDirectory().createDirectory())
+      result = juce::Result::fail("Could not prepare installation file: " + target.getFullPathName());
+    else {
+      previous.push_back(std::move(before));
+      if (!file.copyFileTo(target)) result = juce::Result::fail("Could not install: " + target.getFullPathName());
+    }
+    if (result.failed()) {
+      bool restored = true;
+      for (auto it = previous.rbegin(); it != previous.rend(); ++it)
+        restored = (it->existed ? it->file.replaceWithData(it->data.getData(), it->data.getSize()) : it->file.deleteFile()) && restored;
+      return restored ? result : juce::Result::fail(result.getErrorMessage() + "; rollback incomplete, check Dorico configuration files");
+    }
+  }
+  for (const auto &before : previous)
+    if (before.existed)
+      before.file.withFileExtension(before.file.getFileExtension() + ".bak")
+          .replaceWithData(before.data.getData(), before.data.getSize());
 
   // Remove old template generator if it exists (we no longer use it)
   juce::File oldPtgDir =
@@ -129,30 +231,8 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
   if (oldPtgDir.isDirectory())
     oldPtgDir.deleteRecursively();
 
-  // Write each file
-  auto result = writeEndpointConfigXml(ecDir, assignments, browserInstruments);
-  if (result.failed())
-    return result;
-
-  result = writePlaybackTemplateSpecXml(ptsDir);
-  if (result.failed())
-    return result;
-
-  result = writePresetsXml(pplDir, assignments);
-  if (result.failed())
-    return result;
-
-  result =
-      writePresetsForInstrumentsXml(pplDir, assignments, browserInstruments);
-  if (result.failed())
-    return result;
-
-  result = writeExpressionMapLib(dlaDir);
-  if (result.failed())
-    return result;
-
   std::cerr << "[DoricoConfig] All files installed (" << assignments.size()
-            << " instruments across " << ((int)assignments.size() + 15) / 16
+            << " instruments across " << endpoints.rbegin()->first + 1
             << " ports) to: " << baseDir.getFullPathName() << std::endl;
 
   return juce::Result::ok();
@@ -231,7 +311,7 @@ DoricoConfigGenerator::buildEndpointConfigXml(
         ->addTextElement(assignments[i].name);
     entry->createNewChildElement("collectionName");
     entry->createNewChildElement("expressionMapID")
-        ->addTextElement(kExpressionMapId);
+        ->addTextElement(assignments[i].expressionMapID);
     entry->createNewChildElement("drumkitNoteMapID");
     entry->createNewChildElement("flags")->addTextElement("0");
   }
@@ -357,7 +437,7 @@ juce::Result DoricoConfigGenerator::writePresetsXml(
     preset->createNewChildElement("Category")
         ->addTextElement(a.category.isNotEmpty() ? a.category : "Other");
     preset->createNewChildElement("ExpressionMap")
-        ->addTextElement(kExpressionMapId);
+        ->addTextElement(a.expressionMapID);
 
     auto *addr = preset->createNewChildElement("Address");
     addr->createNewChildElement("Program")->addTextElement(

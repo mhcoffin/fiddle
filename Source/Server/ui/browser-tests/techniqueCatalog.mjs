@@ -71,6 +71,19 @@ try {
             { id: "pt.vibrato", eligible: false, selected: false, appearanceCount: 0, reason: "Reset/default ambiguity needs review.", affected: [] },
         ], changes: [], remaining: [],
     };
+    report.chairCoverage = {
+        modelRevision: "chair-sizing-v1", limits: { statesPerChair: 4096, resolverCalls: 100000, milliseconds: 5000 },
+        chairs: [{ id: "violin", name: "Violin 1", estimatedStates: 96, completedStates: 96, resolverCalls: 1440,
+            enumerationStatus: "complete", stopReason: "", issueCount: 1,
+            dimensions: [{ name: "Connection", kind: "enum", stateCount: 2, values: ["pt.legato"] }],
+            vocabulary: [{ id: "pt.legato", builtin: true, reasons: [{ layerName: "VSL", mapName: "VSL Violin", entry: 0, entryName: "Legato" }] }],
+            layers: [{ id: "vsl", name: "VSL", assigned: true, mapName: "VSL Violin", outcomes: { covered: 10, partial: 80, fallback: 12 } }],
+            issues: [{ code: "contract-review", message: "Cancellation/default rules still need review.", techniques: [], entry: -1 }],
+            witnesses: [{ techniques: [], interpretations: [{ layerName: "VSL", length: 0, outcome: "fallback", base: { name: "Natural" }, addons: [], unmatched: [], introduced: ["pt.natural"] }] },
+                { techniques: ["pt.legato", "pt.muted"], interpretations: [{ layerName: "VSL", length: 4, outcome: "partial", base: { name: "Legato" }, addons: [], unmatched: ["pt.muted"], introduced: [] }] }],
+        }, { id: "flute", name: "Flute 1", estimatedStates: 8192, completedStates: 4096, resolverCalls: 20480,
+            enumerationStatus: "partial", stopReason: "state-limit", issueCount: 0, dimensions: [], vocabulary: [], layers: [], issues: [], witnesses: [] }],
+    };
     const publish = async state => page.evaluate(state => window.__dispatchFromCpp({ type: "setTechniqueCatalogState", data: state }), state);
     await publish({ running: false, files: 3, report, includeReference: false });
     console.log("Fixture report published");
@@ -89,6 +102,26 @@ try {
     await page.getByLabel("Audit result", { exact: true }).selectOption("all");
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bridge-reachability-fixture.png") });
+    await page.setViewportSize({ width: 480, height: 420 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.getByRole("button", { name: "Chair coverage", exact: true }).click();
+    const coverage = page.getByRole("region", { name: "Chair coverage", exact: true });
+    assert.equal(await page.getByLabel("Coverage chair", { exact: true }).inputValue(), "violin");
+    assert.match(await coverage.innerText(), /96 candidate requests/);
+    assert.match(await coverage.innerText(), /Enumeration complete for this sizing domain/);
+    assert.match(await coverage.innerText(), /not an installation-ready map/);
+    await page.getByLabel("Coverage example", { exact: true }).selectOption("1");
+    assert.match(await page.getByRole("table", { name: "Coverage interpretations" }).innerText(), /pt.muted/);
+    await page.getByText("Dimensions and vocabulary provenance", { exact: true }).click();
+    assert.match(await coverage.innerText(), /Connection/);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "chair-coverage-fixture.png") });
+    await page.getByLabel("Coverage chair", { exact: true }).selectOption("flute");
+    assert.match(await coverage.innerText(), /Partial \/ unknown — state-limit/);
+    assert.equal(await page.getByLabel("Coverage example", { exact: true }).count(), 0);
+    await page.getByLabel("Coverage chair", { exact: true }).selectOption("violin");
+    assert.equal(await page.getByLabel("Coverage example", { exact: true }).inputValue(), "0");
     await page.setViewportSize({ width: 480, height: 420 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.setViewportSize({ width: 1200, height: 900 });
@@ -179,8 +212,48 @@ try {
             await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "technique-catalog-real.png") });
         console.log(`Real-data view: ${real.files} files, ${real.maps.length} maps, ${real.techniques.length} playback identities, ${real.issues.length} scan issues`);
     }
+    // Bridge authoring is accessible without a catalog scan and uses separate
+    // write commands. All payloads here are fixtures, never a live server.
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.getByRole("button", { name: "Bridge maps", exact: true }).click();
+    await page.getByRole("region", { name: "Bridge maps", exact: true }).waitFor();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "requestBridgeMaps")));
+    await page.getByRole("button", { name: "Woodwinds", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "addBridgeTemplate" && m.payload[0] === "Woodwinds")));
+    const bridgeState = {
+        documents: [{ hash: "fixture-hash", name: "Fixture woodwind bridge", revision: 1, entityId: "xmap.fixture.woodwind", sourceXml: "<fixture />", low: 21, high: 114, dimensions: 36 }],
+        assignments: [{ port: 1, channel: 2, hash: "fixture-hash", verified: false }], error: "", busy: false,
+    };
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), bridgeState);
+    assert.match(await page.locator(".bridges").innerText(), /Unverified · notes withheld/);
+    await page.getByRole("button", { name: "Verify assigned map…", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "verifyBridgeAssignment" && m.payload[0].port === 1 && m.payload[0].channel === 2)));
+    await page.getByLabel("Bridge port", { exact: true }).fill("3");
+    await page.getByLabel("Bridge channel", { exact: true }).fill("4");
+    await page.getByRole("button", { name: "Assign revision", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "assignBridgeRevision" && m.payload[0].port === 2 && m.payload[0].channel === 4 && m.payload[0].hash === "fixture-hash")));
+    await page.getByText("Advanced XML draft", { exact: true }).click();
+    await page.getByRole("textbox", { name: "Bridge map XML", exact: true }).fill("<edited />");
+    await page.getByRole("button", { name: "Publish new revision", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "publishBridgeRevision" && m.payload[0].sourceXml === "<edited />" && m.payload[0].parent === "fixture-hash")));
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, error: "Unsupported bridge field: test", busy: true });
+    assert.match(await page.getByRole("alert").innerText(), /Unsupported bridge field/);
+    assert.ok(await page.getByRole("button", { name: "Assign revision", exact: true }).isDisabled());
+    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.filter(m => m.type === "requestBridgeMaps").length >= 2));
+    assert.equal(await page.getByRole("textbox", { name: "Bridge map XML", exact: true }).inputValue(), "<edited />");
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...bridgeState.assignments[0], verified: true }] });
+    assert.match(await page.locator(".bridges").innerText(), /assignment confirmed by user/);
+    await page.getByRole("button", { name: "Remove assignment", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "assignBridgeRevision" && m.payload[0].hash === "" && m.payload[0].port === 1 && m.payload[0].channel === 2)));
+    await page.getByRole("button", { name: "Export project bundle…", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "exportBridgeMap" && m.payload[0] === "")));
+    await page.setViewportSize({ width: 480, height: 650 });
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bridge-maps-fixture.png") });
     assert.deepEqual(errors, []);
-    console.log("PASS: technique catalog scope, alternatives, coverage, provenance, pagination, cancellation, visibility, and window commands");
+    console.log("PASS: technique catalog and bridge revision authoring, assignment, verification, gating, export, and narrow layout");
 } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

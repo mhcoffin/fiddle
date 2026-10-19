@@ -15,12 +15,12 @@ extern const char *kGMInstruments[128];
 /**
  * FiddleController: VST3 edit controller with per-channel program changes.
  *
- * Creates 48 ports × 16 channels = 768 unit slots, each with a program
+ * Creates 16 ports × 16 channels = 256 unit slots, each with a program
  * change parameter. The host (Dorico) uses these to select instruments
  * per MIDI channel/port.
  *
- * CC data arrives through the event buses directly — we don't expose
- * per-channel CC parameters to keep the parameter count manageable.
+ * Selected CCs are exposed as per-channel VST3 parameters; the processor
+ * merges all parameter points with the input event list by sample offset.
  */
 class FiddleController : public Steinberg::Vst::EditControllerEx1,
                          public Steinberg::Vst::IMidiMapping {

@@ -2,7 +2,7 @@
 
 Status: testing foundation and application restore service implemented, September 2026.
 
-Validated locally: all 53 stable CTest entries pass in Release, and the updated
+Validated locally (2026-10-16): all 77 stable CTest entries pass in Release, and the updated
 Release FiddleServer/UI and FiddleNative build. Render-ahead requires both rebuilt
 binaries; the previous native audio protocol is incompatible.
 
@@ -235,3 +235,36 @@ No vendor data is part of the fixture tests or checked into the repository.
 
 Retain human listening and usability checks for significant changes. Routine
 regression checks should not depend on a person carrying out a checklist.
+
+## Source-derived bridge maps
+
+`BridgeMapDocumentTest` (`bridge_map_document`, stable) compiles strings r3,
+woodwinds r1 and brass r1; checks actual length-condition decoding, format-stable
+fingerprints, corrupt/truncated settings rejection, invalid fields/actions,
+port isolation, verification gating and state reconstruction. Mixer integration
+covers revision publication/Undo, verification revocation, database reopen, exact
+version restore, full-state blobs, portable bundles, and two downstream instruments
+receiving the same compiled intent without protocol-command leakage. Version-store tests cover
+bridge content identity and conflicting/non-conflicting merges.
+
+The Technique Catalog browser fixture also covers the Bridge maps workspace,
+including draft preservation on error, assignment numbering, honest verification
+labels, busy gating, export commands and narrow layout. Run from the repository:
+
+```sh
+cmake --build build/release --target BridgeMapDocumentTest MixerIntegrationTest VersionStoreTest
+ctest --test-dir build/release -R 'bridge_map_document|mixer_integration|version_store' --output-on-failure
+node Source/Server/ui/browser-tests/techniqueCatalog.mjs
+```
+
+Browser fixtures require Playwright and Chrome; see that script's environment
+overrides. These checks run without Dorico or the live server and do not establish
+production host selection/cancellation behavior.
+
+`DoricoConfigGeneratorTest` also installs into temporary directories using the
+three actual bridge candidates. It checks sparse destinations, endpoint/preset
+agreement, exact stored XML, shared pins, legacy fallback, repeat installation,
+revision rollback, retained old files, ID conflicts, orphan assignments, malformed
+projects and file-publication rollback. It does not write to the user's Dorico
+directory. The Chairs browser fixture checks install availability after a dirty
+notification and restart/application guidance.

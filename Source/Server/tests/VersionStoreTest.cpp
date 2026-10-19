@@ -87,6 +87,34 @@ static FiddleState makeState(const std::vector<Hash> &stripHashes,
 // Tests
 // ===========================================================================
 
+void testBridgeRevisionMergeAndIdentity() {
+  InMemoryVersionStorage storage;
+  VersionStore store(storage);
+  const auto root = store.initializeEmpty();
+  const auto main = store.getVersion(root)->branchId;
+  auto base = makeState({});
+  base.globalState.projectSettings.bridgeMapsJson = "bridge A";
+  const auto initial = store.commitVersion(main, base);
+  const auto side = store.createBranch("Bridge edits", initial);
+  auto target = base; target.globalState.masterGainDb = -3;
+  store.commitVersion(main, target);
+  auto changed = base; changed.globalState.projectSettings.bridgeMapsJson = "bridge B";
+  CHECK(changed.computeHash() != base.computeHash());
+  store.commitVersion(side, changed);
+  auto merged = store.merge(side, main);
+  CHECK(merged.kind == MergeResult::ThreeWay);
+  CHECK_EQ(store.getState(store.getVersion(merged.newHeadId)->stateHash)->globalState.projectSettings.bridgeMapsJson, "bridge B");
+  CHECK_EQ(store.getState(store.getVersion(initial)->stateHash)->globalState.projectSettings.bridgeMapsJson, "bridge A");
+  const auto fork = store.createBranch("Different bridge", initial);
+  auto other = base; other.globalState.projectSettings.bridgeMapsJson = "bridge C";
+  store.commitVersion(fork, other);
+  const auto before = store.getBranchHead(main);
+  merged = store.merge(fork, main);
+  CHECK(merged.kind == MergeResult::Error);
+  CHECK(merged.error.find("Bridge map") != std::string::npos);
+  CHECK(store.getBranchHead(main) == before);
+}
+
 void testInitialization() {
   InMemoryVersionStorage storage;
   VersionStore store(storage);
@@ -1024,6 +1052,7 @@ int main() {
   std::cout << "===== VersionStore Tests =====" << std::endl;
 
   RUN_TEST(testInitialization);
+  RUN_TEST(testBridgeRevisionMergeAndIdentity);
   RUN_TEST(testCommit);
   RUN_TEST(testMultipleCommits);
   RUN_TEST(testBranching);

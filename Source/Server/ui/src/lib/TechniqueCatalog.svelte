@@ -2,6 +2,8 @@
     import { onMount } from "svelte";
     import BridgeReachability from "./BridgeReachability.svelte";
     import BridgeRepairPlan from "./BridgeRepairPlan.svelte";
+    import ChairCoverage from "./ChairCoverage.svelte";
+    import BridgeMaps from "./BridgeMaps.svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { catalogRows, defaultCatalogScope, definitionLabel, mapsInScope, sourceLabels } from "./techniqueCatalog.js";
 
@@ -45,9 +47,16 @@
 
 <main aria-label="Technique Catalog">
     <header>
-        <div><h1>Technique Catalog</h1><p>Dorico vocabulary and Fiddle map coverage · read-only</p></div>
+        <div><h1>Technique Catalog</h1><p>Dorico vocabulary, map coverage and project bridge maps</p></div>
         <button onclick={onClose}>Close</button>
     </header>
+    <nav aria-label="Bridge workspace">
+        <button class:active={view !== "bridges"} onclick={() => { view = "audit"; }}>Catalog and audits</button>
+        <button class:active={view === "bridges"} onclick={() => { view = "bridges"; }}>Bridge maps</button>
+    </nav>
+    {#if view === "bridges"}
+      <BridgeMaps />
+    {:else}
     <div class="scan-controls">
         <label><input type="checkbox" bind:checked={includeReference} disabled={state.running} /> Include ~/Art-Conductor reference collection</label>
         <div class="actions">
@@ -61,8 +70,15 @@
     {:else if report?.error}<div class="notice warning" role="alert">{report.error}</div>
     {:else if report?.cancelled}<div class="notice warning" role="status">Scan cancelled. Results below are partial; refresh for a complete report.</div>{/if}
     {#if report?.techniques}
-        <nav aria-label="Catalog view"><button class:active={view === "audit"} aria-pressed={view === "audit"} onclick={() => { view = "audit"; }}>Assigned-map audit</button><button class:active={view === "repairs"} aria-pressed={view === "repairs"} onclick={() => { view = "repairs"; }}>Repair plan</button><button class:active={view === "vocabulary"} aria-pressed={view === "vocabulary"} onclick={() => { view = "vocabulary"; }}>Vocabulary catalog</button></nav>
-        {#if view === "audit"}
+        <nav aria-label="Catalog view">
+            <button class:active={view === "audit"} aria-pressed={view === "audit"} onclick={() => { view = "audit"; }}>Assigned-map audit</button>
+            <button class:active={view === "chairs"} aria-pressed={view === "chairs"} onclick={() => { view = "chairs"; }}>Chair coverage</button>
+            <button class:active={view === "repairs"} aria-pressed={view === "repairs"} onclick={() => { view = "repairs"; }}>Repair plan</button>
+            <button class:active={view === "vocabulary"} aria-pressed={view === "vocabulary"} onclick={() => { view = "vocabulary"; }}>Vocabulary catalog</button>
+        </nav>
+        {#if view === "chairs"}
+            <ChairCoverage coverage={report.chairCoverage} />
+        {:else if view === "audit"}
             <BridgeReachability audit={report.reachability} />
         {:else if view === "repairs"}
             <BridgeRepairPlan plan={report.repairPlan} busy={state.running} partial={report.cancelled} error={report.repairError} snapshotAt={report.scannedAt} />
@@ -134,6 +150,7 @@
         </div>
         {/if}
     {:else if !state.running}<p class="empty">Refresh the catalog to inspect installed techniques.</p>{/if}
+    {/if}
 </main>
 
 <style>

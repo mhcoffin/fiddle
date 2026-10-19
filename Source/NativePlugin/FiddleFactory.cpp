@@ -2,6 +2,12 @@
 #include "FiddleController.h"
 #include "FiddleProcessor.h"
 #include "FiddleVersion.h"
+#ifdef FIDDLE_MIDI_PROBE
+#undef FIDDLE_NAME
+#define FIDDLE_NAME "Fiddle MIDI Probe"
+#undef FIDDLE_ORIGINAL_VERSION_STR
+#define FIDDLE_ORIGINAL_VERSION_STR FIDDLE_PROBE_VERSION
+#endif
 
 #include "public.sdk/source/main/pluginfactory.h"
 

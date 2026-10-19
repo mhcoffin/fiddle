@@ -138,6 +138,7 @@
                 <div>
                     <h3>Dorico chairs</h3>
                     <p>{chairs.length} {chairs.length === 1 ? "destination" : "destinations"}</p>
+                    <p>Assign project bridge revisions in Technique Catalog → Bridge maps before installing. Unassigned inputs use the legacy map. Restart Dorico and apply the Fiddle playback template after installation.</p>
                 </div>
                 <button class="primary" onclick={openAdd}>Add Chair</button>
             </div>
