@@ -3,6 +3,7 @@
 #include "NoteStreamTracker.h"
 #include "NoteInspection.h"
 #include "ProjectSettings.h"
+#include <functional>
 #include <iostream>
 #include <stdexcept>
 
@@ -134,6 +135,58 @@ void schemaTwo() {
   tracker.resetForTransportStop();
   tracker.processEvent(cc(102, 2)); tracker.processEvent(key(72, 90)); CHECK(notes.size() == 5);
 }
+// The supported playback-override policy: all six note-duration options at
+// 100%, so notes arrive at written length and carry that fact downstream.
+void writtenDurations() {
+  juce::String error;
+  const auto source = fixture("experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib");
+  const auto doc = BridgeMapDocument::compile(source, error);
+  if (!doc) throw std::runtime_error(error.toStdString());
+  CHECK(doc->schema == 2 && doc->compiled->writtenDurations);
+  const auto r4 = BridgeMapDocument::compile(
+      fixture("experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"), error);
+  CHECK(r4 && !r4->compiled->writtenDurations);
+
+  const auto edited = [&](const std::function<void(juce::XmlElement &)> &change) {
+    auto root = juce::parseXML(source);
+    auto *map = root->getChildByName("expressionMapDefinitions")->getChildByName("entities")->getFirstChildElement();
+    change(*map->getChildByName("playbackOptionsOverrides"));
+    return BridgeMapDocument::compile(root->toString(), error);
+  };
+  const auto setValue = [](juce::XmlElement &row, const char *tag, const char *value) {
+    auto *field = row.getChildByName(tag);
+    field->deleteAllChildElements(); field->addTextElement(value);
+  };
+  CHECK(!edited([&](juce::XmlElement &o) { setValue(*o.getFirstChildElement(), "value", "int: 90"); }));
+  CHECK(error.contains("100%"));
+  CHECK(!edited([](juce::XmlElement &o) { o.removeChildElement(o.getFirstChildElement(), true); }));
+  CHECK(error.contains("all six"));
+  CHECK(!edited([&](juce::XmlElement &o) {
+    setValue(*o.getFirstChildElement(), "option", "timingOptions.timingHumanisePercent"); }));
+  CHECK(error.contains("Only note-duration"));
+  CHECK(!edited([&](juce::XmlElement &o) {
+    setValue(*o.getChildElement(1), "option", "timingOptions.noteDurationPercent"); }));
+  // Reordering the rows is not a semantic change.
+  const auto reordered = edited([](juce::XmlElement &o) {
+    auto *first = o.getFirstChildElement(); o.removeChildElement(first, false); o.addChildElement(first); });
+  CHECK(reordered && reordered->semanticHash == doc->semanticHash);
+
+  BridgeMapProject project;
+  project.documents[doc->contentHash] = doc;
+  project.assignments[{0, 2}] = doc->contentHash;
+  NoteStreamTracker tracker;
+  tracker.setBridgeMaps(project);
+  std::vector<Note> notes;
+  NoteStreamTracker::Callbacks callbacks;
+  callbacks.onNoteStarted = [&](const Note &note) { notes.push_back(note); };
+  tracker.setCallbacks(callbacks);
+  initialize(tracker, *doc->compiled);
+  tracker.processEvent(cc(102, 2));
+  tracker.processEvent(key(72, 90));
+  CHECK(notes.size() == 1);
+  CHECK(notes[0].notation_dimensions().at(kWrittenDurationDimension) == 1.0f);
+}
+
 void tests() {
   juce::String error;
   const auto source = fixture("experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib");
@@ -168,6 +221,13 @@ void tests() {
   ProjectSettings settings; settings.bridgeMapsJson = project.serialize().toStdString();
   CHECK(ProjectSettings::deserialize(settings.serialize()) == settings);
   CHECK(ProjectSettings::deserialize(ProjectSettings{}.serialize()) == ProjectSettings{});
+  // Dorico's default durations keep the V2/V3 form; others round-trip as V4.
+  CHECK(settings.serialize().rfind("FIDDLE_SETTINGS_V3\n", 0) == 0);
+  for (auto durations : {settings, ProjectSettings{}}) {
+    durations.doricoDurationPercents = {80, 40, 20, 110, 100, 70};
+    CHECK(durations.serialize().rfind("FIDDLE_SETTINGS_V4\n", 0) == 0);
+    CHECK(ProjectSettings::deserialize(durations.serialize()) == durations);
+  }
   auto truncated = settings.serialize().substr(0, settings.serialize().find('{'));
   CHECK(!BridgeMapProject::parse(juce::String(ProjectSettings::deserialize(truncated).bridgeMapsJson), restored, error));
   auto corrupt = juce::JSON::parse(project.serialize());
@@ -219,6 +279,7 @@ void tests() {
   initialize(tracker, *strings->compiled);
   tracker.processEvent(key(76, 90)); CHECK(notes.size() == 1);
   schemaTwo();
+  writtenDurations();
   const auto section = [](const char *id) { return bridgeSectionForInstrument(id); };
   CHECK(section("instrument.strings.violin") == BridgeSection::Strings);
   CHECK(section("instrument.strings.violoncello") == BridgeSection::Strings);
@@ -238,13 +299,13 @@ void tests() {
   CHECK(section("instrument.pitchedpercussion.almglocken") == BridgeSection::None);
   CHECK(section("instrument.keyboard.piano") == BridgeSection::None);
   for (const auto &info : bridgeSections()) {
-    const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r4/"
-        : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r2/"
-        : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r2/"
-        : "experiments/orchestral-percussion-bridge/pitched-percussion-r1/");
+    const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r5/"
+        : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
+        : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
+        : "experiments/orchestral-percussion-bridge/pitched-percussion-r2/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
-    CHECK(built->schema == 2);
+    CHECK(built->schema == 2 && built->compiled->writtenDurations);
   }
   std::cout << "Bridge compiler, persistence, corruption, runtime isolation and schema 2 passed\n";
 }

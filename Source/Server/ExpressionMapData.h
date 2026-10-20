@@ -2,8 +2,12 @@
 
 
 
+#include "DoricoDurations.h"
+
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -172,42 +176,34 @@ inline NoteCondition parseConditionString(const std::string &s) {
   return parseCompactLengthCondition(compact);
 }
 
-/// Duration percentage overrides from the expression map's
-/// <playbackOptionsOverrides> section.  Dorico defaults apply when the
-/// expression map doesn't override a particular category.
-///
-/// Dorico has already applied the project's playback options to the
-/// duration Fiddle receives (the bridge maps carry no overrides). A layer
-/// map's override therefore corrects that duration by override/default.
-/// Fiddle cannot read the project's options, so it assumes they are
-/// Dorico's defaults; a category the map leaves alone is a factor of 1.
+/// Note-duration percentages from the expression map's
+/// <playbackOptionsOverrides>. A category without an override uses the
+/// project's Dorico playback option.
 struct TimingOptions {
-  int noteDurationPercent = 90;         // default (no articulation marking)
-  int staccatoDurationPercent = 50;     // Dorico default for staccato
-  int staccatissimoDurationPercent = 25; // Dorico default for staccatissimo
-  int legatoDurationPercent = 105;      // Dorico default for legato
-  int tenutoDurationPercent = 100;      // Dorico default for tenuto
-  int marcatoDurationPercent = 75;      // Dorico default for marcato
+  std::array<std::optional<int>, kDurationCategoryCount> overrides;
 
-  /// Factor from Dorico's default-scaled duration to this map's duration
-  /// for the category that applies to `techniques`. Priority:
-  /// staccatissimo > staccato > legato > tenuto > marcato > other notes.
-  double durationCorrection(const std::set<std::string> &techniques) const {
-    const TimingOptions dorico;
-    const auto ratio = [](int percent, int doricoDefault) {
-      return static_cast<double>(percent) / doricoDefault;
-    };
-    if (techniques.count("pt.staccatissimo"))
-      return ratio(staccatissimoDurationPercent, dorico.staccatissimoDurationPercent);
-    if (techniques.count("pt.staccato"))
-      return ratio(staccatoDurationPercent, dorico.staccatoDurationPercent);
-    if (techniques.count("pt.legato"))
-      return ratio(legatoDurationPercent, dorico.legatoDurationPercent);
-    if (techniques.count("pt.tenuto"))
-      return ratio(tenutoDurationPercent, dorico.tenutoDurationPercent);
-    if (techniques.count("pt.marcato"))
-      return ratio(marcatoDurationPercent, dorico.marcatoDurationPercent);
-    return ratio(noteDurationPercent, dorico.noteDurationPercent);
+  std::optional<int> &operator[](DurationCategory c) { return overrides[size_t(c)]; }
+  const std::optional<int> &operator[](DurationCategory c) const { return overrides[size_t(c)]; }
+
+  /// This map's percent of written length for a category.
+  int percent(DurationCategory c, const DurationPercents &project) const {
+    return (*this)[c].value_or(project[size_t(c)]);
+  }
+
+  /// Factor from the received duration to the one Dorico would play with
+  /// this map, for the category that applies to `techniques`.
+  ///  - writtenDuration (bridge pins Dorico's options to 100%): the received
+  ///    duration is the written length, so apply this map's percent.
+  ///  - otherwise Dorico already applied the project's option: only an
+  ///    override changes it, by override / project option.
+  double durationCorrection(const std::set<std::string> &techniques,
+                            const DurationPercents &project,
+                            bool writtenDuration) const {
+    const auto c = durationCategory(techniques);
+    const double target = percent(c, project);
+    if (writtenDuration)
+      return target / 100.0;
+    return target / std::max(1, project[size_t(c)]);
   }
 };
 
@@ -261,9 +257,11 @@ struct TechniqueCombination {
   std::vector<SwitchAction> switchOnActions;
   std::vector<SwitchAction> switchOffActions;
 
-  // Timing: how much earlier than Dorico's position the notes this switch
-  // plays (with its switch actions) are sent. The end of the note and live
-  // controllers move only when the corresponding flag is set.
+  // Timing. millisecondsBefore: how much earlier than Dorico's position the
+  // notes this switch plays (with its switch actions) are sent; the end of
+  // the note and live controllers move only when the corresponding flag is
+  // set. ticksBefore: how much earlier the switch actions alone are sent
+  // (Dorico's per-switch form of timingOptions.numTicksBeforeForSwitches).
   int ticksBefore = 0;
   int millisecondsBefore = 0;
   bool applyMillisecondsBeforeToEndOffsets = false;
@@ -359,16 +357,21 @@ struct MatchResult {
   static constexpr double kTicksPerQuarter = 480.0;
 
   /// How much earlier (ms) than Dorico's position the note starts: the
-  /// largest millisecondsBefore + ticksBefore of the selected switches.
-  double leadMs(double tempoBpm) const {
-    double lead = 0.0;
-    for (auto *c : components()) {
-      double ms = std::max(0, c->millisecondsBefore);
-      if (c->ticksBefore > 0 && tempoBpm > 0.0)
-        ms += c->ticksBefore * 60000.0 / (tempoBpm * kTicksPerQuarter);
-      lead = std::max(lead, ms);
-    }
+  /// largest millisecondsBefore of the selected switches.
+  double noteLeadMs() const {
+    int lead = 0;
+    for (auto *c : components())
+      lead = std::max(lead, c->millisecondsBefore);
     return lead;
+  }
+
+  /// How much earlier (ms) than the note its switch actions go: the largest
+  /// ticksBefore of the selected switches, at `tempoBpm`.
+  double switchLeadMs(double tempoBpm) const {
+    int ticks = 0;
+    for (auto *c : components())
+      ticks = std::max(ticks, c->ticksBefore);
+    return ticks > 0 && tempoBpm > 0.0 ? ticks * 60000.0 / (tempoBpm * kTicksPerQuarter) : 0.0;
   }
 
   /// Whether the lead also moves the note's end / live controllers.

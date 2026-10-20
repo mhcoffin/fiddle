@@ -112,13 +112,12 @@ juce::var serializeExpressionMap(const ExpressionMapData &data,
   root->setProperty("mutualExclusionGroups", megs);
 
   auto *timing = new juce::DynamicObject();
-  timing->setProperty("natural", data.timingOptions.noteDurationPercent);
-  timing->setProperty("staccato", data.timingOptions.staccatoDurationPercent);
-  timing->setProperty("staccatissimo",
-                      data.timingOptions.staccatissimoDurationPercent);
-  timing->setProperty("legato", data.timingOptions.legatoDurationPercent);
-  timing->setProperty("tenuto", data.timingOptions.tenutoDurationPercent);
-  timing->setProperty("marcato", data.timingOptions.marcatoDurationPercent);
+  // Effective percentages, with Dorico's defaults where the map has none.
+  static const std::array<const char *, kDurationCategoryCount> keys{
+      "natural", "staccato", "staccatissimo", "legato", "tenuto", "marcato"};
+  for (size_t i = 0; i < keys.size(); ++i)
+    timing->setProperty(keys[i], data.timingOptions.overrides[i].value_or(
+                                     kDoricoDefaultDurationPercents[i]));
   root->setProperty("timing", juce::var(timing));
   return juce::var(root);
 }

@@ -468,10 +468,13 @@ static void testVSLDualityTimingOptions(const juce::File &examplesDir) {
   ExpressionMapData data;
   CHECK(parseExpressionMap(file, data));
 
-  CHECK_EQ(data.timingOptions.noteDurationPercent, 85);
-  CHECK_EQ(data.timingOptions.staccatoDurationPercent, 80);
-  CHECK_EQ(data.timingOptions.staccatissimoDurationPercent, 80);
-  CHECK_EQ(data.timingOptions.legatoDurationPercent, 101);
+  CHECK_EQ(data.timingOptions[DurationCategory::Note].value_or(-1), 85);
+  CHECK_EQ(data.timingOptions[DurationCategory::Staccato].value_or(-1), 80);
+  CHECK_EQ(data.timingOptions[DurationCategory::Staccatissimo].value_or(-1), 80);
+  CHECK_EQ(data.timingOptions[DurationCategory::Legato].value_or(-1), 101);
+  // Categories the map leaves alone keep the project's option.
+  CHECK(!data.timingOptions[DurationCategory::Tenuto].has_value());
+  CHECK(!data.timingOptions[DurationCategory::Marcato].has_value());
 }
 
 // ---------------------------------------------------------------------------

@@ -16,6 +16,7 @@ test("incoming techniques and non-length dimensions remain visible", () => {
         },
         receivedDimensions: {
             dorico_length_category: 1,
+            dorico_written_duration: 1,
             custom_amount: 0.75,
         },
     };

@@ -4,7 +4,7 @@
 No installation or runtime integration. --check is strictly read-only.
 The repository's 298-ID inventory is the portable input; --dorico-catalog
 additionally checks it against a locally installed Dorico catalog.
-The CLI defaults to curated r3 in r3/; --revision 2 reproduces frozen r2 files.
+The CLI defaults to the current r5 in r5/; --revision 2-4 reproduce frozen files.
 """
 import argparse
 import copy
@@ -30,6 +30,16 @@ MAP_FILE = f"Fiddle-Orchestral-Strings-r{REVISION}.doricolib"
 TYPED_OFF = 64
 BEACON_PITCHES = (126, 127)
 BEACON_MODULUS = 127 * 127
+
+# Playback-option overrides that pin every note-duration category to 100%, so
+# Dorico sends written lengths and Fiddle applies the duration percentages
+# (the layer map's overrides, else its copy of the project's options).
+DURATION_OPTIONS = tuple(f"timingOptions.{name}DurationPercent" for name in
+                         ("note", "staccato", "staccatissimo", "legato", "tenuto", "marcato"))
+
+
+def written_durations(spec):
+    return getattr(spec, "WRITTEN_DURATIONS", False)
 
 
 def wire_schema(spec):
@@ -173,10 +183,14 @@ def build(spec=legacy_profile):
     schema = wire_schema(spec)
     if schema >= 2:
         fingerprint_data.update(wire_schema=schema, typed_off=TYPED_OFF, beacon_pitches=list(BEACON_PITCHES))
+    if written_durations(spec):
+        fingerprint_data.update(duration_overrides={option: 100 for option in DURATION_OPTIONS})
     fingerprint = hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True).encode()).hexdigest()
     if schema >= 2:
         description = (f"Fiddle bridge wire schema 2: typed Off (On+{TYPED_OFF}) and revision beacon on "
-                       f"KS{BEACON_PITCHES[0]}/KS{BEACON_PITCHES[1]}. Pending Dorico host acceptance. "
+                       f"KS{BEACON_PITCHES[0]}/KS{BEACON_PITCHES[1]}. "
+                       + ("Note durations pinned to 100% (written lengths). " if written_durations(spec) else "")
+                       + "Pending Dorico host acceptance. "
                        f"{label}: {1 + len(dims)} conduits, {len(source_bases)} bases, "
                        f"{len(owners)} add-ons. Specification SHA256: " + fingerprint)
     else:
@@ -245,7 +259,12 @@ def build(spec=legacy_profile):
         sub(group, "groupID", f"ptmg.user.Fiddle.Orchestral{section}.r{spec.REVISION}.{key}")
         sub(group, "name", section + ": " + key.replace("_", " "))
         sub(group, "techniqueIDs", ", ".join(pts))
-    sub(definition, "playbackOptionsOverrides", array="true")
+    overrides = sub(definition, "playbackOptionsOverrides", array="true")
+    if written_durations(spec):
+        for option in DURATION_OPTIONS:
+            row = sub(overrides, "optionsOverride")
+            sub(row, "option", option)
+            sub(row, "value", "int: 100")
     ET.indent(root, space="  ")
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True) + b"\n"
     counts = dict(base_switches=len(base_table), add_on_switches=index,
@@ -258,6 +277,7 @@ def build(spec=legacy_profile):
     budget = len(conduit_pool(spec)) + 1
     manifest = dict(schema_version=1, revision=spec.REVISION, name=spec.NAME, entity_id=spec.ENTITY_ID,
                     runtime_compatible=schema >= 2, dorico_import_verified=False,
+                    **({"written_durations": True} if written_durations(spec) else {}),
                     musical_midi_range=[21, 114], counts=counts,
                     specification_sha256=fingerprint, map_sha256=hashlib.sha256(xml).hexdigest(),
                     base_cc=102, bases=base_table, dimensions=dims, aliases=spec.ALIASES)
@@ -351,12 +371,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--dorico-catalog", type=Path)
-    parser.add_argument("--revision", type=int, choices=(2, 3, 4), default=4,
-                        help="Default: current r4; r2/r3 reproduce frozen artifacts")
+    parser.add_argument("--revision", type=int, choices=(2, 3, 4, 5), default=5,
+                        help="Default: current r5; r2-r4 reproduce frozen artifacts")
     args = parser.parse_args()
     if args.dorico_catalog:
         check_dorico(args.dorico_catalog)
-    if args.revision == 4:
+    if args.revision == 5:
+        import profile_r5 as spec
+        destination = HERE / "r5"
+    elif args.revision == 4:
         import profile_r4 as spec
         destination = HERE / "r4"
     elif args.revision == 3:

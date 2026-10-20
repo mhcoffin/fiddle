@@ -964,6 +964,10 @@ void MainComponent::initAudioDevice() {
         [this] { return canChangeRenderWorkerCount(); };
     settingsControls.setRenderWorkers =
         [this](int count) { changeRenderWorkerCount(count); };
+    settingsControls.getDoricoDurationPercents =
+        [this] { return mixer_.projectSettings().doricoDurationPercents; };
+    settingsControls.setDoricoDurationPercents =
+        [this](DurationPercents percents) { changeDoricoDurationPercents(percents); };
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
         deviceManager,
         FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"),
@@ -3612,6 +3616,19 @@ void MainComponent::changeRenderWorkerCount(int count) {
   // Local preference only: never included in project versions or undo.
   db_.saveSetting("audio_render_workers", std::to_string(count));
   pushAudioDiagnostics();
+}
+
+void MainComponent::changeDoricoDurationPercents(DurationPercents percents) {
+  auto settings = mixer_.projectSettings();
+  for (auto &percent : percents)
+    percent = std::clamp(percent, kMinDurationPercent, kMaxDurationPercent);
+  settings.doricoDurationPercents = percents;
+  if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+          mixer_, settings, "Change Dorico note durations", "dorico-durations")))
+    return;
+  saveAllStripsToDB(false);
+  pushMixerState();
+  scheduleStateRebuild();
 }
 
 void MainComponent::changePlaybackDelay(int milliseconds) {

@@ -1363,10 +1363,10 @@ target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp)
 add_custom_command(TARGET FiddleServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r2/Fiddle-Orchestral-Woodwinds-r2.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r2/Fiddle-Orchestral-Brass-r2.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-percussion-bridge/pitched-percussion-r1/Fiddle-Orchestral-PitchedPercussion-r1.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"
         "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
 
 # One build target for local testing and CI. New *Test executables are included

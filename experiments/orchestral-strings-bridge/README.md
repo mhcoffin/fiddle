@@ -1,8 +1,13 @@
-# Orchestral strings bridge — current candidate r4
+# Orchestral strings bridge — current candidate r5
 
-**Current (2026-10-19): [r4](r4/README.md)** keeps r3's vocabulary, allocation
+**Current (2026-10-20): [r5](r5/README.md)** is r4 with Dorico's note-duration
+playback options pinned to 100%, so Dorico sends written lengths and Fiddle
+applies the duration percentages. It is the Bridge maps Strings template; r4
+stays frozen.
+
+**r4 (2026-10-19): [r4](r4/README.md)** keeps r3's vocabulary, allocation
 and grouping on wire schema 2 (typed Off values and an Init revision beacon on
-KS126/127). It is the Bridge maps Strings template. The next host check is the
+KS126/127). The next host check is the
 [one-voice note-length fixture](one-voice-length-test.md). The r3 description
 below is retained; r3 stays frozen as a schema-1 map (still decoded, no beacon).
 

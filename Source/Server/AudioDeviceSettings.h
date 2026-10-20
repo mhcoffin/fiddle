@@ -1,4 +1,5 @@
 #pragma once
+#include "DoricoDurations.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <functional>
 
@@ -15,6 +16,8 @@ public:
     std::function<int()> getMaximumRenderWorkers;
     std::function<bool()> canChangeRenderWorkers;
     std::function<void(int)> setRenderWorkers;
+    std::function<DurationPercents()> getDoricoDurationPercents;
+    std::function<void(DurationPercents)> setDoricoDurationPercents;
   };
 
   AudioDeviceSettings(juce::AudioDeviceManager &manager, juce::File file,

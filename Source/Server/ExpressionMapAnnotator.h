@@ -202,7 +202,10 @@ public:
 
     // ── 4. Emit switch MIDI: Off for what is left, then On ────────
     // Dorico sends a switch's Off actions when the active switch changes
-    // away from it, not after each of its notes.
+    // away from it, not after each of its notes. ticksBefore sends them
+    // ahead of the note.
+    const int switchDelayMs = -static_cast<int>(std::lround(match.switchLeadMs(ctx.tempoBpm)));
+    const int firstAction = note.pre_note_size();
     if (needSend) {
       const auto incoming = match.components();
       for (auto *old : previous.components()) {
@@ -220,12 +223,14 @@ public:
           actionToInstruction(sa, note.add_pre_note(), switchChannel);
       }
     }
+    for (int i = firstAction; i < note.pre_note_size(); ++i)
+      note.mutable_pre_note(i)->set_delay_ms(switchDelayMs);
     if (switchChannel != 0)
       note.set_channel(switchChannel);
 
-    // millisecondsBefore/ticksBefore: the note and its switch actions sound
-    // this much earlier than Dorico placed them.
-    const double leadMs = match.leadMs(ctx.tempoBpm);
+    // millisecondsBefore: the note and its switch actions sound this much
+    // earlier than Dorico placed them.
+    const double leadMs = match.noteLeadMs();
     noteStartOffsetMs_ = -leadMs;
     controllerOffsetMs_ = match.leadAppliesToControllers() ? -leadMs : 0.0;
 
@@ -280,8 +285,15 @@ public:
   void onNoteEnd(fiddle::Note &note,
                  const AnnotatorContext &ctx) override {
     durationAdjustMs_ = 0.0;
-    if (!emData_)
+    if (!emData_) {
+      // Without a map, a written-length note still gets the project option.
+      durationAdjustMs_ = scaledDurationAdjustMs(
+          note, TimingOptions{}.durationCorrection(collectInputTechniqueIds(note),
+                                                   ctx.doricoDurationPercents,
+                                                   hasWrittenDuration(note)),
+          ctx.sampleRate);
       return;
+    }
 
     auto techniqueIDs = collectInputTechniqueIds(note);
 
@@ -307,19 +319,16 @@ public:
     }
 
     // ── Compute duration adjustment ───────────────────────────────
-    // Layer 1: this map's playback-option overrides, relative to the
-    //          Dorico defaults already applied to the received duration
+    // Layer 1: this map's note-duration percentages (its overrides, else
+    //          the project's Dorico options), from the written length when
+    //          the bridge pins Dorico's options to 100%, else relative to the
+    //          project option Dorico already applied
     // Layer 2: per-combination lengthFactor
-    double combinedFactor = emData_->timingOptions.durationCorrection(techniqueIDs) *
-                            static_cast<double>(lengthFactor);
-
-    // Compute timing delta in ms
-    if (combinedFactor != 1.0 && note.duration_samples() > 0 &&
-        ctx.sampleRate > 0) {
-      double durationMs = static_cast<double>(note.duration_samples()) /
-                          ctx.sampleRate * 1000.0;
-      durationAdjustMs_ = (combinedFactor - 1.0) * durationMs;
-    }
+    const double combinedFactor =
+        emData_->timingOptions.durationCorrection(techniqueIDs, ctx.doricoDurationPercents,
+                                                  hasWrittenDuration(note)) *
+        static_cast<double>(lengthFactor);
+    durationAdjustMs_ = scaledDurationAdjustMs(note, combinedFactor, ctx.sampleRate);
     // A lead applied to end offsets moves the note-off with the note-on.
     durationAdjustMs_ -= endLeadMs;
 

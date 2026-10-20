@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DoricoDurations.h"
+
 #include <algorithm>
 #include <iomanip>
 #include <cmath>
@@ -25,15 +27,24 @@ struct ProjectSettings {
   // Immutable bridge documents and endpoint assignments. No live verification
   // status is persisted: reopening a score requires a fresh Dorico export check.
   std::string bridgeMapsJson;
+  // A copy of the Dorico project's note-duration Playback Options. Bridge
+  // maps pin Dorico's to 100%, so layers apply these (unless their own
+  // expression map overrides a category).
+  DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
   bool operator==(const ProjectSettings &other) const {
     return playbackDelayMs == other.playbackDelayMs &&
            lockedChairIds == other.lockedChairIds && chairLevels == other.chairLevels &&
-           bridgeMapsJson == other.bridgeMapsJson;
+           bridgeMapsJson == other.bridgeMapsJson &&
+           doricoDurationPercents == other.doricoDurationPercents;
   }
 
   std::string serialize() const {
     std::ostringstream stream;
-    stream << (bridgeMapsJson.empty() ? "FIDDLE_SETTINGS_V2\n" : "FIDDLE_SETTINGS_V3\n") << std::setprecision(17)
+    // V4 only when durations differ from Dorico's defaults, so older
+    // projects keep their exact serialized form.
+    const bool version4 = doricoDurationPercents != kDoricoDefaultDurationPercents;
+    stream << (version4 ? "FIDDLE_SETTINGS_V4\n"
+               : bridgeMapsJson.empty() ? "FIDDLE_SETTINGS_V2\n" : "FIDDLE_SETTINGS_V3\n") << std::setprecision(17)
            << playbackDelayMs << '\n' << lockedChairIds.size() << '\n';
     for (const auto &id : lockedChairIds)
       stream << std::quoted(id) << '\n';
@@ -43,13 +54,18 @@ struct ProjectSettings {
       for (const auto &[strip, weight] : level.weights)
         stream << std::quoted(strip) << ' ' << weight << '\n';
     }
-    if (!bridgeMapsJson.empty()) stream << std::quoted(bridgeMapsJson) << '\n';
+    if (version4 || !bridgeMapsJson.empty()) stream << std::quoted(bridgeMapsJson) << '\n';
+    if (version4) {
+      for (const int percent : doricoDurationPercents) stream << percent << ' ';
+      stream << '\n';
+    }
     return stream.str();
   }
   static ProjectSettings deserialize(const std::string &text) {
     ProjectSettings settings;
     std::istringstream stream(text);
-    const bool version3 = text.rfind("FIDDLE_SETTINGS_V3\n", 0) == 0;
+    const bool version4 = text.rfind("FIDDLE_SETTINGS_V4\n", 0) == 0;
+    const bool version3 = version4 || text.rfind("FIDDLE_SETTINGS_V3\n", 0) == 0;
     if (version3) settings.bridgeMapsJson = "invalid truncated bridge project";
     const bool version2 = version3 || text.rfind("FIDDLE_SETTINGS_V2\n", 0) == 0;
     if (version2) { std::string header; std::getline(stream, header); }
@@ -81,8 +97,16 @@ struct ProjectSettings {
         }
         if (settings.lockedChairIds.count(id)) settings.chairLevels[id] = std::move(level);
       }
-      if (version3 && (!(stream >> std::quoted(settings.bridgeMapsJson)) || settings.bridgeMapsJson.empty()))
+      if (version3 && (!(stream >> std::quoted(settings.bridgeMapsJson)) ||
+                       (!version4 && settings.bridgeMapsJson.empty())))
         settings.bridgeMapsJson = "invalid truncated bridge project";
+      if (version4) {
+        DurationPercents durations{};
+        for (auto &percent : durations)
+          if (!(stream >> percent) || percent < kMinDurationPercent || percent > kMaxDurationPercent)
+            return settings; // keep Dorico's defaults
+        settings.doricoDurationPercents = durations;
+      }
       return settings;
     }
     while (stream >> std::quoted(id))

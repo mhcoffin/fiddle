@@ -2330,6 +2330,56 @@ void testLayerMapPlaysLikeDorico() {
   }
 }
 
+// Bridge maps pin Dorico's durations to 100%: a written-length staccato note
+// ends at the project's staccato percent, or at a layer map's own override.
+void testWrittenDurationsUseProjectOptions() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  std::array<std::vector<std::pair<double, juce::MidiMessage>>, 2> received;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto id = f.mixer.addStrip();
+    auto *strip = f.mixer.getStrip(id);
+    strip->setInputAssignment(0, 1);
+    auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+    processor->onMidi = [&, layer](const juce::MidiMessage &msg) { received[layer].emplace_back(f.now, msg); };
+    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+    if (layer == 1) {
+      auto map = std::make_shared<fiddle::ExpressionMapData>();
+      map->combinations.push_back(fiddle::TechniqueCombination{
+          .name = "Staccato", .techniqueIDs = {"pt.staccato"}});
+      map->timingOptions[fiddle::DurationCategory::Staccato] = 30;
+      strip->setExpressionMap(map);
+    }
+  }
+  auto settings = f.mixer.projectSettings();
+  settings.doricoDurationPercents[size_t(fiddle::DurationCategory::Staccato)] = 40;
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetProjectSettingsAction>(f.mixer, settings, "Durations")));
+
+  fiddle::Note note;
+  note.set_id(1); note.set_channel(2); note.set_note_number(60); note.set_start_velocity(90);
+  (*note.mutable_notation_techniques())["articulation"] = "pt.staccato";
+  (*note.mutable_notation_dimensions())[fiddle::kWrittenDurationDimension] = 1.0f;
+  const double start = f.now;
+  auto on = note; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 10);
+  note.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
+  auto off = note; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 110);
+  while (f.now < start + 130) f.render();
+
+  for (int layer = 0; layer < 2; ++layer) {
+    const double expectedEnd = start + 10 + (layer == 0 ? 40 : 30);
+    bool ended = false;
+    for (const auto &[at, msg] : received[layer])
+      if (msg.isNoteOff() && msg.getNoteNumber() == 60) {
+        REQUIRE(std::abs(at - expectedEnd) < 2.0);
+        ended = true;
+      }
+    REQUIRE(ended);
+  }
+  REQUIRE(f.undo.undo());
+  REQUIRE(f.mixer.projectSettings().doricoDurationPercents == fiddle::kDoricoDefaultDurationPercents);
+}
+
 void testBridgeMapVersioningAndVerification() {
   Sandbox sandbox;
   const auto databaseFile = sandbox.directory.getChildFile("bridge.sqlite");
@@ -2427,8 +2477,8 @@ void testBridgeSectionsFromChairs() {
   fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [&] { return busy; });
   const auto root = juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments");
   const auto load = [&](const fiddle::BridgeSectionInfo &info) {
-    for (const auto *dir : {"orchestral-strings-bridge/r4", "orchestral-winds-bridge/woodwinds-r2",
-                            "orchestral-winds-bridge/brass-r2", "orchestral-percussion-bridge/pitched-percussion-r1"}) {
+    for (const auto *dir : {"orchestral-strings-bridge/r5", "orchestral-winds-bridge/woodwinds-r3",
+                            "orchestral-winds-bridge/brass-r3", "orchestral-percussion-bridge/pitched-percussion-r2"}) {
       const auto file = root.getChildFile(dir).getChildFile(info.templateFile);
       if (file.existsAsFile()) return file.loadFileAsString();
     }
@@ -3409,6 +3459,7 @@ int main(int argc, char **argv) {
   run("bridge documents survive version checkout and verify conservatively", testBridgeMapVersioningAndVerification);
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
   run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
+  run("written-length notes take the project's Dorico durations", testWrittenDurationsUseProjectOptions);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {

@@ -11,11 +11,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "orchestral-strings-bridge"))
 
 import generate as engine
-from profiles import CURRENT, PROFILES
+from profiles import PROFILES, REVISIONS
 
 
 def artifacts(section, revision=1):
-    return engine.build((CURRENT if revision == 2 else PROFILES)[section])
+    return engine.build(REVISIONS[revision][section])
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
     if args.dorico_catalog:
         engine.check_dorico(args.dorico_catalog)
     sections = PROFILES if args.section == "all" else (args.section,)
-    for section, revision in [(s, r) for s in sections for r in (1, 2)]:
+    for section, revision in [(s, r) for s in sections for r in REVISIONS]:
         outputs = artifacts(section, revision)
         destination = HERE / f"{section}-r{revision}"
         if not args.check:

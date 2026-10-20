@@ -1,7 +1,9 @@
 # Bridge maps: section profiles, installation and project history
 
-**Workflow (2026-10-19).** Fiddle has one bridge map per orchestral section:
-strings r4, woodwinds r2, brass r2 and pitched percussion r1 (all wire schema 2).
+**Workflow (2026-10-20).** Fiddle has one bridge map per orchestral section:
+strings r5, woodwinds r3, brass r3 and pitched percussion r2 (all wire schema 2,
+with Dorico's note durations pinned to written length; see
+[What reaches instruments](#what-reaches-instruments)).
 **Chairs → Install Playback Template** chooses the map for every chair from its
 Dorico instrument (`BridgeSections.h`), writes the maps into the Fiddle playback
 template, and pins the four revisions with the project's branch/version. Every
@@ -131,7 +133,10 @@ one conduit each, with consistent reset values. Init must set Natural and clear
 every add-on conduit. Ambiguous codes, duplicate switch IDs, conflicting map
 identities, unsupported fields/actions, inheritance, pitch/velocity filters,
 non-neutral timing/length/velocity modifiers, monophonic behavior and playback
-overrides are rejected. CC1 or velocity dynamics and note-velocity attack are
+overrides are rejected, except one override policy: all six note-duration
+options (`timingOptions.note/staccato/staccatissimo/legato/tenuto/marcatoDurationPercent`)
+at `int: 100`, or none. That policy marks the map's notes as written-length and
+is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
 
@@ -187,19 +192,29 @@ play that map directly:
   controllers to that channel; the note-off follows its note-on there. Fiddle
   reads `param1` as an absolute 1-based MIDI channel. A switch without a channel
   action plays on the layer's input channel.
-- **Timing.** `millisecondsBefore` plus `ticksBefore` (converted at the live
-  tempo, assuming 480 ticks per quarter note) play the note and its switch
-  actions that much earlier; with several switches selected the largest lead
-  wins. The note-off moves too only with `applyMillisecondsBeforeToEndOffsets`,
-  and live controllers only with `applyMillisecondsBeforeToControllers`.
-  Fiddle's playback delay supplies the lookahead.
-- **Durations.** Dorico has already applied the project's playback options
-  (note, staccato, staccatissimo, legato, tenuto and marcato duration) to the
-  durations it sends, because bridge maps carry no overrides. A layer map's
-  `playbackOptionsOverrides` therefore scale a duration by override ÷ Dorico
-  default (90, 50, 25, 105, 100 and 75%), and categories the map doesn't override
-  are left alone. Fiddle cannot see the project's own options, so it assumes
-  they are Dorico's defaults. The switch's `lengthFactor` then applies as usual.
+- **Timing.** `millisecondsBefore` plays the note and its switch actions that
+  much earlier; with several switches selected the largest lead wins. The
+  note-off moves too only with `applyMillisecondsBeforeToEndOffsets`, and live
+  controllers only with `applyMillisecondsBeforeToControllers`. `ticksBefore`
+  sends only the switch actions earlier (Dorico's per-switch form of the
+  project option `timingOptions.numTicksBeforeForSwitches`), converted at the
+  live tempo assuming 480 ticks per quarter note. Fiddle's playback delay
+  supplies the lookahead.
+- **Durations.** The section bridge maps override Dorico's six note-duration
+  playback options (note, staccato, staccatissimo, legato, tenuto, marcato) to
+  100%, so Dorico sends written lengths and the decoder marks each note
+  `dorico_written_duration`. Each layer then applies, per category, its own
+  expression map's override if it has one, else the project's Dorico options,
+  which Fiddle cannot read: copy them from Dorico's **Library ▸ Playback
+  Options ▸ Timing** into the **Settings…** window's **Dorico note durations** group (saved with the project,
+  undoable; defaults 90, 50, 25, 105, 100 and 75%). Layers without an
+  expression map apply the project values too. The switch's `lengthFactor`
+  then applies as usual. Older bridge revisions and the universal map send
+  durations Dorico already scaled with the project's options; there only a
+  layer override changes a duration, by override ÷ the project value.
+  Dorico's other timing options (humanisation, repeated-note truncation,
+  maximum staccato duration) still apply in Dorico and are not emulated. Host
+  check pending: that Dorico applies the 100% overrides exactly.
 - **Initialization.** When Dorico's transport starts, each layer sends its
   map's enabled `initSwitchData` actions on its input channel and forgets the
   switch state left from the previous playback, so the first note sends its

@@ -1,10 +1,14 @@
-# Woodwind and brass bridge maps — r2 current, r1 frozen
+# Woodwind and brass bridge maps — r3 current, r1–r2 frozen
 
-**Current (2026-10-19): [Woodwinds r2](woodwinds-r2/README.md) and
+**Current (2026-10-20): [Woodwinds r3](woodwinds-r3/README.md) and
+[Brass r3](brass-r3/README.md)** are r2 with Dorico's note-duration playback
+options pinned to 100% (written lengths; Fiddle applies the percentages). They
+are the Bridge maps templates.
+
+**r2 (2026-10-19): [Woodwinds r2](woodwinds-r2/README.md) and
 [Brass r2](brass-r2/README.md)** re-encode r1 unchanged on wire schema 2
-(typed Off values and an Init revision beacon on KS126/127). They are the
-Bridge maps starting templates. r1 below stays frozen as schema-1 evidence.
-`generate_winds.py` writes and checks both revisions.
+(typed Off values and an Init revision beacon on KS126/127). r1 below stays
+frozen as schema-1 evidence. `generate_winds.py` writes and checks all revisions.
 
 Created 2026-10-16 under the [section-profile plan](../../docs/orchestral-bridge-maps.md).
 These are two independent, importable Dorico expression maps, with exact built-in

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "AnnotationRecord.h"
+#include "DoricoDurations.h"
+#include "NoteInspection.h"
 #include "TonalContext.h"
 #include "midi_event.pb.h"
 #include <array>
@@ -10,12 +12,29 @@
 
 namespace fiddle {
 
+/// Whether Dorico sent this note at its written length: its bridge map pins
+/// Dorico's note-duration playback options to 100%.
+inline bool hasWrittenDuration(const fiddle::Note &note) {
+  const auto it = note.notation_dimensions().find(kWrittenDurationDimension);
+  return it != note.notation_dimensions().end() && it->second > 0.5f;
+}
+
+/// Note-off shift (ms) that makes the received duration `factor` times as long.
+inline double scaledDurationAdjustMs(const fiddle::Note &note, double factor,
+                                     double sampleRate) {
+  if (factor == 1.0 || note.duration_samples() == 0 || sampleRate <= 0)
+    return 0.0;
+  return (factor - 1.0) * static_cast<double>(note.duration_samples()) / sampleRate * 1000.0;
+}
+
 /// Read-only context passed to Annotator methods.
 struct AnnotatorContext {
   int stripChannel = 1; // 1-based output channel of the strip
   double sampleRate = 44100.0;
   double currentTimeMs = 0.0;
   double tempoBpm = 120.0; // live Dorico tempo, for tick-based timing
+  /// The project's copy of Dorico's note-duration Playback Options.
+  DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
 
   /// Currently active notes across all strips (read-only snapshot).
   const std::vector<fiddle::Note> *activeNotes = nullptr;
@@ -125,11 +144,24 @@ public:
 class PassthroughAnnotator : public Annotator {
 public:
   void onNoteStart(fiddle::Note &, const AnnotatorContext &) override {}
-  void onNoteEnd(fiddle::Note &, const AnnotatorContext &) override {}
+  /// A note sent at written length still gets the project's Dorico duration
+  /// option, as Dorico would have applied it.
+  void onNoteEnd(fiddle::Note &note, const AnnotatorContext &ctx) override {
+    durationAdjustMs_ = 0.0;
+    if (!hasWrittenDuration(note))
+      return;
+    const auto category = durationCategory(collectInputTechniqueIds(note));
+    durationAdjustMs_ = scaledDurationAdjustMs(
+        note, ctx.doricoDurationPercents[size_t(category)] / 100.0, ctx.sampleRate);
+  }
+  double durationAdjustMs() const override { return durationAdjustMs_; }
   bool onCC(const fiddle::MidiEvent &, const AnnotatorContext &) override {
     return true;
   }
   std::string name() const override { return "Passthrough"; }
+
+private:
+  double durationAdjustMs_ = 0.0;
 };
 
 } // namespace fiddle

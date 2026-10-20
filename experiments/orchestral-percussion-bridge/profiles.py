@@ -71,3 +71,10 @@ PITCHED_PERCUSSION = SimpleNamespace(
                  "Vibraphone", "Tubular bells"],
     EXTRA_MUTEX_GROUPS=[], EXCLUSIONS={}, FAMILY_EXCLUSIONS=FAMILY_EXCLUSIONS,
 )
+
+# r1 is frozen; r2 pins Dorico's note-duration options to 100% (written lengths).
+PITCHED_PERCUSSION_R2 = SimpleNamespace(**{
+    **vars(PITCHED_PERCUSSION), "REVISION": 2, "WRITTEN_DURATIONS": True,
+    "NAME": "Fiddle Bridge - Orchestral Pitched Percussion r2 (host test)",
+    "ENTITY_ID": "xmap.user.Fiddle.OrchestralPitchedPercussion.r2"})
+REVISIONS = [PITCHED_PERCUSSION, PITCHED_PERCUSSION_R2]

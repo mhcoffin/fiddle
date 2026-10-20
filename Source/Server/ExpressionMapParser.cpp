@@ -263,7 +263,8 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     }
   }
 
-  // Parse playbackOptionsOverrides (category-level timing percentages)
+  // Parse playbackOptionsOverrides (category-level timing percentages).
+  // Dorico writes <optionsOverride> rows; any row with option/value is read.
   auto *overridesEl = mapDef->getChildByName("playbackOptionsOverrides");
   if (overridesEl) {
     for (auto *ovr : overridesEl->getChildIterator()) {
@@ -272,29 +273,18 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
       // Values are formatted as "int: 85"
       int val = 0;
       auto colonPos = valueStr.find(':');
-      if (colonPos != std::string::npos) {
-        auto numStr = valueStr.substr(colonPos + 1);
-        auto start = numStr.find_first_not_of(" \t");
-        if (start != std::string::npos) {
-          try {
-            val = std::stoi(numStr.substr(start));
-          } catch (...) {
-            continue;
-          }
-        }
+      if (colonPos == std::string::npos)
+        continue;
+      try {
+        val = std::stoi(valueStr.substr(colonPos + 1));
+      } catch (...) {
+        continue;
       }
-      if (option == "timingOptions.noteDurationPercent")
-        result.timingOptions.noteDurationPercent = val;
-      else if (option == "timingOptions.staccatoDurationPercent")
-        result.timingOptions.staccatoDurationPercent = val;
-      else if (option == "timingOptions.staccatissimoDurationPercent")
-        result.timingOptions.staccatissimoDurationPercent = val;
-      else if (option == "timingOptions.legatoDurationPercent")
-        result.timingOptions.legatoDurationPercent = val;
-      else if (option == "timingOptions.tenutoDurationPercent")
-        result.timingOptions.tenutoDurationPercent = val;
-      else if (option == "timingOptions.marcatoDurationPercent")
-        result.timingOptions.marcatoDurationPercent = val;
+      const auto &names = durationOptionNames();
+      for (size_t i = 0; i < names.size(); ++i)
+        if (option == names[i])
+          result.timingOptions.overrides[i] =
+              std::clamp(val, kMinDurationPercent, kMaxDurationPercent);
     }
   }
 

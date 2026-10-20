@@ -1080,10 +1080,10 @@ static void testDurationAdjust() {
   // duration, so each override corrects by override/default.
   auto em = std::make_shared<ExpressionMapData>();
   em->name = "DurationTest";
-  em->timingOptions.noteDurationPercent = 85;
-  em->timingOptions.staccatoDurationPercent = 80;
-  em->timingOptions.staccatissimoDurationPercent = 80;
-  em->timingOptions.legatoDurationPercent = 101;
+  em->timingOptions[DurationCategory::Note] = 85;
+  em->timingOptions[DurationCategory::Staccato] = 80;
+  em->timingOptions[DurationCategory::Staccatissimo] = 80;
+  em->timingOptions[DurationCategory::Legato] = 101;
 
   // Natural: lengthFactor=1.0 (default note)
   TechniqueCombination natural;
@@ -1158,7 +1158,7 @@ static void testDurationAdjust() {
   {
     auto partial = makeSimpleEM("Partial", {"pt.tenuto"});
     partial->combinations[0].lengthFactor = 0.5f;
-    partial->timingOptions.staccatoDurationPercent = 30;
+    partial->timingOptions[DurationCategory::Staccato] = 30;
     ExpressionMapAnnotator ann(partial);
     auto note = makeNotePT("pt.tenuto");
     note.set_duration_samples(44100);
@@ -1381,7 +1381,7 @@ static void testAnnotationRecordDuration() {
 
   auto em = std::make_shared<ExpressionMapData>();
   em->name = "DurTest";
-  em->timingOptions.noteDurationPercent = 45; // half of Dorico's 90%
+  em->timingOptions[DurationCategory::Note] = 45; // half of Dorico's 90%
 
   TechniqueCombination tc;
   tc.name = "Natural";
@@ -1684,7 +1684,7 @@ static void testSwitchLeadTime() {
   em->combinations.push_back(TechniqueCombination{
       .name = "Staccato", .techniqueIDs = {"pt.staccato"},
       .switchOnActions = {{SwitchActionType::KeySwitch, 26, 100}}});
-  em->timingOptions.legatoDurationPercent = 105;
+  em->timingOptions[DurationCategory::Legato] = 105;
   ExpressionMapAnnotator ann(em);
 
   // The note and its keyswitch move together; the keyswitch has no extra
@@ -1700,14 +1700,18 @@ static void testSwitchLeadTime() {
   ann.onNoteEnd(natural, ctx);
   A_CHECK_EQ(ann.durationAdjustMs(), 0.0);
 
-  // 240 ticks at 120 BPM (480 per quarter) = 250 ms, plus 10 ms.
+  // The note leads by 10 ms (with its end and controllers); its switch
+  // actions lead by another 240 ticks = 250 ms at 120 BPM (480 per quarter).
   auto legato = makeNotePTs({"pt.legato"}, 2);
   legato.set_duration_samples(44100);
   ann.onNoteStart(legato, ctx);
-  A_CHECK(std::abs(ann.noteStartOffsetMs() - (-260.0)) < 1e-9);
-  A_CHECK(std::abs(ann.controllerOffsetMs() - (-260.0)) < 1e-9);
+  A_CHECK_EQ(ann.noteStartOffsetMs(), -10.0);
+  A_CHECK_EQ(ann.controllerOffsetMs(), -10.0);
+  A_CHECK_EQ(legato.pre_note_size(), 1);
+  if (legato.pre_note_size() == 1)
+    A_CHECK_EQ(legato.pre_note(0).delay_ms(), -250);
   ann.onNoteEnd(legato, ctx);
-  A_CHECK(std::abs(ann.durationAdjustMs() - (-260.0)) < 1e-9);
+  A_CHECK(std::abs(ann.durationAdjustMs() - (-10.0)) < 1e-9);
 
   auto staccato = makeNotePTs({"pt.staccato"}, 3);
   ann.onNoteStart(staccato, ctx);
@@ -1852,6 +1856,48 @@ static void testCanonicalTechniquePriority() {
           &map.combinations[2]);
 }
 
+static void testWrittenDurations() {
+  std::cout << "--- testWrittenDurations ---" << std::endl;
+  AnnotatorContext ctx;
+  ctx.sampleRate = 44100.0;
+  ctx.doricoDurationPercents = {80, 40, 20, 110, 100, 70}; // the project's options
+
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{.name = "Natural", .techniqueIDs = {"pt.natural"}});
+  em->combinations.push_back(TechniqueCombination{.name = "Staccato", .techniqueIDs = {"pt.staccato"}});
+  em->timingOptions[DurationCategory::Staccato] = 30;
+
+  // A 1000 ms note, sent at written length when `written`.
+  const auto adjust = [&](Annotator &ann, const char *pt, bool written) {
+    auto note = makeNotePTs({pt});
+    note.set_duration_samples(44100);
+    if (written)
+      (*note.mutable_notation_dimensions())[kWrittenDurationDimension] = 1.0f;
+    ann.onNoteStart(note, ctx);
+    ann.onNoteEnd(note, ctx);
+    return ann.durationAdjustMs();
+  };
+  const auto near = [](double a, double b) { return std::abs(a - b) < 0.1; };
+
+  // From written length: the map's override, else the project's option.
+  ExpressionMapAnnotator ann(em);
+  A_CHECK(near(adjust(ann, "pt.natural", true), -200.0));
+  A_CHECK(near(adjust(ann, "pt.staccato", true), -700.0));
+  A_CHECK(near(adjust(ann, "pt.legato", true), 100.0));
+  // Dorico already applied the project's option: only overrides change it.
+  A_CHECK(near(adjust(ann, "pt.natural", false), 0.0));
+  A_CHECK(near(adjust(ann, "pt.staccato", false), -250.0));
+
+  // Layers without an expression map still get the project's options.
+  ExpressionMapAnnotator noMap(nullptr);
+  A_CHECK(near(adjust(noMap, "pt.marcato", true), -300.0));
+  A_CHECK(near(adjust(noMap, "pt.marcato", false), 0.0));
+  PassthroughAnnotator passthrough;
+  A_CHECK(near(adjust(passthrough, "pt.staccatissimo", true), -800.0));
+  A_CHECK(near(adjust(passthrough, "pt.tenuto", true), 0.0));
+  A_CHECK(near(adjust(passthrough, "pt.staccatissimo", false), 0.0));
+}
+
 void runAnnotatorTests() {
   testBridgeWitnessesThroughIncomingNotes();
   testReverseHumanize();
@@ -1886,6 +1932,7 @@ void runAnnotatorTests() {
   testVelocityAndPitchRanges();
   testInitActionsAtTransportStart();
   testCanonicalTechniquePriority();
+  testWrittenDurations();
 
   // AnnotationRecord tests
   testAnnotationRecordBasicMatch();

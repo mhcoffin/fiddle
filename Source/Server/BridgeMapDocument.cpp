@@ -115,8 +115,25 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(text(*map, "autoMutualExclusion") == "false", "Bridge maps require explicit mutex groups (Auto off)");
     require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the bridge map");
     require(text(*map, "microtonalPlaybackMethod") == "kAuto" && text(*map, "pitchBendRange") == "2", "Unsupported bridge pitch/microtonality configuration");
+    // The one supported override policy pins all six note-duration options to
+    // 100%, so Dorico sends written lengths and each layer applies its own.
     const auto *overrides = map->getChildByName("playbackOptionsOverrides");
-    require(!overrides || overrides->getNumChildElements() == 0, "Playback overrides need an explicit supported policy");
+    const bool writtenDurations = overrides && overrides->getNumChildElements() > 0;
+    if (writtenDurations) {
+      const auto &names = durationOptionNames();
+      std::set<juce::String> pinned;
+      for (const auto *row : overrides->getChildIterator()) {
+        require(row->hasTagName("optionsOverride"), "Invalid playback override");
+        fields(*row, "option value");
+        const auto option = text(*row, "option");
+        require(std::any_of(names.begin(), names.end(), [&](const char *name) { return option == name; }),
+                "Only note-duration playback overrides are supported: " + option);
+        require(text(*row, "value").removeCharacters(" ") == "int:100",
+                "Bridge note-duration overrides must be 100%: " + option);
+        require(pinned.insert(option).second, "Duplicate playback override: " + option);
+      }
+      require(pinned.size() == names.size(), "Pin all six note-duration options to 100%, or none");
+    }
     auto result = std::make_shared<BridgeMapDocument>();
     result->sourceXml = xml; result->entityId = text(*map, "entityID"); result->name = text(*map, "name");
     result->revision = integer(text(*map, "version"), 1, 1000000);
@@ -154,6 +171,8 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     semantic.add("schema=" + juce::String(compiled->schema) + " range=" + juce::String(low) + "-" + juce::String(high)
                  + " id=" + result->entityId + " version=" + juce::String(result->revision)
                  + " multi=" + text(*map, "allowMultipleNotesAtSamePitch"));
+    compiled->writtenDurations = writtenDurations;
+    if (writtenDurations) semantic.add("durations=written");
     CompiledBridgeMap::Dimension base; base.number = 102;
     std::set<std::string> vocabulary;
     std::set<juce::String> switchIds;

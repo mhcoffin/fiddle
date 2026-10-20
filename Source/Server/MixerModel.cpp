@@ -687,6 +687,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     ctx.sampleRate = currentSampleRate_;
     ctx.tonalContext = tonalCtx; // inject tonal context
     ctx.tempoBpm = tempoBpm();
+    ctx.doricoDurationPercents = doricoDurationPercents();
     strip->annotator->onNoteStart(note, ctx);
     // A switch's millisecondsBefore moves the note and its MIDI earlier.
     const double startMs = triggerTimeMs + strip->annotator->noteStartOffsetMs();
@@ -795,6 +796,7 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     ctx.currentTimeMs = triggerTimeMs;
     ctx.sampleRate = currentSampleRate_;
     ctx.tempoBpm = tempoBpm();
+    ctx.doricoDurationPercents = doricoDurationPercents();
     strip->annotator->onNoteEnd(note, ctx);
 
     // Update the last annotation record with duration info
@@ -856,6 +858,7 @@ void MixerModel::transportStarted(double triggerTimeMs) {
     ctx.currentTimeMs = triggerTimeMs;
     ctx.sampleRate = currentSampleRate_;
     ctx.tempoBpm = tempoBpm();
+    ctx.doricoDurationPercents = doricoDurationPercents();
     auto midiLock = strip->lockMidiState();
     std::vector<fiddle::MidiInstruction> init;
     strip->annotator->onTransportStart(ctx, init);
@@ -988,6 +991,7 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
 
     ctx.sampleRate = currentSampleRate_;
     ctx.tempoBpm = tempoBpm();
+    ctx.doricoDurationPercents = doricoDurationPercents();
     auto midiLock = strip->lockMidiState();
     const double t = triggerTimeMs + strip->annotator->controllerOffsetMs();
     if (strip->annotator->onCC(event, ctx)) {

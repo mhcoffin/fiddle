@@ -20,11 +20,11 @@ struct BridgeSectionInfo {
 
 inline const std::array<BridgeSectionInfo, 4> &bridgeSections() {
   static const std::array<BridgeSectionInfo, 4> sections{{
-      {BridgeSection::Strings, "strings", "Orchestral strings", "Fiddle-Orchestral-Strings-r4.doricolib"},
-      {BridgeSection::Woodwinds, "woodwinds", "Orchestral woodwinds", "Fiddle-Orchestral-Woodwinds-r2.doricolib"},
-      {BridgeSection::Brass, "brass", "Orchestral brass", "Fiddle-Orchestral-Brass-r2.doricolib"},
+      {BridgeSection::Strings, "strings", "Orchestral strings", "Fiddle-Orchestral-Strings-r5.doricolib"},
+      {BridgeSection::Woodwinds, "woodwinds", "Orchestral woodwinds", "Fiddle-Orchestral-Woodwinds-r3.doricolib"},
+      {BridgeSection::Brass, "brass", "Orchestral brass", "Fiddle-Orchestral-Brass-r3.doricolib"},
       {BridgeSection::PitchedPercussion, "pitched-percussion", "Orchestral pitched percussion",
-       "Fiddle-Orchestral-PitchedPercussion-r1.doricolib"},
+       "Fiddle-Orchestral-PitchedPercussion-r2.doricolib"},
   }};
   return sections;
 }
