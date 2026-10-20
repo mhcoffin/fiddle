@@ -277,84 +277,6 @@ struct MixerFixture {
   }
 };
 
-void testExperimentalBridgeThroughMixer() {
-  MixerFixture f;
-  const auto a = f.instrument(0.125f, 0), b = f.instrument(0.25f, 0);
-  juce::String error;
-  const auto decoder = fiddle::ExperimentalBridgeProfile::parse(juce::JSON::parse(
-      juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments/dorico-strings/generated/high-vibrato.decoder.json")), error);
-  REQUIRE(decoder != nullptr);
-  fiddle::NoteStreamTracker tracker;
-  REQUIRE(tracker.setExperimentalBridge(0, 1, decoder));
-  std::array<std::vector<juce::MidiMessage>, 2> received;
-  int layerIndex = 0;
-  for (const auto &id : {a, b}) {
-    auto *strip = f.mixer.getStrip(id);
-    auto processor = std::make_unique<SignalProcessor>(true, layerIndex ? 0.25f : 0.125f);
-    processor->onMidi = [&, layerIndex](const juce::MidiMessage &msg) { received[layerIndex].push_back(msg); };
-    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
-    auto map = std::make_shared<fiddle::ExpressionMapData>();
-    fiddle::TechniqueCombination c;
-    c.name = "Combined note twelve";
-    c.techniqueIDs = {"pt.flautando", "pt.fouette", "pt.nonVibrato", "pt.overpressure"};
-    c.volumeType = fiddle::VolumeType::kCC; c.volumeCC = 1;
-    // Two different downstream libraries, the same incoming chair semantics.
-    c.switchOnActions.push_back({fiddle::SwitchActionType::CC, 20 + layerIndex, 73});
-    map->combinations.push_back(c);
-    strip->setExpressionMap(map);
-    ++layerIndex;
-  }
-  fiddle::NoteStreamTracker::Callbacks cb;
-  cb.onNoteStarted = [&](const fiddle::Note &input) {
-    REQUIRE(fiddle::collectInputTechniqueIds(input) == std::set<std::string>({
-        "pt.flautando", "pt.fouette", "pt.nonVibrato", "pt.overpressure"}));
-    auto n = input; f.mixer.routeAnnotatedNoteOn(0, 0, n, f.now);
-  };
-  cb.onNoteEnded = [&](const fiddle::Note &input) {
-    auto n = input; f.mixer.routeAnnotatedNoteOff(0, 0, n, f.now);
-  };
-  tracker.setCallbacks(cb);
-  auto send = [&](bool isCC, int number, int value) {
-    fiddle::MidiEvent e; e.set_port(0); e.set_channel(1); e.set_host_sample_position(242550);
-    if (isCC) {
-      e.mutable_cc()->set_controller_number(number); e.mutable_cc()->set_controller_value(value);
-    } else {
-      e.mutable_note_on()->set_note_number(number); e.mutable_note_on()->set_velocity(value);
-    }
-    tracker.processEvent(e);
-    if (isCC && !tracker.consumesExperimentalCC(0, 1, number))
-      f.mixer.routeAnnotatedCC(0, 0, e, juce::MidiMessage::controllerEvent(1, number, value), f.now);
-  };
-  for (int cc : {102, 103, 107, 108}) send(true, cc, cc == 102 ? 2 : 0);
-  send(true, 1, 70);
-  send(false, 0, 1); send(false, 2, 126); send(false, 127, 2); send(false, 1, 63);
-  f.expectLevel(0); // Protocol keys must never open a musical voice.
-  for (auto &messages : received) { REQUIRE(messages.empty()); }
-  send(false, 72, 100);
-  f.expectLevel(0.375f);
-  for (int layer = 0; layer < 2; ++layer) {
-    bool actionBeforeNote = false, noteSeen = false;
-    for (const auto &msg : received[layer]) {
-      if (msg.isController() && msg.getControllerNumber() == 20 + layer) {
-        REQUIRE(!noteSeen && msg.getControllerValue() == 73); actionBeforeNote = true;
-      }
-      if (msg.isNoteOn()) {
-        REQUIRE(actionBeforeNote && msg.getNoteNumber() == 72); noteSeen = true;
-      }
-      REQUIRE(!msg.isController() || msg.getControllerNumber() < 102 || msg.getControllerNumber() > 119);
-    }
-    REQUIRE(noteSeen);
-  }
-  // Physical release of a protocol key does not cancel its dimension or voice.
-  send(false, 127, 0); f.expectLevel(0.375f);
-  send(false, 72, 0); f.expectLevel(0);
-  REQUIRE(tracker.getActiveNotes().empty());
-  // An invalid velocity must not silently reuse the preceding scalar state.
-  send(false, 127, 3); send(false, 72, 100); f.expectLevel(0);
-  REQUIRE(tracker.experimentalErrors(0, 1).first == 1);
-  REQUIRE(tracker.experimentalErrors(0, 1).second == 1);
-}
-
 void testMeterOnlySnapshots() {
   MixerFixture f;
   const auto a = f.instrument(0.1f, 1);
@@ -2316,7 +2238,7 @@ void testCompiledBridgeThroughMixer() {
     if (key) { event.mutable_note_on()->set_note_number(number); event.mutable_note_on()->set_velocity(value); }
     else { event.mutable_cc()->set_controller_number(number); event.mutable_cc()->set_controller_value(value); }
     tracker.processEvent(event);
-    if (!key && !tracker.consumesExperimentalCC(0, 2, number))
+    if (!key && !tracker.consumesBridgeCC(0, 2, number))
       f.mixer.routeAnnotatedCC(0, 1, event, juce::MidiMessage::controllerEvent(2, number, value), f.now);
   };
   for (const auto &d : doc->compiled->dimensions) send(d.key, d.number, d.number == 102 && !d.key ? 2 : d.reset);
@@ -3355,11 +3277,6 @@ int main(int argc, char **argv) {
       std::cerr << "FAIL " << name << ": " << error.what() << '\n';
     }
   };
-  if (argc == 2 && std::string(argv[1]) == "--experimental-bridge-only") {
-    run("experimental bridge through two layers and hosted instruments", testExperimentalBridgeThroughMixer);
-    return failed == 0 ? 0 : 1;
-  }
-  run("experimental bridge through two layers and hosted instruments", testExperimentalBridgeThroughMixer);
   run("bridge documents survive version checkout and verify conservatively", testBridgeMapVersioningAndVerification);
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
   run("production routing and audibility", testProductionRoutingAndAudibility);

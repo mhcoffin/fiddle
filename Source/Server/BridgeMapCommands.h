@@ -49,7 +49,19 @@ public:
             id->deleteAllChildElements();
             id->addTextElement("ptmg.user.Fiddle.Bridge." + juce::Uuid().toString().removeCharacters("-"));
           }
+      BridgeMapDocument::stampBeacon(*map);
       xml = root->toString();
+    } else {
+      // An edited schema-2 map may carry a stale beacon. Restamp only then, so
+      // an already-consistent file is published byte for byte.
+      juce::String probe;
+      if (!BridgeMapDocument::compile(xml, probe, low, high) && probe.contains("Revision beacon does not match"))
+        if (auto root = juce::parseXML(xml)) {
+          auto *defs = root->getChildByName("expressionMapDefinitions");
+          auto *entities = defs ? defs->getChildByName("entities") : nullptr;
+          if (auto *map = entities ? entities->getFirstChildElement() : nullptr; map && BridgeMapDocument::stampBeacon(*map))
+            xml = root->toString();
+        }
     }
     juce::String error;
     const auto doc = BridgeMapDocument::compile(xml, error, low, high);
@@ -89,7 +101,8 @@ public:
     const auto expected = project_.documents.at(it->second);
     juce::String error;
     const auto actual = BridgeMapDocument::compile(exportedXml, error, expected->musicalLow, expected->musicalHigh);
-    if (!actual || actual->contentHash != expected->contentHash)
+    // Compare meaning, not formatting: Dorico may reorder rows or rewrite text.
+    if (!actual || actual->semanticHash != expected->semanticHash)
       return fail("Dorico export does not match the assigned bridge revision. " + error);
     verified_.insert({port, channel}); tracker_.verifyBridge(port, channel);
     error_.clear(); return true;
@@ -105,11 +118,26 @@ public:
       auto *d = new juce::DynamicObject(); d->setProperty("hash", hash); d->setProperty("name", doc->name);
       d->setProperty("entityId", doc->entityId); d->setProperty("revision", doc->revision);
       d->setProperty("dimensions", int(doc->compiled->dimensions.size())); d->setProperty("sourceXml", doc->sourceXml);
-      d->setProperty("low", doc->musicalLow); d->setProperty("high", doc->musicalHigh); docs.add(juce::var(d));
+      d->setProperty("low", doc->musicalLow); d->setProperty("high", doc->musicalHigh);
+      d->setProperty("schema", doc->schema); docs.add(juce::var(d));
     }
     for (const auto &[ep, hash] : project_.assignments) {
       auto *a = new juce::DynamicObject(); a->setProperty("port", ep.first); a->setProperty("channel", ep.second);
-      a->setProperty("hash", hash); a->setProperty("verified", verified_.count(ep) > 0); assignments.add(juce::var(a));
+      a->setProperty("hash", hash); a->setProperty("verified", verified_.count(ep) > 0);
+      if (const auto live = tracker_.bridgeDiagnostics(ep.first, ep.second)) {
+        static const char *beacons[] = {"unsupported", "absent", "matched", "mismatched"};
+        a->setProperty("beacon", beacons[int(live->beacon)]);
+        a->setProperty("receivedBeacon", juce::Array<juce::var>{live->receivedBeacon[0], live->receivedBeacon[1]});
+        a->setProperty("expectedBeacon", juce::Array<juce::var>{live->expectedBeacon[0], live->expectedBeacon[1]});
+        a->setProperty("lastWithheld", juce::String(BridgeDecoderState::describe(live->lastWithheld)));
+        juce::int64 withheld = 0;
+        for (const auto count : live->withheld) withheld += juce::int64(count);
+        a->setProperty("withheldNotes", withheld);
+        a->setProperty("invalidCommands", juce::int64(live->invalidCommands));
+        a->setProperty("ignoredOffs", juce::int64(live->ignoredOffs));
+        a->setProperty("debouncedOffs", juce::int64(live->debouncedOffs));
+      }
+      assignments.add(juce::var(a));
     }
     o->setProperty("documents", docs); o->setProperty("assignments", assignments);
     o->setProperty("error", error_); o->setProperty("busy", busy_() || tracker_.hasActiveNotes());

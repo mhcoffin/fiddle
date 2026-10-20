@@ -66,6 +66,16 @@ public:
     return true; // default: forward
   }
 
+  /// Replacement MIDI for a CC that onCC() suppressed, sent at the CC's own
+  /// time (e.g. CC1 dynamics re-expressed on the instrument's controller).
+  virtual void translateCC(const fiddle::MidiEvent &event,
+                           const AnnotatorContext &ctx,
+                           std::vector<fiddle::MidiInstruction> &out) {
+    (void)event;
+    (void)ctx;
+    (void)out;
+  }
+
   /// Human-readable name for UI display.
   virtual std::string name() const = 0;
 

@@ -8,6 +8,33 @@ and brass candidates are available. The [authoring workspace and source-derived
 decoder](bridge-map-authoring.md) are implemented; production host acceptance
 and coordinated installation remain pending.
 
+## Wire schema 2 (2026-10-19)
+
+The current templates are **strings r4, woodwinds r2 and brass r2**. They keep
+r3/r1 vocabulary, allocation and grouping, and change only the wire encoding.
+Schema-1 maps (strings r1–r3, winds r1) remain frozen and are still decoded.
+
+- **Typed Off.** An add-on Off writes On + 64 on its conduit. The decoder clears
+  a dimension only when the Off names the technique currently held, so a late
+  Off from a replaced technique cannot erase its successor.
+- **Off debounce.** An Off that arrives within 30 ms of its own technique's On
+  is ignored, in both schemas. This covers the base-change sequence below,
+  where Dorico pre-rolls a restated On about 16 ms before the note and then
+  sends the old combination's Off. No real temporary technique lasts that briefly.
+- **Revision beacon.** Init sends KS126/KS127 with velocities derived from the
+  map's entity ID and version (reserved; the pool is 50 conduits including the
+  base). A matching beacon at playback start verifies the assignment without a
+  manual export. A mismatch withholds notes and is reported in Bridge maps.
+- **Gating.** Notes need a verified map (beacon or attested export) and a known
+  base. Add-on dimensions not yet received count as unspecified, which is what
+  Init sends. Unknown values still invalidate their dimension.
+
+The **On-before-Off clear is treated as in scope.** It is triggered by base
+(note-length) changes under a persistent add-on, which also happen with one
+voice. The [one-voice note-length fixture](../experiments/orchestral-strings-bridge/one-voice-length-test.md)
+is the host check for the defence above. Bridge maps shows, per input, how many
+stale Offs were ignored and how many early Offs were suppressed.
+
 ## Supported routing scope — one voice per channel
 
 Decision agreed on 2026-10-15: bridge design, validation and playback-fidelity
@@ -27,7 +54,8 @@ sequence, are retained as historical evidence. Their discrepancies are outside
 the acceptance criteria and do not block the bridge work. Further shared-voice
 timing isolation and proposed repairs from those reports are removed from the
 current work queue. Do not change Off actions or length transmission to repair
-those out-of-scope cases. This decision does not establish that cancellation,
+those out-of-scope cases. (The 2026-10-19 typed Off and debounce address the
+base-change component, which also occurs with one voice; see above.) This decision does not establish that cancellation,
 composition or length transitions are correct within the supported scope;
 remaining validation must use one voice per channel. Ordinary note overlap
 within that voice, such as legato playback, remains relevant.
@@ -278,9 +306,12 @@ If a profile really
 does not fit, explicitly review less-common exclusions or alternate encodings;
 never silently remove requirements.
 
-## Off events: open validation question, proposed policy
+## Off events: policy
 
-The discussion did **not** decide to remove Off events. The working proposal is:
+Implemented in wire schema 2 (above): Off actions remain, each Off is typed by the
+technique it ends, and an Off within 30 ms of its own On is suppressed. The
+original reasoning is retained below. The discussion did **not** decide to
+remove Off events. The working proposal was:
 
 > On sets this dimension to a named value; Off clears only this dimension to
 > unspecified. Natural is not a global reset, and unspecified is not an explicit
@@ -344,7 +375,9 @@ decomposition with distinguishable output markers.
 
 ## Next work, in order
 
-1. **Current strings vocabulary is curated in r3.** Local generation/catalog
+0. **Host-check wire schema 2** with the [one-voice note-length fixture](../experiments/orchestral-strings-bridge/one-voice-length-test.md):
+   persistence across length changes, beacon verification, and the Off counters.
+1. **Current strings vocabulary is curated in r3** (re-encoded as r4). Local generation/catalog
    checks pass. R2 import/inspection passed by user report, but that does not
    establish r3 host acceptance. Retained bow-stroke/pressure grouping is unchanged.
    Explicit project assignment now enables the source-derived decoder; templates

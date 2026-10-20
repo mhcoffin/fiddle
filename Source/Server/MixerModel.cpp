@@ -953,6 +953,7 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
     ctx.stripChannel = channel + 1;
     ctx.currentTimeMs = triggerTimeMs;
 
+    ctx.sampleRate = currentSampleRate_;
     auto midiLock = strip->lockMidiState();
     if (strip->annotator->onCC(event, ctx)) {
       strip->addDelayedMessage(triggerTimeMs, msg);
@@ -961,6 +962,13 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
                                      CapturedMidiEvent::CC,
                                      (int)event.cc().controller_number(),
                                      (int)event.cc().controller_value());
+      }
+    } else {
+      std::vector<fiddle::MidiInstruction> replacements;
+      strip->annotator->translateCC(event, ctx, replacements);
+      for (const auto &instr : replacements) {
+        strip->addDelayedMessage(triggerTimeMs, instructionToMidi(instr, channel + 1));
+        captureInstruction(strip->emittedCapture, triggerTimeMs, instr, channel + 1);
       }
     }
   }

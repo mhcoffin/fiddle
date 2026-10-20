@@ -91,6 +91,31 @@ int main() {
   CHECK(block->count == HostMidiBlock::capacity); CHECK(block->dropped == 7);
   data.inputParameterChanges = nullptr; data.processContext = nullptr; block->collect(data);
   CHECK(block->count == 0); CHECK(block->dropped == 0);
+  {
+    // Added controllers: pedals, channel pressure and 14-bit pitch bend.
+    const auto param = [](int controller, int logical) {
+      for (int i = 0; i < FiddleController::kNumSupportedCCs; ++i)
+        if (FiddleController::kSupportedCCs[i] == controller)
+          return ParamID(FiddleController::kCCParamBase + i * FiddleController::kNumChannels + logical);
+      return ParamID(0);
+    };
+    CHECK(FiddleController::kNumSupportedCCs == 122);
+    CHECK(FiddleController::ccToIndex(102) == 3); // legacy IDs unchanged
+    CHECK(FiddleController::ccToIndex(123) == -1 && FiddleController::ccToIndex(120) == -1);
+    Queue sustain; sustain.id = param(64, 18); sustain.points = {{4, 127.0 / 127}};
+    Queue pressure; pressure.id = param(kAfterTouch, 18); pressure.points = {{5, 64.0 / 127}};
+    Queue bend; bend.id = param(kPitchBend, 18); bend.points = {{6, 0.5}, {7, 1.0}};
+    Parameters controllers; controllers.queues = {&sustain, &pressure, &bend};
+    ProcessContext ctx{}; ProcessData d{}; d.numSamples = 64; d.processContext = &ctx;
+    d.inputParameterChanges = &controllers; block->collect(d);
+    CHECK(block->count == 4 && block->invalid == 0);
+    CHECK(block->inputs[0].midi.type == RealtimeMidiEventType::ControlChange);
+    CHECK(block->inputs[0].midi.data1 == 64 && block->inputs[0].midi.data2 == 127);
+    CHECK(block->inputs[0].midi.port == 1 && block->inputs[0].midi.channel == 3);
+    CHECK(block->inputs[1].midi.type == RealtimeMidiEventType::ChannelPressure && block->inputs[1].midi.data1 == 64);
+    CHECK(block->inputs[2].midi.type == RealtimeMidiEventType::PitchBend && block->inputs[2].midi.data1 == 8192);
+    CHECK(block->inputs[3].midi.data1 == 16383);
+  }
   // Capture file lifecycle: the producer hands off values only; destruction
   // drains the worker and closes a complete trace, including diagnostics.
   std::filesystem::path capturedPath;

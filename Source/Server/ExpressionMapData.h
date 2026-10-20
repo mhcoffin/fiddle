@@ -2,6 +2,7 @@
 
 
 
+#include <algorithm>
 #include <cctype>
 #include <set>
 #include <string>
@@ -400,45 +401,17 @@ struct ExpressionMapData {
             {c.name, overlap, c.techniqueIDs, sub, c.conditionString});
     }
 
-    // ── Tier 1: Exact base switch match ───────────────────────────
-    // A base whose PTs exactly equal the note's PTs.
-    for (auto &bc : bases) {
-      if (bc.isExact)
-        return {bc.combo, {}};
-    }
-
-    // ── Tier 2: Base + add-ons = exact match ──────────────────────
-    // Find a base that is a subset, then see if add-ons can cover
-    // the remainder exactly.
-    {
-      const TechniqueCombination *bestBase = nullptr;
-      int bestSize = -1;
-      for (auto &bc : bases) {
-        if (!bc.isSubsetOfNote)
-          continue;
-        if (bc.baseSize > bestSize) {
-          bestSize = bc.baseSize;
-          bestBase = bc.combo;
-        }
-      }
-      if (bestBase) {
-        std::set<std::string> remaining;
-        for (auto &t : techniques) {
-          if (!bestBase->techniqueIDs.count(t))
-            remaining.insert(t);
-        }
-        auto addOns = findAddOnsCovering(remaining);
-        // Check if all remaining PTs are now covered
-        std::set<std::string> covered;
-        for (auto *a : addOns)
-          for (auto &t : a->techniqueIDs)
-            covered.insert(t);
-        if (isSubset(remaining, covered))
-          return {bestBase, addOns};
-        // Even if not exact, if the base is a subset, use it
-        // (partial coverage is better than nothing — Tier 2.5)
-        // Fall through to Tier 3 only if we have ≥3 PTs
-      }
+    // ── Tiers 1–2: exact rendition, base alone or base + add-ons ──
+    if (auto exact = exactMatch(techniques, repDuration); !exact.empty())
+      return exact;
+    // Natural is Dorico's implicit default, not a sound to preserve when a
+    // more specific switch exists: a bridge sends {natural, legato} where a
+    // library maps Legato as its own base. Retry the exact tiers without it.
+    if (techniques.count("pt.natural") && techniques.size() > 1) {
+      auto specific = techniques;
+      specific.erase("pt.natural");
+      if (auto exact = exactMatch(specific, repDuration); !exact.empty())
+        return exact;
     }
 
     // ── Tier 3: Partial match (≥3 PTs, covering ≥2) ──────────────
@@ -446,6 +419,7 @@ struct ExpressionMapData {
       const TechniqueCombination *bestBase = nullptr;
       int bestOverlap = -1;
       int bestSize = -1;
+      int bestSpecific = -1;
       for (auto &bc : bases) {
         if (!bc.isSubsetOfNote)
           continue;
@@ -470,8 +444,12 @@ struct ExpressionMapData {
           int totalCovered = bc.baseSize;
           for (auto *a : addOns)
             totalCovered += (int)a->techniqueIDs.size();
-          if (totalCovered >= 2 && totalCovered > bestOverlap) {
+          // Ties prefer the base that renders more non-Natural intent.
+          const int specific = totalCovered - (int)bc.combo->techniqueIDs.count("pt.natural");
+          if (totalCovered >= 2 && (totalCovered > bestOverlap
+                                    || (totalCovered == bestOverlap && specific > bestSpecific))) {
             bestOverlap = totalCovered;
+            bestSpecific = specific;
             bestBase = bc.combo;
           }
         }
@@ -569,6 +547,36 @@ struct ExpressionMapData {
         return withAddOns(&c);
     }
     return {}; // no match at all
+  }
+
+  /// Tiers 1–2 for one request: an exact base, else the most specific subset
+  /// base whose remainder add-ons cover exactly. Every subset base is tried,
+  /// so an equal-size base earlier in the file cannot hide an exact one.
+  MatchResult exactMatch(const std::set<std::string> &request, double repDuration) const {
+    std::vector<const TechniqueCombination *> subsets;
+    for (auto &c : combinations) {
+      if (c.isAddOn || (!c.condition.empty() && !c.condition.evaluate(repDuration)))
+        continue;
+      if (!isSubset(c.techniqueIDs, request))
+        continue;
+      if (c.techniqueIDs.size() == request.size())
+        return {&c, {}};
+      subsets.push_back(&c);
+    }
+    std::stable_sort(subsets.begin(), subsets.end(), [](auto *a, auto *b) {
+      return a->techniqueIDs.size() > b->techniqueIDs.size();
+    });
+    for (auto *base : subsets) {
+      std::set<std::string> remaining;
+      for (auto &t : request)
+        if (!base->techniqueIDs.count(t)) remaining.insert(t);
+      auto addOns = findAddOnsCovering(remaining);
+      std::set<std::string> covered;
+      for (auto *a : addOns) covered.insert(a->techniqueIDs.begin(), a->techniqueIDs.end());
+      if (isSubset(remaining, covered))
+        return {base, addOns};
+    }
+    return {};
   }
 
   /// Convert a LengthCategory to a representative duration in seconds

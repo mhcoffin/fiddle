@@ -244,6 +244,14 @@ try {
     assert.equal(await page.getByRole("textbox", { name: "Bridge map XML", exact: true }).inputValue(), "<edited />");
     await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...bridgeState.assignments[0], verified: true }] });
     assert.match(await page.locator(".bridges").innerText(), /assignment confirmed by user/);
+    const live = { ...bridgeState.assignments[0], verified: true, beacon: "mismatched", receivedBeacon: [3, 4], expectedBeacon: [81, 22],
+        lastWithheld: "Dorico is playing a different bridge revision", withheldNotes: 2, invalidCommands: 0, ignoredOffs: 1, debouncedOffs: 3 };
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [live] });
+    const liveText = await page.locator(".bridges").innerText();
+    assert.match(liveText, /different revision \(beacon 3\/4, expected 81\/22\)/);
+    assert.match(liveText, /2 notes withheld · 1 stale Offs ignored · 3 early Offs suppressed/);
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...live, verified: false, beacon: "matched", lastWithheld: "", withheldNotes: 0 }] });
+    assert.match(await page.locator(".bridges").innerText(), /Beacon matches/);
     await page.getByRole("button", { name: "Remove assignment", exact: true }).click();
     assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "assignBridgeRevision" && m.payload[0].hash === "" && m.payload[0].port === 1 && m.payload[0].channel === 2)));
     await page.getByRole("button", { name: "Export project bundle…", exact: true }).click();

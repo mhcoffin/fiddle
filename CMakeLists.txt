@@ -790,17 +790,6 @@ target_compile_features(TransportTest PRIVATE cxx_std_17)
 add_test(NAME transport COMMAND TransportTest)
 set_tests_properties(transport PROPERTIES LABELS stable)
 
-add_executable(ExperimentalBridgeTest
-    Source/Server/tests/ExperimentalBridgeTest.cpp
-    Source/Server/NoteInspection.cpp
-    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
-target_include_directories(ExperimentalBridgeTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(ExperimentalBridgeTest PRIVATE juce::juce_core juce::juce_events libprotobuf)
-target_compile_features(ExperimentalBridgeTest PRIVATE cxx_std_17)
-target_compile_definitions(ExperimentalBridgeTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
-add_test(NAME experimental_bridge COMMAND ExperimentalBridgeTest)
-set_tests_properties(experimental_bridge PROPERTIES LABELS "midi;regression;stable")
-
 # ==============================================================================
 # MidiTcpServerTest — duplicate plug-in connection diagnostics
 # ==============================================================================
@@ -1320,8 +1309,6 @@ if(FIDDLE_TEST_THREAD_SANITIZER)
     endforeach()
 endif()
 add_test(NAME mixer_integration COMMAND MixerIntegrationTest)
-add_test(NAME experimental_bridge_mixer COMMAND MixerIntegrationTest --experimental-bridge-only)
-set_tests_properties(experimental_bridge_mixer PROPERTIES LABELS "midi;audio;integration;regression;stable")
 set_tests_properties(mixer_integration PROPERTIES
     LABELS "audio;routing;persistence;integration;regression;stable")
 
@@ -1376,9 +1363,9 @@ target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp)
 add_custom_command(TARGET FiddleServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r1/Fiddle-Orchestral-Woodwinds-r1.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r1/Fiddle-Orchestral-Brass-r1.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r2/Fiddle-Orchestral-Woodwinds-r2.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r2/Fiddle-Orchestral-Brass-r2.doricolib"
         "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
 
 # One build target for local testing and CI. New *Test executables are included

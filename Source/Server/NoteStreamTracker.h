@@ -1,7 +1,6 @@
 #pragma once
 
 #include "ExpressionMap.h"
-#include "ExperimentalBridgeProfile.h"
 #include "BridgeMapDocument.h"
 #include "MetronomeTempoTracker.h"
 #include "midi_event.pb.h"
@@ -12,6 +11,7 @@
 #include <juce_core/juce_core.h>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <vector>
 
 namespace fiddle {
@@ -33,9 +33,11 @@ public:
   void setBridgeMaps(const BridgeMapProject &project) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); bridgeConfigurationInvalid_ = false;
-    for (const auto &[ep, hash] : project.assignments)
-      compiledBridges.emplace(Endpoint{uint32_t(ep.first), uint32_t(ep.second)},
-                              project.documents.at(hash)->compiled);
+    for (const auto &[ep, hash] : project.assignments) {
+      auto state = compiledBridges.emplace(Endpoint{uint32_t(ep.first), uint32_t(ep.second)},
+                                           project.documents.at(hash)->compiled);
+      state.first->second.sampleRate = hostSampleRate_;
+    }
   }
   void rejectBridgeMaps() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
@@ -44,12 +46,25 @@ public:
   void unverifyBridge(int port, int channel) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
-    if (it != compiledBridges.end()) { it->second.reset(); it->second.verified = false; }
+    if (it != compiledBridges.end()) { it->second.reset(); it->second.attested = false; }
   }
   void verifyBridge(int port, int channel) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
-    if (it != compiledBridges.end()) { it->second.reset(); it->second.verified = true; }
+    if (it != compiledBridges.end()) { it->second.reset(); it->second.attested = true; }
+  }
+  // Host-clock rate of incoming sample positions (bridge Off debounce).
+  void setHostSampleRate(double rate) {
+    if (!(rate > 0)) return;
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    hostSampleRate_ = rate;
+    for (auto &[endpoint, bridge] : compiledBridges) bridge.sampleRate = rate;
+  }
+  std::optional<BridgeDecoderState::Diagnostics> bridgeDiagnostics(int port, int channel) const {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
+    if (it == compiledBridges.end()) return std::nullopt;
+    return it->second.diagnostics();
   }
   struct Callbacks {
     std::function<void(const fiddle::Note &)> onNoteStarted;
@@ -58,6 +73,10 @@ public:
     std::function<void(const fiddle::MidiEvent &, uint64_t absoluteSamples,
                        int oldCCVal)>
         onMidiEvent;
+    // Bridge commands consumed by a decoder (diagnostics only; never routed).
+    std::function<void(const fiddle::MidiEvent &, uint64_t absoluteSamples)> onBridgeCommand;
+    // Beacon or withheld-note state changed; called under the tracker lock.
+    std::function<void()> onBridgeStatusChanged;
   };
 
   std::function<void(const juce::String &)> uiLogger;
@@ -68,34 +87,10 @@ public:
 
   void setExpressionMap(const ExpressionMap *map) { expMap = map; }
 
-  // Session-only experimental opt-in for one chair endpoint, shared by every
-  // layer. Refuse a decoder change while that endpoint has sounding notes.
-  bool setExperimentalBridge(int port, int channel,
-                            std::shared_ptr<const ExperimentalBridgeProfile> profile) {
-    std::lock_guard<std::recursive_mutex> lock(mutex);
-    if (port < 0 || port >= 16 || toChannelIndex(channel) < 0) return false;
-    for (const auto &note : activeNotes)
-      if (int(note.port()) == port && int(note.channel()) == channel) return false;
-    const Endpoint endpoint{uint32_t(port), uint32_t(channel)};
-    experimentalBridges.erase(endpoint);
-    currentCCs.erase(endpoint);
-    if (profile) experimentalBridges.emplace(endpoint, std::move(profile));
-    return true;
-  }
-
-  bool consumesExperimentalCC(int port, int channel, int cc) const {
+  bool consumesBridgeCC(int port, int channel, int cc) const {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const auto compiled = compiledBridges.find({uint32_t(port), uint32_t(channel)});
-    if (compiled != compiledBridges.end()) return compiled->second.consumesCC(cc);
-    const auto it = experimentalBridges.find({uint32_t(port), uint32_t(channel)});
-    return it != experimentalBridges.end() && it->second.consumesCC(cc);
-  }
-
-  std::pair<uint64_t, uint64_t> experimentalErrors(int port, int channel) const {
-    std::lock_guard<std::recursive_mutex> lock(mutex);
-    const auto it = experimentalBridges.find({uint32_t(port), uint32_t(channel)});
-    return it == experimentalBridges.end() ? std::pair<uint64_t, uint64_t>{0, 0}
-      : std::pair<uint64_t, uint64_t>{it->second.invalidCommands, it->second.rejectedNotes};
+    return compiled != compiledBridges.end() && compiled->second.consumesCC(cc);
   }
 
   void setMetronomeTracker(const MetronomeTempoTracker *tracker) {
@@ -130,10 +125,16 @@ public:
             : (sessionTimestamp + event.timestamp_samples());
 
     const auto compiled = compiledBridges.find({event.port(), event.channel()});
-    const auto bridge = experimentalBridges.find({event.port(), event.channel()});
-    if (compiled != compiledBridges.end() && compiled->second.consume(event)) return;
-    if (compiled == compiledBridges.end() && bridge != experimentalBridges.end() && bridge->second.consume(event))
-      return; // Never expose protocol keys as musical notes or raw output MIDI.
+    if (compiled != compiledBridges.end()) {
+      const auto beaconBefore = compiled->second.diagnostics().beacon;
+      if (compiled->second.consume(event)) {
+        // Never expose protocol keys as musical notes or raw output MIDI.
+        if (callbacks.onBridgeCommand) callbacks.onBridgeCommand(event, absoluteSamples);
+        if (compiled->second.diagnostics().beacon != beaconBefore && callbacks.onBridgeStatusChanged)
+          callbacks.onBridgeStatusChanged();
+        return;
+      }
+    }
 
     if (event.has_note_on()) {
       int vel = event.note_on().velocity();
@@ -194,7 +195,7 @@ public:
 
           // Expression map enrichment: update notation dimensions/techniques
           // on the most recently started note (30ms jitter window).
-          if (compiled == compiledBridges.end() && bridge == experimentalBridges.end()) {
+          if (compiled == compiledBridges.end()) {
             uint64_t currentSamples = absoluteSamples;
             for (int i = (int)activeNotes.size() - 1; i >= 0; --i) {
               auto &note = activeNotes[i];
@@ -256,8 +257,8 @@ public:
     std::lock_guard<std::recursive_mutex> lock(mutex);
     activeNotes.clear();
     currentCCs.clear();
-    for (auto &[endpoint, bridge] : experimentalBridges) bridge.reset();
     for (auto &[endpoint, bridge] : compiledBridges) bridge.reset();
+    if (!compiledBridges.empty() && callbacks.onBridgeStatusChanged) callbacks.onBridgeStatusChanged();
   }
 
   uint64_t getSessionSamples() const {
@@ -297,9 +298,9 @@ private:
   std::vector<fiddle::Note> activeNotes;
   using Endpoint = std::pair<uint32_t, uint32_t>; // zero-based port, 1-based channel
   std::map<Endpoint, std::array<uint8_t, 128>> currentCCs;
-  std::map<Endpoint, ExperimentalBridgeState> experimentalBridges;
   std::map<Endpoint, BridgeDecoderState> compiledBridges;
   bool bridgeConfigurationInvalid_ = false;
+  double hostSampleRate_ = 44100.0;
   uint64_t nextNoteId = 1;
   bool enrichNoteWithCC(fiddle::Note &note, int ccNum, int val) {
     if (expMap == nullptr)
@@ -357,16 +358,14 @@ private:
     // Enrich note with notation dimensions from ExpressionMap
     auto &ccs = currentCCs[{event.port(), channel}];
     const auto compiled = compiledBridges.find({event.port(), channel});
-    const auto bridge = experimentalBridges.find({event.port(), channel});
     if (compiled != compiledBridges.end()) {
-      if (!compiled->second.annotate(note)) {
-        if (uiLogger) uiLogger("[Bridge] Note withheld: verify the assigned map and initialize all dimensions");
-        return;
-      }
-    } else if (bridge != experimentalBridges.end()) {
-      if (!bridge->second.annotate(note)) {
-        ++bridge->second.rejectedNotes;
-        if (uiLogger) uiLogger("[Experimental bridge] Note withheld: incomplete/invalid technique state");
+      const auto previous = compiled->second.diagnostics().lastWithheld;
+      const auto reason = compiled->second.annotate(note);
+      if (reason != previous && callbacks.onBridgeStatusChanged) callbacks.onBridgeStatusChanged();
+      if (reason != BridgeDecoderState::Withheld::None) {
+        if (uiLogger)
+          uiLogger(juce::String("[Bridge] Note withheld on port ") + juce::String(event.port() + 1)
+                   + " channel " + juce::String(channel) + ": " + BridgeDecoderState::describe(reason));
         return;
       }
     } else if (expMap != nullptr && channelIndex >= 0) {

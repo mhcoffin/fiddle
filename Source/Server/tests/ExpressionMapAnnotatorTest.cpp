@@ -464,6 +464,47 @@ static void testEmitDynamicsCCToCCDifferentTarget() {
   A_CHECK_EQ(note.during_note(0).param2(), 64);
 }
 
+static void testLiveCC1Dynamics() {
+  std::cout << "--- testLiveCC1Dynamics ---" << std::endl;
+  AnnotatorContext ctx;
+  auto em = makeSimpleEM("CC11", {"pt.natural"}, {}, 1.0f, 0, VolumeType::kCC, 11);
+  ExpressionMapAnnotator ann(em);
+  fiddle::MidiEvent cc1;
+  cc1.mutable_cc()->set_controller_number(1);
+  cc1.mutable_cc()->set_controller_value(90);
+  std::vector<fiddle::MidiInstruction> out;
+  // Before any note there is no base: CC1 is consumed with no replacement.
+  A_CHECK(!ann.onCC(cc1, ctx));
+  ann.translateCC(cc1, ctx, out);
+  A_CHECK_EQ((int)out.size(), 0);
+  auto note = makeNoteWithCC("pt.natural", 100, 1, {{0, 64}});
+  ann.onNoteStart(note, ctx);
+  // A hairpin during the held note follows on the base's controller.
+  A_CHECK(!ann.onCC(cc1, ctx));
+  ann.translateCC(cc1, ctx, out);
+  A_CHECK_EQ((int)out.size(), 1);
+  A_CHECK_EQ(out[0].param1(), 11);
+  A_CHECK_EQ(out[0].param2(), 90);
+  // Velocity-mode input: CC1 is not a dynamics stream for this note.
+  auto shortNote = makeNoteWithCC("pt.natural", 100, 1, {{0, 64}});
+  shortNote.set_dynamics_mode(fiddle::Note::VELOCITY);
+  ann.onNoteStart(shortNote, ctx);
+  out.clear();
+  ann.translateCC(cc1, ctx, out);
+  A_CHECK_EQ((int)out.size(), 0);
+
+  // Pitch bend: ±2 input passes through; a ±12 instrument is rescaled.
+  fiddle::MidiEvent bend;
+  bend.mutable_pitch_bend()->set_value(8192 + 4096); // +1 semitone at ±2
+  A_CHECK(ann.onCC(bend, ctx));
+  em->pitchBendRange = 12;
+  A_CHECK(!ann.onCC(bend, ctx));
+  out.clear();
+  ann.translateCC(bend, ctx, out);
+  A_CHECK_EQ((int)out.size(), 1);
+  A_CHECK_EQ((out[0].param1() << 7) | out[0].param2(), 8192 + 683); // +1 of 12
+}
+
 // ---------------------------------------------------------------------------
 // Test: resolveMatch Tier 2 (base + add-ons)
 // ---------------------------------------------------------------------------
@@ -499,6 +540,43 @@ static void testResolveMatchTier2() {
       foundAddonCC = true;
   }
   A_CHECK(foundAddonCC);
+}
+
+// ---------------------------------------------------------------------------
+// Test: bridge requests carry an implicit pt.natural that must not hide a
+// more specific base, and equal-size subset bases are all tried.
+// ---------------------------------------------------------------------------
+
+static void testResolveMatchImplicitNatural() {
+  std::cout << "--- testResolveMatchImplicitNatural ---" << std::endl;
+
+  ExpressionMapData data;
+  data.combinations.push_back(TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"}, .baseSwitchID = 1});
+  data.combinations.push_back(TechniqueCombination{
+      .name = "Legato", .techniqueIDs = {"pt.legato"}, .baseSwitchID = 2});
+  data.combinations.push_back(TechniqueCombination{
+      .name = "Con sord", .techniqueIDs = {"pt.muted"}, .isAddOn = true,
+      .switchOnActions = {{SwitchActionType::CC, 80, 127}}});
+
+  // Previously chose Natural + Con sord and lost legato.
+  auto result = data.resolveMatch({"pt.natural", "pt.legato", "pt.muted"});
+  A_CHECK(result.base != nullptr);
+  A_CHECK_EQ(result.base->name, std::string("Legato"));
+  A_CHECK_EQ((int)result.addOns.size(), 1);
+  A_CHECK_EQ(result.addOns[0]->name, std::string("Con sord"));
+
+  // {natural, legato} with no exact base resolves to the Legato base.
+  result = data.resolveMatch({"pt.natural", "pt.legato"});
+  A_CHECK(result.base && result.base->name == "Legato");
+  // A plain Natural note is unaffected.
+  result = data.resolveMatch({"pt.natural"});
+  A_CHECK(result.base && result.base->name == "Natural");
+  // An exact compound base still wins over stripping Natural.
+  data.combinations.push_back(TechniqueCombination{
+      .name = "Natural legato", .techniqueIDs = {"pt.natural", "pt.legato"}, .baseSwitchID = 3});
+  result = data.resolveMatch({"pt.natural", "pt.legato"});
+  A_CHECK(result.base && result.base->name == "Natural legato");
 }
 
 // ---------------------------------------------------------------------------
@@ -1467,8 +1545,10 @@ void runAnnotatorTests() {
   testEmitDynamicsVelocityToCC();
   testEmitDynamicsCCToCC();
   testEmitDynamicsCCToCCDifferentTarget();
+  testLiveCC1Dynamics();
   testResolveMatchTier2();
   testResolveMatchNaturalFallback();
+  testResolveMatchImplicitNatural();
   testNaturalFallbackAddOnsAndCompoundLengths();
   testCompoundConditionParsing();
   testNullExpressionMap();

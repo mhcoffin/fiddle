@@ -52,9 +52,9 @@ The earlier
 [Strings allocation and isolated Dorico A/B experiment](../experiments/dorico-strings/README.md)
 records an 18-CC draft budget, separate versus packed add-on probes, matched offline
 decoder tables, and a capture checklist. These probes are incompatible with
-normal server launches. Strings F r6 now has live host captures and an explicit,
-session-only server opt-in for controlled acceptance; it is not activated or
-automatically assigned to any project. See [live results and remaining gates](../experiments/dorico-strings/live-results.md).
+normal server launches. Strings F r6 has live host captures. Its session-only
+server opt-in (`FIDDLE_EXPERIMENTAL_BRIDGE`) and replay tool were retired on
+2026-10-19 in favour of compiled bridge maps; see [live results](../experiments/dorico-strings/live-results.md).
 Old “next test” instructions are historical. Use the current plan's work order;
 host validation still precedes any production rollout.
 
@@ -223,9 +223,9 @@ Current implementation evidence:
 
 - `FiddleController` exposes 128 programs per logical channel across 16 ports
   of 16 channels. Raw numbers are 0–127; user-visible numbering must be explicit.
-- `FiddleProcessor::process` takes the **last point** of each program parameter
-  queue per block and forwards a timestamped event with port and channel. This
-  is not currently a lossless channel for many sequential commands in one block.
+- `HostMidiBlock::collect` forwards **every point** of each program parameter
+  queue, timestamped with port and channel, merged with the event list by sample
+  offset (parameters first at ties, by adapter policy).
 - `ProgramStateReplay.h` supports replaying saved program identity on reconnect.
 - `InstrumentMapper` resolves names from Dorico's Fiddle `presets.xml`;
   `MainComponent` uses them for the UI. Its assignment cache and that UI message

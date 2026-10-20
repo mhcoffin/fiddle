@@ -76,9 +76,8 @@ public:
   // Program change params: kProgramParamBase + logicalChannel
   static constexpr Steinberg::Vst::ParamID kProgramParamBase = 100;
 
-  // Selective CC params: only CCs we actually use.
+  // MIDI controller params, reachable only through IMidiMapping.
   // paramID = kCCParamBase + ccIndex * kNumChannels + logicalChannel
-  // 21 CCs × 256 channels = 5,376 params
   static constexpr Steinberg::Vst::ParamID kCCParamBase = 500;
 
   // 16 ports × 16 channels = 256 total channels.
@@ -87,15 +86,29 @@ public:
   static constexpr int kNumChannels = kNumPorts * kChannelsPerPort; // 256
   static constexpr int kNumPrograms = 128;
 
-  // The CCs we register as VST3 parameters.
-  // CC1 (Mod Wheel), CC7 (Volume), CC11 (Expression), CC102-CC119 (switches).
-  static constexpr int kSupportedCCs[] = {1,   7,   11,  102, 103, 104, 105,
-                                          106, 107, 108, 109, 110, 111, 112,
-                                          113, 114, 115, 116, 117, 118, 119};
+  // The controllers we register as VST3 parameters. In VST3 a host delivers
+  // CCs, channel pressure and pitch bend only through IMidiMapping, so any
+  // controller missing here never reaches Fiddle (pedals, breath, bend...).
+  // The first 21 keep their original indices, and so their parameter IDs.
+  // Channel-mode messages (120-127) stay excluded: Dorico sends CC123
+  // during playback and the server treats 120/123 as panic.
+  static constexpr int kNumLegacyCCs = 21;
+  static constexpr int kSupportedCCs[] = {
+      1,   7,   11,  102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112,
+      113, 114, 115, 116, 117, 118, 119,
+      // Added: every remaining CC 0-101, then channel pressure and bend.
+      0,   2,   3,   4,   5,   6,   8,   9,   10,  12,  13,  14,  15,  16,
+      17,  18,  19,  20,  21,  22,  23,  24,  25,  26,  27,  28,  29,  30,
+      31,  32,  33,  34,  35,  36,  37,  38,  39,  40,  41,  42,  43,  44,
+      45,  46,  47,  48,  49,  50,  51,  52,  53,  54,  55,  56,  57,  58,
+      59,  60,  61,  62,  63,  64,  65,  66,  67,  68,  69,  70,  71,  72,
+      73,  74,  75,  76,  77,  78,  79,  80,  81,  82,  83,  84,  85,  86,
+      87,  88,  89,  90,  91,  92,  93,  94,  95,  96,  97,  98,  99,  100,
+      101, Steinberg::Vst::kAfterTouch, Steinberg::Vst::kPitchBend};
   static constexpr int kNumSupportedCCs =
-      sizeof(kSupportedCCs) / sizeof(kSupportedCCs[0]); // 21
+      sizeof(kSupportedCCs) / sizeof(kSupportedCCs[0]); // 122
 
-  /// Returns the dense index (0-20) for a CC number, or -1 if not supported.
+  /// Returns the dense index for a controller number, or -1 if unsupported.
   static int ccToIndex(int ccNum) {
     for (int i = 0; i < kNumSupportedCCs; ++i)
       if (kSupportedCCs[i] == ccNum)

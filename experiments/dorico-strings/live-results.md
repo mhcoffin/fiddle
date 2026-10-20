@@ -1,5 +1,10 @@
 # Strings F r6: live input and server replay, 2026-09-22
 
+> **Retired 2026-10-19.** The experimental decoder, its environment-variable
+> opt-in and `ExperimentalBridgeTest` replay tool were removed in favour of
+> compiled bridge maps. The commands below need a checkout of commit `d93b90b`
+> or earlier.
+
 > **Retained chronological evidence.** Intermediate “next test,” installation,
 > and remaining-gate statements below belong to their recorded stage; later
 > entries document subsequent results. They are not today's work queue or a

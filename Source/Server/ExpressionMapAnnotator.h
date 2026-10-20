@@ -3,6 +3,7 @@
 #include "Annotator.h"
 #include "ExpressionMapData.h"
 #include "NoteInspection.h"
+#include <cmath>
 #include <map>
 
 namespace fiddle {
@@ -37,6 +38,10 @@ public:
   /// All other CCs are forwarded to the VST.
   bool onCC(const fiddle::MidiEvent &event,
             const AnnotatorContext &) override {
+    // Dorico bends for the bridge map's ±2 semitones; rescale for a layer
+    // map that declares another instrument range.
+    if (event.has_pitch_bend())
+      return !emData_ || emData_->pitchBendRange == kInputBendRange || emData_->pitchBendRange <= 0;
     if (!event.has_cc())
       return true;
     int ccNum = event.cc().controller_number();
@@ -47,6 +52,33 @@ public:
     if (ccNum >= 102 && ccNum <= 119)
       return false;
     return true;
+  }
+
+  /// Live CC1 dynamics while notes sound: re-express each change on the
+  /// controller(s) the current base switch expects. Without this a hairpin
+  /// over a held note never reached the instrument; note start only carried
+  /// the value current at that moment.
+  void translateCC(const fiddle::MidiEvent &event, const AnnotatorContext &,
+                   std::vector<fiddle::MidiInstruction> &out) override {
+    if (event.has_pitch_bend() && emData_ && emData_->pitchBendRange > 0) {
+      const double semitones = (int(event.pitch_bend().value()) - 8192) * kInputBendRange / 8192.0;
+      const int value = std::clamp(8192 + int(std::lround(semitones / emData_->pitchBendRange * 8192.0)), 0, 16383);
+      fiddle::MidiInstruction inst;
+      inst.set_type(fiddle::MidiInstruction::PITCH_BEND);
+      inst.set_param1(value >> 7);
+      inst.set_param2(value & 0x7f);
+      out.push_back(inst);
+      return;
+    }
+    if (!event.has_cc() || event.cc().controller_number() != 1)
+      return;
+    for (const int target : liveDynamicsCCs_) {
+      fiddle::MidiInstruction inst;
+      inst.set_type(fiddle::MidiInstruction::CC);
+      inst.set_param1(target);
+      inst.set_param2(std::clamp(static_cast<int>(event.cc().controller_value()), 0, 127));
+      out.push_back(inst);
+    }
   }
 
   void onNoteStart(fiddle::Note &note,
@@ -168,7 +200,8 @@ public:
             " + " + fmtTarget(match.base->volumeType2, match.base->volumeCC2);
       }
 
-      emitDynamics(note, *match.base);
+      emitDynamics(note, *match.base, ctx.sampleRate);
+      liveDynamicsCCs_ = liveDynamicsTargets(note, *match.base);
     }
   }
 
@@ -231,11 +264,14 @@ public:
   void resetState() override {
     cache_.clear();
     currentMatch_ = {};
+    liveDynamicsCCs_.clear();
   }
 
 private:
+  static constexpr int kInputBendRange = 2; // bridge maps require pitchBendRange 2
   std::shared_ptr<ExpressionMapData> emData_;
   MatchResult currentMatch_;
+  std::vector<int> liveDynamicsCCs_; // targets for live CC1, from the last base
   double durationAdjustMs_ = 0.0;
   AnnotationRecord lastRecord_;
 
@@ -321,12 +357,28 @@ private:
   ///   volumeType  = primary dynamics (attack / velocity)
   ///   volumeType2 = secondary dynamics (sustain / CC)
   /// Both are processed independently.
+  /// Controllers that should follow live CC1, or none when the input
+  /// dynamics are velocity-based (CC1 is then not a dynamics stream).
+  static std::vector<int> liveDynamicsTargets(const fiddle::Note &note,
+                                              const TechniqueCombination &combo) {
+    std::vector<int> targets;
+    if (note.dynamics_mode() != fiddle::Note::CC)
+      return targets;
+    if (combo.volumeType == VolumeType::kCC)
+      targets.push_back(combo.volumeCC);
+    if (combo.volumeType2 == VolumeType::kCC &&
+        std::find(targets.begin(), targets.end(), combo.volumeCC2) == targets.end())
+      targets.push_back(combo.volumeCC2);
+    return targets;
+  }
+
   static void emitDynamics(fiddle::Note &note,
-                           const TechniqueCombination &combo) {
+                           const TechniqueCombination &combo,
+                           double sampleRate = 44100.0) {
     auto inputMode = note.dynamics_mode();
 
     // ── Primary dynamics (volumeType) ────────────────────────────
-    emitDynamicsForType(note, inputMode, combo.volumeType, combo.volumeCC);
+    emitDynamicsForType(note, inputMode, combo.volumeType, combo.volumeCC, sampleRate);
 
     // ── Secondary dynamics (volumeType2) ─────────────────────────
     // Only process if volumeType2 differs from volumeType to avoid
@@ -334,14 +386,15 @@ private:
     if (combo.volumeType2 != combo.volumeType ||
         (combo.volumeType2 == VolumeType::kCC &&
          combo.volumeCC2 != combo.volumeCC)) {
-      emitDynamicsForType(note, inputMode, combo.volumeType2, combo.volumeCC2);
+      emitDynamicsForType(note, inputMode, combo.volumeType2, combo.volumeCC2, sampleRate);
     }
   }
 
   /// Emit dynamics for a single volume type slot.
   static void emitDynamicsForType(fiddle::Note &note,
                                   fiddle::Note::DynamicsMode inputMode,
-                                  VolumeType targetType, int targetCC) {
+                                  VolumeType targetType, int targetCC,
+                                  double sampleRate) {
     if (targetType == VolumeType::kNoteVelocity) {
       // Target expects velocity — set the note's start_velocity.
       if (inputMode == fiddle::Note::CC) {
@@ -367,9 +420,8 @@ private:
             inst->set_type(fiddle::MidiInstruction::CC);
             inst->set_param1(targetCC);
             inst->set_param2(std::clamp(static_cast<int>(pt.value()), 0, 127));
-            // Convert sample offset to ms (assuming 44100 for now)
-            inst->set_delay_ms(
-                static_cast<int>(pt.offset_samples() * 1000 / 44100));
+            inst->set_delay_ms(static_cast<int>(
+                pt.offset_samples() * 1000.0 / std::max(1.0, sampleRate)));
           }
         }
       } else {

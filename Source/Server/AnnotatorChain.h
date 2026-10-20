@@ -55,6 +55,12 @@ public:
     return true;
   }
 
+  void translateCC(const fiddle::MidiEvent &event, const AnnotatorContext &ctx,
+                   std::vector<fiddle::MidiInstruction> &out) override {
+    for (auto &annotator : chain_)
+      annotator->translateCC(event, ctx, out);
+  }
+
   std::string name() const override {
     if (chain_.empty())
       return "Empty Chain";

@@ -41,6 +41,10 @@ public:
     if (!std::isfinite(value) || value < 0 || value > 1) return -1;
     return static_cast<int>(value * 127.0 + 0.5);
   }
+  static int midi14(double value) noexcept {
+    if (!std::isfinite(value) || value < 0 || value > 1) return -1;
+    return static_cast<int>(value * 16383.0 + 0.5);
+  }
 
   static int64_t hostPosition(const Steinberg::Vst::ProcessData &data) noexcept {
     // projectTimeSamples is always valid when a ProcessContext exists; the
@@ -83,7 +87,7 @@ public:
           if (queue->getPoint(p, input.midi.timestampSamples, input.rawValue) != kResultOk) {
             ++invalid; continue;
           }
-          const auto value = midi7(input.rawValue);
+          auto value = midi7(input.rawValue);
           int logical = -1;
           if (id >= FiddleController::kProgramParamBase && id < FiddleController::kProgramParamBase + FiddleController::kNumChannels) {
             logical = id - FiddleController::kProgramParamBase;
@@ -92,9 +96,18 @@ public:
           } else if (id >= FiddleController::kCCParamBase && id < FiddleController::kCCParamBase + FiddleController::kNumSupportedCCs * FiddleController::kNumChannels) {
             const auto index = id - FiddleController::kCCParamBase;
             logical = index % FiddleController::kNumChannels;
-            input.midi.type = RealtimeMidiEventType::ControlChange;
-            input.midi.data1 = FiddleController::kSupportedCCs[index / FiddleController::kNumChannels];
-            input.midi.data2 = value;
+            const int controller = FiddleController::kSupportedCCs[index / FiddleController::kNumChannels];
+            if (controller == Steinberg::Vst::kPitchBend) {
+              input.midi.type = RealtimeMidiEventType::PitchBend;
+              input.midi.data1 = value = midi14(input.rawValue);
+            } else if (controller == Steinberg::Vst::kAfterTouch) {
+              input.midi.type = RealtimeMidiEventType::ChannelPressure;
+              input.midi.data1 = value;
+            } else {
+              input.midi.type = RealtimeMidiEventType::ControlChange;
+              input.midi.data1 = controller;
+              input.midi.data2 = value;
+            }
           }
           input.valid = logical >= 0 && value >= 0;
           input.midi.port = logical >= 0 ? logical / 16 : -1;

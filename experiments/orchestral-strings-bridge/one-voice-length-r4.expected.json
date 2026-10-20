@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "test_id": "one-voice-length-r4",
+  "map_entity_id": "xmap.user.Fiddle.OrchestralStrings.r4",
+  "map_revision": 4,
+  "map_sha256": "b53f2604d2f54541513379c23c3179c35191c51993fec846542a1c134875303d",
+  "voice": "single voice on its own channel (Port 1 / Channel 2)",
+  "natural_base_normalized_to_empty": true,
+  "notes": [
+    {
+      "note": 1,
+      "bar": 1,
+      "pitch": 72,
+      "quarter_offset": 0.0,
+      "written_duration_quarters": 1.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 2,
+      "bar": 1,
+      "pitch": 74,
+      "quarter_offset": 1.0,
+      "written_duration_quarters": 1.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 3,
+      "bar": 1,
+      "pitch": 76,
+      "quarter_offset": 2.0,
+      "written_duration_quarters": 1.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 4,
+      "bar": 1,
+      "pitch": 77,
+      "quarter_offset": 3.0,
+      "written_duration_quarters": 1.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 5,
+      "bar": 2,
+      "pitch": 79,
+      "quarter_offset": 4.0,
+      "written_duration_quarters": 2.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 6,
+      "bar": 2,
+      "pitch": 76,
+      "quarter_offset": 6.0,
+      "written_duration_quarters": 2.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 7,
+      "bar": 3,
+      "pitch": 72,
+      "quarter_offset": 8.0,
+      "written_duration_quarters": 4.0,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 8,
+      "bar": 4,
+      "pitch": 72,
+      "quarter_offset": 12.0,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 9,
+      "bar": 4,
+      "pitch": 74,
+      "quarter_offset": 12.5,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 10,
+      "bar": 4,
+      "pitch": 76,
+      "quarter_offset": 13.0,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 11,
+      "bar": 4,
+      "pitch": 77,
+      "quarter_offset": 13.5,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 12,
+      "bar": 4,
+      "pitch": 79,
+      "quarter_offset": 14.0,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 13,
+      "bar": 4,
+      "pitch": 77,
+      "quarter_offset": 14.5,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 14,
+      "bar": 4,
+      "pitch": 76,
+      "quarter_offset": 15.0,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 15,
+      "bar": 4,
+      "pitch": 74,
+      "quarter_offset": 15.5,
+      "written_duration_quarters": 0.5,
+      "techniques": [
+        "pt.flautando"
+      ]
+    },
+    {
+      "note": 16,
+      "bar": 5,
+      "pitch": 72,
+      "quarter_offset": 16.0,
+      "written_duration_quarters": 1.0,
+      "techniques": []
+    }
+  ],
+  "acceptance": "Flautando must persist on every note of bars 1-4 although the base length category changes between bars, and clear at bar 5 (nat.). Record whether Off commands for CC112 arrive after a restated On, and Fiddle's debounced/ignored Off counters for the input."
+}

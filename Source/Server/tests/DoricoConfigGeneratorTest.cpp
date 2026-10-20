@@ -88,9 +88,9 @@ void testPinnedMapsInstallWithMatchingEndpointsAndPresets() {
   Sandbox sandbox;
   fiddle::DoricoConfigGenerator generator(sandbox.dir);
   const std::vector<std::shared_ptr<const fiddle::BridgeMapDocument>> docs{
-      bridge("experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib"),
-      bridge("experiments/orchestral-winds-bridge/woodwinds-r1/Fiddle-Orchestral-Woodwinds-r1.doricolib"),
-      bridge("experiments/orchestral-winds-bridge/brass-r1/Fiddle-Orchestral-Brass-r1.doricolib")};
+      bridge("experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"),
+      bridge("experiments/orchestral-winds-bridge/woodwinds-r2/Fiddle-Orchestral-Woodwinds-r2.doricolib"),
+      bridge("experiments/orchestral-winds-bridge/brass-r2/Fiddle-Orchestral-Brass-r2.doricolib")};
   const std::vector<int> destinations{1, 18, 35};
   std::vector<fiddle::InstrumentAssignment> assignments;
   fiddle::BridgeMapProject project;
@@ -147,9 +147,13 @@ void testPinnedMapsInstallWithMatchingEndpointsAndPresets() {
   CHECK(library.findChildFiles(juce::File::findFiles, false, "Fiddle-Bridge-*.doricolib").size() == 3);
 
   // New identities coexist with older versions; returning to an old pin works.
-  const auto updated = fiddle::BridgeMapDocument::compile(docs.front()->sourceXml.replace(
-      "xmap.user.Fiddle.OrchestralStrings.Inspection.r3", "xmap.user.Fiddle.fixture.r4")
-      .replace("ptmg.user.Fiddle.OrchestralStrings.r3.", "ptmg.user.Fiddle.fixture.r4."), error);
+  // A new identity changes the schema-2 beacon too; restamp it as publish does.
+  auto renamed = juce::parseXML(docs.front()->sourceXml.replace(
+      "xmap.user.Fiddle.OrchestralStrings.r4", "xmap.user.Fiddle.fixture.r5")
+      .replace("ptmg.user.Fiddle.OrchestralStrings.r4.", "ptmg.user.Fiddle.fixture.r5."));
+  CHECK(renamed && fiddle::BridgeMapDocument::stampBeacon(*renamed->getChildByName("expressionMapDefinitions")
+      ->getChildByName("entities")->getFirstChildElement()));
+  const auto updated = fiddle::BridgeMapDocument::compile(renamed->toString(), error);
   CHECK(updated);
   if (!updated) return;
   auto newer = project; newer.documents[updated->contentHash] = updated;

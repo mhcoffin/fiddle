@@ -11,11 +11,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "orchestral-strings-bridge"))
 
 import generate as engine
-from profiles import PROFILES
+from profiles import CURRENT, PROFILES
 
 
-def artifacts(section):
-    return engine.build(PROFILES[section])
+def artifacts(section, revision=1):
+    return engine.build((CURRENT if revision == 2 else PROFILES)[section])
 
 
 def main():
@@ -27,9 +27,9 @@ def main():
     if args.dorico_catalog:
         engine.check_dorico(args.dorico_catalog)
     sections = PROFILES if args.section == "all" else (args.section,)
-    for section in sections:
-        outputs = artifacts(section)
-        destination = HERE / f"{section}-r1"
+    for section, revision in [(s, r) for s in sections for r in (1, 2)]:
+        outputs = artifacts(section, revision)
+        destination = HERE / f"{section}-r{revision}"
         if not args.check:
             destination.mkdir(exist_ok=True)
         for name, content in outputs.items():
@@ -39,7 +39,7 @@ def main():
                     raise SystemExit(f"Stale/missing generated artifact: {path}")
             else:
                 path.write_bytes(content)
-        print(("Checked" if args.check else "Generated") + f" {section} r1: {len(outputs)} artifacts")
+        print(("Checked" if args.check else "Generated") + f" {section} r{revision}: {len(outputs)} artifacts")
 
 
 if __name__ == "__main__":

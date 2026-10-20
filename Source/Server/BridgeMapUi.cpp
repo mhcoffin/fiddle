@@ -23,9 +23,9 @@ void MainComponent::setupBridgeMapHandlers() {
     const auto section = argument(payload).toString();
     safeCallAsync([this, section] {
       const std::map<juce::String, juce::String> templates{
-          {"Strings", "Fiddle-Orchestral-Strings-r3.doricolib"},
-          {"Woodwinds", "Fiddle-Orchestral-Woodwinds-r1.doricolib"},
-          {"Brass", "Fiddle-Orchestral-Brass-r1.doricolib"}};
+          {"Strings", "Fiddle-Orchestral-Strings-r4.doricolib"},
+          {"Woodwinds", "Fiddle-Orchestral-Woodwinds-r2.doricolib"},
+          {"Brass", "Fiddle-Orchestral-Brass-r2.doricolib"}};
       const auto it = templates.find(section);
       if (it == templates.end()) return;
       const auto file = juce::File::getSpecialLocation(juce::File::currentExecutableFile)

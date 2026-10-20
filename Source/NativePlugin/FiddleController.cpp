@@ -142,19 +142,28 @@ tresult PLUGIN_API FiddleController::initialize(FUnknown *context) {
 
     parameters.addParameter(new Parameter(paramInfo));
 
-    // Register selective CC parameters for this channel
+    // Register MIDI controller parameters for this channel
     for (int i = 0; i < kNumSupportedCCs; ++i) {
       int cc = kSupportedCCs[i];
       ParameterInfo ccInfo{};
       ccInfo.id = kCCParamBase + i * kNumChannels + ch;
       char title[32];
-      snprintf(title, sizeof(title), "CC%d P%dCh%d", cc, port, portCh);
+      if (cc == kPitchBend)
+        snprintf(title, sizeof(title), "Bend P%dCh%d", port, portCh);
+      else if (cc == kAfterTouch)
+        snprintf(title, sizeof(title), "Pressure P%dCh%d", port, portCh);
+      else
+        snprintf(title, sizeof(title), "CC%d P%dCh%d", cc, port, portCh);
       UString(ccInfo.title, 128).fromAscii(title);
       UString(ccInfo.shortTitle, 128).fromAscii(title);
-      ccInfo.stepCount = 127;
-      ccInfo.defaultNormalizedValue = 0.0;
+      ccInfo.stepCount = cc == kPitchBend ? 0 : 127;
+      ccInfo.defaultNormalizedValue = cc == kPitchBend ? 0.5 : 0.0;
       ccInfo.unitId = unitId;
-      ccInfo.flags = ParameterInfo::kCanAutomate;
+      // The original controllers stay automatable as before. The added ones
+      // exist only as MIDI-mapping targets: hidden keeps ~30k entries out of
+      // the host's automation lists.
+      ccInfo.flags = i < kNumLegacyCCs ? ParameterInfo::kCanAutomate
+                                       : ParameterInfo::kIsHidden;
       parameters.addParameter(new Parameter(ccInfo));
     }
   }

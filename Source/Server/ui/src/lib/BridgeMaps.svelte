@@ -21,6 +21,22 @@
     return unsubscribe;
   });
   const name = hash => state.documents.find(d => d.hash === hash)?.name || hash;
+  const playing = a => a.beacon !== "mismatched" && (a.verified || a.beacon === "matched");
+  function verification(a) {
+    if (a.beacon === "mismatched") return `Dorico is playing a different revision (beacon ${a.receivedBeacon.join("/")}, expected ${a.expectedBeacon.join("/")}) · notes withheld`;
+    if (a.beacon === "matched") return "Beacon matches · Dorico confirmed this revision at playback start";
+    if (a.verified) return "Export matches · assignment confirmed by user";
+    if (a.beacon === "absent") return "Waiting for the revision beacon · start playback";
+    return "Unverified · notes withheld";
+  }
+  function counters(a) {
+    const parts = [];
+    if (a.withheldNotes) parts.push(`${a.withheldNotes} notes withheld`);
+    if (a.invalidCommands) parts.push(`${a.invalidCommands} invalid commands`);
+    if (a.ignoredOffs) parts.push(`${a.ignoredOffs} stale Offs ignored`);
+    if (a.debouncedOffs) parts.push(`${a.debouncedOffs} early Offs suppressed`);
+    return parts.join(" · ");
+  }
 </script>
 
 <section aria-label="Bridge maps" class="bridges">
@@ -42,7 +58,7 @@
       {#each state.documents as doc}<option value={doc.hash}>{doc.name} · revision {doc.revision} · {doc.hash.slice(0, 10)}</option>{/each}
     </select></label>
     {#if selected}
-      <p>{selected.dimensions} encoded dimensions · MIDI range {selected.low}–{selected.high}<br /><code>{selected.entityId}</code></p>
+      <p>{selected.dimensions} encoded dimensions · MIDI range {selected.low}–{selected.high} · {selected.schema >= 2 ? "wire schema 2 (typed Off, revision beacon)" : "wire schema 1 (legacy)"}<br /><code>{selected.entityId}</code></p>
       <div class="toolbar">
         <button onclick={() => dispatchCpp("exportBridgeMap", selectedHash)}>Export Dorico map…</button>
         <label>Port <input aria-label="Bridge port" type="number" min="1" max="16" bind:value={port} /></label>
@@ -63,12 +79,13 @@
     {/if}
   {:else}<p>Add a starting map or import a Dorico bridge map. No existing playback assignments are changed.</p>{/if}
   <h3>Dorico assignment checks</h3>
-  <p>Export the map assigned to each channel from Dorico, then select <strong>Verify assigned map</strong>. A match confirms the exported contents; you confirm that it is the assigned map. Fiddle cannot inspect Dorico’s assignment automatically. Reopening, checking out a version, or changing assignments clears these checks.</p>
-  <p>Assigned channels with an unverified map or incomplete protocol state withhold notes. After verification, start playback to initialize the decoder.</p>
+  <p>Schema 2 maps send a revision beacon with Dorico’s Init commands. When playback starts, Fiddle checks it against the assigned revision, with no export needed. A mismatching beacon means Dorico is playing a different map, and notes on that channel are withheld.</p>
+  <p>For schema 1 maps, or to check before playing, export the map assigned to each channel from Dorico and select <strong>Verify assigned map</strong>. A match confirms the exported contents; you confirm that it is the assigned map. Reopening, checking out a version, or changing assignments clears these checks.</p>
+  <p>Notes play once the base articulation has arrived. Add-on dimensions Dorico has not sent yet count as unspecified. <button onclick={() => dispatchCpp("requestBridgeMaps")}>Refresh live status</button></p>
   {#if state.assignments.length}
     <table><thead><tr><th>Input</th><th>Map</th><th>Status</th><th></th></tr></thead><tbody>
       {#each state.assignments as assignment}
-        <tr><td>Port {assignment.port + 1}, channel {assignment.channel}</td><td>{name(assignment.hash)}</td><td>{assignment.verified ? "Export matches · assignment confirmed by user" : "Unverified · notes withheld"}</td><td><button disabled={state.busy} onclick={() => dispatchCpp("verifyBridgeAssignment", { port: assignment.port, channel: assignment.channel })}>Verify assigned map…</button> <button disabled={state.busy} onclick={() => dispatchCpp("assignBridgeRevision", { port: assignment.port, channel: assignment.channel, hash: "" })}>Remove assignment</button></td></tr>
+        <tr><td>Port {assignment.port + 1}, channel {assignment.channel}</td><td>{name(assignment.hash)}</td><td class:warn={!playing(assignment)}>{verification(assignment)}{#if assignment.lastWithheld}<br /><small>Last withheld note: {assignment.lastWithheld}</small>{/if}{#if counters(assignment)}<br /><small>{counters(assignment)}</small>{/if}</td><td><button disabled={state.busy} onclick={() => dispatchCpp("verifyBridgeAssignment", { port: assignment.port, channel: assignment.channel })}>Verify assigned map…</button> <button disabled={state.busy} onclick={() => dispatchCpp("assignBridgeRevision", { port: assignment.port, channel: assignment.channel, hash: "" })}>Remove assignment</button></td></tr>
       {/each}
     </tbody></table>
   {:else}<p>No project bridge revisions are assigned. Existing legacy decoding remains active.</p>{/if}
@@ -79,7 +96,7 @@
   .bridges { padding: 18px 24px; overflow: auto; min-height: 0; flex: 1; color: #dbe5f4; }
   .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
   h2 { margin: 0 auto 0 0; font-size: 18px; } h3 { margin-top: 24px; }
-  p { color: #aebdd0; line-height: 1.5; } .error { color: #f8bd9d; }
+  p { color: #aebdd0; line-height: 1.5; } .error, .warn { color: #f8bd9d; } small { color: #aebdd0; }
   button, input, select, textarea { font: inherit; color: inherit; background: #172337; border: 1px solid #475569; border-radius: 5px; padding: 7px 10px; }
   button { cursor: pointer; } button:disabled { opacity: .5; cursor: default; }
   label { display: flex; align-items: center; gap: 8px; } input { width: 65px; }

@@ -68,6 +68,17 @@ Action onlyAction(const juce::XmlElement &node, const char *tag) {
   require(a->hasTagName(juce::String(tag) == "switchOffActions" ? "switchOffAction" : "switchOnAction"), "Invalid action element");
   return action(*a);
 }
+juce::String sortedIds(const std::set<std::string> &ids) {
+  juce::StringArray parts;
+  for (const auto &id : ids) parts.add(id);
+  return parts.joinIntoString("+");
+}
+juce::String wire(const Action &a) { return (a.key ? "KS" : "CC") + juce::String(a.number) + "=" + juce::String(a.value); }
+juce::XmlElement *beaconAction(juce::XmlElement &actions, int pitch) {
+  for (auto *row : actions.getChildIterator())
+    if (text(*row, "type") == "kKeySwitch" && text(*row, "param1") == juce::String(pitch)) return row;
+  return nullptr;
+}
 void normalize(juce::XmlElement &node) {
   // Format-only whitespace is insignificant; all fields, order, and attributes
   // remain in the fingerprint. Unknown behavior is rejected, never discarded.
@@ -113,6 +124,36 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     result->musicalLow = low; result->musicalHigh = high;
     auto compiled = std::make_shared<CompiledBridgeMap>();
     compiled->musicalLow = low; compiled->musicalHigh = high;
+    const auto *init = map->getChildByName("initSwitchData");
+    require(init && text(*init, "enabled") == "true", "Initialization must be enabled");
+    fields(*init, "enabled initActions");
+    const auto *actions = init->getChildByName("initActions");
+    require(actions != nullptr, "Missing initialization commands");
+    std::array<int, 2> beaconSeen{-1, -1};
+    for (const auto *row : actions->getChildIterator()) {
+      require(row->hasTagName("switchOnAction"), "Invalid Init action");
+      const auto a = action(*row);
+      const auto &pitches = CompiledBridgeMap::beaconPitches;
+      if (const auto slot = std::find(pitches.begin(), pitches.end(), a.number); a.key && slot != pitches.end()) {
+        auto &seen = beaconSeen[size_t(slot - pitches.begin())];
+        require(seen < 0, "Duplicate revision beacon action");
+        seen = a.value;
+      }
+    }
+    require((beaconSeen[0] < 0) == (beaconSeen[1] < 0), "The revision beacon needs both KS126 and KS127");
+    // Schema 2 is declared by the beacon; its add-ons must use typed Offs.
+    const bool typed = beaconSeen[0] >= 0;
+    compiled->schema = result->schema = typed ? 2 : 1;
+    if (typed) {
+      compiled->beacon = beaconFor(result->entityId, result->revision);
+      require(beaconSeen == compiled->beacon,
+              "Revision beacon does not match this map's identity; publish it through Fiddle to restamp it");
+      require(high < CompiledBridgeMap::beaconPitches[0], "Musical range overlaps the revision beacon pitches");
+    }
+    juce::StringArray semantic;
+    semantic.add("schema=" + juce::String(compiled->schema) + " range=" + juce::String(low) + "-" + juce::String(high)
+                 + " id=" + result->entityId + " version=" + juce::String(result->revision)
+                 + " multi=" + text(*map, "allowMultipleNotesAtSamePitch"));
     CompiledBridgeMap::Dimension base; base.number = 102;
     std::set<std::string> vocabulary;
     std::set<juce::String> switchIds;
@@ -156,6 +197,9 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
         require(text(*attack, "type") == "kNoteVelocity", "Unsupported attack dynamics");
       }
       require(base.values.emplace(a.value, CompiledBridgeMap::Value{ids, length, ccDynamics}).second, "Ambiguous base code");
+      semantic.add("base|" + sortedIds(ids) + "|" + juce::String(length) + "|flags=" + text(*row, "flags")
+                   + "|" + (ccDynamics ? "cc1" : "velocity") + "|attack=" + (attack ? text(*attack, "type") : juce::String{})
+                   + "|" + wire(a));
     }
     compiled->dimensions.push_back(std::move(base));
     std::map<std::pair<bool, int>, size_t> axes{{{false, 102}, 0}};
@@ -170,19 +214,29 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
         require(on.key == off.key && on.number == off.number && on.value != off.value, "Add-on On/Off must own the same independent conduit");
         require(on.key || on.number != 102, "Add-ons cannot write the base conduit");
         require(!on.key || on.number < low || on.number > high, "Command pitch overlaps musical range");
+        const auto &pitches = CompiledBridgeMap::beaconPitches;
+        require(!typed || !on.key || std::find(pitches.begin(), pitches.end(), on.number) == pitches.end(),
+                "Add-ons cannot use the revision beacon pitches");
+        const int reset = typed ? (on.key ? 1 : 0) : off.value;
+        if (typed) {
+          require(off.value == on.value + CompiledBridgeMap::typedOffOffset && on.value != reset,
+                  "Schema 2 add-ons need a typed Off: Off = On + 64, with On below 64");
+        }
         auto ids = techniques(text(*row, "techniqueIDs"));
         for (const auto &id : ids) require(!vocabulary.count(id) && addonIds.insert(id).second, "Multiply encoded playback technique");
-        const auto wire = std::make_pair(on.key, on.number);
-        auto it = axes.find(wire);
+        const auto conduit = std::make_pair(on.key, on.number);
+        auto it = axes.find(conduit);
         if (it == axes.end()) {
-          axes[wire] = compiled->dimensions.size();
-          CompiledBridgeMap::Dimension d; d.key = on.key; d.number = on.number; d.reset = off.value;
-          d.values.emplace(off.value, CompiledBridgeMap::Value{});
+          axes[conduit] = compiled->dimensions.size();
+          CompiledBridgeMap::Dimension d; d.key = on.key; d.number = on.number; d.reset = reset;
+          d.values.emplace(reset, CompiledBridgeMap::Value{});
           compiled->dimensions.push_back(std::move(d));
-          it = axes.find(wire);
+          it = axes.find(conduit);
         }
         auto &d = compiled->dimensions[it->second];
-        require(d.reset == off.value && d.values.emplace(on.value, CompiledBridgeMap::Value{ids}).second, "Ambiguous add-on values or inconsistent reset");
+        require(d.reset == reset && d.values.emplace(on.value, CompiledBridgeMap::Value{ids}).second, "Ambiguous add-on values or inconsistent reset");
+        if (typed) require(d.typedOffs.emplace(off.value, on.value).second, "Ambiguous typed Off value");
+        semantic.add("addon|" + sortedIds(ids) + "|" + wire(on) + "|" + wire(off));
       }
     vocabulary.insert(addonIds.begin(), addonIds.end());
     if (const auto *groups = map->getChildByName("mutualExclusionGroups")) {
@@ -191,19 +245,21 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
         require(group->hasTagName("mutualExclusionGroup"), "Invalid mutex group");
         fields(*group, "groupID name techniqueIDs");
         require(text(*group, "groupID").isNotEmpty() && groupIds.insert(text(*group, "groupID")).second, "Duplicate/empty mutex group ID");
-        for (const auto &pt : juce::StringArray::fromTokens(text(*group, "techniqueIDs"), ",", ""))
+        std::set<std::string> members;
+        for (const auto &pt : juce::StringArray::fromTokens(text(*group, "techniqueIDs"), ",", "")) {
           require(vocabulary.count(pt.trim().toStdString()), "Mutex group references an unencoded technique");
+          members.insert(pt.trim().toStdString());
+        }
+        semantic.add("meg|" + text(*group, "groupID") + "|" + sortedIds(members));
       }
     }
-    const auto *init = map->getChildByName("initSwitchData");
-    require(init && text(*init, "enabled") == "true", "Initialization must be enabled");
-    fields(*init, "enabled initActions");
-    const auto *actions = init->getChildByName("initActions");
-    require(actions != nullptr, "Missing initialization commands");
     std::set<size_t> initialized;
     for (const auto *row : actions->getChildIterator()) {
-      require(row->hasTagName("switchOnAction"), "Invalid Init action");
-      const auto a = action(*row); const auto it = axes.find({a.key, a.number});
+      const auto a = action(*row);
+      semantic.add("init|" + wire(a));
+      const auto &pitches = CompiledBridgeMap::beaconPitches;
+      if (typed && a.key && std::find(pitches.begin(), pitches.end(), a.number) != pitches.end()) continue;
+      const auto it = axes.find({a.key, a.number});
       require(it != axes.end() && initialized.insert(it->second).second, "Unknown/duplicate Init conduit");
       const auto &d = compiled->dimensions[it->second];
       require(d.values.count(a.value), "Unknown Init value");
@@ -213,11 +269,41 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(initialized.size() == compiled->dimensions.size(), "Initialization must cover every conduit");
     require(compiled->dimensions.size() <= 52, "Bridge exceeds protocol budget");
     normalize(*map);
-    const auto canonical = map->toString(juce::XmlElement::TextFormat().singleLine()) + "\nbridge-schema-1:" + juce::String(low) + ":" + juce::String(high);
+    // Keep schema 1's exact canonical form: persisted projects key on it.
+    const auto canonical = map->toString(juce::XmlElement::TextFormat().singleLine()) + "\nbridge-schema-"
+        + juce::String(compiled->schema) + ":" + juce::String(low) + ":" + juce::String(high);
     result->contentHash = juce::SHA256(canonical.toRawUTF8(), canonical.getNumBytesAsUTF8()).toHexString();
+    semantic.sort(false);
+    const auto meaning = semantic.joinIntoString("\n");
+    result->semanticHash = juce::SHA256(meaning.toRawUTF8(), meaning.getNumBytesAsUTF8()).toHexString();
     result->compiled = std::move(compiled);
     return result;
   } catch (const std::exception &e) { error = e.what(); return {}; }
+}
+
+std::array<int, 2> BridgeMapDocument::beaconFor(const juce::String &entityId, int revision) {
+  const auto identity = entityId + ":" + juce::String(revision);
+  const auto digest = juce::SHA256(identity.toRawUTF8(), identity.getNumBytesAsUTF8()).getRawData();
+  const auto *bytes = static_cast<const uint8_t *>(digest.getData());
+  const uint32_t word = (uint32_t(bytes[0]) << 24) | (uint32_t(bytes[1]) << 16) | (uint32_t(bytes[2]) << 8) | uint32_t(bytes[3]);
+  const int value = int(word % (127u * 127u));
+  return {1 + value / 127, 1 + value % 127};
+}
+bool BridgeMapDocument::stampBeacon(juce::XmlElement &map) {
+  auto *init = map.getChildByName("initSwitchData");
+  auto *actions = init ? init->getChildByName("initActions") : nullptr;
+  auto *id = map.getChildByName("entityID");
+  auto *version = map.getChildByName("version");
+  if (!actions || !id || !version) return false;
+  std::array<juce::XmlElement *, 2> rows{};
+  for (size_t i = 0; i < rows.size(); ++i)
+    if (!(rows[i] = beaconAction(*actions, CompiledBridgeMap::beaconPitches[i]))) return false;
+  const auto velocities = beaconFor(id->getAllSubText().trim(), version->getAllSubText().trim().getIntValue());
+  for (size_t i = 0; i < rows.size(); ++i)
+    if (auto *param = rows[i]->getChildByName("param2")) {
+      param->deleteAllChildElements(); param->addTextElement(juce::String(velocities[i]));
+    }
+  return true;
 }
 
 juce::var BridgeMapDocument::toJson() const {
@@ -249,9 +335,9 @@ bool BridgeMapProject::parse(const juce::String &json, BridgeMapProject &out, ju
     require(docs && routes && docs->size() <= 128 && routes->size() <= 256, "Invalid bridge project contents");
     std::set<juce::String> entityIds;
     for (const auto &d : *docs) {
-      require(d["schema"].isInt() && int(d["schema"]) == BridgeMapDocument::schema && d["sourceXml"].isString() && d["musicalLow"].isInt() && d["musicalHigh"].isInt(), "Unsupported bridge document schema");
+      require(d["schema"].isInt() && int(d["schema"]) >= 1 && int(d["schema"]) <= BridgeMapDocument::latestSchema && d["sourceXml"].isString() && d["musicalLow"].isInt() && d["musicalHigh"].isInt(), "Unsupported bridge document schema");
       auto doc = BridgeMapDocument::compile(d["sourceXml"].toString(), error, int(d["musicalLow"]), int(d["musicalHigh"]));
-      require(doc && doc->contentHash == d["contentHash"].toString(), "Bridge source/fingerprint mismatch: " + error);
+      require(doc && doc->contentHash == d["contentHash"].toString() && doc->schema == int(d["schema"]), "Bridge source/fingerprint mismatch: " + error);
       require(entityIds.insert(doc->entityId).second, "Conflicting Dorico map IDs in bridge project");
       require(result.documents.emplace(doc->contentHash, doc).second, "Duplicate bridge revision");
     }

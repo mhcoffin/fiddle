@@ -1,11 +1,11 @@
 # Bridge map authoring and project history
 
 Implemented 2026-10-16. Open **View → Windows → Technique Catalog → Bridge maps**.
-No catalog scan is needed. The workspace offers Strings r3, Woodwinds r1 and
-Brass r1 starting maps, `.doricolib` import/export, an advanced XML editor, and
-versioned port/channel assignments. The templates retain their inspection names
-and descriptions: their source files and historical captures remain frozen.
-The compiler/decoder now exists; production Dorico acceptance is still pending.
+No catalog scan is needed. The workspace offers Strings r4, Woodwinds r2 and
+Brass r2 starting maps (wire schema 2, 2026-10-19), `.doricolib` import/export,
+an advanced XML editor, and versioned port/channel assignments. Schema-1 maps
+(strings r3, winds r1) are frozen but still compile and decode.
+The compiler/decoder exists; production Dorico acceptance is still pending.
 
 ## Source and revisions
 
@@ -35,20 +35,31 @@ so every layer listening to that input receives the same decoded intent.
    Restart Dorico and apply the **Fiddle** playback template. Manual map
    export/import/assignment is also supported. Updating library files does not
    update a map already embedded in a Dorico project.
-2. Export that assigned map from Dorico. Select **Verify assigned map** for the
-   corresponding Fiddle input and choose the export. This compares contents and
-   records your confirmation of the assignment; Fiddle has no API that reads
-   Dorico's actual assignment automatically.
-3. Start playback so Dorico sends the map's Init and current commands. The
-   decoder requires known state for every conduit before accepting notes.
-   Stopping clears received state; the next playback must reconstruct it.
+2. Start playback so Dorico sends the map's Init and current commands. For a
+   schema-2 map, Init includes the **revision beacon** (KS126/KS127). If it
+   matches the assigned revision, the input is verified for that playback; the
+   Bridge maps status shows **Beacon matches**. A mismatch means Dorico is
+   playing a different map: notes on that input are withheld and the row shows
+   the received and expected beacon. This is evidence from the live MIDI stream,
+   not from the exported file.
+3. Optionally, or for schema-1 maps, export the assigned map from Dorico and
+   select **Verify assigned map**. The comparison uses the map's *semantic*
+   fingerprint, so Dorico reordering rows or renaming the map does not fail it.
+   You attest that the export is the assigned map. A beacon mismatch overrides
+   this attestation.
 
-Verification is session-only. Opening a score, checking out a version, or
-changing the bridge registry clears it. A mismatching export revokes a previous
-check. Assigned channels with unverified or incomplete state withhold musical
-notes. Unknown command values invalidate their dimension rather than falling
-back to Natural. Command-note releases are consumed as physical releases and
-do not clear a sticky articulation. Unassigned inputs retain legacy decoding.
+Stopping clears received state, including the beacon; the next playback must
+reconstruct it. Attestation is session-only: opening a score, checking out a
+version, or changing the bridge registry clears it, and a mismatching export
+revokes it. A note plays once its input is verified and the base articulation
+has arrived. Add-on dimensions Dorico has not sent count as unspecified, which
+is what Init sends. Unknown command values invalidate their dimension rather
+than falling back to Natural. Command-note releases are consumed as physical
+releases and do not clear a sticky articulation. Unassigned inputs retain
+legacy decoding. Bridge maps reports, per input, the last reason a note was
+withheld and counts of withheld notes, invalid commands, stale Offs ignored and
+early Offs suppressed. Consumed commands also appear in the debug MIDI feed,
+flagged `bridgeCommand`.
 
 Stop playback and release auditioned notes before editing, assigning or
 verifying. Keep Auto mutual exclusion and Apply Stage Template Settings off in
@@ -82,11 +93,11 @@ following is the first host smoke test, not a claim that it has already passed.
    Woodwinds and horn uses Brass at the expected destinations. Use the normal
    Fiddle plugin and one voice per channel. Keep the current Fiddle test branch
    selected so the new score connects to that setup.
-5. Export each assigned expression map from Dorico separately, and use
-   **Verify assigned map** in Fiddle for its corresponding input. A successful
-   installation does not perform this check. If an export does not match, retain
-   it for inspection rather than bypassing the check. Opening/reopening a score
-   clears prior verification, so verify after the new score has connected.
+5. Start playback once and check that each input in **Bridge maps** reports
+   **Beacon matches**. A successful installation does not perform this check.
+   If a beacon mismatches, Dorico is playing another map on that input: export
+   it from Dorico, keep the file for inspection, and use **Verify assigned map**
+   to compare it rather than bypassing the check.
 6. Write four bars of repeated notes in a comfortable register. Use ordinary
    quarter notes, short staccato notes, a half note and a whole note; keep one
    voice in each part. Play from the beginning, stop/restart, and start at bar 3.
@@ -104,7 +115,7 @@ following is the first host smoke test, not a claim that it has already passed.
 No acceptance evidence is implied by the automated installer tests: Dorico's
 initialization, export normalization and playback behavior remain to be observed.
 
-## Supported compiler schema 1
+## Supported compiler schemas 1 and 2
 
 The compiler accepts one flattened map with independent CC102–119 and positive
 velocity-coded keyswitch actions outside the declared musical range. The base
@@ -117,12 +128,36 @@ overrides are rejected. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
 
-The fingerprint includes all selected-map fields, attributes and ordering,
-decoder schema, and declared range. Format-only whitespace is normalized.
-This is deliberately conservative: a Dorico rewrite that changes ordering or
-metadata may require a new reviewed revision even if MIDI behavior appears equal.
-Matching fingerprints establish matching export contents, not a live host
-handshake or proof of audible playback.
+**Schema 2** is declared by Init actions on KS126 and KS127 (both or neither).
+Their velocities must equal the beacon derived from `entityID:version`
+(SHA-256, first four bytes, mod 127², encoded as two velocities 1–127).
+Publishing through Fiddle restamps the beacon whenever it rewrites the identity,
+and also when an imported or edited map's beacon is stale. In schema 2 every
+add-on Off must equal On + 64 (On values below 64); the reset is CC 0 or KS
+velocity 1, written by Init. No add-on may use KS126/127, and the musical range
+must end below 126.
+
+The content fingerprint includes all selected-map fields, attributes and
+ordering, decoder schema, and declared range; format-only whitespace is
+normalized. It identifies a stored revision (project keys, installed file
+names), and schema-1 fingerprints are unchanged from before. A separate
+**semantic fingerprint** covers only what Dorico or the decoder act on: identity
+and version, base rows (techniques, length, flags, dynamics, action), add-on
+techniques and actions, mutex groups and Init. It ignores display text,
+formatting and row order, and is what **Verify assigned map** compares. Neither
+proves audible playback; the beacon is the live check.
+
+## What reaches instruments
+
+Besides notes and bridge commands, the plug-in maps every CC 0–119 plus channel
+pressure and pitch bend through VST3 MIDI mapping. Channel-mode messages
+120–127 are excluded. The 21 original controllers keep their parameter IDs and
+remain automatable; the added ones are hidden parameters, a choice still to be
+checked in Dorico. Non-bridge CCs pass to every layer. Pitch bend and pressure
+take the annotator path: a layer map whose `pitchBendRange` differs from the
+bridge's ±2 semitones gets bend rescaled. Live CC1 dynamics are re-expressed on
+the controller(s) the current base switch's `volumeType` names, while notes
+sound, when that base uses CC dynamics.
 
 ## Persistence and portability
 

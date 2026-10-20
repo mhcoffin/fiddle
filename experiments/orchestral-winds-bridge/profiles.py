@@ -193,3 +193,15 @@ BRASS = make("Brass", BRASS_DIMENSIONS, [
 ])
 
 PROFILES = {"woodwinds": WOODWINDS, "brass": BRASS}
+
+
+def schema2(spec):
+    """Same allocation and grouping on wire schema 2 (typed Off + beacon)."""
+    section = spec.SECTION
+    return SimpleNamespace(**{**vars(spec), "REVISION": 2, "WIRE_SCHEMA": 2,
+                              "NAME": f"Fiddle Bridge - Orchestral {section} r2 (host test)",
+                              "ENTITY_ID": f"xmap.user.Fiddle.Orchestral{section}.r2"})
+
+
+# r1 artifacts are frozen schema-1 inspection candidates; r2 is current.
+CURRENT = {key: schema2(spec) for key, spec in PROFILES.items()}

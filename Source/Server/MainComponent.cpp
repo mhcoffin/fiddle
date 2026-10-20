@@ -236,37 +236,6 @@ void MainComponent::initExpressionMapLibrary() {
                    "Fiddle_Universal.doricolib",
                    true);
   }
-  // Explicit, session-only laboratory opt-in. Never infer a protocol from note
-  // pitches, expression maps on layers, or a saved project. Invalid requested
-  // configuration stops initialization before the MIDI listener is created.
-  const auto experimentalPath = juce::SystemStats::getEnvironmentVariable(
-      "FIDDLE_EXPERIMENTAL_BRIDGE", {});
-  if (experimentalPath.isNotEmpty()) {
-    const auto port = juce::SystemStats::getEnvironmentVariable("FIDDLE_EXPERIMENTAL_BRIDGE_PORT", {});
-    const auto channel = juce::SystemStats::getEnvironmentVariable("FIDDLE_EXPERIMENTAL_BRIDGE_CHANNEL", {});
-    const juce::File file = juce::File::isAbsolutePath(experimentalPath)
-        ? juce::File(experimentalPath) : juce::File();
-    juce::String error;
-    std::shared_ptr<const ExperimentalBridgeProfile> profile;
-    if (port.isEmpty() || channel.isEmpty() || !port.containsOnly("0123456789")
-        || !channel.containsOnly("0123456789") || port != juce::String(port.getIntValue())
-        || channel != juce::String(channel.getIntValue())
-        || port.getIntValue() > 15 || channel.getIntValue() < 1 || channel.getIntValue() > 16
-        || !file.existsAsFile()
-        || file.getSize() > 1024 * 1024) {
-      error = "Specify a decoder file, zero-based port (0-15), and channel (1-16).";
-    } else {
-      profile = ExperimentalBridgeProfile::parse(juce::JSON::parse(file), error);
-    }
-    if (!profile || !noteTracker.setExperimentalBridge(port.getIntValue(), channel.getIntValue(), profile)) {
-      addInitMessage("Experimental bridge configuration rejected: " + error);
-      pushLogMessage("Experimental bridge configuration rejected; MIDI server not started. " + error, true);
-      return;
-    }
-    pushLogMessage("Experimental Strings F r6 bridge enabled for port " + port
-                     + ", channel " + channel + ". Session only; all other endpoints use the legacy map.");
-  }
-
   // Wire metronome tracker unconditionally — prominence annotations
   // work even without an expression map.
   noteTracker.setMetronomeTracker(&metronomeTracker_);
@@ -439,8 +408,8 @@ void MainComponent::initMidiServer() {
       pushLogMessage(msg);
     };
 
-    noteTracker.setCallbacks(
-        {[this, noteToJson](const fiddle::Note &n) {
+    fiddle::NoteStreamTracker::Callbacks trackerCallbacks{
+        [this, noteToJson](const fiddle::Note &n) {
            pushLogMessage("<b>[Tracker]</b> Note ON: " +
                           juce::String((juce::int64)n.id()) + " (Ch " +
                           juce::String((int)n.channel()) + ")");
@@ -551,7 +520,18 @@ void MainComponent::initMidiServer() {
            juce::var eventVar = juce::JSON::fromString(
                midiEventToJson(event, absoluteSamples, oldCCVal));
            debugUiFeed_.push("pushMidiEvent", eventVar);
-         }});
+         }};
+    // Bridge commands never reach instruments, but stay visible to debugging.
+    trackerCallbacks.onBridgeCommand = [this, midiEventToJson](const fiddle::MidiEvent &event,
+                                                               uint64_t absoluteSamples) {
+      juce::var eventVar = juce::JSON::fromString(midiEventToJson(event, absoluteSamples, -1));
+      if (auto *object = eventVar.getDynamicObject()) object->setProperty("bridgeCommand", true);
+      debugUiFeed_.push("pushMidiEvent", eventVar);
+    };
+    trackerCallbacks.onBridgeStatusChanged = [this] {
+      safeCallAsync([this] { pushBridgeMapState(); });
+    };
+    noteTracker.setCallbacks(std::move(trackerCallbacks));
 
     subnoteGenerator.setCallbacks(
         {[this](const fiddle::Subnote &s) {
@@ -579,6 +559,7 @@ void MainComponent::initMidiServer() {
     server->onMessageReceived([this](const fiddle::MidiEvent &event) {
       if (event.has_audio_diagnostics()) {
         const auto receivedMs = juce::Time::getMillisecondCounterHiRes();
+        noteTracker.setHostSampleRate(event.audio_diagnostics().sample_rate());
         safeCallAsync([this, data = event.audio_diagnostics(), receivedMs] {
           returnDiagnostics_ = data;
           returnDiagnosticsReceivedMs_ = receivedMs;
@@ -722,7 +703,7 @@ void MainComponent::initMidiServer() {
           std::cerr << "[MainComponent] Panic: CC " << ccNum
                     << " → panicStrips on port " << port << " ch " << ch - 1
                     << std::endl;
-        } else if (!noteTracker.consumesExperimentalCC(port, ch, ccNum)) {
+        } else if (!noteTracker.consumesBridgeCC(port, ch, ccNum)) {
           // Route CC through annotator-aware path.
           // ch from Dorico is 1-based; JUCE controllerEvent also uses 1-16.
           juce::MidiMessage ccMsg =
@@ -745,6 +726,22 @@ void MainComponent::initMidiServer() {
           logMsg += ")";
         }
         pushLogMessage(logMsg);
+      }
+
+      // Pitch bend (microtonal playback, bend/gliss lines) and pressure reach
+      // instruments through the annotator path, which may rescale bend.
+      if ((event.has_pitch_bend() || event.has_channel_pressure() || event.has_aftertouch())
+          && event.channel() >= 1 && event.channel() <= 16) {
+        const int ch = (int)event.channel();
+        juce::MidiMessage msg;
+        if (event.has_pitch_bend())
+          msg = juce::MidiMessage::pitchWheel(ch, juce::jlimit(0, 16383, (int)event.pitch_bend().value()));
+        else if (event.has_channel_pressure())
+          msg = juce::MidiMessage::channelPressureChange(ch, juce::jlimit(0, 127, (int)event.channel_pressure().value()));
+        else
+          msg = juce::MidiMessage::aftertouchChange(ch, juce::jlimit(0, 127, (int)event.aftertouch().note_number()),
+                                                    juce::jlimit(0, 127, (int)event.aftertouch().value()));
+        mixer_.routeAnnotatedCC((int)event.port(), ch - 1, event, msg, getDelayedTriggerTimeMs());
       }
 
       // Track program changes → instrument names for the UI

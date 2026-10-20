@@ -1,0 +1,651 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "name": "Fiddle Bridge - Orchestral Woodwinds r2 (host test)",
+  "entity_id": "xmap.user.Fiddle.OrchestralWoodwinds.r2",
+  "runtime_compatible": true,
+  "dorico_import_verified": false,
+  "musical_midi_range": [
+    21,
+    114
+  ],
+  "counts": {
+    "base_switches": 25,
+    "add_on_switches": 64,
+    "switch_rows": 89,
+    "init_switches": 1,
+    "explicit_pt_ids": 68,
+    "aliases": 0,
+    "addon_dimensions": 35,
+    "conduits": 36,
+    "cc_conduits": 18,
+    "ks_conduits": 18,
+    "spare_conduits": 14,
+    "mutex_groups": 14
+  },
+  "specification_sha256": "d2ebaf802f5d33e99a91dc5d36dfb7cce0a87a26a46583b28b79d73b36a41fc7",
+  "map_sha256": "d785f17674469ccf9f5c0415721692baaf0cd754a36d226aea906b35e5784d40",
+  "base_cc": 102,
+  "bases": [
+    {
+      "value": 0,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kVeryShort"
+    },
+    {
+      "value": 1,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kShort"
+    },
+    {
+      "value": 2,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kMedium"
+    },
+    {
+      "value": 3,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kLong"
+    },
+    {
+      "value": 4,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength > kLong"
+    },
+    {
+      "value": 5,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kVeryShort"
+    },
+    {
+      "value": 6,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kShort"
+    },
+    {
+      "value": 7,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kMedium"
+    },
+    {
+      "value": 8,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kLong"
+    },
+    {
+      "value": 9,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength > kLong"
+    },
+    {
+      "value": 10,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kVeryShort"
+    },
+    {
+      "value": 11,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kShort"
+    },
+    {
+      "value": 12,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kMedium"
+    },
+    {
+      "value": 13,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kLong"
+    },
+    {
+      "value": 14,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength > kLong"
+    },
+    {
+      "value": 15,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kVeryShort"
+    },
+    {
+      "value": 16,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kShort"
+    },
+    {
+      "value": 17,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kMedium"
+    },
+    {
+      "value": 18,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kLong"
+    },
+    {
+      "value": 19,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength > kLong"
+    },
+    {
+      "value": 20,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kVeryShort"
+    },
+    {
+      "value": 21,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kShort"
+    },
+    {
+      "value": 22,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kMedium"
+    },
+    {
+      "value": 23,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kLong"
+    },
+    {
+      "value": 24,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength > kLong"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "connection",
+      "kind": "CC",
+      "number": 103,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Connected versus detached phrasing; independent of stroke and articulation.",
+      "values": {
+        "pt.legato": 1,
+        "pt.nonLegato": 2
+      }
+    },
+    {
+      "id": "accent",
+      "kind": "CC",
+      "number": 104,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Accent strengths; keep separate from staccato and tenuto bases.",
+      "values": {
+        "pt.accent": 1,
+        "pt.marcato": 2
+      }
+    },
+    {
+      "id": "vibrato",
+      "kind": "CC",
+      "number": 105,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Four distinct canonical vibrato choices; unspecified is not vibrato.",
+      "values": {
+        "pt.nonVibrato": 1,
+        "pt.conVibrato": 2,
+        "pt.vibrato": 3,
+        "pt.wideVibrato": 4
+      }
+    },
+    {
+      "id": "tremolo",
+      "kind": "CC",
+      "number": 115,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Independent repetition, including tremolo plus sul ponticello.",
+      "values": {
+        "pt.tremolo": 1
+      }
+    },
+    {
+      "id": "trill",
+      "kind": "CC",
+      "number": 116,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Generic or specified interval; independent of vibrato and tremolo.",
+      "values": {
+        "pt.trill": 1,
+        "pt.trill.half": 2,
+        "pt.trill.whole": 3
+      }
+    },
+    {
+      "id": "dynamic_level",
+      "kind": "CC",
+      "number": 118,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Steady named levels; not a replacement for continuous CC1/7/11.",
+      "values": {
+        "pt.ppp": 1,
+        "pt.pp": 2,
+        "pt.p": 3,
+        "pt.mp": 4,
+        "pt.mf": 5,
+        "pt.f": 6,
+        "pt.ff": 7,
+        "pt.fff": 8
+      }
+    },
+    {
+      "id": "dynamic_attack",
+      "kind": "CC",
+      "number": 119,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Alternative named compound/attack dynamics, separate from steady level.",
+      "values": {
+        "pt.ffp": 1,
+        "pt.fp": 2,
+        "pt.pf": 3,
+        "pt.sf": 4,
+        "pt.sfp": 5,
+        "pt.sfz": 6
+      }
+    },
+    {
+      "id": "dynamic_shape",
+      "kind": "KS",
+      "number": 0,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Alternative complete envelopes; not a quantized loudness curve.",
+      "values": {
+        "pt.crescendo": 2,
+        "pt.diminuendo": 3,
+        "pt.crescendoDiminuendo": 4,
+        "pt.diminuendoCrescendo": 5,
+        "pt.volumeSwell": 6
+      }
+    },
+    {
+      "id": "fade_in",
+      "kind": "KS",
+      "number": 1,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent onset fade; may coexist with fade out.",
+      "values": {
+        "pt.fadeIn": 2
+      }
+    },
+    {
+      "id": "fade_out",
+      "kind": "KS",
+      "number": 2,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent release fade.",
+      "values": {
+        "pt.fadeOut": 2
+      }
+    },
+    {
+      "id": "soft",
+      "kind": "KS",
+      "number": 3,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent soft colour; not equated with a written dynamic level.",
+      "values": {
+        "pt.soft": 2
+      }
+    },
+    {
+      "id": "ghost_note",
+      "kind": "KS",
+      "number": 4,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent ghosting.",
+      "values": {
+        "pt.ghostNote": 2
+      }
+    },
+    {
+      "id": "tremblement",
+      "kind": "KS",
+      "number": 5,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Preserved independently; not presumed identical to tremolo.",
+      "values": {
+        "pt.tremblement": 2
+      }
+    },
+    {
+      "id": "glissando",
+      "kind": "KS",
+      "number": 9,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Direction of a glissando; retained independently of portamento.",
+      "values": {
+        "pt.glissandoUp": 2,
+        "pt.glissandoDown": 3
+      }
+    },
+    {
+      "id": "portamento",
+      "kind": "KS",
+      "number": 10,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Direction of portamento.",
+      "values": {
+        "pt.portamentoUp": 2,
+        "pt.portamentoDown": 3
+      }
+    },
+    {
+      "id": "simile",
+      "kind": "KS",
+      "number": 14,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Transmit the explicit PT if emitted; does not itself encode previous state or restore a stack.",
+      "values": {
+        "pt.simile": 2
+      }
+    },
+    {
+      "id": "tonguing",
+      "kind": "CC",
+      "number": 106,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Double and triple articulation patterns are alternatives; independent of flutter tongue and note shortening.",
+      "values": {
+        "pt.doubleTongue": 1,
+        "pt.tripleTongue": 2
+      }
+    },
+    {
+      "id": "flutter_tongue",
+      "kind": "CC",
+      "number": 107,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Flutter tonguing is its own dimension, not a global replacement for tonguing, vibrato, or mute state.",
+      "values": {
+        "pt.flutterTongue": 1
+      }
+    },
+    {
+      "id": "growl",
+      "kind": "CC",
+      "number": 108,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Independent rough/growling colour; no inferred equivalence to flutter tongue or multiphonics.",
+      "values": {
+        "pt.growl": 1
+      }
+    },
+    {
+      "id": "multiphonic",
+      "kind": "CC",
+      "number": 109,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Intent to produce multiphonics; no fingering, chord pitches or added notes are synthesized by this encoding.",
+      "values": {
+        "pt.multiphonic": 1
+      }
+    },
+    {
+      "id": "alternative_fingering",
+      "kind": "CC",
+      "number": 110,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Alternate fingering/valve or slide-position intent, independent of multiphonics and ordinary articulation.",
+      "values": {
+        "pt.alternativeFingering": 1
+      }
+    },
+    {
+      "id": "mute",
+      "kind": "CC",
+      "number": 114,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Generic muted versus explicitly open intent. Unspecified is not Open; Natural does not automatically remove a mute.",
+      "values": {
+        "pt.muted": 1,
+        "pt.open1": 2
+      }
+    },
+    {
+      "id": "harmonic",
+      "kind": "CC",
+      "number": 113,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Flute-family overblown harmonics. Exact numbered canonical IDs retained without claiming numbered partial semantics.",
+      "values": {
+        "pt.naturalHarmonic1": 2,
+        "pt.naturalHarmonic2": 3
+      }
+    },
+    {
+      "id": "slap_tongue",
+      "kind": "KS",
+      "number": 12,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Reed/flute percussive tongue attack, separate from multiple tonguing and key clicks.",
+      "values": {
+        "pt.slapTongue": 2
+      }
+    },
+    {
+      "id": "key_click",
+      "kind": "KS",
+      "number": 13,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Unpitched versus pitched key-click variants; proposed alternatives for the same keyed attack.",
+      "values": {
+        "pt.keyClick": 2,
+        "pt.keyClickWithPitch": 3
+      }
+    },
+    {
+      "id": "jet_whistle",
+      "kind": "KS",
+      "number": 15,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Flute jet-whistle effect, independent of keyed attacks and pitched whistle tones.",
+      "values": {
+        "pt.jetWhistle": 2
+      }
+    },
+    {
+      "id": "mouthpiece_pop",
+      "kind": "CC",
+      "number": 111,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Instrument/mouthpiece percussive pop; retain independently of slap tongue and tongue stop.",
+      "values": {
+        "pt.mouthpiecePop": 1
+      }
+    },
+    {
+      "id": "tongue_stop",
+      "kind": "CC",
+      "number": 112,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Tongue-stop/ram effect, with instrument-specific realization; not an automatic note-length change.",
+      "values": {
+        "pt.tongueStop": 1
+      }
+    },
+    {
+      "id": "tongue_click",
+      "kind": "KS",
+      "number": 16,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Tongue click through the flute/wind instrument; not a generic finger click or vocal Dut.",
+      "values": {
+        "pt.tongueClick": 2
+      }
+    },
+    {
+      "id": "whistle_tone",
+      "kind": "KS",
+      "number": 17,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Flute whistle-tone technique; distinct from whistling or vocal production.",
+      "values": {
+        "pt.whistleTone": 2
+      }
+    },
+    {
+      "id": "scoop",
+      "kind": "CC",
+      "number": 117,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Upward entry gesture; independent of a later exit gesture.",
+      "values": {
+        "pt.scoop": 1
+      }
+    },
+    {
+      "id": "plop",
+      "kind": "KS",
+      "number": 6,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Downward entry gesture; preserved independently until generic/compound use is host-reviewed.",
+      "values": {
+        "pt.plop": 2
+      }
+    },
+    {
+      "id": "fall",
+      "kind": "KS",
+      "number": 7,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Falling exit gesture, including saxophone/trumpet effects; not an alias for glissando.",
+      "values": {
+        "pt.fallDrop": 2
+      }
+    },
+    {
+      "id": "doit",
+      "kind": "KS",
+      "number": 8,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Rising exit gesture; independent of entry ornaments.",
+      "values": {
+        "pt.doit": 2
+      }
+    },
+    {
+      "id": "bend",
+      "kind": "KS",
+      "number": 11,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Embouchure/pitch-bending intent, not guitar pre-bending. Does not encode a continuous pitch curve.",
+      "values": {
+        "pt.bend": 2
+      }
+    }
+  ],
+  "aliases": {},
+  "wire_schema": 2,
+  "conduit_budget": 50,
+  "typed_off": 64,
+  "beacon": {
+    "pitches": [
+      126,
+      127
+    ],
+    "velocities": [
+      43,
+      119
+    ]
+  },
+  "section": "Woodwinds",
+  "instruments": [
+    "Piccolo; concert, alto and bass flutes",
+    "Oboe; oboe d'amore; English horn; bass oboe/heckelphone",
+    "E-flat, B-flat and A clarinets; basset horn; bass and contrabass clarinets",
+    "Bassoon; contrabassoon",
+    "Soprano, alto, tenor, baritone and bass saxophones when used orchestrally"
+  ],
+  "supported_routing": "one Dorico voice per endpoint/port/channel",
+  "title": "Orchestral woodwinds"
+}

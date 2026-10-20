@@ -22,6 +22,26 @@ BASE_SOURCE = ROOT / "resources/Fiddle_Universal.doricolib"
 INVENTORY_SOURCE = ROOT / "docs/dorico-built-in-technique-groups.md"
 MAP_FILE = f"Fiddle-Orchestral-Strings-r{REVISION}.doricolib"
 
+# Wire schema 2 (runtime compiler schema 2): every add-on Off names the
+# technique it ends (Off = On + TYPED_OFF), so a late Off from a replaced
+# technique cannot clear its successor. Init also carries a revision beacon on
+# two reserved keyswitch pitches, letting the decoder confirm which map Dorico
+# is actually playing. Schema 1 artifacts (r1-r3 strings, r1 winds) are frozen.
+TYPED_OFF = 64
+BEACON_PITCHES = (126, 127)
+BEACON_MODULUS = 127 * 127
+
+
+def wire_schema(spec):
+    return getattr(spec, "WIRE_SCHEMA", 1)
+
+
+def beacon(entity_id, revision):
+    """14-bit-ish identity carried as two velocities 1..127 (never 0)."""
+    digest = hashlib.sha256(f"{entity_id}:{revision}".encode()).digest()
+    value = int.from_bytes(digest[:4], "big") % BEACON_MODULUS
+    return (1 + value // 127, 1 + value % 127)
+
 
 def inventory():
     result = {}
@@ -38,11 +58,18 @@ def inventory():
     return result
 
 
-def dimensions(spec=legacy_profile):
+def conduit_pool(spec=legacy_profile):
     pool = [("CC", n) for n in range(103, 120)]
     pool += [("KS", n) for n in list(range(21)) + list(range(115, 128))]
+    if wire_schema(spec) >= 2:
+        pool = [pair for pair in pool if pair not in {("KS", n) for n in BEACON_PITCHES}]
+    return pool
+
+
+def dimensions(spec=legacy_profile):
+    pool = conduit_pool(spec)
     if len(spec.DIMENSIONS) > len(pool):
-        raise ValueError("Profile exceeds the 52-conduit budget including the base")
+        raise ValueError(f"Profile exceeds the {len(pool) + 1}-conduit budget including the base")
     assignments = getattr(spec, "CONDUITS", None)
     if assignments is not None and set(assignments) != {d[0] for d in spec.DIMENSIONS}:
         raise ValueError("Explicit allocation must cover exactly the profile's dimensions")
@@ -99,6 +126,8 @@ def validate(dims, catalog, spec=legacy_profile):
                 raise ValueError(f"Invalid or multiply owned PT: {pt}")
             if not d["unspecified"] < value <= 127:
                 raise ValueError("Named value must fit MIDI and differ from reset")
+            if wire_schema(spec) >= 2 and value >= TYPED_OFF:
+                raise ValueError("Schema 2 On values must stay below the typed-Off range")
             owners[pt] = d["id"]
     for pt, row in catalog.items():
         disposition(pt, row, owners, spec)
@@ -141,7 +170,20 @@ def build(spec=legacy_profile):
         fingerprint_data.update(section=section, instruments=list(spec.INSTRUMENTS),
                                 extra_mutex_groups=spec.EXTRA_MUTEX_GROUPS,
                                 supported_routing="one Dorico voice per endpoint/port/channel")
+    schema = wire_schema(spec)
+    if schema >= 2:
+        fingerprint_data.update(wire_schema=schema, typed_off=TYPED_OFF, beacon_pitches=list(BEACON_PITCHES))
     fingerprint = hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True).encode()).hexdigest()
+    if schema >= 2:
+        description = (f"Fiddle bridge wire schema 2: typed Off (On+{TYPED_OFF}) and revision beacon on "
+                       f"KS{BEACON_PITCHES[0]}/KS{BEACON_PITCHES[1]}. Pending Dorico host acceptance. "
+                       f"{label}: {1 + len(dims)} conduits, {len(source_bases)} bases, "
+                       f"{len(owners)} add-ons. Specification SHA256: " + fingerprint)
+    else:
+        description = ("INSPECTION ONLY. No compatible Fiddle decoder. Do not use for playback. "
+                       f"{label}: {1 + len(dims)} conduits, {len(source_bases)} bases, "
+                       f"{len(owners)} add-ons. Off/cancellation policy provisional. "
+                       "Specification SHA256: " + fingerprint)
     root = ET.Element("kScoreLibrary")
     sub(root, "fileVersion", "1.1438")
     definition = sub(sub(sub(root, "expressionMapDefinitions"), "entities", array="true"),
@@ -149,10 +191,7 @@ def build(spec=legacy_profile):
     for tag, value in [
         ("name", spec.NAME), ("entityID", spec.ENTITY_ID), ("parentEntityID", ""),
         ("inheritanceMask", 0), ("creator", "Fiddle"),
-        ("description", "INSPECTION ONLY. No compatible Fiddle decoder. Do not use for playback. "
-         f"{label}: {1 + len(dims)} conduits, {len(source_bases)} bases, "
-         f"{len(owners)} add-ons. Off/cancellation policy provisional. "
-         "Specification SHA256: " + fingerprint),
+        ("description", description),
         ("version", spec.REVISION), ("pluginNames", ""), ("autoMutualExclusion", "false"),
         ("allowMultipleNotesAtSamePitch", "true"), ("applyStageTemplateSettings", "false"),
         ("pitchBendRange", 2), ("microtonalPlaybackMethod", "kAuto")]:
@@ -163,6 +202,10 @@ def build(spec=legacy_profile):
     action(init_actions, "init", "CC", 102, 0)
     for d in dims:
         action(init_actions, "init", d["kind"], d["number"], d["unspecified"])
+    beacon_velocities = beacon(spec.ENTITY_ID, spec.REVISION) if schema >= 2 else None
+    if beacon_velocities:
+        for pitch, velocity in zip(BEACON_PITCHES, beacon_velocities):
+            action(init_actions, "init", "KS", pitch, velocity)
     bases = sub(definition, "playingTechniqueCombinations", array="true")
     base_table = []
     for original in source_bases:
@@ -186,7 +229,7 @@ def build(spec=legacy_profile):
             action(sub(addon, "switchOnActions", array="true"), "switchOn",
                    d["kind"], d["number"], value)
             action(sub(addon, "switchOffActions", array="true"), "switchOff",
-                   d["kind"], d["number"], d["unspecified"])
+                   d["kind"], d["number"], value + TYPED_OFF if schema >= 2 else d["unspecified"])
             index += 1
     groups = sub(definition, "mutualExclusionGroups", array="true")
     group_specs = [("shortening", ["pt.staccatissimo", "pt.staccato"])]
@@ -211,12 +254,16 @@ def build(spec=legacy_profile):
                   addon_dimensions=len(dims), conduits=1 + len(dims),
                   cc_conduits=1 + sum(d["kind"] == "CC" for d in dims),
                   ks_conduits=sum(d["kind"] == "KS" for d in dims),
-                  spare_conduits=52 - 1 - len(dims), mutex_groups=len(group_specs))
+                  spare_conduits=len(conduit_pool(spec)) - len(dims), mutex_groups=len(group_specs))
+    budget = len(conduit_pool(spec)) + 1
     manifest = dict(schema_version=1, revision=spec.REVISION, name=spec.NAME, entity_id=spec.ENTITY_ID,
-                    runtime_compatible=False, dorico_import_verified=False,
+                    runtime_compatible=schema >= 2, dorico_import_verified=False,
                     musical_midi_range=[21, 114], counts=counts,
                     specification_sha256=fingerprint, map_sha256=hashlib.sha256(xml).hexdigest(),
                     base_cc=102, bases=base_table, dimensions=dims, aliases=spec.ALIASES)
+    if schema >= 2:
+        manifest.update(wire_schema=schema, conduit_budget=budget, typed_off=TYPED_OFF,
+                        beacon=dict(pitches=list(BEACON_PITCHES), velocities=list(beacon_velocities)))
     if hasattr(spec, "INSTRUMENTS"):
         manifest.update(section=section, instruments=list(spec.INSTRUMENTS),
                         supported_routing="one Dorico voice per endpoint/port/channel",
@@ -229,17 +276,26 @@ def build(spec=legacy_profile):
 
 def allocation_markdown(m, catalog):
     c = m["counts"]
+    typed = m.get("wire_schema", 1) >= 2
+    status = ("Wire schema 2 candidate: compiled by Fiddle, **not yet host-verified**."
+              if typed else "Inspection prototype, **not runtime compatible or host-verified**.")
     lines = [f"# {m.get('title', 'Orchestral strings')} r{m['revision']} — generated allocation", "",
-             "Inspection prototype, **not runtime compatible or host-verified**. "
-             "See [README](README.md) for scope, cancellation policy and caveats.", "",
-             f"**{c['conduits']}/52 conduits: {c['cc_conduits']} CCs + {c['ks_conduits']} KS pitches; "
+             status + " See [README](README.md) for scope, cancellation policy and caveats.", "",
+             f"**{c['conduits']}/{m.get('conduit_budget', 52)} conduits: {c['cc_conduits']} CCs + {c['ks_conduits']} KS pitches; "
              f"{c['spare_conduits']} spare.** {c['base_switches']} bases + {c['add_on_switches']} add-ons = "
-             f"{c['switch_rows']} switch rows, plus one Init switch ({c['conduits']} actions). "
+             f"{c['switch_rows']} switch rows, plus one Init switch ({c['conduits'] + (2 if typed else 0)} actions"
+             + (", including the two beacon keyswitches). " if typed else "). ") +
              f"{c['explicit_pt_ids']} distinct encoded IDs + {c['aliases']} built-in alias; "
              f"{c['mutex_groups']} explicit mutex groups.", "",
              "All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified "
              "except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases "
-             "are not dimension resets. Every add-on Off writes its own unspecified value.", "",
+             "are not dimension resets. " + (
+                 f"Every add-on Off writes its typed value On+{m['typed_off']}: it clears the dimension "
+                 "only while that technique is current. Init writes the unspecified value. "
+                 f"Init also sends the revision beacon KS{m['beacon']['pitches'][0]} velocity "
+                 f"{m['beacon']['velocities'][0]} and KS{m['beacon']['pitches'][1]} velocity "
+                 f"{m['beacon']['velocities'][1]}; those pitches are reserved and carry no technique."
+                 if typed else "Every add-on Off writes its own unspecified value."), "",
              "## Base (CC102)", "", "Copied articulation/length codes; the old CC103 reset is removed.", "",
              "| Value | PTs | Condition |", "| --- | --- | --- |"]
     for b in m["bases"]:
@@ -248,7 +304,7 @@ def allocation_markdown(m, catalog):
               "Each multi-value row is one mutex group. Singletons are independent; "
               "those marked nat. also have a two-member cancellation group with Natural. "
               "Tenuto is deliberately not in the shortening mutex group.", "",
-              "| Dimension | Conduit | Off / Init | Named On values | Explicit nat. cancels? |",
+              "| Dimension | Conduit | " + ("Init" if typed else "Off / Init") + " | Named On values | Explicit nat. cancels? |",
               "| --- | --- | --- | --- | --- |"]
     for d in m["dimensions"]:
         values = "; ".join(f"{v}: {catalog[pt]['label']} (`{pt}`)" for pt, v in d["values"].items())
@@ -295,12 +351,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--dorico-catalog", type=Path)
-    parser.add_argument("--revision", type=int, choices=(2, 3), default=3,
-                        help="Default: current r3; r2 reproduces historical artifacts")
+    parser.add_argument("--revision", type=int, choices=(2, 3, 4), default=4,
+                        help="Default: current r4; r2/r3 reproduce frozen artifacts")
     args = parser.parse_args()
     if args.dorico_catalog:
         check_dorico(args.dorico_catalog)
-    if args.revision == 3:
+    if args.revision == 4:
+        import profile_r4 as spec
+        destination = HERE / "r4"
+    elif args.revision == 3:
         import profile_r3 as spec
         destination = HERE / "r3"
     else:

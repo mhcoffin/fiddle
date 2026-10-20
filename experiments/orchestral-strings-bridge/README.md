@@ -1,4 +1,10 @@
-# Orchestral strings bridge — current candidate r3
+# Orchestral strings bridge — current candidate r4
+
+**Current (2026-10-19): [r4](r4/README.md)** keeps r3's vocabulary, allocation
+and grouping on wire schema 2 (typed Off values and an Init revision beacon on
+KS126/127). It is the Bridge maps Strings template. The next host check is the
+[one-voice note-length fixture](one-voice-length-test.md). The r3 description
+below is retained; r3 stays frozen as a schema-1 map (still decoded, no beacon).
 
 Revision 3, curated on 2026-10-16, is the current bowed-orchestral-strings
 candidate. It covers violin, viola, cello and double bass, solo or section.
