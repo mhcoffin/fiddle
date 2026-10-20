@@ -585,6 +585,7 @@ void MainComponent::initMidiServer() {
           if (auto *renderAhead =
                   renderAheadForMidi_.load(std::memory_order_acquire))
             renderAhead->setTransportActive(true);
+          mixer_.transportStarted(getDelayedTriggerTimeMs());
           const auto printStartMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStartMs] {
             if (renderAhead_ && renderAhead_->beginMixPrintAt(printStartMs))

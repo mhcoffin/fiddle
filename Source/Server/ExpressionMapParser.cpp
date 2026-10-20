@@ -142,6 +142,12 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
       getChildBool(mapDef, "autoMutualExclusion", true);
   result.pitchBendRange = getChildInt(mapDef, "pitchBendRange", 2);
 
+  // Initialization actions, sent to the instrument at playback start
+  result.initActions.clear();
+  if (auto *init = mapDef->getChildByName("initSwitchData");
+      init && getChildBool(init, "enabled"))
+    result.initActions = parseActions(init->getChildByName("initActions"));
+
   // Parse playingTechniqueCombinations
   auto *combosEl = mapDef->getChildByName("playingTechniqueCombinations");
   if (!combosEl)
@@ -183,6 +189,10 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
 
     tc.ticksBefore = getChildInt(combo, "ticksBefore");
     tc.millisecondsBefore = getChildInt(combo, "millisecondsBefore");
+    tc.applyMillisecondsBeforeToEndOffsets =
+        getChildBool(combo, "applyMillisecondsBeforeToEndOffsets");
+    tc.applyMillisecondsBeforeToControllers =
+        getChildBool(combo, "applyMillisecondsBeforeToControllers");
 
     tc.conditionString = getChildText(combo, "conditionString");
     tc.condition = parseConditionString(tc.conditionString);
@@ -240,6 +250,10 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
           parseActions(addOn->getChildByName("switchOffActions"));
       tc.ticksBefore = getChildInt(addOn, "ticksBefore");
       tc.millisecondsBefore = getChildInt(addOn, "millisecondsBefore");
+      tc.applyMillisecondsBeforeToEndOffsets =
+          getChildBool(addOn, "applyMillisecondsBeforeToEndOffsets");
+      tc.applyMillisecondsBeforeToControllers =
+          getChildBool(addOn, "applyMillisecondsBeforeToControllers");
       tc.velocityFactor = getChildFloat(addOn, "velocityFactor", 1.0f);
       tc.lengthFactor = getChildFloat(addOn, "lengthFactor", 1.0f);
       tc.transpose = getChildInt(addOn, "transpose");

@@ -166,6 +166,48 @@ bridge's ±2 semitones gets bend rescaled. Live CC1 dynamics are re-expressed on
 the controller(s) the current base switch's `volumeType` names, while notes
 sound, when that base uses CC dynamics.
 
+Each layer then plays its own (library) expression map the way Dorico would
+play that map directly:
+
+- **Switch choice.** Dorico's resolution order (exact base, base + add-ons,
+  two of three, technique priority, fallback, Natural) runs on the decoded
+  techniques. A base switch only applies to notes inside its `velocityRange` and
+  `pitchRange`, judged on Dorico's velocity and pitch before the switch's
+  velocity factor or transpose. The priority tier knows Dorico's canonical
+  harmonic, pizzicato and mute IDs (`pt.naturalHarmonic1`, `pt.cupMute`,
+  `pt.harmonMuteStemIn`, …) as well as the older lowercase spellings.
+- **On and Off actions.** A switch's On actions are sent when the selected
+  switch (base or add-on set) changes, not for repeated notes. Its Off actions
+  are sent at that change, before the new switch's On actions, for each base or
+  add-on that is no longer selected. A note ending never sends Off actions, so an
+  overlapped note ending cannot undo its successor's switch. Keyswitches go at
+  the note's time, ahead of it in send order; there is no extra fixed lead.
+- **Channel switches.** A `kChannelSwitch` action sends no message of its own.
+  It moves the note, the switch's other actions, its dynamics and live
+  controllers to that channel; the note-off follows its note-on there. Fiddle
+  reads `param1` as an absolute 1-based MIDI channel. A switch without a channel
+  action plays on the layer's input channel.
+- **Timing.** `millisecondsBefore` plus `ticksBefore` (converted at the live
+  tempo, assuming 480 ticks per quarter note) play the note and its switch
+  actions that much earlier; with several switches selected the largest lead
+  wins. The note-off moves too only with `applyMillisecondsBeforeToEndOffsets`,
+  and live controllers only with `applyMillisecondsBeforeToControllers`.
+  Fiddle's playback delay supplies the lookahead.
+- **Durations.** Dorico has already applied the project's playback options
+  (note, staccato, staccatissimo, legato, tenuto and marcato duration) to the
+  durations it sends, because bridge maps carry no overrides. A layer map's
+  `playbackOptionsOverrides` therefore scale a duration by override ÷ Dorico
+  default (90, 50, 25, 105, 100 and 75%), and categories the map doesn't override
+  are left alone. Fiddle cannot see the project's own options, so it assumes
+  they are Dorico's defaults. The switch's `lengthFactor` then applies as usual.
+- **Initialization.** When Dorico's transport starts, each layer sends its
+  map's enabled `initSwitchData` actions on its input channel and forgets the
+  switch state left from the previous playback, so the first note sends its
+  switch again.
+- **Not emulated.** `monophonic` (Dorico's monophonic legato) is parsed and
+  shown but not applied: overlapping notes reach the instrument exactly as
+  Dorico sent them through the bridge.
+
 ## Persistence and portability
 
 Project settings store the complete source XML, schema, fingerprints, ranges and

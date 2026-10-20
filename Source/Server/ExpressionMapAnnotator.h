@@ -3,8 +3,10 @@
 #include "Annotator.h"
 #include "ExpressionMapData.h"
 #include "NoteInspection.h"
+#include <algorithm>
 #include <cmath>
 #include <map>
+#include <tuple>
 
 namespace fiddle {
 
@@ -17,8 +19,9 @@ namespace fiddle {
 ///   - Filter by length condition
 ///   - Pick most specific base; greedily add add-ons
 ///
-/// Results are cached by (PT set, LengthCategory) and the annotator
-/// tracks the current active MatchResult to avoid redundant switch actions.
+/// Results are cached by (PT set, LengthCategory[, velocity, pitch]) and the
+/// annotator tracks the current active MatchResult to avoid redundant switch
+/// actions; Off actions are sent when that match changes away from a switch.
 class ExpressionMapAnnotator : public Annotator {
 public:
   explicit ExpressionMapAnnotator(std::shared_ptr<ExpressionMapData> em)
@@ -36,12 +39,16 @@ public:
   ///   - CC1: dynamics → stored on the Note, re-expressed via emitDynamics()
   ///   - CC102–CC119: Dorico dimension encoding → consumed by NoteStreamTracker
   /// All other CCs are forwarded to the VST.
+  ///
+  /// While a kChannelSwitch is active every controller is re-sent on that
+  /// channel through translateCC(), as Dorico sends it with the notes.
   bool onCC(const fiddle::MidiEvent &event,
             const AnnotatorContext &) override {
     // Dorico bends for the bridge map's ±2 semitones; rescale for a layer
     // map that declares another instrument range.
     if (event.has_pitch_bend())
-      return !emData_ || emData_->pitchBendRange == kInputBendRange || emData_->pitchBendRange <= 0;
+      return activeChannel_ == 0 &&
+             (!emData_ || emData_->pitchBendRange == kInputBendRange || emData_->pitchBendRange <= 0);
     if (!event.has_cc())
       return true;
     int ccNum = event.cc().controller_number();
@@ -49,9 +56,9 @@ public:
     if (ccNum == 1)
       return false;
     // CC102–CC119 = Dorico dimension encoding — already consumed
-    if (ccNum >= 102 && ccNum <= 119)
+    if (isDimensionCC(ccNum))
       return false;
-    return true;
+    return activeChannel_ == 0;
   }
 
   /// Live CC1 dynamics while notes sound: re-express each change on the
@@ -60,24 +67,55 @@ public:
   /// the value current at that moment.
   void translateCC(const fiddle::MidiEvent &event, const AnnotatorContext &,
                    std::vector<fiddle::MidiInstruction> &out) override {
-    if (event.has_pitch_bend() && emData_ && emData_->pitchBendRange > 0) {
-      const double semitones = (int(event.pitch_bend().value()) - 8192) * kInputBendRange / 8192.0;
-      const int value = std::clamp(8192 + int(std::lround(semitones / emData_->pitchBendRange * 8192.0)), 0, 16383);
+    if (event.has_pitch_bend()) {
+      int value = static_cast<int>(event.pitch_bend().value());
+      if (emData_ && emData_->pitchBendRange > 0) {
+        const double semitones = (value - 8192) * kInputBendRange / 8192.0;
+        value = std::clamp(8192 + int(std::lround(semitones / emData_->pitchBendRange * 8192.0)), 0, 16383);
+      }
       fiddle::MidiInstruction inst;
       inst.set_type(fiddle::MidiInstruction::PITCH_BEND);
+      inst.set_channel(activeChannel_);
       inst.set_param1(value >> 7);
       inst.set_param2(value & 0x7f);
       out.push_back(inst);
       return;
     }
-    if (!event.has_cc() || event.cc().controller_number() != 1)
+    if (!event.has_cc())
       return;
-    for (const int target : liveDynamicsCCs_) {
+    const int ccNum = static_cast<int>(event.cc().controller_number());
+    const int value = std::clamp(static_cast<int>(event.cc().controller_value()), 0, 127);
+    const auto emit = [&](int controller) {
       fiddle::MidiInstruction inst;
       inst.set_type(fiddle::MidiInstruction::CC);
-      inst.set_param1(target);
-      inst.set_param2(std::clamp(static_cast<int>(event.cc().controller_value()), 0, 127));
+      inst.set_channel(activeChannel_);
+      inst.set_param1(controller);
+      inst.set_param2(value);
       out.push_back(inst);
+    };
+    if (ccNum == 1) {
+      for (const int target : liveDynamicsCCs_)
+        emit(target);
+    } else if (activeChannel_ != 0 && !isDimensionCC(ccNum)) {
+      emit(ccNum);
+    }
+  }
+
+  double noteStartOffsetMs() const override { return noteStartOffsetMs_; }
+  double controllerOffsetMs() const override { return controllerOffsetMs_; }
+
+  /// Playback starts from an unknown instrument state: send the map's
+  /// initialization actions and make the first note send its switch again.
+  void onTransportStart(const AnnotatorContext &,
+                        std::vector<fiddle::MidiInstruction> &out) override {
+    clearPlaybackState();
+    if (!emData_)
+      return;
+    for (const auto &sa : emData_->initActions) {
+      if (!emitsMidi(sa))
+        continue;
+      out.emplace_back();
+      actionToInstruction(sa, &out.back(), 0);
     }
   }
 
@@ -85,8 +123,10 @@ public:
                    const AnnotatorContext &ctx) override {
     lastRecord_ = makeIncomingNoteRecord(note, ctx.sampleRate,
                                          emData_ != nullptr);
+    noteStartOffsetMs_ = 0.0;
     if (!emData_)
       return;
+    const auto key = noteKey(note);
 
     // ── 1. Collect the note's playback techniques ──────────────────
     const auto &techniqueIDs = lastRecord_.inputTechniques;
@@ -98,9 +138,13 @@ public:
     // ── 2. Determine note length category ──────────────────────────
     const auto lengthCat = lastRecord_.lengthCategory;
 
-    // ── 3. Resolve match (cached by PT set + length) ──────────────
+    // ── 3. Resolve match (cached by PT set + length [+ ranges]) ───
+    // Velocity/pitch ranges are checked against Dorico's note, before this
+    // map's velocity factor or transpose.
     std::vector<CandidateInfo> candidates;
-    auto match = resolveWithCache(techniqueIDs, lengthCat, &candidates);
+    auto match = resolveWithCache(techniqueIDs, lengthCat, &candidates,
+                                  static_cast<int>(note.start_velocity()),
+                                  static_cast<int>(note.note_number()));
     if (match.empty())
       return;
 
@@ -147,22 +191,43 @@ public:
 
     // ── 3. Skip if same as currently active match ─────────────────
     bool needSend = (match != currentMatch_);
+    const auto previous = currentMatch_;
     currentMatch_ = match;
     lastRecord_.redundancySkipped = !needSend;
 
-    // ── 4. Emit switch-on MIDI instructions ───────────────────────
+    // A kChannelSwitch routes the note, its switch actions and its
+    // controllers to that channel, as Dorico does.
+    const int switchChannel = match.switchChannel();
+    activeChannel_ = switchChannel;
+
+    // ── 4. Emit switch MIDI: Off for what is left, then On ────────
+    // Dorico sends a switch's Off actions when the active switch changes
+    // away from it, not after each of its notes.
     if (needSend) {
+      const auto incoming = match.components();
+      for (auto *old : previous.components()) {
+        if (std::find(incoming.begin(), incoming.end(), old) != incoming.end())
+          continue;
+        for (const auto &sa : old->switchOffActions)
+          if (emitsMidi(sa))
+            actionToInstruction(sa, note.add_pre_note(), previous.switchChannel());
+      }
       auto actions = match.allSwitchOnActions();
       lastRecord_.midiActionsEmitted = actions;
       for (auto &sa : actions) {
-        // NoteVelocity and Unknown are not discrete MIDI instructions
-        if (sa.type == SwitchActionType::NoteVelocity ||
-            sa.type == SwitchActionType::Unknown)
-          continue;
-        auto *inst = note.add_pre_note();
-        actionToInstruction(sa, inst);
+        // NoteVelocity, ChannelSwitch and Unknown send no message themselves
+        if (emitsMidi(sa))
+          actionToInstruction(sa, note.add_pre_note(), switchChannel);
       }
     }
+    if (switchChannel != 0)
+      note.set_channel(switchChannel);
+
+    // millisecondsBefore/ticksBefore: the note and its switch actions sound
+    // this much earlier than Dorico placed them.
+    const double leadMs = match.leadMs(ctx.tempoBpm);
+    noteStartOffsetMs_ = -leadMs;
+    controllerOffsetMs_ = match.leadAppliesToControllers() ? -leadMs : 0.0;
 
     // ── 5. Apply modifiers from the base switch ───────────────────
     lastRecord_.velocityBefore = note.start_velocity();
@@ -203,6 +268,13 @@ public:
       emitDynamics(note, *match.base, ctx.sampleRate);
       liveDynamicsCCs_ = liveDynamicsTargets(note, *match.base);
     }
+
+    // The note-off must reach the channel and pitch this note-on used, even
+    // if a later note has changed the active switch.
+    sounding_[key] = {static_cast<int>(note.channel()),
+                      static_cast<int>(note.note_number()),
+                      match.base ? match.base->lengthFactor : 1.0f,
+                      match.leadAppliesToEnd() ? leadMs : 0.0};
   }
 
   void onNoteEnd(fiddle::Note &note,
@@ -213,39 +285,33 @@ public:
 
     auto techniqueIDs = collectInputTechniqueIds(note);
 
-    // Use the same written-length category as note-on. A staccato note's
-    // performed duration can be much shorter and must not select another
-    // length-conditioned switch's release actions. Without bridge metadata,
-    // the shared helper still falls back to the completed duration.
-    const auto lengthCat = inputLengthCategory(note, ctx.sampleRate);
-
-    auto match = resolveWithCache(techniqueIDs, lengthCat);
-
-    // ── Emit switch-off MIDI instructions into post_note ──────────
-    if (!match.empty()) {
-      auto actions = match.allSwitchOffActions();
-      for (auto &sa : actions) {
-        if (sa.type == SwitchActionType::NoteVelocity ||
-            sa.type == SwitchActionType::Unknown)
-          continue;
-        auto *inst = note.add_post_note();
-        actionToInstruction(sa, inst);
-      }
+    // Switch Off actions are sent when the active switch changes (see
+    // onNoteStart), so a note ending never emits them: an overlapping
+    // successor keeps its switch.
+    float lengthFactor = 1.0f;
+    double endLeadMs = 0.0;
+    if (auto it = sounding_.find(noteKey(note)); it != sounding_.end()) {
+      note.set_channel(static_cast<uint32_t>(it->second.channel));
+      note.set_note_number(static_cast<uint32_t>(it->second.noteNumber));
+      lengthFactor = it->second.lengthFactor;
+      endLeadMs = it->second.endLeadMs;
+      sounding_.erase(it);
+    } else {
+      // Use the same written-length category as note-on. A staccato note's
+      // performed duration can be much shorter and must not select another
+      // length-conditioned switch. Without bridge metadata, the shared
+      // helper still falls back to the completed duration.
+      auto match = resolveWithCache(techniqueIDs, inputLengthCategory(note, ctx.sampleRate));
+      if (match.base)
+        lengthFactor = match.base->lengthFactor;
     }
 
     // ── Compute duration adjustment ───────────────────────────────
-    // Layer 1: category-level duration percent from playbackOptionsOverrides
-    int categoryPercent = selectCategoryPercent(techniqueIDs);
-
+    // Layer 1: this map's playback-option overrides, relative to the
+    //          Dorico defaults already applied to the received duration
     // Layer 2: per-combination lengthFactor
-    float lengthFactor = 1.0f;
-    if (match.base)
-      lengthFactor = match.base->lengthFactor;
-
-    // Compose the two layers
-    double combinedFactor =
-        (static_cast<double>(categoryPercent) / 100.0) *
-        static_cast<double>(lengthFactor);
+    double combinedFactor = emData_->timingOptions.durationCorrection(techniqueIDs) *
+                            static_cast<double>(lengthFactor);
 
     // Compute timing delta in ms
     if (combinedFactor != 1.0 && note.duration_samples() > 0 &&
@@ -254,6 +320,8 @@ public:
                           ctx.sampleRate * 1000.0;
       durationAdjustMs_ = (combinedFactor - 1.0) * durationMs;
     }
+    // A lead applied to end offsets moves the note-off with the note-on.
+    durationAdjustMs_ -= endLeadMs;
 
     // Record duration adjustment in the annotation record
     lastRecord_.durationAdjustMs = durationAdjustMs_;
@@ -263,8 +331,7 @@ public:
 
   void resetState() override {
     cache_.clear();
-    currentMatch_ = {};
-    liveDynamicsCCs_.clear();
+    clearPlaybackState();
   }
 
 private:
@@ -272,64 +339,85 @@ private:
   std::shared_ptr<ExpressionMapData> emData_;
   MatchResult currentMatch_;
   std::vector<int> liveDynamicsCCs_; // targets for live CC1, from the last base
+  int activeChannel_ = 0; // kChannelSwitch channel of the last note, or 0
   double durationAdjustMs_ = 0.0;
+  double noteStartOffsetMs_ = 0.0;
+  double controllerOffsetMs_ = 0.0;
   AnnotationRecord lastRecord_;
 
-  // Cache key: (PT set, LengthCategory)
-  using CacheKey = std::pair<std::set<std::string>, LengthCategory>;
+  /// What a sounding note's note-off needs from its note-on.
+  struct SoundingNote {
+    int channel = 0;
+    int noteNumber = 0;
+    float lengthFactor = 1.0f;
+    double endLeadMs = 0.0;
+  };
+  using NoteKey = std::tuple<uint64_t, uint32_t, uint32_t>;
+  std::map<NoteKey, SoundingNote> sounding_;
+
+  /// Identity of Dorico's note (before this map changes channel or pitch).
+  static NoteKey noteKey(const fiddle::Note &note) {
+    return {note.id(), note.channel(), note.note_number()};
+  }
+
+  void clearPlaybackState() {
+    currentMatch_ = {};
+    liveDynamicsCCs_.clear();
+    activeChannel_ = 0;
+    controllerOffsetMs_ = 0.0;
+    sounding_.clear();
+  }
+
+  static bool isDimensionCC(int cc) { return cc >= 102 && cc <= 119; }
+
+  // Cache key: (PT set, LengthCategory, velocity, pitch). Velocity and pitch
+  // are -1 unless the map restricts a switch's ranges.
+  using CacheKey = std::tuple<std::set<std::string>, LengthCategory, int, int>;
   std::map<CacheKey, MatchResult> cache_;
 
   /// Resolve with cache. Optionally populates candidates on cache miss.
   MatchResult resolveWithCache(const std::set<std::string> &techniques,
                                LengthCategory lengthCat = LengthCategory::VeryLong,
-                               std::vector<CandidateInfo> *outCandidates = nullptr) {
-    CacheKey key{techniques, lengthCat};
+                               std::vector<CandidateInfo> *outCandidates = nullptr,
+                               int velocity = -1, int pitch = -1) {
+    if (!hasRangeLimits())
+      velocity = pitch = -1;
+    CacheKey key{techniques, lengthCat, velocity, pitch};
     auto it = cache_.find(key);
     if (it != cache_.end()) {
       // On cache hit, re-run only when caller asks for candidate info.
-      if (outCandidates) {
-        auto result = emData_->resolveMatch(techniques, lengthCat, outCandidates);
-        return result;
-      }
+      if (outCandidates)
+        return emData_->resolveMatch(techniques, lengthCat, outCandidates, velocity, pitch);
       return it->second;
     }
-    auto result = emData_->resolveMatch(techniques, lengthCat, outCandidates);
+    auto result = emData_->resolveMatch(techniques, lengthCat, outCandidates, velocity, pitch);
     cache_[key] = result;
     return result;
   }
 
-  /// Select the category-level duration percent from TimingOptions based on
-  /// the note's playback techniques.  Priority: staccatissimo > staccato >
-  /// legato > tenuto > marcato > default (noteDurationPercent).
-  int selectCategoryPercent(const std::set<std::string> &techniques) const {
-    if (!emData_)
-      return 100;
-    const auto &t = emData_->timingOptions;
-    if (techniques.count("pt.staccatissimo"))
-      return t.staccatissimoDurationPercent;
-    if (techniques.count("pt.staccato"))
-      return t.staccatoDurationPercent;
-    if (techniques.count("pt.legato"))
-      return t.legatoDurationPercent;
-    if (techniques.count("pt.tenuto"))
-      return t.tenutoDurationPercent;
-    if (techniques.count("pt.marcato"))
-      return t.marcatoDurationPercent;
-    return t.noteDurationPercent;
+  bool hasRangeLimits() const {
+    return std::any_of(emData_->combinations.begin(), emData_->combinations.end(),
+                       [](const auto &c) { return c.hasRangeLimits(); });
   }
 
-  // filterByCondition removed — conditions are now handled directly
-  // in resolveMatch() via the LengthCategory parameter.
+  /// Whether a switch action produces a MIDI message of its own.
+  static bool emitsMidi(const SwitchAction &sa) {
+    return sa.type != SwitchActionType::NoteVelocity &&
+           sa.type != SwitchActionType::ChannelSwitch &&
+           sa.type != SwitchActionType::Unknown;
+  }
 
-  /// Convert a SwitchAction to a MidiInstruction proto.
+  /// Convert a SwitchAction to a MidiInstruction proto, on `channel`
+  /// (1-based; 0 = the note's channel). Keyswitches go at the note's own
+  /// time, ahead of it in send order, as Dorico sends them.
   static void actionToInstruction(const SwitchAction &sa,
-                                  fiddle::MidiInstruction *inst) {
+                                  fiddle::MidiInstruction *inst, int channel) {
+    inst->set_channel(channel);
     switch (sa.type) {
     case SwitchActionType::KeySwitch:
       inst->set_type(fiddle::MidiInstruction::KEY_SWITCH);
       inst->set_param1(sa.param1);
       inst->set_param2(sa.param2 > 0 ? sa.param2 : 100);
-      inst->set_delay_ms(-5); // keyswitches arrive slightly before the note
       break;
     case SwitchActionType::CC:
     case SwitchActionType::ControlChange:
@@ -341,13 +429,8 @@ private:
       inst->set_type(fiddle::MidiInstruction::PROGRAM_CHANGE);
       inst->set_param1(sa.param1);
       break;
-    case SwitchActionType::ChannelSwitch:
-      inst->set_type(fiddle::MidiInstruction::CC);
-      inst->set_channel(sa.param1);
-      break;
-    case SwitchActionType::NoteVelocity:
-      // Velocity is a modifier, not a discrete MIDI instruction
-      break;
+    case SwitchActionType::ChannelSwitch: // routes the note; no message
+    case SwitchActionType::NoteVelocity:  // a modifier, not an instruction
     case SwitchActionType::Unknown:
       break;
     }

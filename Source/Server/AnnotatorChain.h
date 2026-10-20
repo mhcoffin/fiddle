@@ -82,6 +82,26 @@ public:
     return total;
   }
 
+  double noteStartOffsetMs() const override {
+    double total = 0.0;
+    for (const auto &a : chain_)
+      total += a->noteStartOffsetMs();
+    return total;
+  }
+
+  double controllerOffsetMs() const override {
+    double total = 0.0;
+    for (const auto &a : chain_)
+      total += a->controllerOffsetMs();
+    return total;
+  }
+
+  void onTransportStart(const AnnotatorContext &ctx,
+                        std::vector<fiddle::MidiInstruction> &out) override {
+    for (auto &annotator : chain_)
+      annotator->onTransportStart(ctx, out);
+  }
+
   double scheduledNoteOffMs() const override {
     // Return the smallest positive value — the earliest scheduled note-off wins.
     double earliest = -1.0;

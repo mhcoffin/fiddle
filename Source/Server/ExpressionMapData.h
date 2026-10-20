@@ -175,6 +175,12 @@ inline NoteCondition parseConditionString(const std::string &s) {
 /// Duration percentage overrides from the expression map's
 /// <playbackOptionsOverrides> section.  Dorico defaults apply when the
 /// expression map doesn't override a particular category.
+///
+/// Dorico has already applied the project's playback options to the
+/// duration Fiddle receives (the bridge maps carry no overrides). A layer
+/// map's override therefore corrects that duration by override/default.
+/// Fiddle cannot read the project's options, so it assumes they are
+/// Dorico's defaults; a category the map leaves alone is a factor of 1.
 struct TimingOptions {
   int noteDurationPercent = 90;         // default (no articulation marking)
   int staccatoDurationPercent = 50;     // Dorico default for staccato
@@ -182,6 +188,27 @@ struct TimingOptions {
   int legatoDurationPercent = 105;      // Dorico default for legato
   int tenutoDurationPercent = 100;      // Dorico default for tenuto
   int marcatoDurationPercent = 75;      // Dorico default for marcato
+
+  /// Factor from Dorico's default-scaled duration to this map's duration
+  /// for the category that applies to `techniques`. Priority:
+  /// staccatissimo > staccato > legato > tenuto > marcato > other notes.
+  double durationCorrection(const std::set<std::string> &techniques) const {
+    const TimingOptions dorico;
+    const auto ratio = [](int percent, int doricoDefault) {
+      return static_cast<double>(percent) / doricoDefault;
+    };
+    if (techniques.count("pt.staccatissimo"))
+      return ratio(staccatissimoDurationPercent, dorico.staccatissimoDurationPercent);
+    if (techniques.count("pt.staccato"))
+      return ratio(staccatoDurationPercent, dorico.staccatoDurationPercent);
+    if (techniques.count("pt.legato"))
+      return ratio(legatoDurationPercent, dorico.legatoDurationPercent);
+    if (techniques.count("pt.tenuto"))
+      return ratio(tenutoDurationPercent, dorico.tenutoDurationPercent);
+    if (techniques.count("pt.marcato"))
+      return ratio(marcatoDurationPercent, dorico.marcatoDurationPercent);
+    return ratio(noteDurationPercent, dorico.noteDurationPercent);
+  }
 };
 
 /// A mutual exclusion group: a set of PTs where only one can be active.
@@ -234,9 +261,13 @@ struct TechniqueCombination {
   std::vector<SwitchAction> switchOnActions;
   std::vector<SwitchAction> switchOffActions;
 
-  // Timing: how far before the note should switch actions be sent
+  // Timing: how much earlier than Dorico's position the notes this switch
+  // plays (with its switch actions) are sent. The end of the note and live
+  // controllers move only when the corresponding flag is set.
   int ticksBefore = 0;
   int millisecondsBefore = 0;
+  bool applyMillisecondsBeforeToEndOffsets = false;
+  bool applyMillisecondsBeforeToControllers = false;
 
   // Conditions (stored but not evaluated yet)
   std::string conditionString;
@@ -245,12 +276,23 @@ struct TechniqueCombination {
   // Modifiers
   float velocityFactor = 1.0f;
   float lengthFactor = 1.0f;
+  // Dorico's monophonic legato handling is not emulated: Fiddle plays the
+  // overlaps Dorico sent through the bridge unchanged.
   bool monophonic = false;
 
-  // Ranges
+  // Ranges: a base switch only applies to notes inside both.
   int velocityMin = 1, velocityMax = 127;
   int pitchMin = 0, pitchMax = 127;
   int transpose = 0;
+
+  /// Negative values mean "not known", which every range admits.
+  bool admits(int velocity, int pitch) const {
+    return (velocity < 0 || (velocity >= velocityMin && velocity <= velocityMax)) &&
+           (pitch < 0 || (pitch >= pitchMin && pitch <= pitchMax));
+  }
+  bool hasRangeLimits() const {
+    return velocityMin > 1 || velocityMax < 127 || pitchMin > 0 || pitchMax < 127;
+  }
 
   // Dynamics: how the target VST receives volume for this technique
   //   volumeType  = primary dynamics (attack / velocity)
@@ -293,6 +335,54 @@ struct MatchResult {
     return result;
   }
 
+  /// The base followed by its add-ons, in action order.
+  std::vector<const TechniqueCombination *> components() const {
+    std::vector<const TechniqueCombination *> result;
+    if (base)
+      result.push_back(base);
+    result.insert(result.end(), addOns.begin(), addOns.end());
+    return result;
+  }
+
+  /// 1-based MIDI channel selected by a kChannelSwitch action (the last one
+  /// wins), or 0 when the note stays on its input channel.
+  int switchChannel() const {
+    int channel = 0;
+    for (auto *c : components())
+      for (const auto &a : c->switchOnActions)
+        if (a.type == SwitchActionType::ChannelSwitch && a.param1 >= 1 && a.param1 <= 16)
+          channel = a.param1;
+    return channel;
+  }
+
+  /// Dorico's tick resolution for ticksBefore (assumed: 480 per quarter).
+  static constexpr double kTicksPerQuarter = 480.0;
+
+  /// How much earlier (ms) than Dorico's position the note starts: the
+  /// largest millisecondsBefore + ticksBefore of the selected switches.
+  double leadMs(double tempoBpm) const {
+    double lead = 0.0;
+    for (auto *c : components()) {
+      double ms = std::max(0, c->millisecondsBefore);
+      if (c->ticksBefore > 0 && tempoBpm > 0.0)
+        ms += c->ticksBefore * 60000.0 / (tempoBpm * kTicksPerQuarter);
+      lead = std::max(lead, ms);
+    }
+    return lead;
+  }
+
+  /// Whether the lead also moves the note's end / live controllers.
+  bool leadAppliesToEnd() const {
+    for (auto *c : components())
+      if (c->applyMillisecondsBeforeToEndOffsets) return true;
+    return false;
+  }
+  bool leadAppliesToControllers() const {
+    for (auto *c : components())
+      if (c->applyMillisecondsBeforeToControllers) return true;
+    return false;
+  }
+
   /// Equality for redundancy tracking.
   bool operator==(const MatchResult &o) const {
     return base == o.base && addOns == o.addOns;
@@ -317,6 +407,9 @@ struct ExpressionMapData {
 
   /// Playback timing options (category-level duration percentages)
   TimingOptions timingOptions;
+
+  /// Actions from an enabled <initSwitchData>, sent when playback starts.
+  std::vector<SwitchAction> initActions;
 
   // Metadata
   bool autoMutualExclusion = true;
@@ -347,17 +440,30 @@ struct ExpressionMapData {
   /// Hardcoded technique priority for Tier 4 fallback matching.
   /// Higher value = higher priority.  Dorico priorities:
   ///   harmonic, pizzicato → highest;  mute variants → high;  rest → normal.
+  /// Canonical built-in IDs (docs/dorico-built-in-technique-groups.md) plus
+  /// the lowercase spellings older Fiddle maps used.
   static int techniquePriority(const std::string &pt) {
-    if (pt == "pt.harmonic" || pt == "pt.naturalharmonic" ||
-        pt == "pt.artificialharmonic")
+    static const std::set<std::string> highest{
+        // Harmonics
+        "pt.naturalHarmonic1", "pt.naturalHarmonic2", "pt.artificialHarmonic",
+        "pt.halfHarmonic", "pt.harpHarmonic", "pt.pinchHarmonic",
+        // Pizzicato
+        "pt.pizzicato", "pt.bartoksnapPizzicato", "pt.buzzPizzicato",
+        "pt.guitarPizzicato", "pt.nailPizzicato", "pt.pizzicatoAllaChitarra",
+        "pt.pizzicatoSecco", "pt.lhPizzicato",
+        // Legacy spellings
+        "pt.harmonic", "pt.naturalharmonic", "pt.artificialharmonic",
+        "pt.bartokpizzicato", "pt.snappizzicato"};
+    static const std::set<std::string> mutes{
+        "pt.muted", "pt.halfMuted", "pt.bellMute", "pt.bucketMute", "pt.cupMute",
+        "pt.harmonMuteStemExtended", "pt.harmonMuteStemIn", "pt.harmonMuteStemOut",
+        "pt.plungerMute", "pt.straightMute",
+        // Legacy spellings
+        "pt.cupmute", "pt.straightmute", "pt.harmonicmute", "pt.wawamute",
+        "pt.harmonmute", "pt.bucketmute", "pt.plungermute"};
+    if (highest.count(pt))
       return 100;
-    if (pt == "pt.pizzicato" || pt == "pt.bartokpizzicato" ||
-        pt == "pt.snappizzicato")
-      return 100;
-    if (pt == "pt.muted" || pt == "pt.cupmute" || pt == "pt.straightmute" ||
-        pt == "pt.harmonicmute" || pt == "pt.wawamute" ||
-        pt == "pt.harmonmute" || pt == "pt.bucketmute" ||
-        pt == "pt.plungermute")
+    if (mutes.count(pt))
       return 50;
     return 10; // everything else (legato, staccato, vibrato, etc.)
   }
@@ -365,12 +471,18 @@ struct ExpressionMapData {
   /// Resolve a note's playback techniques to a base switch + add-ons.
   /// Uses 6-tier cascading resolution on the **raw** technique set (no
   /// MEG default expansion).
-  /// `lengthCat` filters bases with length conditions.
+  /// `lengthCat` filters bases with length conditions; `velocity` and
+  /// `pitch` (when not negative) filter bases by their velocity/pitch range.
   /// When `outCandidates` is non-null, receives all base candidates considered.
   MatchResult resolveMatch(const std::set<std::string> &techniques,
                            LengthCategory lengthCat = LengthCategory::VeryLong,
-                           std::vector<CandidateInfo> *outCandidates = nullptr) const {
+                           std::vector<CandidateInfo> *outCandidates = nullptr,
+                           int velocity = -1, int pitch = -1) const {
     double repDuration = lengthCategoryToSeconds(lengthCat);
+    const auto eligible = [&](const TechniqueCombination &c) {
+      return (c.condition.empty() || c.condition.evaluate(repDuration)) &&
+             c.admits(velocity, pitch);
+    };
 
     // Collect eligible base switches (pass length condition)
     struct BaseCandidate {
@@ -382,9 +494,7 @@ struct ExpressionMapData {
     };
     std::vector<BaseCandidate> bases;
     for (auto &c : combinations) {
-      if (c.isAddOn)
-        continue;
-      if (!c.condition.empty() && !c.condition.evaluate(repDuration))
+      if (c.isAddOn || !eligible(c))
         continue;
 
       int overlap = 0;
@@ -402,7 +512,7 @@ struct ExpressionMapData {
     }
 
     // ── Tiers 1–2: exact rendition, base alone or base + add-ons ──
-    if (auto exact = exactMatch(techniques, repDuration); !exact.empty())
+    if (auto exact = exactMatch(techniques, repDuration, velocity, pitch); !exact.empty())
       return exact;
     // Natural is Dorico's implicit default, not a sound to preserve when a
     // more specific switch exists: a bridge sends {natural, legato} where a
@@ -410,7 +520,7 @@ struct ExpressionMapData {
     if (techniques.count("pt.natural") && techniques.size() > 1) {
       auto specific = techniques;
       specific.erase("pt.natural");
-      if (auto exact = exactMatch(specific, repDuration); !exact.empty())
+      if (auto exact = exactMatch(specific, repDuration, velocity, pitch); !exact.empty())
         return exact;
     }
 
@@ -552,10 +662,12 @@ struct ExpressionMapData {
   /// Tiers 1–2 for one request: an exact base, else the most specific subset
   /// base whose remainder add-ons cover exactly. Every subset base is tried,
   /// so an equal-size base earlier in the file cannot hide an exact one.
-  MatchResult exactMatch(const std::set<std::string> &request, double repDuration) const {
+  MatchResult exactMatch(const std::set<std::string> &request, double repDuration,
+                         int velocity = -1, int pitch = -1) const {
     std::vector<const TechniqueCombination *> subsets;
     for (auto &c : combinations) {
-      if (c.isAddOn || (!c.condition.empty() && !c.condition.evaluate(repDuration)))
+      if (c.isAddOn || (!c.condition.empty() && !c.condition.evaluate(repDuration)) ||
+          !c.admits(velocity, pitch))
         continue;
       if (!isSubset(c.techniqueIDs, request))
         continue;

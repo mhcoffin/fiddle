@@ -686,7 +686,10 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     ctx.currentTimeMs = triggerTimeMs;
     ctx.sampleRate = currentSampleRate_;
     ctx.tonalContext = tonalCtx; // inject tonal context
+    ctx.tempoBpm = tempoBpm();
     strip->annotator->onNoteStart(note, ctx);
+    // A switch's millisecondsBefore moves the note and its MIDI earlier.
+    const double startMs = triggerTimeMs + strip->annotator->noteStartOffsetMs();
 
     // The inspector always receives the input note. If this strip has an
     // expression map, enrich it with the resolver's decision and MIDI output.
@@ -708,7 +711,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     // Schedule pre_note instructions first (new keyswitches before releasing
     // old)
     for (const auto &instr : note.pre_note()) {
-      double t = triggerTimeMs + instr.delay_ms();
+      double t = startMs + instr.delay_ms();
       juce::MidiMessage msg = instructionToMidi(instr, (int)note.channel());
       strip->addDelayedMessage(t, msg);
       captureInstruction(strip->emittedCapture, t, instr, (int)note.channel());
@@ -718,7 +721,8 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     if (!newKS.empty()) {
       for (const auto &old : strip->heldKeyswitchNotes) {
         if (newKS.find(old) == newKS.end()) {
-          double releaseTime = triggerTimeMs - 1.0;
+          // Same time as the new keyswitches, after them in send order.
+          double releaseTime = startMs;
           strip->addDelayedMessage(
               releaseTime, juce::MidiMessage::noteOff(
                                old.channel, old.noteNumber, (juce::uint8)64));
@@ -732,7 +736,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
 
     // Schedule during_note instructions before noteOn (matches Dorico ordering)
     for (const auto &instr : note.during_note()) {
-      double t = triggerTimeMs + instr.delay_ms();
+      double t = startMs + instr.delay_ms();
       juce::MidiMessage msg = instructionToMidi(instr, (int)note.channel());
       strip->addDelayedMessage(t, msg);
       captureInstruction(strip->emittedCapture, t, instr, (int)note.channel());
@@ -747,16 +751,16 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     juce::MidiMessage noteOnMsg =
         juce::MidiMessage::noteOn((int)note.channel(), (int)note.note_number(),
                                   (juce::uint8)note.start_velocity());
-    strip->addDelayedMessage(triggerTimeMs, noteOnMsg);
+    strip->addDelayedMessage(startMs, noteOnMsg);
     strip->emittedCapture.record(
-        triggerTimeMs, (int)note.channel(), CapturedMidiEvent::NoteOn,
+        startMs, (int)note.channel(), CapturedMidiEvent::NoteOn,
         (int)note.note_number(), (int)note.start_velocity());
 
     // If an annotator (e.g. Lua plugin) scheduled an early note-off,
     // schedule it now at note-on time + scheduled ms.
     double noteOffMs = strip->annotator->scheduledNoteOffMs();
     if (noteOffMs > 0) {
-      double noteOffTime = triggerTimeMs + noteOffMs;
+      double noteOffTime = startMs + noteOffMs;
       juce::MidiMessage earlyNoteOff = juce::MidiMessage::noteOff(
           (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
       strip->addDelayedMessage(noteOffTime, earlyNoteOff);
@@ -790,6 +794,7 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     ctx.stripChannel = channel + 1;
     ctx.currentTimeMs = triggerTimeMs;
     ctx.sampleRate = currentSampleRate_;
+    ctx.tempoBpm = tempoBpm();
     strip->annotator->onNoteEnd(note, ctx);
 
     // Update the last annotation record with duration info
@@ -829,6 +834,34 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
         int ch = instr.channel() > 0 ? instr.channel() : (int)note.channel();
         strip->heldKeyswitchNotes.insert({ch, instr.param1()});
       }
+    }
+  }
+}
+
+double MixerModel::tempoBpm() const {
+  return harmonicService_ ? harmonicService_->currentBpmSnapshot() : 120.0;
+}
+
+void MixerModel::transportStarted(double triggerTimeMs) {
+  auto graphRead = audioGraph_.read();
+  auto *graph = graphRead.get();
+  if (!graph)
+    return;
+
+  for (auto *strip : graph->strips) {
+    if (strip->inputChannel() < 0)
+      continue; // unassigned: receives no Dorico notes
+    AnnotatorContext ctx;
+    ctx.stripChannel = strip->inputChannel() + 1;
+    ctx.currentTimeMs = triggerTimeMs;
+    ctx.sampleRate = currentSampleRate_;
+    ctx.tempoBpm = tempoBpm();
+    auto midiLock = strip->lockMidiState();
+    std::vector<fiddle::MidiInstruction> init;
+    strip->annotator->onTransportStart(ctx, init);
+    for (const auto &instr : init) {
+      strip->addDelayedMessage(triggerTimeMs, instructionToMidi(instr, ctx.stripChannel));
+      captureInstruction(strip->emittedCapture, triggerTimeMs, instr, ctx.stripChannel);
     }
   }
 }
@@ -954,11 +987,13 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
     ctx.currentTimeMs = triggerTimeMs;
 
     ctx.sampleRate = currentSampleRate_;
+    ctx.tempoBpm = tempoBpm();
     auto midiLock = strip->lockMidiState();
+    const double t = triggerTimeMs + strip->annotator->controllerOffsetMs();
     if (strip->annotator->onCC(event, ctx)) {
-      strip->addDelayedMessage(triggerTimeMs, msg);
+      strip->addDelayedMessage(t, msg);
       if (event.has_cc()) {
-        strip->emittedCapture.record(triggerTimeMs, channel + 1,
+        strip->emittedCapture.record(t, channel + 1,
                                      CapturedMidiEvent::CC,
                                      (int)event.cc().controller_number(),
                                      (int)event.cc().controller_value());
@@ -967,8 +1002,8 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
       std::vector<fiddle::MidiInstruction> replacements;
       strip->annotator->translateCC(event, ctx, replacements);
       for (const auto &instr : replacements) {
-        strip->addDelayedMessage(triggerTimeMs, instructionToMidi(instr, channel + 1));
-        captureInstruction(strip->emittedCapture, triggerTimeMs, instr, channel + 1);
+        strip->addDelayedMessage(t, instructionToMidi(instr, channel + 1));
+        captureInstruction(strip->emittedCapture, t, instr, channel + 1);
       }
     }
   }

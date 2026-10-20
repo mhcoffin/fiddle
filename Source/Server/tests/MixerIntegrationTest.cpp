@@ -2259,6 +2259,77 @@ void testCompiledBridgeThroughMixer() {
   send(true, 72, 0); f.expectLevel(0);
 }
 
+// A layer's own expression map, played through the mixer as Dorico would:
+// init actions at transport start, kChannelSwitch routing, millisecondsBefore,
+// and Off actions only when the switch changes (overlaps keep the successor).
+void testLayerMapPlaysLikeDorico() {
+  using fiddle::SwitchActionType;
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  strip->setInputAssignment(0, 1); // Dorico channel 2
+  std::vector<std::pair<double, juce::MidiMessage>> received;
+  auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+  processor->onMidi = [&](const juce::MidiMessage &msg) { received.emplace_back(f.now, msg); };
+  REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+  auto map = std::make_shared<fiddle::ExpressionMapData>();
+  map->initActions = {{SwitchActionType::CC, 7, 100}};
+  map->combinations.push_back(fiddle::TechniqueCombination{
+      .name = "Tremolo", .techniqueIDs = {"pt.tremolo"},
+      .switchOnActions = {{SwitchActionType::ChannelSwitch, 5, 0},
+                          {SwitchActionType::KeySwitch, 24, 100}},
+      .switchOffActions = {{SwitchActionType::CC, 64, 0}},
+      .millisecondsBefore = 20});
+  map->combinations.push_back(fiddle::TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 36, 100}}});
+  strip->setExpressionMap(map);
+
+  const auto note = [](uint64_t noteId, int pitch, const char *technique) {
+    fiddle::Note n;
+    n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
+    (*n.mutable_notation_techniques())["technique"] = technique;
+    return n;
+  };
+  const double start = f.now;
+  f.mixer.transportStarted(start + 5);
+  auto tremolo = note(1, 72, "pt.tremolo"), natural = note(2, 74, "pt.natural");
+  auto on = tremolo; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 40);
+  on = natural; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 60);
+  auto off = tremolo; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 70);
+  off = natural; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 80);
+  while (f.now < start + 90) f.render();
+
+  struct Expected { double ms; int channel; bool noteOn, noteOff; int number, value; };
+  const std::vector<Expected> expected{
+      {5, 2, false, false, 7, 100},   // init action, strip channel
+      {20, 5, true, false, 24, 100},  // keyswitch with the note, 20 ms early
+      {20, 5, true, false, 72, 90},   // tremolo plays on its switch channel
+      {60, 5, false, false, 64, 0},   // tremolo's Off, on its channel
+      {60, 2, true, false, 36, 100},  // natural's On
+      {60, 5, false, true, 24, 0},    // latched tremolo keyswitch released
+      {60, 2, true, false, 74, 90},
+      {70, 5, false, true, 72, 0},    // overlapped note-off follows its note-on
+      {80, 2, false, true, 74, 0}};
+  REQUIRE(received.size() == expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    const auto &[at, msg] = received[i];
+    const auto &e = expected[i];
+    REQUIRE(std::abs(at - (start + e.ms)) < 2.0);
+    REQUIRE(msg.getChannel() == e.channel);
+    if (e.noteOn) {
+      REQUIRE(msg.isNoteOn() && msg.getNoteNumber() == e.number && msg.getVelocity() == e.value);
+    } else if (e.noteOff) {
+      REQUIRE(msg.isNoteOff() && msg.getNoteNumber() == e.number);
+    } else {
+      REQUIRE(msg.isController() && msg.getControllerNumber() == e.number &&
+              msg.getControllerValue() == e.value);
+    }
+  }
+}
+
 void testBridgeMapVersioningAndVerification() {
   Sandbox sandbox;
   const auto databaseFile = sandbox.directory.getChildFile("bridge.sqlite");
@@ -3337,6 +3408,7 @@ int main(int argc, char **argv) {
   };
   run("bridge documents survive version checkout and verify conservatively", testBridgeMapVersioningAndVerification);
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
+  run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {

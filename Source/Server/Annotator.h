@@ -15,6 +15,7 @@ struct AnnotatorContext {
   int stripChannel = 1; // 1-based output channel of the strip
   double sampleRate = 44100.0;
   double currentTimeMs = 0.0;
+  double tempoBpm = 120.0; // live Dorico tempo, for tick-based timing
 
   /// Currently active notes across all strips (read-only snapshot).
   const std::vector<fiddle::Note> *activeNotes = nullptr;
@@ -82,6 +83,21 @@ public:
   /// Timing delta (ms) computed by the last onNoteEnd() call.
   /// Negative = early noteOff, positive = late noteOff (overlap).
   virtual double durationAdjustMs() const { return 0.0; }
+
+  /// Shift (ms) of the last onNoteStart()'s note-on and its pre/during-note
+  /// MIDI relative to Dorico's time. Negative = earlier.
+  virtual double noteStartOffsetMs() const { return 0.0; }
+
+  /// Shift (ms) for live controllers routed through this annotator.
+  virtual double controllerOffsetMs() const { return 0.0; }
+
+  /// Called when Dorico's transport starts. Append MIDI the instrument
+  /// needs before the first note (e.g. an expression map's init actions).
+  virtual void onTransportStart(const AnnotatorContext &ctx,
+                                std::vector<fiddle::MidiInstruction> &out) {
+    (void)ctx;
+    (void)out;
+  }
 
   /// If > 0, schedules an early note-off at note-on time + this many ms.
   /// This is set during onNoteStart and checked by routeAnnotatedNoteOn.

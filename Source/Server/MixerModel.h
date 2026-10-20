@@ -219,6 +219,10 @@ public:
   /// Release all latched keyswitches on every strip (called on transport stop).
   void releaseAllKeyswitches(double triggerTimeMs);
 
+  /// Dorico's transport started: send each layer's expression-map init
+  /// actions and forget the switch state left by previous playback.
+  void transportStarted(double triggerTimeMs);
+
   /// Gracefully stop all sounding notes on transport stop.
   ///
   /// 1. Clears pending delayed messages (prevents stale note-ons from firing).
@@ -293,6 +297,7 @@ private:
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
+  double tempoBpm() const; // live Dorico tempo (120 without the service)
 
 public:
   int getPlaybackDelayMs() const;

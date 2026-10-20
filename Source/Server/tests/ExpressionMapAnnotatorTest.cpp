@@ -227,10 +227,10 @@ static void testActionToInstruction() {
                            {{SwitchActionType::ChannelSwitch, 3, 0}});
     ExpressionMapAnnotator ann(em);
     auto note = makeNotePT("pt.tremolo");
+    note.set_channel(1);
     ann.onNoteStart(note, ctx);
-    A_CHECK_EQ(note.pre_note_size(), 1);
-    A_CHECK_EQ(note.pre_note(0).type(), fiddle::MidiInstruction::CC);
-    A_CHECK_EQ(note.pre_note(0).channel(), 3);
+    A_CHECK_EQ(note.pre_note_size(), 0); // routes the note; no message
+    A_CHECK_EQ(note.channel(), 3u);
   }
 
   // NoteVelocity (should NOT produce a pre_note instruction)
@@ -855,62 +855,19 @@ static void testOnNoteEnd() {
   AnnotatorContext ctx;
   ctx.sampleRate = 44100.0;
 
-  // Case 1: no switch-off actions → post_note is empty
-  {
-    auto em = makeSimpleEM("Natural", {"pt.natural"});
-    ExpressionMapAnnotator ann(em);
-    auto note = makeNotePT("pt.natural");
-    ann.onNoteEnd(note, ctx);
-    A_CHECK_EQ(note.post_note_size(), 0);
-  }
-
-  // Case 2: CC switch-off action → emitted in post_note
-  {
-    auto em = std::make_shared<ExpressionMapData>();
-    em->name = "OffTest";
-    TechniqueCombination tc;
-    tc.name = "Natural";
-    tc.techniqueIDs = {"pt.natural"};
-    // switch-off: CC#1 → 0
-    SwitchAction offAction;
-    offAction.type = SwitchActionType::CC;
-    offAction.param1 = 1;
-    offAction.param2 = 0;
-    tc.switchOffActions.push_back(offAction);
-    em->combinations.push_back(tc);
-
-    ExpressionMapAnnotator ann(em);
-    auto note = makeNotePT("pt.natural");
-    ann.onNoteEnd(note, ctx);
-    A_CHECK_EQ(note.post_note_size(), 1);
-    A_CHECK_EQ((int)note.post_note(0).type(),
-               (int)fiddle::MidiInstruction::CC);
-    A_CHECK_EQ(note.post_note(0).param1(), 1);
-    A_CHECK_EQ(note.post_note(0).param2(), 0);
-  }
-
-  // Case 3: keyswitch switch-off action → emitted in post_note
-  {
-    auto em = std::make_shared<ExpressionMapData>();
-    em->name = "KSOffTest";
-    TechniqueCombination tc;
-    tc.name = "Legato";
-    tc.techniqueIDs = {"pt.legato"};
-    SwitchAction offKS;
-    offKS.type = SwitchActionType::KeySwitch;
-    offKS.param1 = 24;
-    offKS.param2 = 100;
-    tc.switchOffActions.push_back(offKS);
-    em->combinations.push_back(tc);
-
-    ExpressionMapAnnotator ann(em);
-    auto note = makeNotePT("pt.legato");
-    ann.onNoteEnd(note, ctx);
-    A_CHECK_EQ(note.post_note_size(), 1);
-    A_CHECK_EQ((int)note.post_note(0).type(),
-               (int)fiddle::MidiInstruction::KEY_SWITCH);
-    A_CHECK_EQ(note.post_note(0).param1(), 24);
-  }
+  // A note ending never emits switch MIDI: Off actions belong to the
+  // switch change (testSwitchOffActionsOnChange).
+  auto em = std::make_shared<ExpressionMapData>();
+  em->name = "OffTest";
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Natural",
+      .techniqueIDs = {"pt.natural"},
+      .switchOffActions = {{SwitchActionType::CC, 1, 0}}});
+  ExpressionMapAnnotator ann(em);
+  auto note = makeNotePT("pt.natural");
+  ann.onNoteStart(note, ctx);
+  ann.onNoteEnd(note, ctx);
+  A_CHECK_EQ(note.post_note_size(), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1118,7 +1075,9 @@ static void testDurationAdjust() {
   ctx.sampleRate = 44100.0;
 
   // Build an EM with timingOptions like the VSL Duality example:
-  // noteDurationPercent=85, staccatoDurationPercent=80, legatoDurationPercent=101
+  // noteDurationPercent=85, staccatoDurationPercent=80, legatoDurationPercent=101.
+  // Dorico has already applied its defaults (90/50/105%) to the received
+  // duration, so each override corrects by override/default.
   auto em = std::make_shared<ExpressionMapData>();
   em->name = "DurationTest";
   em->timingOptions.noteDurationPercent = 85;
@@ -1147,7 +1106,7 @@ static void testDurationAdjust() {
   legato.lengthFactor = 1.0f;
   em->combinations.push_back(legato);
 
-  // Default (Natural): 85% × 1.0 = 0.85 → delta = -15%
+  // Default (Natural): 85/90 × 1.0
   {
     ExpressionMapAnnotator ann(em);
     auto note = makeNotePT("pt.natural");
@@ -1155,11 +1114,11 @@ static void testDurationAdjust() {
     ann.onNoteStart(note, ctx);
     ann.onNoteEnd(note, ctx);
     double delta = ann.durationAdjustMs();
-    // Expected: (0.85 - 1.0) * 1000ms = -150ms
-    A_CHECK(std::abs(delta - (-150.0)) < 0.1);
+    // Expected: (85/90 - 1.0) * 1000ms = -55.6ms
+    A_CHECK(std::abs(delta - (-1000.0 / 18.0)) < 0.1);
   }
 
-  // Staccato: 80% × 0.8 = 0.64 → delta = -36%
+  // Staccato: 80/50 × 0.8 = 1.28
   {
     ExpressionMapAnnotator ann(em);
     auto note = makeNotePT("pt.staccato");
@@ -1167,11 +1126,11 @@ static void testDurationAdjust() {
     ann.onNoteStart(note, ctx);
     ann.onNoteEnd(note, ctx);
     double delta = ann.durationAdjustMs();
-    // Expected: (0.80 * 0.80 - 1.0) * 1000ms = (0.64 - 1.0) * 1000 = -360ms
-    A_CHECK(std::abs(delta - (-360.0)) < 0.1);
+    // Expected: (1.6 * 0.8 - 1.0) * 1000ms = +280ms
+    A_CHECK(std::abs(delta - 280.0) < 0.1);
   }
 
-  // Legato: 101% × 1.0 = 1.01 → delta = +1%
+  // Legato: 101/105 × 1.0
   {
     ExpressionMapAnnotator ann(em);
     auto note = makeNotePT("pt.legato");
@@ -1179,8 +1138,33 @@ static void testDurationAdjust() {
     ann.onNoteStart(note, ctx);
     ann.onNoteEnd(note, ctx);
     double delta = ann.durationAdjustMs();
-    // Expected: (1.01 - 1.0) * 1000ms = +10ms
-    A_CHECK(std::abs(delta - 10.0) < 0.1);
+    // Expected: (101/105 - 1.0) * 1000ms = -38.1ms
+    A_CHECK(std::abs(delta - (-4000.0 / 105.0)) < 0.1);
+  }
+
+  // No overrides: Dorico's scaling is not applied a second time
+  for (const auto *pt : {"pt.natural", "pt.staccato", "pt.staccatissimo",
+                         "pt.legato", "pt.tenuto", "pt.marcato"}) {
+    auto plain = makeSimpleEM("Plain", {pt});
+    ExpressionMapAnnotator ann(plain);
+    auto note = makeNotePT(pt);
+    note.set_duration_samples(44100);
+    ann.onNoteStart(note, ctx);
+    ann.onNoteEnd(note, ctx);
+    A_CHECK_EQ(ann.durationAdjustMs(), 0.0);
+  }
+
+  // Only the overridden category changes; lengthFactor still composes
+  {
+    auto partial = makeSimpleEM("Partial", {"pt.tenuto"});
+    partial->combinations[0].lengthFactor = 0.5f;
+    partial->timingOptions.staccatoDurationPercent = 30;
+    ExpressionMapAnnotator ann(partial);
+    auto note = makeNotePT("pt.tenuto");
+    note.set_duration_samples(44100);
+    ann.onNoteStart(note, ctx);
+    ann.onNoteEnd(note, ctx);
+    A_CHECK(std::abs(ann.durationAdjustMs() - (-500.0)) < 0.1);
   }
 
   // No EM → delta = 0
@@ -1397,7 +1381,7 @@ static void testAnnotationRecordDuration() {
 
   auto em = std::make_shared<ExpressionMapData>();
   em->name = "DurTest";
-  em->timingOptions.noteDurationPercent = 50; // cut duration in half
+  em->timingOptions.noteDurationPercent = 45; // half of Dorico's 90%
 
   TechniqueCombination tc;
   tc.name = "Natural";
@@ -1417,7 +1401,7 @@ static void testAnnotationRecordDuration() {
 
   auto *rec = ann.lastAnnotationRecord();
   A_CHECK(rec != nullptr);
-  // categoryPercent=50, lengthFactor=1.0
+  // correction=45/90, lengthFactor=1.0
   // combined = 0.5 * 1.0 = 0.5
   // delta = (0.5 - 1.0) * 1000ms = -500ms
   double expected = -500.0;
@@ -1534,6 +1518,340 @@ static void testBridgeWitnessesThroughIncomingNotes() {
   A_CHECK(result["chairs"][0]["layers"][0]["rows"][4]["status"].toString() == "missing");
 }
 
+// ---------------------------------------------------------------------------
+// Dorico-equivalence tests for a layer's own expression map
+// ---------------------------------------------------------------------------
+
+/// A note carrying several pt.xxx IDs, one per dimension.
+static fiddle::Note makeNotePTs(const std::vector<std::string> &ids,
+                                uint64_t id = 0, int noteNum = 60,
+                                int velocity = 100, uint32_t channel = 1) {
+  fiddle::Note note;
+  note.set_id(id);
+  note.set_channel(channel);
+  note.set_note_number(noteNum);
+  note.set_start_velocity(velocity);
+  for (size_t i = 0; i < ids.size(); ++i)
+    (*note.mutable_notation_techniques())["dim" + std::to_string(i)] = ids[i];
+  return note;
+}
+
+static bool isInstruction(const fiddle::MidiInstruction &inst,
+                          fiddle::MidiInstruction::Type type, int p1, int p2,
+                          int channel = 0) {
+  return inst.type() == type && inst.param1() == p1 && inst.param2() == p2 &&
+         inst.channel() == channel;
+}
+
+static void testSwitchOffActionsOnChange() {
+  std::cout << "--- testSwitchOffActionsOnChange ---" << std::endl;
+  AnnotatorContext ctx;
+  using MI = fiddle::MidiInstruction;
+
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 24, 100}},
+      .switchOffActions = {{SwitchActionType::CC, 64, 0}}});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Staccato", .techniqueIDs = {"pt.staccato"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 36, 100}}});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Mute", .techniqueIDs = {"pt.muted"}, .isAddOn = true,
+      .switchOnActions = {{SwitchActionType::CC, 20, 127}},
+      .switchOffActions = {{SwitchActionType::CC, 20, 0}}});
+  ExpressionMapAnnotator ann(em);
+
+  // Repeated notes of a switch with Off actions keep that switch.
+  auto first = makeNotePTs({"pt.natural"}, 1);
+  ann.onNoteStart(first, ctx);
+  A_CHECK_EQ(first.pre_note_size(), 1);
+  ann.onNoteEnd(first, ctx);
+  A_CHECK_EQ(first.post_note_size(), 0);
+  auto second = makeNotePTs({"pt.natural"}, 2);
+  ann.onNoteStart(second, ctx);
+  A_CHECK_EQ(second.pre_note_size(), 0);
+
+  // Changing away sends the old Off before the new On.
+  auto third = makeNotePTs({"pt.staccato"}, 3, 62);
+  ann.onNoteStart(third, ctx);
+  A_CHECK_EQ(third.pre_note_size(), 2);
+  if (third.pre_note_size() == 2) {
+    A_CHECK(isInstruction(third.pre_note(0), MI::CC, 64, 0));
+    A_CHECK(isInstruction(third.pre_note(1), MI::KEY_SWITCH, 36, 100));
+  }
+
+  // The overlapped predecessor ending does not clear its successor.
+  ann.onNoteEnd(second, ctx);
+  A_CHECK_EQ(second.post_note_size(), 0);
+  auto fourth = makeNotePTs({"pt.staccato"}, 4, 64);
+  ann.onNoteStart(fourth, ctx);
+  A_CHECK_EQ(fourth.pre_note_size(), 0);
+
+  // An add-on that drops out sends its own Off; a base that stays does not.
+  auto muted = makeNotePTs({"pt.natural", "pt.muted"}, 5);
+  ann.onNoteStart(muted, ctx);
+  auto open = makeNotePTs({"pt.natural"}, 6);
+  ann.onNoteStart(open, ctx);
+  A_CHECK_EQ(open.pre_note_size(), 2);
+  if (open.pre_note_size() == 2) {
+    A_CHECK(isInstruction(open.pre_note(0), MI::CC, 20, 0));
+    A_CHECK(isInstruction(open.pre_note(1), MI::KEY_SWITCH, 24, 100));
+  }
+}
+
+static void testChannelSwitchRouting() {
+  std::cout << "--- testChannelSwitchRouting ---" << std::endl;
+  AnnotatorContext ctx;
+  using MI = fiddle::MidiInstruction;
+
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Tremolo", .techniqueIDs = {"pt.tremolo"},
+      .switchOnActions = {{SwitchActionType::ChannelSwitch, 3, 0},
+                          {SwitchActionType::KeySwitch, 24, 100}},
+      .switchOffActions = {{SwitchActionType::CC, 64, 0}},
+      .transpose = -12});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 36, 100}}});
+  ExpressionMapAnnotator ann(em);
+
+  auto tremolo = makeNotePTs({"pt.tremolo"}, 1, 72);
+  ann.onNoteStart(tremolo, ctx);
+  A_CHECK_EQ(tremolo.channel(), 3u);
+  A_CHECK_EQ(tremolo.note_number(), 60u);
+  A_CHECK_EQ(tremolo.pre_note_size(), 1);
+  if (tremolo.pre_note_size() == 1)
+    A_CHECK(isInstruction(tremolo.pre_note(0), MI::KEY_SWITCH, 24, 100, 3));
+
+  // Controllers follow the switched channel; Dorico's dimensions stay hidden.
+  fiddle::MidiEvent cc7;
+  cc7.mutable_cc()->set_controller_number(7);
+  cc7.mutable_cc()->set_controller_value(90);
+  A_CHECK(!ann.onCC(cc7, ctx));
+  std::vector<fiddle::MidiInstruction> out;
+  ann.translateCC(cc7, ctx, out);
+  A_CHECK_EQ(out.size(), 1u);
+  if (out.size() == 1)
+    A_CHECK(isInstruction(out[0], MI::CC, 7, 90, 3));
+  fiddle::MidiEvent dimension;
+  dimension.mutable_cc()->set_controller_number(105);
+  dimension.mutable_cc()->set_controller_value(2);
+  out.clear();
+  A_CHECK(!ann.onCC(dimension, ctx));
+  ann.translateCC(dimension, ctx, out);
+  A_CHECK(out.empty());
+
+  // The next switch's Off goes where the old switch played.
+  auto natural = makeNotePTs({"pt.natural"}, 2, 62);
+  ann.onNoteStart(natural, ctx);
+  A_CHECK_EQ(natural.channel(), 1u);
+  A_CHECK_EQ(natural.pre_note_size(), 2);
+  if (natural.pre_note_size() == 2) {
+    A_CHECK(isInstruction(natural.pre_note(0), MI::CC, 64, 0, 3));
+    A_CHECK(isInstruction(natural.pre_note(1), MI::KEY_SWITCH, 36, 100));
+  }
+  A_CHECK(ann.onCC(cc7, ctx));
+
+  // The overlapped tremolo note still ends on its own channel and pitch.
+  auto tremoloOff = makeNotePTs({"pt.tremolo"}, 1, 72);
+  ann.onNoteEnd(tremoloOff, ctx);
+  A_CHECK_EQ(tremoloOff.channel(), 3u);
+  A_CHECK_EQ(tremoloOff.note_number(), 60u);
+  auto naturalOff = makeNotePTs({"pt.natural"}, 2, 62);
+  ann.onNoteEnd(naturalOff, ctx);
+  A_CHECK_EQ(naturalOff.channel(), 1u);
+}
+
+static void testSwitchLeadTime() {
+  std::cout << "--- testSwitchLeadTime ---" << std::endl;
+  AnnotatorContext ctx;
+  ctx.sampleRate = 44100.0;
+  ctx.tempoBpm = 120.0;
+
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 24, 100}},
+      .millisecondsBefore = 30});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Legato", .techniqueIDs = {"pt.legato"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 25, 100}},
+      .ticksBefore = 240, .millisecondsBefore = 10,
+      .applyMillisecondsBeforeToEndOffsets = true,
+      .applyMillisecondsBeforeToControllers = true});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Staccato", .techniqueIDs = {"pt.staccato"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 26, 100}}});
+  em->timingOptions.legatoDurationPercent = 105;
+  ExpressionMapAnnotator ann(em);
+
+  // The note and its keyswitch move together; the keyswitch has no extra
+  // lead of its own. The end and controllers stay unless the map asks.
+  auto natural = makeNotePTs({"pt.natural"}, 1);
+  natural.set_duration_samples(44100);
+  ann.onNoteStart(natural, ctx);
+  A_CHECK_EQ(ann.noteStartOffsetMs(), -30.0);
+  A_CHECK_EQ(ann.controllerOffsetMs(), 0.0);
+  A_CHECK_EQ(natural.pre_note_size(), 1);
+  if (natural.pre_note_size() == 1)
+    A_CHECK_EQ(natural.pre_note(0).delay_ms(), 0);
+  ann.onNoteEnd(natural, ctx);
+  A_CHECK_EQ(ann.durationAdjustMs(), 0.0);
+
+  // 240 ticks at 120 BPM (480 per quarter) = 250 ms, plus 10 ms.
+  auto legato = makeNotePTs({"pt.legato"}, 2);
+  legato.set_duration_samples(44100);
+  ann.onNoteStart(legato, ctx);
+  A_CHECK(std::abs(ann.noteStartOffsetMs() - (-260.0)) < 1e-9);
+  A_CHECK(std::abs(ann.controllerOffsetMs() - (-260.0)) < 1e-9);
+  ann.onNoteEnd(legato, ctx);
+  A_CHECK(std::abs(ann.durationAdjustMs() - (-260.0)) < 1e-9);
+
+  auto staccato = makeNotePTs({"pt.staccato"}, 3);
+  ann.onNoteStart(staccato, ctx);
+  A_CHECK_EQ(ann.noteStartOffsetMs(), 0.0);
+  A_CHECK_EQ(ann.controllerOffsetMs(), 0.0);
+}
+
+static void testVelocityAndPitchRanges() {
+  std::cout << "--- testVelocityAndPitchRanges ---" << std::endl;
+  AnnotatorContext ctx;
+
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 24, 100}}});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Sfz", .techniqueIDs = {"pt.sfz"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 87, 127}},
+      .velocityMin = 56});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Pizz low", .techniqueIDs = {"pt.pizzicato"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 30, 100}},
+      .pitchMax = 59});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Pizz high", .techniqueIDs = {"pt.pizzicato"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 31, 100}},
+      .pitchMin = 60});
+
+  A_CHECK(em->resolveMatch({"pt.sfz"}, LengthCategory::VeryLong, nullptr, 100, 60).base ==
+          &em->combinations[1]);
+  A_CHECK(em->resolveMatch({"pt.sfz"}, LengthCategory::VeryLong, nullptr, 40, 60).base ==
+          &em->combinations[0]);
+  A_CHECK(em->resolveMatch({"pt.pizzicato"}, LengthCategory::VeryLong, nullptr, 100, 50).base ==
+          &em->combinations[2]);
+  A_CHECK(em->resolveMatch({"pt.pizzicato"}, LengthCategory::VeryLong, nullptr, 100, 70).base ==
+          &em->combinations[3]);
+
+  // The annotator's cache distinguishes notes by the ranges' inputs.
+  ExpressionMapAnnotator ann(em);
+  const auto keyswitchFor = [&](const char *pt, int pitch, int velocity) {
+    auto note = makeNotePTs({pt}, 0, pitch, velocity);
+    ann.onNoteStart(note, ctx);
+    return note.pre_note_size() ? note.pre_note(0).param1() : -1;
+  };
+  A_CHECK_EQ(keyswitchFor("pt.pizzicato", 50, 100), 30);
+  A_CHECK_EQ(keyswitchFor("pt.pizzicato", 70, 100), 31);
+  A_CHECK_EQ(keyswitchFor("pt.sfz", 70, 100), 87);
+  A_CHECK_EQ(keyswitchFor("pt.sfz", 70, 30), 24);
+}
+
+static void testInitActionsAtTransportStart() {
+  std::cout << "--- testInitActionsAtTransportStart ---" << std::endl;
+  AnnotatorContext ctx;
+  using MI = fiddle::MidiInstruction;
+
+  ExpressionMapData parsed;
+  A_CHECK(parseExpressionMapXml(R"xml(<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition><name>Init</name><entityID>map.init</entityID>
+  <initSwitchData><enabled>true</enabled><initActions array="true">
+    <switchOnAction><type>kControlChange</type><param1>7</param1><param2>100</param2></switchOnAction>
+    <switchOnAction><type>kKeySwitch</type><param1>12</param1><param2>90</param2></switchOnAction>
+    <switchOnAction><type>kChannelSwitch</type><param1>3</param1><param2>0</param2></switchOnAction>
+  </initActions></initSwitchData>
+  <playingTechniqueCombinations array="true"><playingTechniqueCombination>
+    <name>Natural</name><techniqueIDs>pt.natural</techniqueIDs>
+    <millisecondsBefore>15</millisecondsBefore>
+    <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+    <applyMillisecondsBeforeToControllers>false</applyMillisecondsBeforeToControllers>
+    <switchOnActions array="true"><switchOnAction><type>kKeySwitch</type><param1>24</param1><param2>100</param2></switchOnAction></switchOnActions>
+    <switchOffActions array="true"/>
+  </playingTechniqueCombination></playingTechniqueCombinations>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)xml",
+                                parsed));
+  A_CHECK_EQ(parsed.initActions.size(), 3u);
+  A_CHECK_EQ(parsed.combinations[0].millisecondsBefore, 15);
+  A_CHECK(parsed.combinations[0].applyMillisecondsBeforeToEndOffsets);
+  A_CHECK(!parsed.combinations[0].applyMillisecondsBeforeToControllers);
+
+  ExpressionMapAnnotator ann(std::make_shared<ExpressionMapData>(parsed));
+  std::vector<fiddle::MidiInstruction> init;
+  ann.onTransportStart(ctx, init);
+  A_CHECK_EQ(init.size(), 2u);
+  if (init.size() == 2) {
+    A_CHECK(isInstruction(init[0], MI::CC, 7, 100));
+    A_CHECK(isInstruction(init[1], MI::KEY_SWITCH, 12, 90));
+  }
+
+  // A new playback re-sends the first note's switch.
+  auto first = makeNotePTs({"pt.natural"}, 1);
+  ann.onNoteStart(first, ctx);
+  auto repeat = makeNotePTs({"pt.natural"}, 2);
+  ann.onNoteStart(repeat, ctx);
+  A_CHECK_EQ(repeat.pre_note_size(), 0);
+  init.clear();
+  ann.onTransportStart(ctx, init);
+  auto restarted = makeNotePTs({"pt.natural"}, 3);
+  ann.onNoteStart(restarted, ctx);
+  A_CHECK_EQ(restarted.pre_note_size(), 1);
+
+  // A disabled block sends nothing.
+  ExpressionMapData disabled;
+  A_CHECK(parseExpressionMapXml(R"xml(<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition><name>Off</name><entityID>map.off</entityID>
+  <initSwitchData><enabled>false</enabled><initActions array="true">
+    <switchOnAction><type>kControlChange</type><param1>7</param1><param2>100</param2></switchOnAction>
+  </initActions></initSwitchData>
+  <playingTechniqueCombinations array="true"><playingTechniqueCombination>
+    <name>Natural</name><techniqueIDs>pt.natural</techniqueIDs>
+  </playingTechniqueCombination></playingTechniqueCombinations>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)xml",
+                                disabled));
+  A_CHECK(disabled.initActions.empty());
+}
+
+static void testCanonicalTechniquePriority() {
+  std::cout << "--- testCanonicalTechniquePriority ---" << std::endl;
+  for (const auto *pt : {"pt.naturalHarmonic1", "pt.naturalHarmonic2",
+                         "pt.artificialHarmonic", "pt.pizzicato",
+                         "pt.bartoksnapPizzicato", "pt.naturalharmonic"})
+    A_CHECK_EQ(ExpressionMapData::techniquePriority(pt), 100);
+  for (const auto *pt : {"pt.muted", "pt.cupMute", "pt.straightMute",
+                         "pt.harmonMuteStemIn", "pt.harmonMuteStemOut",
+                         "pt.harmonMuteStemExtended", "pt.plungerMute",
+                         "pt.bucketMute", "pt.cupmute"})
+    A_CHECK_EQ(ExpressionMapData::techniquePriority(pt), 50);
+  A_CHECK_EQ(ExpressionMapData::techniquePriority("pt.flutterTongue"), 10);
+
+  // As in Daniel's Mute + Flutter-tongue example: with no combined switch
+  // the mute wins over an ordinary technique (here one that sorts first).
+  ExpressionMapData map;
+  map.combinations.push_back(TechniqueCombination{
+      .name = "Accent", .techniqueIDs = {"pt.accent"}});
+  map.combinations.push_back(TechniqueCombination{
+      .name = "Cup", .techniqueIDs = {"pt.cupMute"}});
+  map.combinations.push_back(TechniqueCombination{
+      .name = "Harmonic", .techniqueIDs = {"pt.naturalHarmonic1"}});
+  A_CHECK(map.resolveMatch({"pt.accent", "pt.cupMute"}).base ==
+          &map.combinations[1]);
+  A_CHECK(map.resolveMatch({"pt.cupMute", "pt.naturalHarmonic1"}).base ==
+          &map.combinations[2]);
+}
+
 void runAnnotatorTests() {
   testBridgeWitnessesThroughIncomingNotes();
   testReverseHumanize();
@@ -1562,6 +1880,12 @@ void runAnnotatorTests() {
   testConditionEvaluation();
   testAnnotatorConditionFiltering();
   testDurationAdjust();
+  testSwitchOffActionsOnChange();
+  testChannelSwitchRouting();
+  testSwitchLeadTime();
+  testVelocityAndPitchRanges();
+  testInitActionsAtTransportStart();
+  testCanonicalTechniquePriority();
 
   // AnnotationRecord tests
   testAnnotationRecordBasicMatch();
