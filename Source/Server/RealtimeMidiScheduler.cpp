@@ -1,6 +1,7 @@
 #include "RealtimeMidiScheduler.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace fiddle {
 
@@ -92,15 +93,18 @@ void RealtimeMidiScheduler::renderBlock(
   if (sampleRate <= 0.0 || numSamples <= 0)
     return;
 
-  const double blockEndMs = blockStartMs + (1000.0 * numSamples / sampleRate);
   size_t retained = 0;
   for (size_t i = 0; i < pendingCount_; ++i) {
     const auto &event = pending_[i];
-    if (event.triggerTimeMs <= blockEndMs) {
-      const auto offset = static_cast<int>(
-          std::clamp((event.triggerTimeMs - blockStartMs) * sampleRate / 1000.0,
-                     0.0, static_cast<double>(juce::jmax(0, numSamples - 1))));
-      destination.addEvent(event.data, event.size, offset);
+    // Millisecond clocks accumulate rounding error, so an event exactly on
+    // sample N arrives as N +/- epsilon. Round to the nearest sample and pick
+    // the block by that sample: truncating (or comparing raw times against the
+    // block end) would play some events one sample early.
+    const double position = std::round(
+        (event.triggerTimeMs - blockStartMs) * sampleRate / 1000.0);
+    if (position < numSamples) {
+      destination.addEvent(event.data, event.size,
+                           static_cast<int>(std::max(0.0, position)));
     } else {
       pending_[retained++] = event;
     }
