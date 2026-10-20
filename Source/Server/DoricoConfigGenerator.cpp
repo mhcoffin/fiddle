@@ -1,5 +1,7 @@
 #include "DoricoConfigGenerator.h"
 #include "BridgeMapDocument.h"
+#include <algorithm>
+#include <limits>
 #include <iostream>
 
 namespace fiddle {
@@ -338,10 +340,9 @@ DoricoConfigGenerator::buildEndpointConfigXml(
     entityToVariants[bi.entityID] = soundIdToEntities[bi.musicXMLSoundID];
   }
 
-  // Track how many times each (entityID, playerType) pair has appeared.
   // Dorico uses <index> to match the Nth player of a given instrument
   // type + player type. Solo and section are counted separately.
-  std::map<juce::String, int> entityCount;
+  const auto playerIndex = playerIndices(assignments);
 
   for (int i = 0; i < (int)assignments.size(); ++i) {
     const auto &a = assignments[i];
@@ -356,9 +357,7 @@ DoricoConfigGenerator::buildEndpointConfigXml(
       entityIds.push_back(a.entityID);
     }
 
-    // Key includes player type so solo/section are counted separately
-    juce::String countKey = a.entityID + (a.isSolo ? ":solo" : ":section");
-    int idx = entityCount[countKey]++;
+    const int idx = playerIndex[size_t(i)];
 
     // Emit one instrumentData block per variant entity ID
     for (const auto &eid : entityIds) {
@@ -375,6 +374,24 @@ DoricoConfigGenerator::buildEndpointConfigXml(
   }
 
   return root;
+}
+
+std::vector<int> DoricoConfigGenerator::playerIndices(
+    const std::vector<InstrumentAssignment> &assignments) {
+  std::map<juce::String, std::vector<size_t>> groups;
+  for (size_t i = 0; i < assignments.size(); ++i)
+    groups[assignments[i].entityID + (assignments[i].isSolo ? ":solo" : ":section")].push_back(i);
+  std::vector<int> result(assignments.size(), 0);
+  for (auto &[key, members] : groups) {
+    std::stable_sort(members.begin(), members.end(), [&](size_t a, size_t b) {
+      const auto rank = [&](size_t i) {
+        return assignments[i].ordinal >= 0 ? assignments[i].ordinal : std::numeric_limits<int>::max();
+      };
+      return rank(a) < rank(b);
+    });
+    for (size_t n = 0; n < members.size(); ++n) result[members[n]] = int(n);
+  }
+  return result;
 }
 
 // ── playbacktemplatespec.xml ──────────────────────────────────────────────

@@ -22,6 +22,7 @@ struct InstrumentAssignment {
   int bankLSB = 0;       // Bank Select LSB (CC32)
   bool isSolo;           // true = solo player, false = section player
   int flatIndex = -1;    // Stable MIDI slot; sequential when unspecified
+  int ordinal = -1;      // Player number among same instrument/role (Flute 1, 2…); list order when unspecified
   juce::String expressionMapID = "xmap.user.Fiddle.1";
 };
 
@@ -58,6 +59,11 @@ public:
    * Keeping serialization separate makes sparse, stable MIDI assignments
    * directly testable.
    */
+  /// Dorico <index> for each assignment: the Nth player of its instrument and
+  /// player type, ranked by ordinal (then list order), never by list position
+  /// alone. Chairs re-added later keep their numbers.
+  static std::vector<int> playerIndices(const std::vector<InstrumentAssignment> &assignments);
+
   static std::unique_ptr<juce::XmlElement> buildEndpointConfigXml(
       const std::vector<InstrumentAssignment> &assignments,
       const std::vector<BrowsableInstrument> &browserInstruments);

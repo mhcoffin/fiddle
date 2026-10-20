@@ -6529,6 +6529,7 @@ void MainComponent::installChairPlaybackTemplate() {
     assignment.bankLSB = bankLSB;
     assignment.isSolo = chair.role == DoricoRole::solo;
     assignment.flatIndex = chair.flatIndex;
+    assignment.ordinal = chair.ordinal;
     assignments.push_back(std::move(assignment));
     maxFlatIndex = std::max(maxFlatIndex, chair.flatIndex);
 
@@ -6596,12 +6597,12 @@ void MainComponent::installChairPlaybackTemplate() {
   masterList_.saveToDB(db_);
 
   std::vector<ChannelAssignmentRow> channelRows;
-  std::map<std::pair<juce::String, bool>, int> instanceCounts;
-  for (const auto &chair : chairs) {
-    const bool isSolo = chair.role == DoricoRole::solo;
-    const auto entityId = juce::String(chair.instrumentEntityId);
-    channelRows.push_back({chair.flatIndex, entityId, isSolo,
-                           ++instanceCounts[{entityId, isSolo}]});
+  // Same player numbering as the endpoint config (assignments follow chairs).
+  const auto playerIndex = DoricoConfigGenerator::playerIndices(assignments);
+  for (size_t i = 0; i < chairs.size(); ++i) {
+    const auto &chair = chairs[i];
+    channelRows.push_back({chair.flatIndex, juce::String(chair.instrumentEntityId),
+                           chair.role == DoricoRole::solo, playerIndex[i] + 1});
   }
   db_.saveChannelAssignments(channelRows);
   masterList_.reconcileAssignments(db_);

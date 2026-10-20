@@ -71,6 +71,35 @@ void testSparseStableDestinationsAreUsedAsEndpointNumbers() {
                                 "endpoints", "") == "18");
 }
 
+// A chair re-added later lists after its siblings (display order), but Dorico's
+// first solo flute must still reach the chair named Flute 1.
+void testPlayerIndexFollowsOrdinalNotListOrder() {
+  std::vector<fiddle::InstrumentAssignment> assignments;
+  const auto add = [&](const char *name, int ordinal, int flat, bool solo = true) {
+    fiddle::InstrumentAssignment a;
+    a.entityID = "instrument.wind.flute"; a.name = name; a.isSolo = solo;
+    a.ordinal = ordinal; a.flatIndex = flat;
+    assignments.push_back(a);
+  };
+  add("Flute 2", 2, 10);
+  add("Flute 1", 1, 8);
+  add("Flute section 1", 1, 12, false);
+  const auto indices = fiddle::DoricoConfigGenerator::playerIndices(assignments);
+  CHECK(indices == std::vector<int>({1, 0, 0}));
+  auto xml = fiddle::DoricoConfigGenerator::buildEndpointConfigXml(assignments, {});
+  std::map<std::pair<juce::String, juce::String>, juce::String> endpointFor;
+  if (auto *instruments = xml ? xml->getChildByName("instruments") : nullptr)
+    for (auto *data : instruments->getChildIterator())
+      endpointFor[{data->getChildElementAllSubText("playerType", ""), data->getChildElementAllSubText("index", "")}] =
+          data->getChildElementAllSubText("endpoints", "");
+  CHECK((endpointFor[{"kSoloPlayer", "0"}] == "8"));  // Flute 1
+  CHECK((endpointFor[{"kSoloPlayer", "1"}] == "10")); // Flute 2
+  CHECK((endpointFor[{"kSectionPlayer", "0"}] == "12"));
+  // Without ordinals (older callers), list order still decides.
+  for (auto &a : assignments) a.ordinal = -1;
+  CHECK(fiddle::DoricoConfigGenerator::playerIndices(assignments) == std::vector<int>({0, 1, 0}));
+}
+
 struct Sandbox {
   juce::File dir = juce::File::getSpecialLocation(juce::File::tempDirectory)
       .getChildFile("fiddle-template-test-" + juce::Uuid().toString());
@@ -211,6 +240,7 @@ int main() {
   juce::File(FIDDLE_TEST_ROOT).setAsCurrentWorkingDirectory();
   try {
     testSparseStableDestinationsAreUsedAsEndpointNumbers();
+    testPlayerIndexFollowsOrdinalNotListOrder();
     testPinnedMapsInstallWithMatchingEndpointsAndPresets();
     testFailedPublicationRestoresExistingFiles();
   } catch (const std::exception &error) { ++failed; std::cerr << error.what() << '\n'; }
