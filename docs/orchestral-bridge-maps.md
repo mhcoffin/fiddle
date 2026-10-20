@@ -8,9 +8,18 @@ and brass candidates are available. The [authoring workspace and source-derived
 decoder](bridge-map-authoring.md) are implemented; production host acceptance
 and coordinated installation remain pending.
 
+## Section maps in the playback template (2026-10-19)
+
+All four profiles now exist. [Pitched percussion r1](../experiments/orchestral-percussion-bridge/README.md)
+covers timpani and the orchestral mallet instruments (review pending).
+Template installation assigns each chair its section's map from the Dorico
+instrument, pins the four revisions with the branch/version, and leaves every
+other instrument on the universal map. There is no manual assignment step; see
+[bridge maps](bridge-map-authoring.md).
+
 ## Wire schema 2 (2026-10-19)
 
-The current templates are **strings r4, woodwinds r2 and brass r2**. They keep
+The current templates are **strings r4, woodwinds r2, brass r2 and pitched percussion r1**. They keep
 r3/r1 vocabulary, allocation and grouping, and change only the wire encoding.
 Schema-1 maps (strings r1–r3, winds r1) remain frozen and are still decoded.
 

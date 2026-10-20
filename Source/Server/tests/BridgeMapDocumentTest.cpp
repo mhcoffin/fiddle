@@ -1,4 +1,5 @@
 #include "BridgeMapDocument.h"
+#include "BridgeSections.h"
 #include "NoteStreamTracker.h"
 #include "NoteInspection.h"
 #include "ProjectSettings.h"
@@ -218,6 +219,33 @@ void tests() {
   initialize(tracker, *strings->compiled);
   tracker.processEvent(key(76, 90)); CHECK(notes.size() == 1);
   schemaTwo();
+  const auto section = [](const char *id) { return bridgeSectionForInstrument(id); };
+  CHECK(section("instrument.strings.violin") == BridgeSection::Strings);
+  CHECK(section("instrument.strings.violoncello") == BridgeSection::Strings);
+  CHECK(section("instrument.strings.viol.bass") == BridgeSection::None); // not viola
+  CHECK(section("instrument.strings.contrabass.d") == BridgeSection::Strings);
+  CHECK(section("instrument.wind.flute.alto") == BridgeSection::Woodwinds);
+  CHECK(section("instrument.wind.flute.pan") == BridgeSection::None);
+  CHECK(section("instrument.wind.saxophone.tenor") == BridgeSection::Woodwinds);
+  CHECK(section("instrument.wind.saxophone.soprillo") == BridgeSection::None);
+  CHECK(section("instrument.wind.recorder.alto") == BridgeSection::None);
+  CHECK(section("instrument.brass.horn.f") == BridgeSection::Brass);
+  CHECK(section("instrument.brass.horn.tenor") == BridgeSection::None);
+  CHECK(section("instrument.brass.tuba.wagner") == BridgeSection::Brass);
+  CHECK(section("instrument.brass.sousaphone") == BridgeSection::None);
+  CHECK(section("instrument.pitchedpercussion.timpani") == BridgeSection::PitchedPercussion);
+  CHECK(section("instrument.pitchedpercussion.bells.tubular.alias.chimes") == BridgeSection::PitchedPercussion);
+  CHECK(section("instrument.pitchedpercussion.almglocken") == BridgeSection::None);
+  CHECK(section("instrument.keyboard.piano") == BridgeSection::None);
+  for (const auto &info : bridgeSections()) {
+    const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r4/"
+        : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r2/"
+        : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r2/"
+        : "experiments/orchestral-percussion-bridge/pitched-percussion-r1/");
+    const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
+    if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
+    CHECK(built->schema == 2);
+  }
   std::cout << "Bridge compiler, persistence, corruption, runtime isolation and schema 2 passed\n";
 }
 } // namespace

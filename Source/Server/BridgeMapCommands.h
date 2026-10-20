@@ -1,5 +1,6 @@
 #pragma once
 #include "BridgeMapDocument.h"
+#include "BridgeSections.h"
 #include "NoteStreamTracker.h"
 #include "ProjectSettingsAction.h"
 
@@ -27,6 +28,40 @@ public:
     mixer_.allNotesOff(); tracker_.setBridgeMaps(project_);
   }
   void invalidateVerification() { restore(mixer_.projectSettings().bridgeMapsJson); }
+
+  struct ChairInput { int flatIndex; juce::String entityId; };
+  // Template installation: pin one map per orchestral section (the branch's
+  // existing pin, else the built-in template) and route each chair's channel
+  // to its section's map. Other chairs keep the universal map. Revisions no
+  // longer pinned or routed are dropped. Recorded as one undoable change.
+  bool applyChairSections(const std::vector<ChairInput> &chairs,
+                          const std::function<juce::String(const BridgeSectionInfo &)> &loadTemplate) {
+    if (!canChange()) return false;
+    BridgeMapProject after;
+    for (const auto &info : bridgeSections()) {
+      std::shared_ptr<const BridgeMapDocument> doc;
+      if (const auto pin = project_.sections.find(info.key); pin != project_.sections.end())
+        doc = project_.documents.at(pin->second);
+      else {
+        juce::String error;
+        const auto xml = loadTemplate(info);
+        if (xml.isEmpty()) return fail(juce::String("Built-in bridge map is missing: ") + info.templateFile);
+        if (!(doc = BridgeMapDocument::compile(xml, error)))
+          return fail(juce::String("Built-in bridge map is invalid (") + info.templateFile + "): " + error);
+      }
+      after.documents[doc->contentHash] = doc;
+      after.sections[info.key] = doc->contentHash;
+    }
+    for (const auto &chair : chairs) {
+      const auto *info = bridgeSectionInfo(bridgeSectionForInstrument(chair.entityId));
+      if (!info || chair.flatIndex < 0) continue;
+      const BridgeMapProject::Endpoint endpoint{chair.flatIndex / 16, chair.flatIndex % 16 + 1};
+      if (endpoint == BridgeMapProject::Endpoint{0, 1}) continue; // metronome
+      after.assignments[endpoint] = after.sections.at(info->key);
+    }
+    if (after.serialize() == project_.serialize()) { error_.clear(); return true; }
+    return commit(after, "Assign bridge maps by instrument section");
+  }
   bool publish(const juce::String &source, const juce::String &parent = {}, int low = 21, int high = 114) {
     if (!canChange()) return false;
     auto xml = source;
@@ -69,6 +104,7 @@ public:
     for (const auto &[hash, existing] : project_.documents)
       if (existing->entityId == doc->entityId && hash != doc->contentHash)
         return fail("That Dorico map ID already has different content. Publish as a new revision from the selected map.");
+    if (project_.documents.count(doc->contentHash)) { error_.clear(); return true; } // already present
     auto after = project_; after.documents[doc->contentHash] = doc;
     return commit(after, "Publish bridge map revision");
   }
@@ -139,7 +175,15 @@ public:
       }
       assignments.add(juce::var(a));
     }
+    juce::Array<juce::var> sections;
+    for (const auto &info : bridgeSections()) {
+      auto *s = new juce::DynamicObject(); s->setProperty("key", info.key); s->setProperty("label", info.label);
+      const auto pin = project_.sections.find(info.key);
+      s->setProperty("hash", pin == project_.sections.end() ? juce::String{} : pin->second);
+      sections.add(juce::var(s));
+    }
     o->setProperty("documents", docs); o->setProperty("assignments", assignments);
+    o->setProperty("sections", sections);
     o->setProperty("error", error_); o->setProperty("busy", busy_() || tracker_.hasActiveNotes());
     return juce::var(o);
   }

@@ -1,11 +1,21 @@
-# Bridge map authoring and project history
+# Bridge maps: section profiles, installation and project history
 
-Implemented 2026-10-16. Open **View → Windows → Technique Catalog → Bridge maps**.
-No catalog scan is needed. The workspace offers Strings r4, Woodwinds r2 and
-Brass r2 starting maps (wire schema 2, 2026-10-19), `.doricolib` import/export,
-an advanced XML editor, and versioned port/channel assignments. Schema-1 maps
-(strings r3, winds r1) are frozen but still compile and decode.
+**Workflow (2026-10-19).** Fiddle has one bridge map per orchestral section:
+strings r4, woodwinds r2, brass r2 and pitched percussion r1 (all wire schema 2).
+**Chairs → Install Playback Template** chooses the map for every chair from its
+Dorico instrument (`BridgeSections.h`), writes the maps into the Fiddle playback
+template, and pins the four revisions with the project's branch/version. Every
+other chair keeps the universal Fiddle map. Users do not assign ports, channels
+or maps. A branch keeps the revisions it pinned even when the app ships newer
+built-ins; changing a map is future editor work.
+**View → Windows → Technique Catalog → Bridge maps** is read-only. It shows the
+four section maps (with Dorico export) and each routed channel's live status.
 The compiler/decoder exists; production Dorico acceptance is still pending.
+
+The manual workspace described below (starting-map buttons, per-port
+assignment, advanced XML publishing, export verification, bundle import) was
+removed from the UI on 2026-10-19. `BridgeMapCommands` keeps the publish,
+import and verify operations for tests and a future editor.
 
 ## Source and revisions
 
@@ -29,11 +39,10 @@ so every layer listening to that input receives the same decoded intent.
 
 ## Cooperating with Dorico
 
-1. Assign revisions to the port/channels shown in **Chairs**, then select
-   **Chairs → Install Playback Template**. The installer writes the pinned maps
-   and references them in both Dorico's endpoint configuration and preset library.
-   Restart Dorico and apply the **Fiddle** playback template. Manual map
-   export/import/assignment is also supported. Updating library files does not
+1. Select **Chairs → Install Playback Template**. The installer assigns each
+   section chair its map, writes the pinned maps, and references them in both
+   Dorico's endpoint configuration and preset library.
+   Restart Dorico and apply the **Fiddle** playback template. Updating library files does not
    update a map already embedded in a Dorico project.
 2. Start playback so Dorico sends the map's Init and current commands. For a
    schema-2 map, Init includes the **revision beacon** (KS126/KS127). If it
@@ -80,9 +89,7 @@ following is the first host smoke test, not a claim that it has already passed.
    use the same solo/section violin choice when creating the Dorico score. Assign
    a working sound layer and instrument expression map to each chair. A chair
    without a sound layer will not produce audio.
-2. Note the destinations in Chairs. Under **Technique Catalog → Bridge maps**,
-   add Strings, Woodwinds and Brass, and assign them to those destinations.
-   Use the displayed ports/channels rather than assuming contiguous allocation.
+2. Nothing to assign: the installer derives each chair's map from its instrument.
 3. With Dorico closed, select **Chairs → Install Playback Template**. Installation
    stages a complete package, retains older immutable bridge files, and restores
    replaced files if publication fails. Changing a pin marks the template as

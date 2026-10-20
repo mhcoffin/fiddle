@@ -313,7 +313,7 @@ juce::var BridgeMapDocument::toJson() const {
   return juce::var(o);
 }
 juce::String BridgeMapProject::serialize() const {
-  if (documents.empty() && assignments.empty()) return {};
+  if (documents.empty() && assignments.empty() && sections.empty()) return {};
   auto *o = new juce::DynamicObject(); o->setProperty("schema", 1);
   juce::Array<juce::var> docs, routes;
   for (const auto &[hash, doc] : documents) docs.add(doc->toJson());
@@ -321,6 +321,11 @@ juce::String BridgeMapProject::serialize() const {
     auto *a = new juce::DynamicObject(); a->setProperty("port", ep.first); a->setProperty("channel", ep.second); a->setProperty("map", hash); routes.add(juce::var(a));
   }
   o->setProperty("documents", docs); o->setProperty("assignments", routes);
+  if (!sections.empty()) { // Absent for older projects, keeping their hashes.
+    auto *pins = new juce::DynamicObject();
+    for (const auto &[key, hash] : sections) pins->setProperty(key, hash);
+    o->setProperty("sections", juce::var(pins));
+  }
   return juce::JSON::toString(juce::var(o), true);
 }
 bool BridgeMapProject::parse(const juce::String &json, BridgeMapProject &out, juce::String &error) {
@@ -348,6 +353,15 @@ bool BridgeMapProject::parse(const juce::String &json, BridgeMapProject &out, ju
       require(port >= 0 && port < 16 && channel >= 1 && channel <= 16 && result.documents.count(hash), "Missing revision or invalid endpoint");
       require(port != 0 || channel != 1, "Port 1/channel 1 is reserved for the metronome");
       require(result.assignments.emplace(Endpoint{port, channel}, hash).second, "Duplicate endpoint assignment");
+    }
+    if (const auto pins = value["sections"]; !pins.isVoid()) {
+      const auto *object = pins.getDynamicObject();
+      require(object != nullptr, "Invalid bridge sections");
+      for (const auto &pin : object->getProperties()) {
+        const auto hash = pin.value.toString();
+        require(pin.value.isString() && result.documents.count(hash), "Bridge section pins a missing revision");
+        result.sections.emplace(pin.name.toString(), hash);
+      }
     }
     out = std::move(result); return true;
   } catch (const std::exception &e) { error = e.what(); return false; }

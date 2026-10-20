@@ -3758,9 +3758,12 @@ void MainComponent::broadcastMessage(const juce::String &type,
       "setChairState", "setDoricoInstruments", "setTemplateDirty", "setUndoState",
       "chairOperationResult", "chairTemplateResult"};
   static const juce::StringArray busTopics{"setGroupBusState", "setMixerState", "setUndoState"};
+  // The Bridge maps tab lives in the Technique Catalog tool window.
+  static const juce::StringArray catalogTopics{"setBridgeMapState"};
   for (auto &[id, window] : toolWindows_)
     if ((id == "chairs" && chairTopics.contains(type)) ||
-        (id == "bus-manager" && busTopics.contains(type)))
+        (id == "bus-manager" && busTopics.contains(type)) ||
+        (id == "technique-catalog" && catalogTopics.contains(type)))
       window->sendMessage(type, data);
   auto *envelope = new juce::DynamicObject();
   envelope->setProperty("type", type);
@@ -6536,6 +6539,23 @@ void MainComponent::installChairPlaybackTemplate() {
         ++bankMSB;
       }
     }
+  }
+
+  // Each orchestral-section chair gets its section's bridge map; the rest
+  // keep the universal map. Pins are recorded with this branch/version.
+  std::vector<BridgeMapCommands::ChairInput> bridgeChairs;
+  for (const auto &chair : chairs)
+    bridgeChairs.push_back({chair.flatIndex, juce::String(chair.instrumentEntityId)});
+  const auto templates = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+      .getParentDirectory().getSiblingFile("Resources").getChildFile("BridgeMaps");
+  if (!bridgeMapCommands_->applyChairSections(bridgeChairs, [&templates](const BridgeSectionInfo &info) {
+        const auto file = templates.getChildFile(info.templateFile);
+        return file.existsAsFile() ? file.loadFileAsString() : juce::String{};
+      })) {
+    broadcastMessage("chairTemplateResult",
+                     juce::var("Error: " + bridgeMapCommands_->status()["error"].toString()));
+    pushBridgeMapState();
+    return;
   }
 
   DoricoConfigGenerator generator;

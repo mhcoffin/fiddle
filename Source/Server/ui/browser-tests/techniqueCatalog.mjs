@@ -218,50 +218,40 @@ try {
     await page.getByRole("button", { name: "Bridge maps", exact: true }).click();
     await page.getByRole("region", { name: "Bridge maps", exact: true }).waitFor();
     assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "requestBridgeMaps")));
-    await page.getByRole("button", { name: "Woodwinds", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "addBridgeTemplate" && m.payload[0] === "Woodwinds")));
     const bridgeState = {
-        documents: [{ hash: "fixture-hash", name: "Fixture woodwind bridge", revision: 1, entityId: "xmap.fixture.woodwind", sourceXml: "<fixture />", low: 21, high: 114, dimensions: 36 }],
-        assignments: [{ port: 1, channel: 2, hash: "fixture-hash", verified: false }], error: "", busy: false,
+        documents: [{ hash: "strings-hash", name: "Fiddle Bridge - Orchestral Strings r4 (host test)", revision: 4, schema: 2, entityId: "xmap.fixture.strings", sourceXml: "<fixture />", low: 21, high: 114, dimensions: 33 }],
+        sections: [{ key: "strings", label: "Orchestral strings", hash: "strings-hash" }, { key: "brass", label: "Orchestral brass", hash: "" }],
+        assignments: [{ port: 0, channel: 2, hash: "strings-hash", verified: false, beacon: "absent", receivedBeacon: [-1, -1], expectedBeacon: [81, 22], lastWithheld: "", withheldNotes: 0, invalidCommands: 0, ignoredOffs: 0, debouncedOffs: 0 }],
+        error: "", busy: false,
     };
     await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), bridgeState);
-    assert.match(await page.locator(".bridges").innerText(), /Unverified · notes withheld/);
-    await page.getByRole("button", { name: "Verify assigned map…", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "verifyBridgeAssignment" && m.payload[0].port === 1 && m.payload[0].channel === 2)));
-    await page.getByLabel("Bridge port", { exact: true }).fill("3");
-    await page.getByLabel("Bridge channel", { exact: true }).fill("4");
-    await page.getByRole("button", { name: "Assign revision", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "assignBridgeRevision" && m.payload[0].port === 2 && m.payload[0].channel === 4 && m.payload[0].hash === "fixture-hash")));
-    await page.getByText("Advanced XML draft", { exact: true }).click();
-    await page.getByRole("textbox", { name: "Bridge map XML", exact: true }).fill("<edited />");
-    await page.getByRole("button", { name: "Publish new revision", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "publishBridgeRevision" && m.payload[0].sourceXml === "<edited />" && m.payload[0].parent === "fixture-hash")));
-    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, error: "Unsupported bridge field: test", busy: true });
-    assert.match(await page.getByRole("alert").innerText(), /Unsupported bridge field/);
-    assert.ok(await page.getByRole("button", { name: "Assign revision", exact: true }).isDisabled());
-    await page.getByRole("button", { name: "Refresh status", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.filter(m => m.type === "requestBridgeMaps").length >= 2));
-    assert.equal(await page.getByRole("textbox", { name: "Bridge map XML", exact: true }).inputValue(), "<edited />");
-    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...bridgeState.assignments[0], verified: true }] });
-    assert.match(await page.locator(".bridges").innerText(), /assignment confirmed by user/);
-    const live = { ...bridgeState.assignments[0], verified: true, beacon: "mismatched", receivedBeacon: [3, 4], expectedBeacon: [81, 22],
-        lastWithheld: "Dorico is playing a different bridge revision", withheldNotes: 2, invalidCommands: 0, ignoredOffs: 1, debouncedOffs: 3 };
+    let bridgeText = await page.locator(".bridges").innerText();
+    assert.match(bridgeText, /Orchestral Strings r4 \(host test\) · revision 4 · wire schema 2/);
+    assert.match(bridgeText, /Not set yet · install the playback template from Chairs/);
+    assert.match(bridgeText, /Port 1, channel 2\s+Orchestral strings\s+Waiting for the revision beacon/);
+    // Read-only: no manual assignment, template or XML controls remain.
+    for (const name of ["Assign revision", "Woodwinds", "Verify assigned map…", "Publish new revision", "Import map or bundle…"])
+        assert.equal(await page.getByRole("button", { name, exact: true }).count(), 0, name);
+    await page.getByRole("button", { name: "Export Dorico map…", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "exportBridgeMap" && m.payload[0] === "strings-hash")));
+    const live = { ...bridgeState.assignments[0], beacon: "mismatched", receivedBeacon: [3, 4],
+        lastWithheld: "Dorico is playing a different bridge revision", withheldNotes: 2, ignoredOffs: 1, debouncedOffs: 3 };
     await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [live] });
-    const liveText = await page.locator(".bridges").innerText();
-    assert.match(liveText, /different revision \(beacon 3\/4, expected 81\/22\)/);
-    assert.match(liveText, /2 notes withheld · 1 stale Offs ignored · 3 early Offs suppressed/);
-    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...live, verified: false, beacon: "matched", lastWithheld: "", withheldNotes: 0 }] });
+    bridgeText = await page.locator(".bridges").innerText();
+    assert.match(bridgeText, /different revision \(beacon 3\/4, expected 81\/22\)/);
+    assert.match(bridgeText, /2 notes withheld · 1 stale Offs ignored · 3 early Offs suppressed/);
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, assignments: [{ ...live, beacon: "matched", lastWithheld: "", withheldNotes: 0 }] });
     assert.match(await page.locator(".bridges").innerText(), /Beacon matches/);
-    await page.getByRole("button", { name: "Remove assignment", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "assignBridgeRevision" && m.payload[0].hash === "" && m.payload[0].port === 1 && m.payload[0].channel === 2)));
-    await page.getByRole("button", { name: "Export project bundle…", exact: true }).click();
-    assert.ok(await page.evaluate(() => window.messages.some(m => m.type === "exportBridgeMap" && m.payload[0] === "")));
+    await page.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), { ...bridgeState, error: "Built-in bridge map is missing: x" });
+    assert.match(await page.getByRole("alert").innerText(), /Built-in bridge map is missing/);
+    await page.getByRole("button", { name: "Refresh live status", exact: true }).click();
+    assert.ok(await page.evaluate(() => window.messages.filter(m => m.type === "requestBridgeMaps").length >= 2));
     await page.setViewportSize({ width: 480, height: 650 });
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bridge-maps-fixture.png") });
     assert.deepEqual(errors, []);
-    console.log("PASS: technique catalog and bridge revision authoring, assignment, verification, gating, export, and narrow layout");
+    console.log("PASS: technique catalog and read-only bridge sections, live status, export, and narrow layout");
 } finally {
     if (browser) await browser.close();
     await new Promise(resolve => server.close(resolve));

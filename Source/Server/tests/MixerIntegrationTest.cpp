@@ -2278,6 +2278,11 @@ void testBridgeMapVersioningAndVerification() {
     fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [&] { return busy; });
     REQUIRE(bridges.publish(source));
     originalHash = bridges.status()["documents"][0]["hash"].toString();
+    // Re-adding the same map succeeds without a change or an Undo step.
+    const auto settingsBefore = f.mixer.projectSettings().bridgeMapsJson;
+    REQUIRE(bridges.publish(source));
+    REQUIRE(bridges.status()["documents"].size() == 1);
+    REQUIRE(f.mixer.projectSettings().bridgeMapsJson == settingsBefore);
     REQUIRE(bridges.assign(0, 2, originalHash));
     REQUIRE(!bridges.assign(0, 1, originalHash)); // Reserved metronome.
     REQUIRE(bridges.verify(0, 2, source));
@@ -2342,6 +2347,59 @@ void testBridgeMapVersioningAndVerification() {
     // A portable bundle needs no source files or previous bridge library.
     REQUIRE(bridges.importBundle(juce::String(sourceSnapshot)));
   }
+}
+
+void testBridgeSectionsFromChairs() {
+  MixerFixture f;
+  fiddle::NoteStreamTracker tracker;
+  bool busy = false;
+  fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [&] { return busy; });
+  const auto root = juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments");
+  const auto load = [&](const fiddle::BridgeSectionInfo &info) {
+    for (const auto *dir : {"orchestral-strings-bridge/r4", "orchestral-winds-bridge/woodwinds-r2",
+                            "orchestral-winds-bridge/brass-r2", "orchestral-percussion-bridge/pitched-percussion-r1"}) {
+      const auto file = root.getChildFile(dir).getChildFile(info.templateFile);
+      if (file.existsAsFile()) return file.loadFileAsString();
+    }
+    return juce::String{};
+  };
+  const std::vector<fiddle::BridgeMapCommands::ChairInput> chairs{
+      {1, "instrument.strings.violin"}, {2, "instrument.wind.flute"}, {3, "instrument.brass.horn.f"},
+      {4, "instrument.pitchedpercussion.timpani"}, {5, "instrument.keyboard.piano"}, {17, "instrument.strings.viola"}};
+  REQUIRE(bridges.applyChairSections(chairs, load));
+  auto status = bridges.status();
+  REQUIRE(status["documents"].size() == 4);
+  REQUIRE(status["assignments"].size() == 5); // piano keeps the universal map
+  fiddle::BridgeMapProject project; juce::String error;
+  REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
+  REQUIRE(project.sections.size() == 4);
+  REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
+  REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
+  REQUIRE(project.assignments.at({0, 5}) == project.sections.at("pitched-percussion"));
+  REQUIRE(!project.assignments.count({0, 6}));
+  // Reapplying unchanged chairs records nothing.
+  const auto before = f.mixer.projectSettings().bridgeMapsJson;
+  REQUIRE(bridges.applyChairSections(chairs, load));
+  REQUIRE(f.mixer.projectSettings().bridgeMapsJson == before);
+  f.undo.undo();
+  REQUIRE(f.mixer.projectSettings().bridgeMapsJson.empty());
+  f.undo.redo();
+  REQUIRE(f.mixer.projectSettings().bridgeMapsJson == before);
+  // A branch's pinned revision is kept rather than replaced by the built-in.
+  const auto r3 = fiddle::BridgeMapDocument::compile(root.getChildFile(
+      "orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib").loadFileAsString(), error);
+  REQUIRE(r3);
+  auto pinned = project; pinned.documents[r3->contentHash] = r3; pinned.sections["strings"] = r3->contentHash;
+  REQUIRE(bridges.importBundle(pinned.serialize()));
+  REQUIRE(bridges.applyChairSections(chairs, load));
+  REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
+  REQUIRE(project.assignments.at({0, 2}) == r3->contentHash);
+  REQUIRE(project.documents.size() == 4); // the unused built-in strings revision is dropped
+  busy = true;
+  REQUIRE(!bridges.applyChairSections(chairs, load));
+  busy = false;
+  // Every section is pinned now, so no built-in template is needed.
+  REQUIRE(bridges.applyChairSections(chairs, [](const fiddle::BridgeSectionInfo &) { return juce::String{}; }));
 }
 
 void testProjectSettingsAndAtomicMixerUndo() {
@@ -3279,6 +3337,7 @@ int main(int argc, char **argv) {
   };
   run("bridge documents survive version checkout and verify conservatively", testBridgeMapVersioningAndVerification);
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
+  run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {
     for (int workers : {1, 2, 4}) testStemPrintRouting(workers);

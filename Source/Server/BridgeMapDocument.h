@@ -59,6 +59,9 @@ struct BridgeMapProject {
   using Endpoint = std::pair<int, int>; // port 0..15, channel 1..16
   std::map<juce::String, std::shared_ptr<const BridgeMapDocument>> documents;
   std::map<Endpoint, juce::String> assignments;
+  // Section key (BridgeSections.h) -> pinned revision. Template installation
+  // derives assignments from chairs; a branch keeps its pinned revisions.
+  std::map<juce::String, juce::String> sections;
   juce::String serialize() const;
   static bool parse(const juce::String &, BridgeMapProject &, juce::String &error);
 };
