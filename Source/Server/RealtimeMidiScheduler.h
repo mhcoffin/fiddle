@@ -16,7 +16,14 @@ public:
   static constexpr size_t kCapacity = 8192;
 
   bool schedule(double triggerTimeMs,
-                const juce::MidiMessage &message) noexcept;
+                const juce::MidiMessage &message, uint64_t tag = 0) noexcept;
+
+  /// A new non-zero tag for schedule(), unique to this scheduler.
+  uint64_t nextTag() noexcept { return nextTag_.fetch_add(1, std::memory_order_relaxed); }
+
+  /// Withdraws a pending message scheduled with @p tag. A message that has
+  /// already been rendered is unaffected. Call from the scheduling thread.
+  bool cancel(uint64_t tag) noexcept;
   void requestClear() noexcept;
   void requestPanic() noexcept;
 
@@ -33,6 +40,10 @@ public:
 
 private:
   RealtimeMpscQueue<RealtimeMidiMessage, kCapacity> incoming_;
+  static constexpr size_t kCancelCapacity = 1024;
+  RealtimeMpscQueue<uint64_t, kCancelCapacity> cancels_;
+  std::atomic<uint64_t> nextTag_{1};
+  std::array<uint64_t, kCancelCapacity> cancelled_{}; // audio thread only
   std::array<RealtimeMidiMessage, kCapacity> pending_{};
   size_t pendingCount_ = 0; // audio thread only
   std::atomic<uint64_t> droppedMessages_{0};

@@ -14,6 +14,7 @@
 #include <deque>
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <map>
 #include <memory>
 #include <set>
 #include <vector>
@@ -234,7 +235,18 @@ public:
       prepareToPlay(sampleRate, blockSize);
   }
 
-  void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg);
+  void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg,
+                         uint64_t tag = 0);
+
+  /// Schedule a played note's on and off so that it never overlaps another
+  /// note of the same channel and pitch on this layer. Hosted instruments get
+  /// no note IDs, so the earlier note-off would silence the later note: the
+  /// earlier note ends kSamePitchGapMs before its successor starts, whichever
+  /// message arrives first. Notes of one pitch are matched first in, first out.
+  void scheduleNoteOn(double triggerTime, const juce::MidiMessage &noteOn);
+  /// Returns the time the note-off was scheduled for.
+  double scheduleNoteOff(double triggerTime, const juce::MidiMessage &noteOff);
+  static constexpr double kSamePitchGapMs = 1.0;
 
   /// Additional lead beyond the full strip rack for its longest routed path.
   /// MixerModel updates this whenever it publishes routing.
@@ -315,6 +327,14 @@ private:
   StripAudioEngine audioEngine_;
 
   RealtimeMidiScheduler midiScheduler_;
+
+  // Same-pitch bookkeeping for scheduleNoteOn/Off (MIDI-state lock).
+  struct PitchNotes {
+    struct Off { uint64_t tag; double time, onTime; };
+    std::deque<double> onTimes; // sounding notes, oldest first
+    std::vector<Off> offs;      // scheduled note-offs that may still be due
+  };
+  std::map<std::pair<int, int>, PitchNotes> pitchNotes_; // (channel, pitch)
   juce::MidiBuffer processMidiBuffer_; // audio thread only, preallocated
 
   std::atomic<double> currentSampleRate_{44100.0};

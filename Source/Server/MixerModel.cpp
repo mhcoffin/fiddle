@@ -752,7 +752,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     juce::MidiMessage noteOnMsg =
         juce::MidiMessage::noteOn((int)note.channel(), (int)note.note_number(),
                                   (juce::uint8)note.start_velocity());
-    strip->addDelayedMessage(startMs, noteOnMsg);
+    strip->scheduleNoteOn(startMs, noteOnMsg);
     strip->emittedCapture.record(
         startMs, (int)note.channel(), CapturedMidiEvent::NoteOn,
         (int)note.note_number(), (int)note.start_velocity());
@@ -806,7 +806,7 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     }
 
     // Apply duration adjustment (negative = early noteOff, positive = late)
-    double adjustedTime = triggerTimeMs + strip->annotator->durationAdjustMs();
+    const double requestedOffMs = triggerTimeMs + strip->annotator->durationAdjustMs();
 
     // Determine the switch label from the most recent annotation
     juce::String switchLabel;
@@ -820,7 +820,8 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     // Dorico)
     juce::MidiMessage noteOffMsg = juce::MidiMessage::noteOff(
         (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
-    strip->addDelayedMessage(adjustedTime, noteOffMsg);
+    // Ends before a later note of the same pitch on this layer.
+    const double adjustedTime = strip->scheduleNoteOff(requestedOffMs, noteOffMsg);
     strip->emittedCapture.record(adjustedTime, (int)note.channel(),
                                  CapturedMidiEvent::NoteOff,
                                  (int)note.note_number(), 64, switchLabel);

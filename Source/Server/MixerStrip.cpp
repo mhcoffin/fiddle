@@ -376,7 +376,7 @@ void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
 }
 
 void MixerStrip::addDelayedMessage(double triggerTime,
-                                   const juce::MidiMessage &msg) {
+                                   const juce::MidiMessage &msg, uint64_t tag) {
   // Each strip may have a different insert-rack and destination-bus latency.
   // Advance MIDI independently so direct and grouped paths remain aligned.
   if (triggerTime > 0.0) {
@@ -388,7 +388,60 @@ void MixerStrip::addDelayedMessage(double triggerTime,
         (sampleRate > 0.0 ? 1000.0 * downstream / sampleRate : 0.0);
     triggerTime = juce::jmax(0.0, triggerTime - totalLatencyMs);
   }
-  midiScheduler_.schedule(triggerTime, msg);
+  midiScheduler_.schedule(triggerTime, msg, tag);
+}
+
+namespace {
+// Older note-offs cannot overlap notes still to come; drop their records.
+constexpr double kPitchHistoryMs = 60000.0;
+template <typename Offs> void dropOldOffs(Offs &offs, double now) {
+  offs.erase(std::remove_if(offs.begin(), offs.end(),
+                            [&](const auto &off) { return off.time < now - kPitchHistoryMs; }),
+             offs.end());
+}
+} // namespace
+
+void MixerStrip::scheduleNoteOn(double triggerTime, const juce::MidiMessage &noteOn) {
+  auto lock = lockMidiState();
+  const int channel = noteOn.getChannel(), pitch = noteOn.getNoteNumber();
+  auto &notes = pitchNotes_[{channel, pitch}];
+  // An earlier note whose off is already scheduled past this start is ended
+  // just before it instead.
+  const double end = triggerTime - kSamePitchGapMs;
+  for (auto &off : notes.offs) {
+    if (off.time <= end || off.onTime >= triggerTime)
+      continue;
+    midiScheduler_.cancel(off.tag);
+    off.time = std::max(off.onTime, end);
+    off.tag = midiScheduler_.nextTag();
+    addDelayedMessage(off.time, juce::MidiMessage::noteOff(channel, pitch, (juce::uint8)64), off.tag);
+    emittedCapture.record(off.time, channel, CapturedMidiEvent::NoteOff, pitch, 64);
+  }
+  dropOldOffs(notes.offs, triggerTime);
+  notes.onTimes.push_back(triggerTime);
+  addDelayedMessage(triggerTime, noteOn);
+}
+
+double MixerStrip::scheduleNoteOff(double triggerTime, const juce::MidiMessage &noteOff) {
+  auto lock = lockMidiState();
+  const auto key = std::make_pair(noteOff.getChannel(), noteOff.getNoteNumber());
+  auto &notes = pitchNotes_[key];
+  double onTime = -std::numeric_limits<double>::infinity();
+  if (!notes.onTimes.empty()) {
+    onTime = notes.onTimes.front();
+    notes.onTimes.pop_front();
+  }
+  // A later note of this pitch has already been scheduled: end before it.
+  for (const double later : notes.onTimes)
+    if (later > onTime && triggerTime > later - kSamePitchGapMs)
+      triggerTime = std::max(onTime, later - kSamePitchGapMs);
+  const auto tag = midiScheduler_.nextTag();
+  addDelayedMessage(triggerTime, noteOff, tag);
+  notes.offs.push_back({tag, triggerTime, onTime});
+  dropOldOffs(notes.offs, triggerTime);
+  if (notes.onTimes.empty() && notes.offs.empty())
+    pitchNotes_.erase(key);
+  return triggerTime;
 }
 
 void MixerStrip::setDownstreamLatencySamples(int samples) noexcept {
@@ -396,11 +449,16 @@ void MixerStrip::setDownstreamLatencySamples(int samples) noexcept {
                                   std::memory_order_relaxed);
 }
 
-void MixerStrip::clearDelayedMessages() { midiScheduler_.requestClear(); }
+void MixerStrip::clearDelayedMessages() {
+  auto lock = lockMidiState();
+  pitchNotes_.clear();
+  midiScheduler_.requestClear();
+}
 
 void MixerStrip::allNotesOff() {
   auto lock = lockMidiState();
   heldKeyswitchNotes.clear();
+  pitchNotes_.clear();
   midiScheduler_.requestPanic();
 }
 

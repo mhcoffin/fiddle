@@ -6,7 +6,9 @@ and the full [built-in disposition](inventory.md).
 
 Only the playback options change: the map overrides Dorico's six note-duration
 options (note, staccato, staccatissimo, legato, tenuto, marcato) to 100%, so
-Dorico sends written lengths whatever the project's Playback Options say.
+Dorico sends written lengths whatever the project's Playback Options say, and
+turns off "Shorten note if followed by abutting note of same pitch" (Fiddle
+keeps same-pitch notes from overlapping itself).
 Fiddle then applies the duration percentages itself, per layer: the layer
 map's own override, else Fiddle's project copy of Dorico's options
 (the **Settings…** window's **Dorico note durations**). Wire schema, typed Offs and the

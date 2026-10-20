@@ -10,6 +10,7 @@ namespace fiddle {
 struct RealtimeMidiMessage {
   double triggerTimeMs = 0.0;
   uint64_t generation = 0;
+  uint64_t tag = 0; // non-zero: may be withdrawn with RealtimeMidiScheduler::cancel()
   uint8_t size = 0;
   uint8_t data[3]{};
 };

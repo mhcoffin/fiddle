@@ -115,24 +115,28 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(text(*map, "autoMutualExclusion") == "false", "Bridge maps require explicit mutex groups (Auto off)");
     require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the bridge map");
     require(text(*map, "microtonalPlaybackMethod") == "kAuto" && text(*map, "pitchBendRange") == "2", "Unsupported bridge pitch/microtonality configuration");
-    // The one supported override policy pins all six note-duration options to
-    // 100%, so Dorico sends written lengths and each layer applies its own.
+    // The one supported override policy makes Dorico send written lengths:
+    // all six note-duration options at 100% and no same-pitch truncation.
+    // Each layer then applies durations and ends same-pitch notes itself.
     const auto *overrides = map->getChildByName("playbackOptionsOverrides");
     const bool writtenDurations = overrides && overrides->getNumChildElements() > 0;
     if (writtenDurations) {
-      const auto &names = durationOptionNames();
+      std::map<juce::String, juce::String> required;
+      for (const auto *name : durationOptionNames()) required[name] = "int:100";
+      required[kTruncateSamePitchOption] = "bool:false";
       std::set<juce::String> pinned;
       for (const auto *row : overrides->getChildIterator()) {
         require(row->hasTagName("optionsOverride"), "Invalid playback override");
         fields(*row, "option value");
         const auto option = text(*row, "option");
-        require(std::any_of(names.begin(), names.end(), [&](const char *name) { return option == name; }),
-                "Only note-duration playback overrides are supported: " + option);
-        require(text(*row, "value").removeCharacters(" ") == "int:100",
-                "Bridge note-duration overrides must be 100%: " + option);
+        const auto expected = required.find(option);
+        require(expected != required.end(), "Unsupported bridge playback override: " + option);
+        require(text(*row, "value").removeCharacters(" ") == expected->second,
+                "Bridge playback override " + option + " must be " + expected->second);
         require(pinned.insert(option).second, "Duplicate playback override: " + option);
       }
-      require(pinned.size() == names.size(), "Pin all six note-duration options to 100%, or none");
+      require(pinned.size() == required.size(),
+              "Pin all six note-duration options to 100% and same-pitch truncation off, or none");
     }
     auto result = std::make_shared<BridgeMapDocument>();
     result->sourceXml = xml; result->entityId = text(*map, "entityID"); result->name = text(*map, "name");

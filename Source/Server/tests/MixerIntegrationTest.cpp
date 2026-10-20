@@ -2380,6 +2380,54 @@ void testWrittenDurationsUseProjectOptions() {
   REQUIRE(f.mixer.projectSettings().doricoDurationPercents == fiddle::kDoricoDefaultDurationPercents);
 }
 
+// Legato beyond 100% (or a later note's lead) must not let one note's off
+// silence the next note of the same pitch, in either arrival order.
+void testSamePitchNotesNeverOverlap() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  strip->setInputAssignment(0, 1);
+  std::vector<std::pair<double, juce::MidiMessage>> received;
+  auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+  processor->onMidi = [&](const juce::MidiMessage &msg) { received.emplace_back(f.now, msg); };
+  REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+  auto map = std::make_shared<fiddle::ExpressionMapData>();
+  map->combinations.push_back(fiddle::TechniqueCombination{.name = "Legato", .techniqueIDs = {"pt.legato"}});
+  map->timingOptions[fiddle::DurationCategory::Legato] = 120;
+  strip->setExpressionMap(map);
+
+  const auto note = [&](uint64_t noteId, int pitch) {
+    fiddle::Note n;
+    n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
+    n.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
+    (*n.mutable_notation_techniques())["articulation"] = "pt.legato";
+    (*n.mutable_notation_dimensions())[fiddle::kWrittenDurationDimension] = 1.0f;
+    return n;
+  };
+  const double start = f.now;
+  const auto on = [&](fiddle::Note n, double ms) { f.mixer.routeAnnotatedNoteOn(0, 1, n, start + ms); };
+  const auto off = [&](fiddle::Note n, double ms) { f.mixer.routeAnnotatedNoteOff(0, 1, n, start + ms); };
+  // Pitch 60: the first note's (extended) off is scheduled before the next on.
+  on(note(1, 60), 10); off(note(1, 60), 110); on(note(2, 60), 110); off(note(2, 60), 210);
+  // Pitch 62: the next on is scheduled before the first note's off.
+  on(note(3, 62), 10); on(note(4, 62), 110); off(note(3, 62), 110); off(note(4, 62), 210);
+  while (f.now < start + 260) f.render();
+
+  for (const int pitch : {60, 62}) {
+    std::vector<std::pair<double, bool>> events; // (time, on)
+    for (const auto &[at, msg] : received)
+      if ((msg.isNoteOn() || msg.isNoteOff()) && msg.getNoteNumber() == pitch)
+        events.emplace_back(at, msg.isNoteOn());
+    REQUIRE(events.size() == 4);
+    REQUIRE(events[0].second && !events[1].second && events[2].second && !events[3].second);
+    REQUIRE(std::abs(events[1].first - (start + 109)) < 2.0); // cut from 130 ms
+    REQUIRE(std::abs(events[2].first - (start + 110)) < 2.0);
+    REQUIRE(std::abs(events[3].first - (start + 230)) < 2.0); // last note keeps 120%
+  }
+}
+
 void testBridgeMapVersioningAndVerification() {
   Sandbox sandbox;
   const auto databaseFile = sandbox.directory.getChildFile("bridge.sqlite");
@@ -3460,6 +3508,7 @@ int main(int argc, char **argv) {
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
   run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
   run("written-length notes take the project's Dorico durations", testWrittenDurationsUseProjectOptions);
+  run("same-pitch notes never overlap on a layer", testSamePitchNotesNeverOverlap);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {

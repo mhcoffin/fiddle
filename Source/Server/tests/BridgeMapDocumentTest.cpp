@@ -158,12 +158,16 @@ void writtenDurations() {
     field->deleteAllChildElements(); field->addTextElement(value);
   };
   CHECK(!edited([&](juce::XmlElement &o) { setValue(*o.getFirstChildElement(), "value", "int: 90"); }));
-  CHECK(error.contains("100%"));
+  CHECK(error.contains("int:100"));
+  CHECK(!edited([&](juce::XmlElement &o) { setValue(*o.getChildElement(6), "value", "bool: true"); }));
+  CHECK(error.contains("bool:false"));
   CHECK(!edited([](juce::XmlElement &o) { o.removeChildElement(o.getFirstChildElement(), true); }));
   CHECK(error.contains("all six"));
+  CHECK(!edited([](juce::XmlElement &o) { o.removeChildElement(o.getChildElement(6), true); }));
+  CHECK(error.contains("truncation off"));
   CHECK(!edited([&](juce::XmlElement &o) {
     setValue(*o.getFirstChildElement(), "option", "timingOptions.timingHumanisePercent"); }));
-  CHECK(error.contains("Only note-duration"));
+  CHECK(error.contains("Unsupported bridge playback override"));
   CHECK(!edited([&](juce::XmlElement &o) {
     setValue(*o.getChildElement(1), "option", "timingOptions.noteDurationPercent"); }));
   // Reordering the rows is not a semantic change.

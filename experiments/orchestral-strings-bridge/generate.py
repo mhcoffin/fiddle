@@ -33,9 +33,13 @@ BEACON_MODULUS = 127 * 127
 
 # Playback-option overrides that pin every note-duration category to 100%, so
 # Dorico sends written lengths and Fiddle applies the duration percentages
-# (the layer map's overrides, else its copy of the project's options).
+# (the layer map's overrides, else its copy of the project's options). Dorico
+# must not shorten same-pitch notes either: Fiddle ends each one before its
+# same-pitch successor itself, after scaling.
 DURATION_OPTIONS = tuple(f"timingOptions.{name}DurationPercent" for name in
                          ("note", "staccato", "staccatissimo", "legato", "tenuto", "marcato"))
+PINNED_OPTIONS = tuple((option, "int: 100") for option in DURATION_OPTIONS) + (
+    ("timingOptions.alwaysTruncateAbuttingNotesOfSamePitch", "bool: false"),)
 
 
 def written_durations(spec):
@@ -184,7 +188,7 @@ def build(spec=legacy_profile):
     if schema >= 2:
         fingerprint_data.update(wire_schema=schema, typed_off=TYPED_OFF, beacon_pitches=list(BEACON_PITCHES))
     if written_durations(spec):
-        fingerprint_data.update(duration_overrides={option: 100 for option in DURATION_OPTIONS})
+        fingerprint_data.update(playback_overrides=dict(PINNED_OPTIONS))
     fingerprint = hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True).encode()).hexdigest()
     if schema >= 2:
         description = (f"Fiddle bridge wire schema 2: typed Off (On+{TYPED_OFF}) and revision beacon on "
@@ -261,10 +265,10 @@ def build(spec=legacy_profile):
         sub(group, "techniqueIDs", ", ".join(pts))
     overrides = sub(definition, "playbackOptionsOverrides", array="true")
     if written_durations(spec):
-        for option in DURATION_OPTIONS:
+        for option, value in PINNED_OPTIONS:
             row = sub(overrides, "optionsOverride")
             sub(row, "option", option)
-            sub(row, "value", "int: 100")
+            sub(row, "value", value)
     ET.indent(root, space="  ")
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True) + b"\n"
     counts = dict(base_switches=len(base_table), add_on_switches=index,

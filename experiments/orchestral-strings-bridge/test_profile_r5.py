@@ -49,9 +49,10 @@ class WrittenDurations(unittest.TestCase):
             for name, data in g.build(spec).items():
                 self.assertEqual((directory / name).read_bytes(), data, name)
 
-    def test_all_six_durations_pinned_to_100(self):
+    def test_durations_written_and_untruncated(self):
         expected = {option: "int: 100" for option in g.DURATION_OPTIONS}
         self.assertEqual(len(expected), 6)
+        expected["timingOptions.alwaysTruncateAbuttingNotesOfSamePitch"] = "bool: false"
         for spec, previous, _ in self.pairs():
             self.assertEqual(overrides(map_xml(g.build(spec))), expected, spec.NAME)
             self.assertEqual(overrides(map_xml(g.build(previous))), {}, previous.NAME)

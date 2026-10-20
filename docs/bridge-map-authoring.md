@@ -135,7 +135,8 @@ identities, unsupported fields/actions, inheritance, pitch/velocity filters,
 non-neutral timing/length/velocity modifiers, monophonic behavior and playback
 overrides are rejected, except one override policy: all six note-duration
 options (`timingOptions.note/staccato/staccatissimo/legato/tenuto/marcatoDurationPercent`)
-at `int: 100`, or none. That policy marks the map's notes as written-length and
+at `int: 100` plus `timingOptions.alwaysTruncateAbuttingNotesOfSamePitch` at
+`bool: false`, or none. That policy marks the map's notes as written-length and
 is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
@@ -212,6 +213,15 @@ play that map directly:
   then applies as usual. Older bridge revisions and the universal map send
   durations Dorico already scaled with the project's options; there only a
   layer override changes a duration, by override ÷ the project value.
+- **Repeated pitches.** The bridge maps also turn off Dorico's **Shorten note
+  if followed by abutting note of same pitch**, so Dorico sends each note's
+  full written length. Each layer then makes sure a note never overlaps the
+  next note of the same channel and pitch: the earlier note ends 1 ms before
+  the later one starts, whichever arrives first. Hosted instruments get no
+  note IDs, so without this a lengthened note's note-off (legato 105%, or a
+  later note's `millisecondsBefore`) would silence the following note. This
+  covers what the Dorico option does; the keyboard-only repeated-note gap
+  options are left to Dorico.
   Dorico's other timing options (humanisation, repeated-note truncation,
   maximum staccato duration) still apply in Dorico and are not emulated. Host
   check pending: that Dorico applies the 100% overrides exactly.

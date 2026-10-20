@@ -42,6 +42,11 @@ inline DurationCategory durationCategory(const std::set<std::string> &techniques
   return DurationCategory::Note;
 }
 
+/// Dorico's "Shorten note if followed by abutting note of same pitch".
+/// Bridge maps pin it off; Fiddle ends same-pitch notes per layer instead.
+inline constexpr const char *kTruncateSamePitchOption =
+    "timingOptions.alwaysTruncateAbuttingNotesOfSamePitch";
+
 /// Note dimension set on notes whose bridge map pins every duration option
 /// to 100%: the received duration is then the written length.
 inline constexpr const char *kWrittenDurationDimension = "dorico_written_duration";
