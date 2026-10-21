@@ -3006,7 +3006,7 @@ void MainComponent::showView(const juce::String &viewId) {
   static const std::map<juce::String, juce::String> tools{
       {"print", "Print Audio"}, {"chairs", "Chairs"},
       {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"},
-      {"technique-catalog", "Technique Catalog"}};
+      {"technique-catalog", "Technique Catalog"}, {"score-tests", "Score Tests"}};
   if (const auto spec = tools.find(viewId); spec != tools.end()) {
     auto &window = toolWindows_[viewId];
     if (!window) {
@@ -3087,6 +3087,7 @@ void MainComponent::refreshToolWindow(const juce::String &id) {
     pushTechniqueCatalogState(true);
   }
   else if (id == "audio-performance") pushAudioDiagnostics();
+  else if (id == "score-tests") pushScoreTestState();
   else if (id == "chairs") {
     pushChairState();
     pushUndoState();
@@ -3797,7 +3798,8 @@ void MainComponent::broadcastMessage(const juce::String &type,
   for (auto &[id, window] : toolWindows_)
     if ((id == "chairs" && chairTopics.contains(type)) ||
         (id == "bus-manager" && busTopics.contains(type)) ||
-        (id == "technique-catalog" && catalogTopics.contains(type)))
+        (id == "technique-catalog" && catalogTopics.contains(type)) ||
+        (id == "score-tests" && type == "scoreTestState"))
       window->sendMessage(type, data);
   auto *envelope = new juce::DynamicObject();
   envelope->setProperty("type", type);

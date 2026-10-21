@@ -6,21 +6,27 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-21): phase 2.** The test format, the generator, eight
-basic tests, and Fiddle's recorder and comparison exist. Phase 3 (the Score
-tests pane) and phase 4 (looking up a run by its ID from Claude) are not built
-yet, so nothing has been run against Dorico.
+**Status (2026-10-21): phase 3.** The test format, the generator, eight
+basic tests, Fiddle's recorder and comparison, and the Score Tests window
+exist. Phase 4 (Claude looking up a run by its ID) is not built yet, and no
+test has been run against Dorico.
 
-## Workflow (once phase 3 exists)
+## Workflow
 
-1. In Fiddle's **Score tests** pane, press **Arm** on a test.
-2. In Dorico, open the test's MusicXML (the pane links to it) and play it from
-   the start to the end.
-3. Press **Done**. Fiddle compares every note it received with the test's
-   expected result and shows pass or fail per note and per property.
-4. On a failure, give Claude the run ID shown in the pane (for example
-   `basic-rhythm-20261021-1432`). The run record holds the test, what Fiddle
-   received, the raw MIDI and the comparison.
+1. In Fiddle, open **View ▸ Windows ▸ Score Tests…** (the menu bar, or the
+   **View** menu in the mixer's toolbar).
+2. Press **Arm** on a test, then click its score (or **Open in Dorico** in the
+   armed bar). Fiddle copies the MusicXML to
+   `~/Library/Application Support/Fiddle/ScoreTests/scores/` and opens it in
+   the newest installed Dorico.
+3. In Dorico, play it from the start to the end. The armed bar counts the
+   notes Fiddle receives. Played it twice? Only the latest playthrough counts.
+4. Press **Done**. The window shows pass or fail, a line per failed note, and
+   the run ID. **Copy run ID** puts it on the clipboard; **Show run record**
+   reveals the file in Finder. **Cancel** disarms without a record.
+5. On a failure, give Claude the run ID (for example
+   `basic-rhythm-20261021-143200`). The run record holds the test, what
+   Fiddle received, the raw MIDI and the comparison.
 
 ## Files
 
@@ -130,7 +136,8 @@ setting: the bridge maps pin them.
 ## Recording and comparing (Fiddle)
 
 `Source/Server/ScoreTest.h` holds the recorder and the comparison;
-`ScoreTestUi.cpp` connects them to the UI.
+`ScoreTestUi.cpp` connects them to the Score Tests window
+(`ui/src/lib/ScoreTests.svelte`).
 
 - **Arm** (`armScoreTest` with a test ID) loads the test's expected result
   from the app bundle (`Contents/Resources/ScoreTests`, a copy of

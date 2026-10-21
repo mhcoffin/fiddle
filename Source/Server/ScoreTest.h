@@ -527,6 +527,11 @@ public:
     armed_.store(true, std::memory_order_release);
   }
   bool armed() const { return armed_.load(std::memory_order_acquire); }
+  // Progress while armed: notes in the current take, and takes discarded.
+  std::pair<int, int> progress() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {int(take_.notes.size() + sounding_.size()), take_.discardedTakes};
+  }
 
   void cancel() {
     std::lock_guard<std::mutex> lock(mutex_);
