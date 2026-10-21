@@ -1,6 +1,9 @@
 #pragma once
 
 #include <juce_core/juce_core.h>
+#include <algorithm>
+#include <cmath>
+#include <mutex>
 #include <vector>
 
 namespace fiddle {
@@ -81,6 +84,24 @@ public:
     e.param2 = p2;
     e.label = label;
     events_.push_back(e);
+  }
+
+  /// Move a recorded note-off (one note's end was rescheduled), keeping the
+  /// log in time order.
+  void retimeNoteOff(double oldAbsoluteTimeMs, int channel, int pitch,
+                     double newAbsoluteTimeMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const double oldTime = oldAbsoluteTimeMs - startTimeMs_;
+    for (auto it = events_.rbegin(); it != events_.rend(); ++it) {
+      if (it->type == CapturedMidiEvent::NoteOff && it->channel == channel &&
+          it->param1 == pitch && std::abs(it->relativeTimeMs - oldTime) < 1e-6) {
+        it->relativeTimeMs = newAbsoluteTimeMs - startTimeMs_;
+        std::stable_sort(events_.begin(), events_.end(), [](const auto &a, const auto &b) {
+          return a.relativeTimeMs < b.relativeTimeMs;
+        });
+        return;
+      }
+    }
   }
 
   size_t eventCount() const {

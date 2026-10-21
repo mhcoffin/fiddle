@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "tempo": 100,
+  "techniques": {
+    "6": "pizz.",
+    "7": "arco",
+    "8": "con sord.",
+    "9": "senza sord."
+  },
+  "notes": [
+    {
+      "index": 0,
+      "bar": 1,
+      "pitch": 72,
+      "checks": "plain notes: default duration, mf",
+      "technique": null
+    },
+    {
+      "index": 1,
+      "bar": 1,
+      "pitch": 74,
+      "checks": "plain notes: default duration, mf",
+      "technique": null
+    },
+    {
+      "index": 2,
+      "bar": 1,
+      "pitch": 76,
+      "checks": "plain notes: default duration, mf",
+      "technique": null
+    },
+    {
+      "index": 3,
+      "bar": 1,
+      "pitch": 77,
+      "checks": "plain notes: default duration, mf",
+      "technique": null
+    },
+    {
+      "index": 4,
+      "bar": 2,
+      "pitch": 79,
+      "checks": "staccato: duration, short-note switch",
+      "technique": null
+    },
+    {
+      "index": 5,
+      "bar": 2,
+      "pitch": 77,
+      "checks": "staccato: duration, short-note switch",
+      "technique": null
+    },
+    {
+      "index": 6,
+      "bar": 2,
+      "pitch": 76,
+      "checks": "staccato: duration, short-note switch",
+      "technique": null
+    },
+    {
+      "index": 7,
+      "bar": 2,
+      "pitch": 74,
+      "checks": "staccato: duration, short-note switch",
+      "technique": null
+    },
+    {
+      "index": 8,
+      "bar": 3,
+      "pitch": 72,
+      "checks": "tenuto: duration and dynamic delta",
+      "technique": null
+    },
+    {
+      "index": 9,
+      "bar": 3,
+      "pitch": 74,
+      "checks": "tenuto: duration and dynamic delta",
+      "technique": null
+    },
+    {
+      "index": 10,
+      "bar": 3,
+      "pitch": 76,
+      "checks": "tenuto: duration and dynamic delta",
+      "technique": null
+    },
+    {
+      "index": 11,
+      "bar": 3,
+      "pitch": 77,
+      "checks": "tenuto: duration and dynamic delta",
+      "technique": null
+    },
+    {
+      "index": 12,
+      "bar": 4,
+      "pitch": 74,
+      "checks": "slurred repeated D5: legato length without same-pitch overlap",
+      "technique": null
+    },
+    {
+      "index": 13,
+      "bar": 4,
+      "pitch": 74,
+      "checks": "slurred repeated D5: legato length without same-pitch overlap",
+      "technique": null
+    },
+    {
+      "index": 14,
+      "bar": 4,
+      "pitch": 74,
+      "checks": "slurred repeated D5: legato length without same-pitch overlap",
+      "technique": null
+    },
+    {
+      "index": 15,
+      "bar": 4,
+      "pitch": 76,
+      "checks": "slurred repeated D5: legato length without same-pitch overlap",
+      "technique": null
+    },
+    {
+      "index": 16,
+      "bar": 5,
+      "pitch": 79,
+      "checks": "f with marcato and accent: dynamic deltas",
+      "technique": null
+    },
+    {
+      "index": 17,
+      "bar": 5,
+      "pitch": 79,
+      "checks": "f with marcato and accent: dynamic deltas",
+      "technique": null
+    },
+    {
+      "index": 18,
+      "bar": 5,
+      "pitch": 81,
+      "checks": "f with marcato and accent: dynamic deltas",
+      "technique": null
+    },
+    {
+      "index": 19,
+      "bar": 5,
+      "pitch": 83,
+      "checks": "f with marcato and accent: dynamic deltas",
+      "technique": null
+    },
+    {
+      "index": 20,
+      "bar": 6,
+      "pitch": 67,
+      "checks": "pizz.: switch change",
+      "technique": "pizz."
+    },
+    {
+      "index": 21,
+      "bar": 6,
+      "pitch": 69,
+      "checks": "pizz.: switch change",
+      "technique": "pizz."
+    },
+    {
+      "index": 22,
+      "bar": 6,
+      "pitch": 71,
+      "checks": "pizz.: switch change",
+      "technique": "pizz."
+    },
+    {
+      "index": 23,
+      "bar": 6,
+      "pitch": 72,
+      "checks": "pizz.: switch change",
+      "technique": "pizz."
+    },
+    {
+      "index": 24,
+      "bar": 7,
+      "pitch": 74,
+      "checks": "arco: switch back (Off actions of pizz.)",
+      "technique": "arco"
+    },
+    {
+      "index": 25,
+      "bar": 7,
+      "pitch": 76,
+      "checks": "arco: switch back (Off actions of pizz.)",
+      "technique": "arco"
+    },
+    {
+      "index": 26,
+      "bar": 8,
+      "pitch": 77,
+      "checks": "con sord.: add-on switch",
+      "technique": "con sord."
+    },
+    {
+      "index": 27,
+      "bar": 8,
+      "pitch": 79,
+      "checks": "con sord.: add-on switch",
+      "technique": "con sord."
+    },
+    {
+      "index": 28,
+      "bar": 9,
+      "pitch": 81,
+      "checks": "senza sord.: add-on switch off",
+      "technique": "senza sord."
+    },
+    {
+      "index": 29,
+      "bar": 9,
+      "pitch": 79,
+      "checks": "senza sord.: add-on switch off",
+      "technique": "senza sord."
+    },
+    {
+      "index": 30,
+      "bar": 10,
+      "pitch": 77,
+      "checks": "p, crescendo over a held note (live dynamics)",
+      "technique": null
+    },
+    {
+      "index": 31,
+      "bar": 12,
+      "pitch": 76,
+      "checks": "f then ff on long notes",
+      "technique": null
+    },
+    {
+      "index": 32,
+      "bar": 12,
+      "pitch": 74,
+      "checks": "f then ff on long notes",
+      "technique": null
+    },
+    {
+      "index": 33,
+      "bar": 13,
+      "pitch": 72,
+      "checks": "pp staccato: velocity dynamics at another level",
+      "technique": null
+    },
+    {
+      "index": 34,
+      "bar": 13,
+      "pitch": 74,
+      "checks": "pp staccato: velocity dynamics at another level",
+      "technique": null
+    },
+    {
+      "index": 35,
+      "bar": 13,
+      "pitch": 76,
+      "checks": "pp staccato: velocity dynamics at another level",
+      "technique": null
+    },
+    {
+      "index": 36,
+      "bar": 13,
+      "pitch": 77,
+      "checks": "pp staccato: velocity dynamics at another level",
+      "technique": null
+    }
+  ]
+}

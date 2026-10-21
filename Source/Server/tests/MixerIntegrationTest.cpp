@@ -2398,6 +2398,7 @@ void testSamePitchNotesNeverOverlap() {
   map->combinations.push_back(fiddle::TechniqueCombination{.name = "Legato", .techniqueIDs = {"pt.legato"}});
   map->timingOptions[fiddle::DurationCategory::Legato] = 120;
   strip->setExpressionMap(map);
+  strip->emittedCapture.startCapture();
 
   const auto note = [&](uint64_t noteId, int pitch) {
     fiddle::Note n;
@@ -2426,6 +2427,15 @@ void testSamePitchNotesNeverOverlap() {
     REQUIRE(std::abs(events[1].first - (start + 109)) < 2.0); // cut from 130 ms
     REQUIRE(std::abs(events[2].first - (start + 110)) < 2.0);
     REQUIRE(std::abs(events[3].first - (start + 230)) < 2.0); // last note keeps 120%
+    // The emitted-MIDI capture shows each note-off once, where it was sent.
+    std::vector<std::pair<double, bool>> captured;
+    const auto log = strip->emittedCapture.toVar();
+    for (const auto &e : *log.getArray())
+      if (int(e["p1"]) == pitch && int(e["type"]) <= 1)
+        captured.emplace_back(double(e["t"]), int(e["type"]) == 0);
+    std::stable_sort(captured.begin(), captured.end());
+    REQUIRE(captured.size() == 4);
+    REQUIRE(captured[0].second && !captured[1].second && captured[2].second && !captured[3].second);
   }
 }
 

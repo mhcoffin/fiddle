@@ -412,10 +412,11 @@ void MixerStrip::scheduleNoteOn(double triggerTime, const juce::MidiMessage &not
     if (off.time <= end || off.onTime >= triggerTime)
       continue;
     midiScheduler_.cancel(off.tag);
+    const double previous = off.time;
     off.time = std::max(off.onTime, end);
     off.tag = midiScheduler_.nextTag();
     addDelayedMessage(off.time, juce::MidiMessage::noteOff(channel, pitch, (juce::uint8)64), off.tag);
-    emittedCapture.record(off.time, channel, CapturedMidiEvent::NoteOff, pitch, 64);
+    emittedCapture.retimeNoteOff(previous, channel, pitch, off.time);
   }
   dropOldOffs(notes.offs, triggerTime);
   notes.onTimes.push_back(triggerTime);
