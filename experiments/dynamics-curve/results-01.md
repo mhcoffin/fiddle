@@ -62,9 +62,10 @@ One MIDI Probe capture, Dorico 6, four complete passes (A–D in
 | `dynamicsOptions.beatStressDelta` | `double: 0.15` |
 | `noteExpressionOptions.enableNoteExpression` | `bool: false` |
 
-The last row appeared where **Use pitch contour emphasis** was meant to be
-turned on; whether that option is `enableNoteExpression`, and why it reads
-false, is unconfirmed.
+The last row is **Use pitch contour emphasis**. Its override switch was on but
+its checkbox was left unticked (confirmed from a screenshot of the map), so
+Dorico exported the override's value, false. Each override row has the switch
+(override on/off) and the value; only rows whose switch is on are exported.
 
 ## Consequences for Fiddle
 
