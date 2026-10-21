@@ -19,6 +19,15 @@ import xml.etree.ElementTree as ET
 HERE = Path(__file__).resolve().parent
 NOTE_ON, CONTROL_CHANGE = 0, 3  # RealtimeMidiEventType
 CC_CHANNEL, VELOCITY_CHANNEL = 1, 2
+# Dorico sends a new dynamic's CC1 up to a few ms after the note-on it
+# belongs to (observed 0-7 ms), so a note's CC1 is the value in force this
+# long after it starts, unless the next note comes sooner.
+CC1_SETTLE_MS = 15.0
+
+# Dorico's level for each written dynamic (results-01.md): the p family
+# counts down from -1, the f family up from +1, mp/mf are -/+0.5.
+LEVELS = dict(pppppp=-6, ppppp=-5, pppp=-4, ppp=-3, pp=-2, p=-1, mp=-0.5,
+              mf=0.5, f=1, ff=2, fff=3, ffff=4, fffff=5, ffffff=6)
 
 
 def read_capture(path):
@@ -72,16 +81,18 @@ def channel_events(blocks, channel):
     return notes, cc1
 
 
-def measure(blocks, expected, channel):
-    """Per expected note: velocity, CC1 in force at its start, and (for the
-    held hairpin note) the CC1 values sent while it sounds. None if this pass
-    does not contain the complete score on this channel."""
+def measure(blocks, expected, channel, sample_rate=48000.0):
+    """Per expected note: velocity, CC1 in force just after its start, and
+    (for the held hairpin note) the CC1 values sent while it sounds. None if
+    this pass does not contain the complete score on this channel."""
     notes, cc1 = channel_events(blocks, channel)
     if [pitch for _, pitch, _ in notes] != [n["pitch"] for n in expected]:
         return None
     rows = []
+    settle = CC1_SETTLE_MS * sample_rate / 1000.0
     for i, ((host, _, velocity), spec) in enumerate(zip(notes, expected)):
-        before = [value for at, value in cc1 if at <= host]
+        next_on = notes[i + 1][0] if i + 1 < len(notes) else math.inf
+        before = [value for at, value in cc1 if at <= min(host + settle, next_on - 1)]
         row = dict(spec, velocity=velocity, cc1=before[-1] if before else None)
         if spec["kind"] == "hairpin":
             end = notes[i + 1][0] if i + 1 < len(notes) else math.inf
@@ -99,22 +110,47 @@ def ladder(rows, key):
     return {mark: (sum(v) / len(v), max(v) - min(v)) for mark, v in values.items()}
 
 
+def shape(x, power, form):
+    """Candidate curve shapes on [0, 1]. "s-curve" bends each half toward the
+    middle: Dorico's dynamicCurveParams "0.5,p,p" (midpoint, lower and upper
+    powers)."""
+    if form == "power":
+        return x ** power
+    if form == "root":
+        return x ** (1.0 / power)
+    if x < 0.5:
+        return 0.5 * (2 * x) ** power
+    return 1 - 0.5 * (2 * (1 - x)) ** power
+
+
+def unshape(y, power, form):
+    if form == "power":
+        return y ** (1.0 / power)
+    if form == "root":
+        return y ** power
+    if y < 0.5:
+        return 0.5 * (2 * y) ** (1.0 / power)
+    return 1 - 0.5 * (2 * (1 - y)) ** (1.0 / power)
+
+
 def model(level, setting, form):
-    """Normalized output of a candidate curve for a dynamic level."""
+    """Normalized output (0..1, before MIDI rounding) of a candidate curve."""
     span = setting["max_level"] - setting["min_level"]
     x = min(1.0, max(0.0, (level - setting["min_level"]) / span))
-    power = setting["curve_power"]
-    return x ** power if form == "power" else x ** (1.0 / power)
+    return shape(x, setting["curve_power"], form)
+
+
+def midi_code(level, setting, form):
+    """Dorico's 7-bit output: 1 + 126 x curve, rounded (results-01.md)."""
+    return int(math.floor(1 + 126 * model(level, setting, form) + 0.5))
 
 
 def inverse(value, setting, form):
     span = setting["max_level"] - setting["min_level"]
-    power = setting["curve_power"]
-    x = value ** (1.0 / power) if form == "power" else value ** power
-    return setting["min_level"] + x * span
+    return setting["min_level"] + unshape(value, setting["curve_power"], form) * span
 
 
-FORMS = ("power", "root")
+FORMS = ("power", "root", "s-curve")
 
 
 def fit(measured, settings, ladder_marks):
@@ -158,6 +194,19 @@ def articulation_deltas(rows, setting, form):
     return deltas
 
 
+def exact_matches(measured, settings, form):
+    """How many ladder values equal midi_code() of the LEVELS table, per key."""
+    result = {}
+    for key in ("cc1", "velocity"):
+        hits = total = 0
+        for s in settings:
+            for mark, (mean, _) in measured.get(s["name"], {}).get(key, {}).items():
+                total += 1
+                hits += round(mean * 127) == midi_code(LEVELS[mark], s, form)
+        result[key] = (hits, total)
+    return result
+
+
 def resolution(levels, setting, form):
     """Smallest gap between adjacent dynamics after 7-bit rounding."""
     codes = sorted(round(127 * model(level, setting, form)) for level in levels.values())
@@ -173,10 +222,10 @@ def override_formats(path):
     return result
 
 
-def analyze(blocks, expected, select=None):
+def analyze(blocks, expected, select=None, sample_rate=48000.0):
     complete = []
     for index, pass_blocks in enumerate(passes(blocks), start=1):
-        per_channel = {ch: measure(pass_blocks, expected["notes"], ch)
+        per_channel = {ch: measure(pass_blocks, expected["notes"], ch, sample_rate)
                        for ch in (CC_CHANNEL, VELOCITY_CHANNEL)}
         if all(per_channel.values()):
             complete.append((index, per_channel))
@@ -205,6 +254,7 @@ def analyze(blocks, expected, select=None):
             rows=dict(cc1_map=cc_rows, velocity_map=velocity_rows)))
     fitted = fit(measured, settings, expected["ladder"])
     result["fit"] = fitted
+    result["exact"] = {form: exact_matches(measured, settings, form) for form in FORMS}
     for p in result["passes"]:
         s = p["setting"]
         p["articulations"] = {}
@@ -243,6 +293,9 @@ def print_report(result):
         print(f"Fit ({key}): levels from the linear pass: "
               + ", ".join(f"{m} {v:+.2f}" for m, v in f["levels"].items()))
         print(f"  max error by curve form: {f['max_error_by_form']} -> best: {f['best_form']}")
+    for form, counts in result.get("exact", {}).items():
+        print(f"Exact 7-bit matches with the LEVELS table, {form}: "
+              + ", ".join(f"{k} {h}/{t}" for k, (h, t) in counts.items()))
 
 
 def main():
@@ -259,8 +312,8 @@ def main():
     if args.capture:
         expected = json.loads((HERE / "dynamics-probe.expected.json").read_text())
         select = [int(x) for x in args.select.split(",")] if args.select else None
-        _, blocks = read_capture(args.capture)
-        result = analyze(blocks, expected, select)
+        header, blocks = read_capture(args.capture)
+        result = analyze(blocks, expected, select, header.get("sample_rate", 48000.0))
         print_report(result)
         if args.json:
             args.json.write_text(json.dumps(result, indent=2) + "\n")
