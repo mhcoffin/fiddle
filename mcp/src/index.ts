@@ -3,6 +3,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
 import { callFiddle } from './fiddle-client.js';
+import { getRun, listRuns } from './score-test-runs.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -31,12 +32,24 @@ async function callFiddleTool(method: string,
   }
 }
 
+async function localTool(read: () => Promise<unknown>) {
+  try {
+    return toolResult(await read());
+  } catch (error) {
+    return {
+      content: [{ type: 'text' as const,
+                  text: error instanceof Error ? error.message : String(error) }],
+      isError: true
+    };
+  }
+}
+
 function createServer(): McpServer {
   const server = new McpServer(
     { name: 'fiddle', version: '0.1.0' },
     {
       instructions:
-        'Inspect Fiddle before editing. Layer IDs come from fiddle_get_mixer. Library imports should begin with fiddle_inspect_library_sources; use map_query when the supplied directory contains multiple products. Present the proposed patches before fiddle_create_guided_library. Fiddle records edits in Undo. Do not change controls while Dorico is playing unless the user explicitly asks.'
+        'Inspect Fiddle before editing. Layer IDs come from fiddle_get_mixer. Library imports should begin with fiddle_inspect_library_sources; use map_query when the supplied directory contains multiple products. Present the proposed patches before fiddle_create_guided_library. Fiddle records edits in Undo. Do not change controls while Dorico is playing unless the user explicitly asks. Score test run IDs (from the Score Tests window) are explained by fiddle_get_score_test_run.'
     }
   );
 
@@ -188,6 +201,36 @@ function createServer(): McpServer {
     }
   }, async ({ strip_id, soloed }) =>
     callFiddleTool('layer.setSolo', { stripId: strip_id, soloed }));
+
+  server.registerTool('fiddle_list_score_test_runs', {
+    title: 'List score test runs',
+    description: 'List recent score test runs (newest first) with pass/fail and note counts. Run records are read from disk; Fiddle need not be running.',
+    inputSchema: z.object({
+      test_id: z.string().optional().describe('Only runs of this test, such as "basic-rhythm"'),
+      limit: z.number().int().min(1).max(200).optional()
+    }),
+    annotations: {
+      readOnlyHint: true, destructiveHint: false, idempotentHint: true,
+      openWorldHint: false
+    }
+  }, async ({ test_id, limit }) =>
+    localTool(() => listRuns({ testId: test_id, limit })));
+
+  server.registerTool('fiddle_get_score_test_run', {
+    title: 'Get score test run',
+    description: 'Explain a score test run by its run ID (shown in Fiddle\'s Score Tests window, for example basic-rhythm-20261021-143200): result, part bindings, bridge state, and every failed, missing and extra note with what was expected and what arrived. Pass note to also get that note\'s checks and the MIDI Fiddle saw around it.',
+    inputSchema: z.object({
+      run_id: z.string().min(1).describe('Run ID from the Score Tests window'),
+      note: z.number().int().min(0).optional().describe('Expected note index to show in detail, with MIDI around it'),
+      midi_window_ms: z.number().min(1).max(5000).optional().describe('MIDI window around the note, in ms (default 50)'),
+      limit: z.number().int().min(1).max(500).optional().describe('Most failed and extra notes to return (default 50)')
+    }),
+    annotations: {
+      readOnlyHint: true, destructiveHint: false, idempotentHint: true,
+      openWorldHint: false
+    }
+  }, async ({ run_id, note, midi_window_ms, limit }) =>
+    localTool(() => getRun(run_id, { note, midiWindowMs: midi_window_ms, limit })));
 
   server.registerTool('fiddle_undo', {
     title: 'Undo Fiddle change',

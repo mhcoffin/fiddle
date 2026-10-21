@@ -11,6 +11,14 @@
 
 ---
 
+## Score tests
+
+A run ID like `basic-rhythm-20261021-143200` names a score test run: use the
+`score-test-run` skill (`.claude/skills/score-test-run/SKILL.md`). See
+`tests/score/README.md`.
+
+---
+
 ## Build sequence
 
 Always `pnpm build` **before** `cmake --build` when any `.svelte`/`.js` file changed.

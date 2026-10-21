@@ -1,0 +1,7760 @@
+{
+  "schema_version": 1,
+  "run_id": "basic-rhythm-20261021-143200",
+  "test_id": "basic-rhythm",
+  "title": "Basic rhythm",
+  "armed_at": "2026-10-21T16:19:40.132-07:00",
+  "finished_at": "2026-10-21T16:19:40.135-07:00",
+  "pass": false,
+  "summary": {
+    "expected": 18,
+    "received": 19,
+    "passed": 17,
+    "failed": 1,
+    "missing": 0,
+    "extra": 1
+  },
+  "failures": [
+    "#3 vln bar 3 beat 1 F5/q: onset (+12 ms); duration (-12 ms)",
+    "extra note F#6 on port 1 channel 2 at 500 ms"
+  ],
+  "sample_rate": 48000.0,
+  "discarded_takes": 0,
+  "dropped_midi_events": 0,
+  "context": {
+    "bridges": [
+      {
+        "port": 1,
+        "channel": 2,
+        "instrument": "instrument.strings.violin",
+        "bridge": true,
+        "beacon": "matched",
+        "attested": false,
+        "invalid_commands": 0,
+        "withheld_total": {
+        }
+      }
+    ]
+  },
+  "chairs": [
+    {
+      "port": 1,
+      "channel": 2,
+      "instrument": "instrument.strings.violin"
+    }
+  ],
+  "comparison": {
+    "pass": false,
+    "summary": {
+      "expected": 18,
+      "received": 19,
+      "passed": 17,
+      "failed": 1,
+      "missing": 0,
+      "extra": 1
+    },
+    "offset_ms": 10000.0,
+    "tolerances": {
+      "onset_ms": 5.0,
+      "duration_ms": 5.0,
+      "level": 0.2
+    },
+    "bindings": [
+      {
+        "part": "vln",
+        "instrument": "instrument.strings.violin",
+        "port": 1,
+        "channel": 2,
+        "chair_instrument": "instrument.strings.violin",
+        "bound_by": "chair instrument"
+      }
+    ],
+    "failures": [
+      "#3 vln bar 3 beat 1 F5/q: onset (+12 ms); duration (-12 ms)",
+      "extra note F#6 on port 1 channel 2 at 500 ms"
+    ],
+    "notes": [
+      {
+        "index": 0,
+        "part": "vln",
+        "pitch": 72,
+        "bar": 1,
+        "beat": 1.0,
+        "source": "C5/w",
+        "status": "pass",
+        "received": {
+          "id": 1,
+          "port": 1,
+          "channel": 2,
+          "pitch": 72,
+          "name": "C5",
+          "onset_ms": 0.0,
+          "duration_ms": 2400.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              3.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 0.0,
+            "received": 0.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 2400.0,
+            "received": 2400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 1,
+        "part": "vln",
+        "pitch": 74,
+        "bar": 2,
+        "beat": 1.0,
+        "source": "D5/h",
+        "status": "pass",
+        "received": {
+          "id": 2,
+          "port": 1,
+          "channel": 2,
+          "pitch": 74,
+          "name": "D5",
+          "onset_ms": 2400.0,
+          "duration_ms": 1200.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 2400.0,
+            "received": 2400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 1200.0,
+            "received": 1200.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 2,
+        "part": "vln",
+        "pitch": 76,
+        "bar": 2,
+        "beat": 3.0,
+        "source": "E5/h",
+        "status": "pass",
+        "received": {
+          "id": 3,
+          "port": 1,
+          "channel": 2,
+          "pitch": 76,
+          "name": "E5",
+          "onset_ms": 3600.0,
+          "duration_ms": 1200.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 3600.0,
+            "received": 3600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 1200.0,
+            "received": 1200.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 3,
+        "part": "vln",
+        "pitch": 77,
+        "bar": 3,
+        "beat": 1.0,
+        "source": "F5/q",
+        "status": "fail",
+        "received": {
+          "id": 4,
+          "port": 1,
+          "channel": 2,
+          "pitch": 77,
+          "name": "F5",
+          "onset_ms": 4812.0,
+          "duration_ms": 588.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": false,
+            "expected": 4800.0,
+            "received": 4812.0,
+            "detail": "+12 ms"
+          },
+          {
+            "check": "duration",
+            "ok": false,
+            "expected": 600.0,
+            "received": 588.0,
+            "detail": "-12 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 4,
+        "part": "vln",
+        "pitch": 79,
+        "bar": 3,
+        "beat": 2.0,
+        "source": "G5/q",
+        "status": "pass",
+        "received": {
+          "id": 5,
+          "port": 1,
+          "channel": 2,
+          "pitch": 79,
+          "name": "G5",
+          "onset_ms": 5400.0,
+          "duration_ms": 600.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 5400.0,
+            "received": 5400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 600.0,
+            "received": 600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 5,
+        "part": "vln",
+        "pitch": 81,
+        "bar": 3,
+        "beat": 3.0,
+        "source": "A5/q",
+        "status": "pass",
+        "received": {
+          "id": 6,
+          "port": 1,
+          "channel": 2,
+          "pitch": 81,
+          "name": "A5",
+          "onset_ms": 6000.0,
+          "duration_ms": 600.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 6000.0,
+            "received": 6000.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 600.0,
+            "received": 600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 6,
+        "part": "vln",
+        "pitch": 83,
+        "bar": 3,
+        "beat": 4.0,
+        "source": "B5/q",
+        "status": "pass",
+        "received": {
+          "id": 7,
+          "port": 1,
+          "channel": 2,
+          "pitch": 83,
+          "name": "B5",
+          "onset_ms": 6600.0,
+          "duration_ms": 600.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 6600.0,
+            "received": 6600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 600.0,
+            "received": 600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 7,
+        "part": "vln",
+        "pitch": 84,
+        "bar": 4,
+        "beat": 1.0,
+        "source": "C6/e",
+        "status": "pass",
+        "received": {
+          "id": 8,
+          "port": 1,
+          "channel": 2,
+          "pitch": 84,
+          "name": "C6",
+          "onset_ms": 7200.0,
+          "duration_ms": 300.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 7200.0,
+            "received": 7200.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 300.0,
+            "received": 300.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 8,
+        "part": "vln",
+        "pitch": 83,
+        "bar": 4,
+        "beat": 1.5,
+        "source": "B5/e",
+        "status": "pass",
+        "received": {
+          "id": 9,
+          "port": 1,
+          "channel": 2,
+          "pitch": 83,
+          "name": "B5",
+          "onset_ms": 7500.0,
+          "duration_ms": 300.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 7500.0,
+            "received": 7500.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 300.0,
+            "received": 300.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 9,
+        "part": "vln",
+        "pitch": 81,
+        "bar": 4,
+        "beat": 2.0,
+        "source": "A5/e",
+        "status": "pass",
+        "received": {
+          "id": 10,
+          "port": 1,
+          "channel": 2,
+          "pitch": 81,
+          "name": "A5",
+          "onset_ms": 7800.0,
+          "duration_ms": 300.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 7800.0,
+            "received": 7800.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 300.0,
+            "received": 300.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 10,
+        "part": "vln",
+        "pitch": 79,
+        "bar": 4,
+        "beat": 2.5,
+        "source": "G5/e",
+        "status": "pass",
+        "received": {
+          "id": 11,
+          "port": 1,
+          "channel": 2,
+          "pitch": 79,
+          "name": "G5",
+          "onset_ms": 8100.0,
+          "duration_ms": 300.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 8100.0,
+            "received": 8100.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 300.0,
+            "received": 300.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 11,
+        "part": "vln",
+        "pitch": 77,
+        "bar": 4,
+        "beat": 3.0,
+        "source": "F5/h",
+        "status": "pass",
+        "received": {
+          "id": 12,
+          "port": 1,
+          "channel": 2,
+          "pitch": 77,
+          "name": "F5",
+          "onset_ms": 8400.0,
+          "duration_ms": 1200.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 8400.0,
+            "received": 8400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 1200.0,
+            "received": 1200.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 12,
+        "part": "vln",
+        "pitch": 76,
+        "bar": 5,
+        "beat": 1.0,
+        "source": "E5/q.",
+        "status": "pass",
+        "received": {
+          "id": 13,
+          "port": 1,
+          "channel": 2,
+          "pitch": 76,
+          "name": "E5",
+          "onset_ms": 9600.0,
+          "duration_ms": 900.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 9600.0,
+            "received": 9600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 900.0,
+            "received": 900.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 13,
+        "part": "vln",
+        "pitch": 74,
+        "bar": 5,
+        "beat": 2.5,
+        "source": "D5/e",
+        "status": "pass",
+        "received": {
+          "id": 14,
+          "port": 1,
+          "channel": 2,
+          "pitch": 74,
+          "name": "D5",
+          "onset_ms": 10500.0,
+          "duration_ms": 300.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 10500.0,
+            "received": 10500.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 300.0,
+            "received": 300.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 14,
+        "part": "vln",
+        "pitch": 72,
+        "bar": 5,
+        "beat": 3.0,
+        "source": "C5/h",
+        "status": "pass",
+        "received": {
+          "id": 15,
+          "port": 1,
+          "channel": 2,
+          "pitch": 72,
+          "name": "C5",
+          "onset_ms": 10800.0,
+          "duration_ms": 1200.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 10800.0,
+            "received": 10800.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 1200.0,
+            "received": 1200.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 15,
+        "part": "vln",
+        "pitch": 67,
+        "bar": 6,
+        "beat": 2.0,
+        "source": "G4/q",
+        "status": "pass",
+        "received": {
+          "id": 16,
+          "port": 1,
+          "channel": 2,
+          "pitch": 67,
+          "name": "G4",
+          "onset_ms": 12600.0,
+          "duration_ms": 600.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 12600.0,
+            "received": 12600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 600.0,
+            "received": 600.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 16,
+        "part": "vln",
+        "pitch": 69,
+        "bar": 7,
+        "beat": 1.0,
+        "source": "A4/h~",
+        "status": "pass",
+        "received": {
+          "id": 17,
+          "port": 1,
+          "channel": 2,
+          "pitch": 69,
+          "name": "A4",
+          "onset_ms": 14400.0,
+          "duration_ms": 1800.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 14400.0,
+            "received": 14400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 1800.0,
+            "received": 1800.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      },
+      {
+        "index": 17,
+        "part": "vln",
+        "pitch": 71,
+        "bar": 8,
+        "beat": 1.0,
+        "source": "B4/w",
+        "status": "pass",
+        "received": {
+          "id": 18,
+          "port": 1,
+          "channel": 2,
+          "pitch": 71,
+          "name": "B4",
+          "onset_ms": 16800.0,
+          "duration_ms": 2400.0,
+          "velocity": 100,
+          "dynamics": "cc1",
+          "pinned": true,
+          "level": 0.508,
+          "techniques": [
+            "pt.natural"
+          ],
+          "cc1": [
+            [
+              0.0,
+              68
+            ]
+          ]
+        },
+        "checks": [
+          {
+            "check": "onset",
+            "ok": true,
+            "expected": 16800.0,
+            "received": 16800.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "duration",
+            "ok": true,
+            "expected": 2400.0,
+            "received": 2400.0,
+            "detail": "+0 ms"
+          },
+          {
+            "check": "pinned_playback",
+            "ok": true,
+            "expected": true,
+            "received": true
+          },
+          {
+            "check": "level",
+            "ok": true,
+            "expected": 0.5,
+            "received": 0.508,
+            "detail": "CC1 68"
+          },
+          {
+            "check": "techniques",
+            "ok": true,
+            "expected": {
+              "includes": [],
+              "excludes": [
+                "pt.accent",
+                "pt.legato",
+                "pt.marcato",
+                "pt.staccatissimo",
+                "pt.staccato",
+                "pt.tenuto"
+              ]
+            },
+            "received": [
+              "pt.natural"
+            ]
+          }
+        ]
+      }
+    ],
+    "extras": [
+      {
+        "id": 19,
+        "port": 1,
+        "channel": 2,
+        "pitch": 90,
+        "name": "F#6",
+        "onset_ms": 500.0,
+        "duration_ms": 100.0,
+        "velocity": 100,
+        "dynamics": "cc1",
+        "pinned": true,
+        "level": 0.508,
+        "techniques": [
+          "pt.natural"
+        ],
+        "cc1": [
+          [
+            0.0,
+            68
+          ]
+        ]
+      }
+    ]
+  },
+  "origin_ms": 9900.0,
+  "received": [
+    {
+      "id": 1,
+      "port": 1,
+      "channel": 2,
+      "pitch": 72,
+      "name": "C5",
+      "onset_ms": 100.0,
+      "duration_ms": 2400.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          3.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 19,
+      "port": 1,
+      "channel": 2,
+      "pitch": 90,
+      "name": "F#6",
+      "onset_ms": 600.0,
+      "duration_ms": 100.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 2,
+      "port": 1,
+      "channel": 2,
+      "pitch": 74,
+      "name": "D5",
+      "onset_ms": 2500.0,
+      "duration_ms": 1200.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 3,
+      "port": 1,
+      "channel": 2,
+      "pitch": 76,
+      "name": "E5",
+      "onset_ms": 3700.0,
+      "duration_ms": 1200.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 4,
+      "port": 1,
+      "channel": 2,
+      "pitch": 77,
+      "name": "F5",
+      "onset_ms": 4912.0,
+      "duration_ms": 588.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 5,
+      "port": 1,
+      "channel": 2,
+      "pitch": 79,
+      "name": "G5",
+      "onset_ms": 5500.0,
+      "duration_ms": 600.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 6,
+      "port": 1,
+      "channel": 2,
+      "pitch": 81,
+      "name": "A5",
+      "onset_ms": 6100.0,
+      "duration_ms": 600.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 7,
+      "port": 1,
+      "channel": 2,
+      "pitch": 83,
+      "name": "B5",
+      "onset_ms": 6700.0,
+      "duration_ms": 600.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 8,
+      "port": 1,
+      "channel": 2,
+      "pitch": 84,
+      "name": "C6",
+      "onset_ms": 7300.0,
+      "duration_ms": 300.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 9,
+      "port": 1,
+      "channel": 2,
+      "pitch": 83,
+      "name": "B5",
+      "onset_ms": 7600.0,
+      "duration_ms": 300.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 10,
+      "port": 1,
+      "channel": 2,
+      "pitch": 81,
+      "name": "A5",
+      "onset_ms": 7900.0,
+      "duration_ms": 300.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 11,
+      "port": 1,
+      "channel": 2,
+      "pitch": 79,
+      "name": "G5",
+      "onset_ms": 8200.0,
+      "duration_ms": 300.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 12,
+      "port": 1,
+      "channel": 2,
+      "pitch": 77,
+      "name": "F5",
+      "onset_ms": 8500.0,
+      "duration_ms": 1200.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 13,
+      "port": 1,
+      "channel": 2,
+      "pitch": 76,
+      "name": "E5",
+      "onset_ms": 9700.0,
+      "duration_ms": 900.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 14,
+      "port": 1,
+      "channel": 2,
+      "pitch": 74,
+      "name": "D5",
+      "onset_ms": 10600.0,
+      "duration_ms": 300.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 15,
+      "port": 1,
+      "channel": 2,
+      "pitch": 72,
+      "name": "C5",
+      "onset_ms": 10900.0,
+      "duration_ms": 1200.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 16,
+      "port": 1,
+      "channel": 2,
+      "pitch": 67,
+      "name": "G4",
+      "onset_ms": 12700.0,
+      "duration_ms": 600.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 17,
+      "port": 1,
+      "channel": 2,
+      "pitch": 69,
+      "name": "A4",
+      "onset_ms": 14500.0,
+      "duration_ms": 1800.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    },
+    {
+      "id": 18,
+      "port": 1,
+      "channel": 2,
+      "pitch": 71,
+      "name": "B4",
+      "onset_ms": 16900.0,
+      "duration_ms": 2400.0,
+      "velocity": 100,
+      "dynamics": "cc1",
+      "pinned": true,
+      "level": 0.508,
+      "techniques": [
+        "pt.natural"
+      ],
+      "cc1": [
+        [
+          0.0,
+          68
+        ]
+      ]
+    }
+  ],
+  "midi_columns": [
+    "ms",
+    "port",
+    "channel",
+    "kind",
+    "a",
+    "b"
+  ],
+  "midi": [
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      126,
+      33
+    ],
+    [
+      0.0,
+      1,
+      2,
+      "bridge on",
+      127,
+      15
+    ],
+    [
+      0.0,
+      1,
+      0,
+      "start",
+      0,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      95.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      100.0,
+      1,
+      2,
+      "on",
+      72,
+      100
+    ],
+    [
+      103.0,
+      1,
+      2,
+      "cc",
+      1,
+      68
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      2495.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      2500.0,
+      1,
+      2,
+      "off",
+      72,
+      0
+    ],
+    [
+      2500.0,
+      1,
+      2,
+      "on",
+      74,
+      100
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      3695.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      3700.0,
+      1,
+      2,
+      "off",
+      74,
+      0
+    ],
+    [
+      3700.0,
+      1,
+      2,
+      "on",
+      76,
+      100
+    ],
+    [
+      4900.0,
+      1,
+      2,
+      "off",
+      76,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      4907.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      4912.0,
+      1,
+      2,
+      "on",
+      77,
+      100
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      5495.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      5500.0,
+      1,
+      2,
+      "off",
+      77,
+      0
+    ],
+    [
+      5500.0,
+      1,
+      2,
+      "on",
+      79,
+      100
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      6095.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      6100.0,
+      1,
+      2,
+      "off",
+      79,
+      0
+    ],
+    [
+      6100.0,
+      1,
+      2,
+      "on",
+      81,
+      100
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      6695.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      6700.0,
+      1,
+      2,
+      "off",
+      81,
+      0
+    ],
+    [
+      6700.0,
+      1,
+      2,
+      "on",
+      83,
+      100
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      7295.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      7300.0,
+      1,
+      2,
+      "off",
+      83,
+      0
+    ],
+    [
+      7300.0,
+      1,
+      2,
+      "on",
+      84,
+      100
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      7595.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      7600.0,
+      1,
+      2,
+      "off",
+      84,
+      0
+    ],
+    [
+      7600.0,
+      1,
+      2,
+      "on",
+      83,
+      100
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      7895.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      7900.0,
+      1,
+      2,
+      "off",
+      83,
+      0
+    ],
+    [
+      7900.0,
+      1,
+      2,
+      "on",
+      81,
+      100
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      8195.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      8200.0,
+      1,
+      2,
+      "off",
+      81,
+      0
+    ],
+    [
+      8200.0,
+      1,
+      2,
+      "on",
+      79,
+      100
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      8495.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      8500.0,
+      1,
+      2,
+      "off",
+      79,
+      0
+    ],
+    [
+      8500.0,
+      1,
+      2,
+      "on",
+      77,
+      100
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      9695.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      9700.0,
+      1,
+      2,
+      "off",
+      77,
+      0
+    ],
+    [
+      9700.0,
+      1,
+      2,
+      "on",
+      76,
+      100
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      10595.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      10600.0,
+      1,
+      2,
+      "off",
+      76,
+      0
+    ],
+    [
+      10600.0,
+      1,
+      2,
+      "on",
+      74,
+      100
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      10895.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      10900.0,
+      1,
+      2,
+      "off",
+      74,
+      0
+    ],
+    [
+      10900.0,
+      1,
+      2,
+      "on",
+      72,
+      100
+    ],
+    [
+      12100.0,
+      1,
+      2,
+      "off",
+      72,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      12695.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      12700.0,
+      1,
+      2,
+      "on",
+      67,
+      100
+    ],
+    [
+      13300.0,
+      1,
+      2,
+      "off",
+      67,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      14495.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      14500.0,
+      1,
+      2,
+      "on",
+      69,
+      100
+    ],
+    [
+      16300.0,
+      1,
+      2,
+      "off",
+      69,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      102,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      103,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      104,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      105,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      106,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      107,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      108,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      109,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      110,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      111,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      112,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      113,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      114,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      115,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      116,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      117,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      118,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge cc",
+      119,
+      0
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      0,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      1,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      2,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      3,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      4,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      5,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      6,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      7,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      8,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      9,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      10,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      11,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      12,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      13,
+      1
+    ],
+    [
+      16895.0,
+      1,
+      2,
+      "bridge on",
+      14,
+      1
+    ],
+    [
+      16900.0,
+      1,
+      2,
+      "on",
+      71,
+      100
+    ],
+    [
+      19300.0,
+      1,
+      2,
+      "off",
+      71,
+      0
+    ],
+    [
+      600.0,
+      1,
+      2,
+      "on",
+      90,
+      100
+    ],
+    [
+      700.0,
+      1,
+      2,
+      "off",
+      90,
+      0
+    ],
+    [
+      19400.0,
+      1,
+      0,
+      "stop",
+      0,
+      0
+    ]
+  ],
+  "expected": {
+    "schema_version": 1,
+    "id": "basic-rhythm",
+    "title": "Basic rhythm",
+    "description": "Onsets and durations of plain notes: whole to eighth, a dotted quarter, rests and a tie.",
+    "musicxml": "basic-rhythm.musicxml",
+    "spec_sha256": "9cc96a7c0406f3ef064da9eb0e8591120ad5063f6697ffe20fe891e3b04050ab",
+    "time": "4/4",
+    "tempo_map": [
+      {
+        "quarter": 0.0,
+        "bpm": 100
+      }
+    ],
+    "length_ms": 19200.0,
+    "parts": [
+      {
+        "id": "vln",
+        "name": "Violin",
+        "instrument": "instrument.strings.violin"
+      }
+    ],
+    "tolerances": {
+      "onset_ms": 5.0,
+      "duration_ms": 5.0,
+      "level": 0.2
+    },
+    "notes": [
+      {
+        "part": "vln",
+        "index": 0,
+        "pitch": 72,
+        "bar": 1,
+        "beat": 1.0,
+        "onset_ms": 0.0,
+        "duration_ms": 2400.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "C5/w"
+      },
+      {
+        "part": "vln",
+        "index": 1,
+        "pitch": 74,
+        "bar": 2,
+        "beat": 1.0,
+        "onset_ms": 2400.0,
+        "duration_ms": 1200.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "D5/h"
+      },
+      {
+        "part": "vln",
+        "index": 2,
+        "pitch": 76,
+        "bar": 2,
+        "beat": 3.0,
+        "onset_ms": 3600.0,
+        "duration_ms": 1200.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "E5/h"
+      },
+      {
+        "part": "vln",
+        "index": 3,
+        "pitch": 77,
+        "bar": 3,
+        "beat": 1.0,
+        "onset_ms": 4800.0,
+        "duration_ms": 600.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "F5/q"
+      },
+      {
+        "part": "vln",
+        "index": 4,
+        "pitch": 79,
+        "bar": 3,
+        "beat": 2.0,
+        "onset_ms": 5400.0,
+        "duration_ms": 600.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "G5/q"
+      },
+      {
+        "part": "vln",
+        "index": 5,
+        "pitch": 81,
+        "bar": 3,
+        "beat": 3.0,
+        "onset_ms": 6000.0,
+        "duration_ms": 600.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "A5/q"
+      },
+      {
+        "part": "vln",
+        "index": 6,
+        "pitch": 83,
+        "bar": 3,
+        "beat": 4.0,
+        "onset_ms": 6600.0,
+        "duration_ms": 600.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "B5/q"
+      },
+      {
+        "part": "vln",
+        "index": 7,
+        "pitch": 84,
+        "bar": 4,
+        "beat": 1.0,
+        "onset_ms": 7200.0,
+        "duration_ms": 300.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "C6/e"
+      },
+      {
+        "part": "vln",
+        "index": 8,
+        "pitch": 83,
+        "bar": 4,
+        "beat": 1.5,
+        "onset_ms": 7500.0,
+        "duration_ms": 300.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "B5/e"
+      },
+      {
+        "part": "vln",
+        "index": 9,
+        "pitch": 81,
+        "bar": 4,
+        "beat": 2.0,
+        "onset_ms": 7800.0,
+        "duration_ms": 300.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "A5/e"
+      },
+      {
+        "part": "vln",
+        "index": 10,
+        "pitch": 79,
+        "bar": 4,
+        "beat": 2.5,
+        "onset_ms": 8100.0,
+        "duration_ms": 300.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "G5/e"
+      },
+      {
+        "part": "vln",
+        "index": 11,
+        "pitch": 77,
+        "bar": 4,
+        "beat": 3.0,
+        "onset_ms": 8400.0,
+        "duration_ms": 1200.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "F5/h"
+      },
+      {
+        "part": "vln",
+        "index": 12,
+        "pitch": 76,
+        "bar": 5,
+        "beat": 1.0,
+        "onset_ms": 9600.0,
+        "duration_ms": 900.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "E5/q."
+      },
+      {
+        "part": "vln",
+        "index": 13,
+        "pitch": 74,
+        "bar": 5,
+        "beat": 2.5,
+        "onset_ms": 10500.0,
+        "duration_ms": 300.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "D5/e"
+      },
+      {
+        "part": "vln",
+        "index": 14,
+        "pitch": 72,
+        "bar": 5,
+        "beat": 3.0,
+        "onset_ms": 10800.0,
+        "duration_ms": 1200.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "C5/h"
+      },
+      {
+        "part": "vln",
+        "index": 15,
+        "pitch": 67,
+        "bar": 6,
+        "beat": 2.0,
+        "onset_ms": 12600.0,
+        "duration_ms": 600.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "G4/q"
+      },
+      {
+        "part": "vln",
+        "index": 16,
+        "pitch": 69,
+        "bar": 7,
+        "beat": 1.0,
+        "onset_ms": 14400.0,
+        "duration_ms": 1800.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "A4/h~"
+      },
+      {
+        "part": "vln",
+        "index": 17,
+        "pitch": 71,
+        "bar": 8,
+        "beat": 1.0,
+        "onset_ms": 16800.0,
+        "duration_ms": 2400.0,
+        "dynamic": {
+          "level": 0.5
+        },
+        "techniques": {
+          "includes": [],
+          "excludes": [
+            "pt.accent",
+            "pt.legato",
+            "pt.marcato",
+            "pt.staccatissimo",
+            "pt.staccato",
+            "pt.tenuto"
+          ]
+        },
+        "source": "B4/w"
+      }
+    ]
+  }
+}

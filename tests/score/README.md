@@ -6,10 +6,10 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-21): phase 3.** The test format, the generator, eight
-basic tests, Fiddle's recorder and comparison, and the Score Tests window
-exist. Phase 4 (Claude looking up a run by its ID) is not built yet, and no
-test has been run against Dorico.
+**Status (2026-10-21): all four phases built** — the test format and
+generator, eight basic tests, Fiddle's recorder and comparison, the Score
+Tests window, and looking up a run by its ID. No test has been run against
+Dorico yet.
 
 ## Workflow
 
@@ -27,6 +27,22 @@ test has been run against Dorico.
 5. On a failure, give Claude the run ID (for example
    `basic-rhythm-20261021-143200`). The run record holds the test, what
    Fiddle received, the raw MIDI and the comparison.
+
+## Looking up a run
+
+- `python3 tests/score/run_report.py <run ID>` explains a run: result, part
+  bindings, bridge state, and each failed, missing and extra note with what
+  was expected and what arrived. `--note N` adds that note's checks and the
+  MIDI around it; `--list [test ID]` lists recent runs.
+- The project skill `score-test-run` (`.claude/skills/score-test-run`) tells
+  Claude how to read a run and find the cause; it starts when you give Claude
+  a run ID.
+- The Fiddle MCP server has the same as `fiddle_list_score_test_runs` and
+  `fiddle_get_score_test_run` (read from disk; Fiddle need not be running).
+- `fixtures/sample-run.json` is a real run record (written by
+  `ScoreTestTest --write-fixture tests/score/fixtures/sample-run.json`) that
+  the report and the MCP tools are tested against; `score_test_compare` fails
+  if a record's shape no longer matches it.
 
 ## Files
 

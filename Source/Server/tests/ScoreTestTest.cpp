@@ -328,6 +328,54 @@ void takes() {
   CHECK(!rig.recorder.armed() && !rig.recorder.finish());
 }
 
+// The sample run record tests/score/run_report.py and the MCP adapter are
+// tested against (tests/score/fixtures/sample-run.json): basic-rhythm with
+// note 3 played 12 ms late and an extra note.
+juce::var sampleRun() {
+  const auto expected = loadExpected("basic-rhythm");
+  auto played = play(expected, {3, 12.0});
+  const Endpoint ep{0, 2};
+  played.events.insert(played.events.end() - 1, {at(500), noteOn(ep, at(500), 90, 100)});
+  played.events.insert(played.events.end() - 1, {at(600), noteOff(ep, at(600), 90)});
+  Rig rig(played.project);
+  rig.recorder.arm("basic-rhythm", expected, played.instruments);
+  rig.send(played);
+  const auto take = rig.recorder.finish();
+  juce::DynamicObject::Ptr bridge = new juce::DynamicObject();
+  bridge->setProperty("port", 1);
+  bridge->setProperty("channel", 2);
+  bridge->setProperty("instrument", "instrument.strings.violin");
+  bridge->setProperty("bridge", true);
+  bridge->setProperty("beacon", "matched");
+  bridge->setProperty("attested", false);
+  bridge->setProperty("invalid_commands", 0);
+  bridge->setProperty("withheld_total", new juce::DynamicObject());
+  juce::DynamicObject::Ptr context = new juce::DynamicObject();
+  context->setProperty("bridges", juce::Array<juce::var>{bridge.get()});
+  return runRecord("basic-rhythm-20261021-143200", *take, context.get());
+}
+
+// The committed sample keeps the record's shape, so the readers built on it
+// notice when the record changes.
+void sampleRunMatchesRecords() {
+  const auto fixture = juce::JSON::parse(root().getChildFile("tests/score/fixtures/sample-run.json"));
+  const auto fresh = sampleRun();
+  CHECK(fixture.isObject());
+  const auto keys = [](const juce::var &v) {
+    juce::StringArray names;
+    if (auto *o = v.getDynamicObject()) for (const auto &p : o->getProperties()) names.add(p.name.toString());
+    names.sort(false);
+    return names;
+  };
+  CHECK(keys(fixture) == keys(fresh));
+  for (const auto *k : {"comparison", "summary"}) CHECK(keys(fixture[k]) == keys(fresh[k]));
+  CHECK(keys(fixture["comparison"]["bindings"][0]) == keys(fresh["comparison"]["bindings"][0]));
+  CHECK(keys(fixture["comparison"]["notes"][3]) == keys(fresh["comparison"]["notes"][3]));
+  CHECK(keys(fixture["comparison"]["notes"][3]["checks"][0]) == keys(fresh["comparison"]["notes"][3]["checks"][0]));
+  CHECK(keys(fixture["received"][0]) == keys(fresh["received"][0]));
+  CHECK(fresh["failures"].size() == 2 && fixture["failures"] == fresh["failures"]);
+}
+
 void receivedNotes() {
   Note n;
   n.set_id(7); n.set_port(1); n.set_channel(4); n.set_note_number(61); n.set_start_velocity(80);
@@ -351,13 +399,19 @@ void receivedNotes() {
 }
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
   try {
+    if (argc == 3 && juce::String(argv[1]) == "--write-fixture") {
+      const juce::File out(juce::File::getCurrentWorkingDirectory().getChildFile(argv[2]));
+      out.getParentDirectory().createDirectory();
+      return out.replaceWithText(juce::JSON::toString(sampleRun(), false) + "\n") ? 0 : 1;
+    }
     receivedNotes();
     everyTestPassesWhenPlayedAsWritten();
     faultsAreReportedOnTheirNote();
     bindingsAndExtras();
     takes();
+    sampleRunMatchesRecords();
     std::cout << "ScoreTestTest passed\n";
     return 0;
   } catch (const std::exception &e) {

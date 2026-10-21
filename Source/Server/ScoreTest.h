@@ -643,7 +643,9 @@ inline juce::var runRecord(const juce::String &runId, const Recorder::Take &take
   o->setProperty("context", context);
   o->setProperty("chairs", chairs);
   o->setProperty("comparison", comparison);
-  // Times in received and midi are host milliseconds from the first event.
+  // Times in received and midi are host milliseconds from the first event,
+  // which is origin_ms on the host clock; comparison times subtract offset_ms.
+  o->setProperty("origin_ms", rounded(take.originMs));
   o->setProperty("received", received);
   o->setProperty("midi_columns", juce::Array<juce::var>{"ms", "port", "channel", "kind", "a", "b"});
   o->setProperty("midi", take.midi);

@@ -38,8 +38,13 @@ the audio thread or mutable DSP structures directly.
 | `fiddle_create_guided_library` | Create a persistent library whose patches are ready for the user to finish in the guided setup UI. |
 | `fiddle_get_library_setup` | Read setup progress and the remaining patches for one library. |
 | `fiddle_open_guided_library` | Open Library Manager on a library and start or resume its guided player setup. |
+| `fiddle_list_score_test_runs` | List recent score test runs with pass/fail and note counts. |
+| `fiddle_get_score_test_run` | Explain a score test run by its ID: failed, missing and extra notes, part bindings, bridge state, and optionally one note's checks and the MIDI around it. |
 
-The read tools are marked read-only. The setters are non-destructive and
+The read tools are marked read-only. The score test tools read run records
+from `~/Library/Application Support/Fiddle/ScoreTests/runs` directly
+(`FIDDLE_SCORE_TEST_RUNS_DIR` overrides it), so they work when Fiddle is not
+running; see `tests/score/README.md`. The setters are non-destructive and
 idempotent. Undo, Redo, and library creation are non-idempotent. Opening the
 guided UI is idempotent. All tools are closed-world: they only interact with
 the local Fiddle process and paths supplied by the user.
