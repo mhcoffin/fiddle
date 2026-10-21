@@ -1,0 +1,13 @@
+{
+  "id": "hairpins",
+  "title": "Hairpins",
+  "description": "A crescendo over a held note, a crescendo over repeated quarters and a diminuendo: levels inside a hairpin lie between its ends and move one way.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!p < C5/w~ | C5/w ] | !f D5/h D5/h | !p < E5/q F5/q G5/q A5/q | ] !f B5/w | > A5/q G5/q F5/q E5/q | ] !p D5/w"
+    }
+  ]
+}

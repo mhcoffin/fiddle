@@ -1,0 +1,420 @@
+{
+  "schema_version": 1,
+  "id": "hairpins",
+  "title": "Hairpins",
+  "description": "A crescendo over a held note, a crescendo over repeated quarters and a diminuendo: levels inside a hairpin lie between its ends and move one way.",
+  "musicxml": "hairpins.musicxml",
+  "spec_sha256": "5f57d9aaa5992a7c3fd05b6a7b9b2e323e6f8569d21e8532c882546efd20c8a6",
+  "time": "4/4",
+  "tempo_map": [
+    {
+      "quarter": 0.0,
+      "bpm": 100
+    }
+  ],
+  "length_ms": 16800.0,
+  "parts": [
+    {
+      "id": "vln",
+      "name": "Violin",
+      "instrument": "instrument.strings.violin"
+    }
+  ],
+  "tolerances": {
+    "onset_ms": 5.0,
+    "duration_ms": 5.0,
+    "level": 0.2
+  },
+  "notes": [
+    {
+      "part": "vln",
+      "index": 0,
+      "pitch": 72,
+      "bar": 1,
+      "beat": 1.0,
+      "onset_ms": 0.0,
+      "duration_ms": 4800.0,
+      "dynamic": {
+        "level": -1,
+        "during": {
+          "direction": "up",
+          "to": 1
+        }
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C5/w~"
+    },
+    {
+      "part": "vln",
+      "index": 1,
+      "pitch": 74,
+      "bar": 3,
+      "beat": 1.0,
+      "onset_ms": 4800.0,
+      "duration_ms": 1200.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D5/h"
+    },
+    {
+      "part": "vln",
+      "index": 2,
+      "pitch": 74,
+      "bar": 3,
+      "beat": 3.0,
+      "onset_ms": 6000.0,
+      "duration_ms": 1200.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D5/h"
+    },
+    {
+      "part": "vln",
+      "index": 3,
+      "pitch": 76,
+      "bar": 4,
+      "beat": 1.0,
+      "onset_ms": 7200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1,
+        "during": {
+          "direction": "up",
+          "to": 1
+        }
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "E5/q"
+    },
+    {
+      "part": "vln",
+      "index": 4,
+      "pitch": 77,
+      "bar": 4,
+      "beat": 2.0,
+      "onset_ms": 7800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 2,
+        "direction": "up",
+        "from": -1,
+        "to": 1,
+        "during": {
+          "direction": "up",
+          "to": 1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "F5/q"
+    },
+    {
+      "part": "vln",
+      "index": 5,
+      "pitch": 79,
+      "bar": 4,
+      "beat": 3.0,
+      "onset_ms": 8400.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 2,
+        "direction": "up",
+        "from": -1,
+        "to": 1,
+        "during": {
+          "direction": "up",
+          "to": 1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "G5/q"
+    },
+    {
+      "part": "vln",
+      "index": 6,
+      "pitch": 81,
+      "bar": 4,
+      "beat": 4.0,
+      "onset_ms": 9000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 2,
+        "direction": "up",
+        "from": -1,
+        "to": 1,
+        "during": {
+          "direction": "up",
+          "to": 1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "A5/q"
+    },
+    {
+      "part": "vln",
+      "index": 7,
+      "pitch": 83,
+      "bar": 5,
+      "beat": 1.0,
+      "onset_ms": 9600.0,
+      "duration_ms": 2400.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "B5/w"
+    },
+    {
+      "part": "vln",
+      "index": 8,
+      "pitch": 81,
+      "bar": 6,
+      "beat": 1.0,
+      "onset_ms": 12000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 1,
+        "during": {
+          "direction": "down",
+          "to": -1
+        }
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "A5/q"
+    },
+    {
+      "part": "vln",
+      "index": 9,
+      "pitch": 79,
+      "bar": 6,
+      "beat": 2.0,
+      "onset_ms": 12600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 3,
+        "direction": "down",
+        "from": 1,
+        "to": -1,
+        "during": {
+          "direction": "down",
+          "to": -1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "G5/q"
+    },
+    {
+      "part": "vln",
+      "index": 10,
+      "pitch": 77,
+      "bar": 6,
+      "beat": 3.0,
+      "onset_ms": 13200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 3,
+        "direction": "down",
+        "from": 1,
+        "to": -1,
+        "during": {
+          "direction": "down",
+          "to": -1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "F5/q"
+    },
+    {
+      "part": "vln",
+      "index": 11,
+      "pitch": 76,
+      "bar": 6,
+      "beat": 4.0,
+      "onset_ms": 13800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "hairpin": 3,
+        "direction": "down",
+        "from": 1,
+        "to": -1,
+        "during": {
+          "direction": "down",
+          "to": -1
+        },
+        "between": [
+          -1,
+          1
+        ]
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "E5/q"
+    },
+    {
+      "part": "vln",
+      "index": 12,
+      "pitch": 74,
+      "bar": 7,
+      "beat": 1.0,
+      "onset_ms": 14400.0,
+      "duration_ms": 2400.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D5/w"
+    }
+  ]
+}

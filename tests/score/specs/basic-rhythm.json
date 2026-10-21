@@ -1,0 +1,13 @@
+{
+  "id": "basic-rhythm",
+  "title": "Basic rhythm",
+  "description": "Onsets and durations of plain notes: whole to eighth, a dotted quarter, rests and a tie.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf C5/w | D5/h E5/h | F5/q G5/q A5/q B5/q | C6/e B5/e A5/e G5/e F5/h | E5/q. D5/e C5/h | r/q G4/q r/h | A4/h~ A4/q r/q | B4/w"
+    }
+  ]
+}

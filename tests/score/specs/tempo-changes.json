@@ -1,0 +1,13 @@
+{
+  "id": "tempo-changes",
+  "title": "Tempo changes",
+  "description": "Onsets and durations across tempo changes: 60, 120 and 90 quarter notes per minute.",
+  "tempo": 60,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf C5/q D5/q E5/q F5/q | T=120 G5/q A5/q B5/q C6/q | T=90 D6/h C6/h | B5/w"
+    }
+  ]
+}

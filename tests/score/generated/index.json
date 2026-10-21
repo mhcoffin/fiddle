@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "tests": [
+    {
+      "id": "articulations",
+      "title": "Articulations",
+      "description": "Staccato, staccatissimo, tenuto, accent and marcato, alone and combined: their playing techniques arrive, other articulations don't, and lengths stay as written (the bridge pins Dorico's note durations to 100%).",
+      "musicxml": "articulations.musicxml",
+      "expected": "articulations.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 11,
+      "length_ms": 9600.0
+    },
+    {
+      "id": "basic-rhythm",
+      "title": "Basic rhythm",
+      "description": "Onsets and durations of plain notes: whole to eighth, a dotted quarter, rests and a tie.",
+      "musicxml": "basic-rhythm.musicxml",
+      "expected": "basic-rhythm.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 18,
+      "length_ms": 19200.0
+    },
+    {
+      "id": "dynamics-ladder",
+      "title": "Dynamics ladder",
+      "description": "Every dynamic from ppp to fff on a long note and two short notes: each note's dynamic level, whether it arrives on CC1 or velocity.",
+      "musicxml": "dynamics-ladder.musicxml",
+      "expected": "dynamics-ladder.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 24,
+      "length_ms": 19200.0
+    },
+    {
+      "id": "hairpins",
+      "title": "Hairpins",
+      "description": "A crescendo over a held note, a crescendo over repeated quarters and a diminuendo: levels inside a hairpin lie between its ends and move one way.",
+      "musicxml": "hairpins.musicxml",
+      "expected": "hairpins.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 13,
+      "length_ms": 16800.0
+    },
+    {
+      "id": "repeated-notes",
+      "title": "Repeated notes",
+      "description": "The same pitch repeated at quarter and eighth speed, and tied into a repeat: each attack is a separate note with its written length.",
+      "musicxml": "repeated-notes.musicxml",
+      "expected": "repeated-notes.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 12,
+      "length_ms": 9600.0
+    },
+    {
+      "id": "slurs",
+      "title": "Slurs",
+      "description": "Notes under a slur carry legato (the last note of a slur is not checked); notes outside slurs don't.",
+      "musicxml": "slurs.musicxml",
+      "expected": "slurs.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 16,
+      "length_ms": 12000.0
+    },
+    {
+      "id": "tempo-changes",
+      "title": "Tempo changes",
+      "description": "Onsets and durations across tempo changes: 60, 120 and 90 quarter notes per minute.",
+      "musicxml": "tempo-changes.musicxml",
+      "expected": "tempo-changes.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 11,
+      "length_ms": 11333.333
+    },
+    {
+      "id": "two-instruments",
+      "title": "Two instruments",
+      "description": "Violin and flute play different rhythms and dynamics at once; each part's notes arrive on its own instrument.",
+      "musicxml": "two-instruments.musicxml",
+      "expected": "two-instruments.expected.json",
+      "instruments": [
+        "instrument.strings.violin",
+        "instrument.wind.flute"
+      ],
+      "notes": 16,
+      "length_ms": 9600.0
+    }
+  ]
+}

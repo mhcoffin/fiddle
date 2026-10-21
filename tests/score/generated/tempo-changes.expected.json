@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "id": "tempo-changes",
+  "title": "Tempo changes",
+  "description": "Onsets and durations across tempo changes: 60, 120 and 90 quarter notes per minute.",
+  "musicxml": "tempo-changes.musicxml",
+  "spec_sha256": "99bdb33cf01007e1a0e9632e465b332fd5a5576584153f1904d6c605984e194b",
+  "time": "4/4",
+  "tempo_map": [
+    {
+      "quarter": 0.0,
+      "bpm": 60
+    },
+    {
+      "quarter": 4.0,
+      "bpm": 120
+    },
+    {
+      "quarter": 8.0,
+      "bpm": 90
+    }
+  ],
+  "length_ms": 11333.333,
+  "parts": [
+    {
+      "id": "vln",
+      "name": "Violin",
+      "instrument": "instrument.strings.violin"
+    }
+  ],
+  "tolerances": {
+    "onset_ms": 5.0,
+    "duration_ms": 5.0,
+    "level": 0.2
+  },
+  "notes": [
+    {
+      "part": "vln",
+      "index": 0,
+      "pitch": 72,
+      "bar": 1,
+      "beat": 1.0,
+      "onset_ms": 0.0,
+      "duration_ms": 1000.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C5/q"
+    },
+    {
+      "part": "vln",
+      "index": 1,
+      "pitch": 74,
+      "bar": 1,
+      "beat": 2.0,
+      "onset_ms": 1000.0,
+      "duration_ms": 1000.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D5/q"
+    },
+    {
+      "part": "vln",
+      "index": 2,
+      "pitch": 76,
+      "bar": 1,
+      "beat": 3.0,
+      "onset_ms": 2000.0,
+      "duration_ms": 1000.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "E5/q"
+    },
+    {
+      "part": "vln",
+      "index": 3,
+      "pitch": 77,
+      "bar": 1,
+      "beat": 4.0,
+      "onset_ms": 3000.0,
+      "duration_ms": 1000.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "F5/q"
+    },
+    {
+      "part": "vln",
+      "index": 4,
+      "pitch": 79,
+      "bar": 2,
+      "beat": 1.0,
+      "onset_ms": 4000.0,
+      "duration_ms": 500.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "G5/q"
+    },
+    {
+      "part": "vln",
+      "index": 5,
+      "pitch": 81,
+      "bar": 2,
+      "beat": 2.0,
+      "onset_ms": 4500.0,
+      "duration_ms": 500.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "A5/q"
+    },
+    {
+      "part": "vln",
+      "index": 6,
+      "pitch": 83,
+      "bar": 2,
+      "beat": 3.0,
+      "onset_ms": 5000.0,
+      "duration_ms": 500.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "B5/q"
+    },
+    {
+      "part": "vln",
+      "index": 7,
+      "pitch": 84,
+      "bar": 2,
+      "beat": 4.0,
+      "onset_ms": 5500.0,
+      "duration_ms": 500.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C6/q"
+    },
+    {
+      "part": "vln",
+      "index": 8,
+      "pitch": 86,
+      "bar": 3,
+      "beat": 1.0,
+      "onset_ms": 6000.0,
+      "duration_ms": 1333.333,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D6/h"
+    },
+    {
+      "part": "vln",
+      "index": 9,
+      "pitch": 84,
+      "bar": 3,
+      "beat": 3.0,
+      "onset_ms": 7333.333,
+      "duration_ms": 1333.333,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C6/h"
+    },
+    {
+      "part": "vln",
+      "index": 10,
+      "pitch": 83,
+      "bar": 4,
+      "beat": 1.0,
+      "onset_ms": 8666.667,
+      "duration_ms": 2666.667,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "B5/w"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "slurs",
+  "title": "Slurs",
+  "description": "Notes under a slur carry legato (the last note of a slur is not checked); notes outside slurs don't.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf ( C5/q D5/q E5/q F5/q ) | G5/q A5/q ( B5/q C6/q | D6/h ) C6/h | ( C5/e D5/e E5/e F5/e ) G5/h | C5/w"
+    }
+  ]
+}

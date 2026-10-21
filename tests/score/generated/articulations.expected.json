@@ -1,0 +1,302 @@
+{
+  "schema_version": 1,
+  "id": "articulations",
+  "title": "Articulations",
+  "description": "Staccato, staccatissimo, tenuto, accent and marcato, alone and combined: their playing techniques arrive, other articulations don't, and lengths stay as written (the bridge pins Dorico's note durations to 100%).",
+  "musicxml": "articulations.musicxml",
+  "spec_sha256": "19f17d21a7d5968b446827a3ccd7c4010b0cda65614c70625c6b10aef75996e3",
+  "time": "4/4",
+  "tempo_map": [
+    {
+      "quarter": 0.0,
+      "bpm": 100
+    }
+  ],
+  "length_ms": 9600.0,
+  "parts": [
+    {
+      "id": "vln",
+      "name": "Violin",
+      "instrument": "instrument.strings.violin"
+    }
+  ],
+  "tolerances": {
+    "onset_ms": 5.0,
+    "duration_ms": 5.0,
+    "level": 0.2
+  },
+  "notes": [
+    {
+      "part": "vln",
+      "index": 0,
+      "pitch": 72,
+      "bar": 1,
+      "beat": 1.0,
+      "onset_ms": 0.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C5/q"
+    },
+    {
+      "part": "vln",
+      "index": 1,
+      "pitch": 74,
+      "bar": 1,
+      "beat": 2.0,
+      "onset_ms": 600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.staccato"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.tenuto"
+        ]
+      },
+      "source": "D5/q+stacc"
+    },
+    {
+      "part": "vln",
+      "index": 2,
+      "pitch": 76,
+      "bar": 1,
+      "beat": 3.0,
+      "onset_ms": 1200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.staccatissimo"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "E5/q+staccmo"
+    },
+    {
+      "part": "vln",
+      "index": 3,
+      "pitch": 77,
+      "bar": 1,
+      "beat": 4.0,
+      "onset_ms": 1800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.tenuto"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato"
+        ]
+      },
+      "source": "F5/q+ten"
+    },
+    {
+      "part": "vln",
+      "index": 4,
+      "pitch": 79,
+      "bar": 2,
+      "beat": 1.0,
+      "onset_ms": 2400.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.accent"
+        ],
+        "excludes": [
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "G5/q+acc"
+    },
+    {
+      "part": "vln",
+      "index": 5,
+      "pitch": 81,
+      "bar": 2,
+      "beat": 2.0,
+      "onset_ms": 3000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.marcato"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "A5/q+marc"
+    },
+    {
+      "part": "vln",
+      "index": 6,
+      "pitch": 79,
+      "bar": 2,
+      "beat": 3.0,
+      "onset_ms": 3600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.accent",
+          "pt.staccato"
+        ],
+        "excludes": [
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.tenuto"
+        ]
+      },
+      "source": "G5/q+stacc+acc"
+    },
+    {
+      "part": "vln",
+      "index": 7,
+      "pitch": 77,
+      "bar": 2,
+      "beat": 4.0,
+      "onset_ms": 4200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.staccato",
+          "pt.tenuto"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo"
+        ]
+      },
+      "source": "F5/q+ten+stacc"
+    },
+    {
+      "part": "vln",
+      "index": 8,
+      "pitch": 76,
+      "bar": 3,
+      "beat": 1.0,
+      "onset_ms": 4800.0,
+      "duration_ms": 1200.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "E5/h"
+    },
+    {
+      "part": "vln",
+      "index": 9,
+      "pitch": 74,
+      "bar": 3,
+      "beat": 3.0,
+      "onset_ms": 6000.0,
+      "duration_ms": 1200.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.tenuto"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato"
+        ]
+      },
+      "source": "D5/h+ten"
+    },
+    {
+      "part": "vln",
+      "index": 10,
+      "pitch": 72,
+      "bar": 4,
+      "beat": 1.0,
+      "onset_ms": 7200.0,
+      "duration_ms": 2400.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.legato",
+          "pt.marcato",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.tenuto"
+        ]
+      },
+      "source": "C5/w"
+    }
+  ]
+}

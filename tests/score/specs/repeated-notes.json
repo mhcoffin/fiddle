@@ -1,0 +1,13 @@
+{
+  "id": "repeated-notes",
+  "title": "Repeated notes",
+  "description": "The same pitch repeated at quarter and eighth speed, and tied into a repeat: each attack is a separate note with its written length.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf C5/q C5/q C5/q C5/q | C5/e C5/e C5/e C5/e C5/h | C5/h~ C5/q C5/q | C5/w"
+    }
+  ]
+}

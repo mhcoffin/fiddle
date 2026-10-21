@@ -715,6 +715,15 @@ target_compile_features(BridgeReachabilityTest PRIVATE cxx_std_17)
 add_test(NAME bridge_reachability COMMAND BridgeReachabilityTest)
 set_tests_properties(bridge_reachability PROPERTIES LABELS "expression-map;regression;stable")
 
+# Score tests (tests/score): specs, generated MusicXML and expected results
+# stay in sync. Pure Python standard library; nothing to build.
+find_program(FIDDLE_PYTHON3 python3)
+if(FIDDLE_PYTHON3)
+    add_test(NAME score_test_specs
+        COMMAND "${FIDDLE_PYTHON3}" -m unittest discover -s "${CMAKE_CURRENT_SOURCE_DIR}/tests/score" -p "test_*.py")
+    set_tests_properties(score_test_specs PROPERTIES LABELS "score-tests;regression;stable")
+endif()
+
 add_executable(BridgeRepairPlanTest
     Source/Server/tests/BridgeRepairPlanTest.cpp
     Source/Server/BridgeRepairPlan.cpp
