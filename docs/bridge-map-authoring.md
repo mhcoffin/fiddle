@@ -135,8 +135,9 @@ identities, unsupported fields/actions, inheritance, pitch/velocity filters,
 non-neutral timing/length/velocity modifiers, monophonic behavior and playback
 overrides are rejected, except one override policy: all six note-duration
 options (`timingOptions.note/staccato/staccatissimo/legato/tenuto/marcatoDurationPercent`)
-at `int: 100` plus `timingOptions.alwaysTruncateAbuttingNotesOfSamePitch` at
-`bool: false`, or none. That policy marks the map's notes as written-length and
+at `int: 100`, `timingOptions.alwaysTruncateAbuttingNotesOfSamePitch` at
+`bool: false` and `timingOptions.numTicksBeforeForSwitches` at `int: 10`
+(Dorico's default), or none. That policy marks the map's notes as written-length and
 is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
@@ -196,18 +197,22 @@ play that map directly:
 - **Timing.** `millisecondsBefore` plays the note and its switch actions that
   much earlier; with several switches selected the largest lead wins. The
   note-off moves too only with `applyMillisecondsBeforeToEndOffsets`, and live
-  controllers only with `applyMillisecondsBeforeToControllers`. `ticksBefore`
-  sends only the switch actions earlier (Dorico's per-switch form of the
-  project option `timingOptions.numTicksBeforeForSwitches`), converted at the
-  live tempo assuming 480 ticks per quarter note. Fiddle's playback delay
-  supplies the lookahead.
+  controllers only with `applyMillisecondsBeforeToControllers`. Switch actions
+  also go ahead of their note by Dorico's **Expression map switches before
+  notes**: the bridge maps pin Dorico's to its default 10 ticks, so the
+  decoder always sees the same timing, and each layer applies its map's own
+  `timingOptions.numTicksBeforeForSwitches` override, else the project value
+  in the **Settings…** window's **Dorico playback timing** group (default 10).
+  A switch's own `ticksBefore`, when set, replaces both (an assumption; the
+  precedence is unverified). Ticks convert at the live tempo assuming 480 per
+  quarter note. Fiddle's playback delay supplies the lookahead.
 - **Durations.** The section bridge maps override Dorico's six note-duration
   playback options (note, staccato, staccatissimo, legato, tenuto, marcato) to
   100%, so Dorico sends written lengths and the decoder marks each note
   `dorico_written_duration`. Each layer then applies, per category, its own
   expression map's override if it has one, else the project's Dorico options,
   which Fiddle cannot read: copy them from Dorico's **Library ▸ Playback
-  Options ▸ Timing** into the **Settings…** window's **Dorico note durations** group (saved with the project,
+  Options ▸ Timing** into the **Settings…** window's **Dorico playback timing** group (saved with the project,
   undoable; defaults 90, 50, 25, 105, 100 and 75%). Layers without an
   expression map apply the project values too. The switch's `lengthFactor`
   then applies as usual. Older bridge revisions and the universal map send

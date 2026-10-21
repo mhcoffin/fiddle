@@ -2,7 +2,7 @@
 
 
 
-#include "DoricoDurations.h"
+#include "DoricoPlaybackOptions.h"
 
 #include <algorithm>
 #include <array>
@@ -181,6 +181,8 @@ inline NoteCondition parseConditionString(const std::string &s) {
 /// project's Dorico playback option.
 struct TimingOptions {
   std::array<std::optional<int>, kDurationCategoryCount> overrides;
+  /// The map's timingOptions.numTicksBeforeForSwitches, if it overrides it.
+  std::optional<int> switchLeadTicks;
 
   std::optional<int> &operator[](DurationCategory c) { return overrides[size_t(c)]; }
   const std::optional<int> &operator[](DurationCategory c) const { return overrides[size_t(c)]; }
@@ -365,12 +367,13 @@ struct MatchResult {
     return lead;
   }
 
-  /// How much earlier (ms) than the note its switch actions go: the largest
-  /// ticksBefore of the selected switches, at `tempoBpm`.
-  double switchLeadMs(double tempoBpm) const {
+  /// How much earlier (ms) than the note its switch actions go, at
+  /// `tempoBpm`: each selected switch's own ticksBefore, else `defaultTicks`
+  /// (the map's or project's "switches before notes"); the largest wins.
+  double switchLeadMs(double tempoBpm, int defaultTicks) const {
     int ticks = 0;
     for (auto *c : components())
-      ticks = std::max(ticks, c->ticksBefore);
+      ticks = std::max(ticks, c->ticksBefore > 0 ? c->ticksBefore : defaultTicks);
     return ticks > 0 && tempoBpm > 0.0 ? ticks * 60000.0 / (tempoBpm * kTicksPerQuarter) : 0.0;
   }
 

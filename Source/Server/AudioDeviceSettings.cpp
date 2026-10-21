@@ -9,7 +9,7 @@ public:
                   AudioDeviceSettings::Controls controls)
       : controls_(std::move(controls)),
         playbackGroup_("playback", "Playback"),
-        durationsGroup_("durations", "Dorico note durations"),
+        durationsGroup_("durations", "Dorico playback timing"),
         renderingGroup_("rendering", "Rendering"),
         deviceGroup_("device", "Audio output"),
         selector_(manager, 0, 0, 2, 2, false, false, true, false) {
@@ -64,10 +64,24 @@ public:
       addAndMakeVisible(durationLabels_[i]);
       addAndMakeVisible(slider);
     }
+    switchLeadLabel_.setText("Switches before notes", juce::dontSendNotification);
+    switchLeadLabel_.setJustificationType(juce::Justification::centredRight);
+    switchLead_.setSliderStyle(juce::Slider::IncDecButtons);
+    switchLead_.setIncDecButtonsMode(juce::Slider::incDecButtonsDraggable_Vertical);
+    switchLead_.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 60, 26);
+    switchLead_.setRange(0, kMaxSwitchLeadTicks, 1.0);
+    switchLead_.setTextValueSuffix(" ticks");
+    switchLead_.setTooltip("Dorico's \"Expression map switches before notes\" for this score");
+    switchLead_.onValueChange = [this] {
+      if (!refreshing_ && controls_.setDoricoSwitchLeadTicks)
+        controls_.setDoricoSwitchLeadTicks(static_cast<int>(switchLead_.getValue()));
+    };
+    addAndMakeVisible(switchLeadLabel_);
+    addAndMakeVisible(switchLead_);
     durationsHelp_.setText(
-        "Enter this score's note durations from Dorico's Library > Playback Options > Timing. Bridge maps "
-        "make Dorico send written lengths; Fiddle applies these, or a layer expression "
-        "map's own overrides. Saved with the project.",
+        "Copy these from this score's Library > Playback Options > Timing in Dorico. Bridge maps "
+        "make Dorico send written lengths; Fiddle applies these values to each layer, unless "
+        "the layer's expression map overrides them. Saved with the project.",
         juce::dontSendNotification);
     durationsHelp_.setJustificationType(juce::Justification::topLeft);
 
@@ -110,7 +124,7 @@ public:
     addAndMakeVisible(workerGuidance_);
     addAndMakeVisible(deviceGroup_);
     addAndMakeVisible(selector_);
-    setSize(780, 920);
+    setSize(780, 960);
     refresh();
     startTimerHz(4);
   }
@@ -128,6 +142,10 @@ public:
       durations_[i].setValue(percents[i], juce::dontSendNotification);
       durations_[i].setEnabled(static_cast<bool>(controls_.setDoricoDurationPercents));
     }
+    switchLead_.setValue(controls_.getDoricoSwitchLeadTicks ? controls_.getDoricoSwitchLeadTicks()
+                                                            : kDoricoDefaultSwitchLeadTicks,
+                         juce::dontSendNotification);
+    switchLead_.setEnabled(static_cast<bool>(controls_.setDoricoSwitchLeadTicks));
 
     const auto requested = controls_.getRequestedRenderWorkers
                                ? controls_.getRequestedRenderWorkers()
@@ -160,7 +178,7 @@ public:
     delayHelp_.setBounds(playback.removeFromTop(28));
 
     area.removeFromTop(10);
-    auto durations = area.removeFromTop(150);
+    auto durations = area.removeFromTop(186);
     durationsGroup_.setBounds(durations);
     durations = durations.reduced(14, 10);
     durations.removeFromTop(18);
@@ -173,6 +191,11 @@ public:
         durationLabels_[i].setBounds(slot.removeFromLeft(100));
         durations_[i].setBounds(slot.removeFromLeft(110));
       }
+    }
+    {
+      auto line = durations.removeFromTop(32).removeFromLeft(durations.getWidth() / 3 * 2).reduced(4, 2);
+      switchLeadLabel_.setBounds(line.removeFromLeft(160));
+      switchLead_.setBounds(line.removeFromLeft(140));
     }
     durationsHelp_.setBounds(durations.removeFromTop(44));
 
@@ -201,7 +224,8 @@ private:
   juce::GroupComponent playbackGroup_, durationsGroup_, renderingGroup_, deviceGroup_;
   std::array<juce::Label, kDurationCategoryCount> durationLabels_;
   std::array<juce::Slider, kDurationCategoryCount> durations_;
-  juce::Label durationsHelp_;
+  juce::Label durationsHelp_, switchLeadLabel_;
+  juce::Slider switchLead_;
   juce::Slider delay_;
   juce::Slider workers_;
   juce::AudioDeviceSelectorComponent selector_;

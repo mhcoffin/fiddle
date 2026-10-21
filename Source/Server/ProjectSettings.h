@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DoricoDurations.h"
+#include "DoricoPlaybackOptions.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -31,18 +31,23 @@ struct ProjectSettings {
   // maps pin Dorico's to 100%, so layers apply these (unless their own
   // expression map overrides a category).
   DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
+  // The project's Dorico "Expression map switches before notes" (ticks),
+  // applied to each layer's own switches (bridge maps pin Dorico's).
+  int doricoSwitchLeadTicks = kDoricoDefaultSwitchLeadTicks;
   bool operator==(const ProjectSettings &other) const {
     return playbackDelayMs == other.playbackDelayMs &&
            lockedChairIds == other.lockedChairIds && chairLevels == other.chairLevels &&
            bridgeMapsJson == other.bridgeMapsJson &&
-           doricoDurationPercents == other.doricoDurationPercents;
+           doricoDurationPercents == other.doricoDurationPercents &&
+           doricoSwitchLeadTicks == other.doricoSwitchLeadTicks;
   }
 
   std::string serialize() const {
     std::ostringstream stream;
-    // V4 only when durations differ from Dorico's defaults, so older
-    // projects keep their exact serialized form.
-    const bool version4 = doricoDurationPercents != kDoricoDefaultDurationPercents;
+    // V4 only when Dorico timing differs from its defaults, so older projects
+    // keep their exact serialized form.
+    const bool version4 = doricoDurationPercents != kDoricoDefaultDurationPercents ||
+                          doricoSwitchLeadTicks != kDoricoDefaultSwitchLeadTicks;
     stream << (version4 ? "FIDDLE_SETTINGS_V4\n"
                : bridgeMapsJson.empty() ? "FIDDLE_SETTINGS_V2\n" : "FIDDLE_SETTINGS_V3\n") << std::setprecision(17)
            << playbackDelayMs << '\n' << lockedChairIds.size() << '\n';
@@ -57,7 +62,7 @@ struct ProjectSettings {
     if (version4 || !bridgeMapsJson.empty()) stream << std::quoted(bridgeMapsJson) << '\n';
     if (version4) {
       for (const int percent : doricoDurationPercents) stream << percent << ' ';
-      stream << '\n';
+      stream << doricoSwitchLeadTicks << '\n';
     }
     return stream.str();
   }
@@ -106,6 +111,9 @@ struct ProjectSettings {
           if (!(stream >> percent) || percent < kMinDurationPercent || percent > kMaxDurationPercent)
             return settings; // keep Dorico's defaults
         settings.doricoDurationPercents = durations;
+        int lead = kDoricoDefaultSwitchLeadTicks;
+        if (stream >> lead && lead >= 0 && lead <= kMaxSwitchLeadTicks)
+          settings.doricoSwitchLeadTicks = lead;
       }
       return settings;
     }

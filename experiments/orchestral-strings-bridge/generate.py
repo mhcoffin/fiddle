@@ -35,11 +35,14 @@ BEACON_MODULUS = 127 * 127
 # Dorico sends written lengths and Fiddle applies the duration percentages
 # (the layer map's overrides, else its copy of the project's options). Dorico
 # must not shorten same-pitch notes either: Fiddle ends each one before its
-# same-pitch successor itself, after scaling.
+# same-pitch successor itself, after scaling. Switch commands keep Dorico's
+# default lead, so the decoder always sees the same timing; Fiddle applies
+# the project's lead to each layer's own switches.
 DURATION_OPTIONS = tuple(f"timingOptions.{name}DurationPercent" for name in
                          ("note", "staccato", "staccatissimo", "legato", "tenuto", "marcato"))
 PINNED_OPTIONS = tuple((option, "int: 100") for option in DURATION_OPTIONS) + (
-    ("timingOptions.alwaysTruncateAbuttingNotesOfSamePitch", "bool: false"),)
+    ("timingOptions.alwaysTruncateAbuttingNotesOfSamePitch", "bool: false"),
+    ("timingOptions.numTicksBeforeForSwitches", "int: 10"))
 
 
 def written_durations(spec):

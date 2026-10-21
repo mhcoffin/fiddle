@@ -1,5 +1,5 @@
 #pragma once
-#include "DoricoDurations.h"
+#include "DoricoPlaybackOptions.h"
 #include "midi_event.pb.h"
 #include <algorithm>
 #include <array>

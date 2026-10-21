@@ -9,7 +9,7 @@
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
         <creator>Fiddle</creator>
-        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral woodwinds: 36 conduits, 25 bases, 64 add-ons. Specification SHA256: aa96acb13836fe10af6644549a14e56602f65765c7a80f8748948860a222f894</description>
+        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral woodwinds: 36 conduits, 25 bases, 64 add-ons. Specification SHA256: 9cec325c370b435cd734b10b95bb31ce4abf86cb7ad85556bec7b86ac6d480e9</description>
         <version>3</version>
         <pluginNames />
         <autoMutualExclusion>false</autoMutualExclusion>
@@ -2357,6 +2357,10 @@
           <optionsOverride>
             <option>timingOptions.alwaysTruncateAbuttingNotesOfSamePitch</option>
             <value>bool: false</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.numTicksBeforeForSwitches</option>
+            <value>int: 10</value>
           </optionsOverride>
         </playbackOptionsOverrides>
       </ExpressionMapDefinition>

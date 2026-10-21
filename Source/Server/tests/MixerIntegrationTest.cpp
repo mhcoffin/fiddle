@@ -2304,12 +2304,13 @@ void testLayerMapPlaysLikeDorico() {
 
   struct Expected { double ms; int channel; bool noteOn, noteOff; int number, value; };
   const std::vector<Expected> expected{
-      {5, 2, false, false, 7, 100},   // init action, strip channel
-      {20, 5, true, false, 24, 100},  // keyswitch with the note, 20 ms early
-      {20, 5, true, false, 72, 90},   // tremolo plays on its switch channel
-      {60, 5, false, false, 64, 0},   // tremolo's Off, on its channel
-      {60, 2, true, false, 36, 100},  // natural's On
-      {60, 5, false, true, 24, 0},    // latched tremolo keyswitch released
+      // Switches lead their note by Dorico's default 10 ticks (10 ms at 120 BPM).
+      {5, 2, false, false, 7, 100},     // init action, strip channel
+      {10, 5, true, false, 24, 100},    // keyswitch 10 ms ahead of its 20 ms-early note
+      {20, 5, true, false, 72, 90},     // tremolo plays on its switch channel
+      {50, 5, false, false, 64, 0},   // tremolo's Off, on its channel
+      {50, 2, true, false, 36, 100},  // natural's On
+      {50, 5, false, true, 24, 0},    // latched tremolo keyswitch released
       {60, 2, true, false, 74, 90},
       {70, 5, false, true, 72, 0},    // overlapped note-off follows its note-on
       {80, 2, false, true, 74, 0}};

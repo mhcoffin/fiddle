@@ -24,8 +24,8 @@
     "spare_conduits": 13,
     "mutex_groups": 14
   },
-  "specification_sha256": "4a9442757b154b1b5b5f1ef49502632d52d77288873a2dbb34195555ab8e6b90",
-  "map_sha256": "6ecade100a532a0366813a04b534dd55e09194b8d770ba0ff7fb21db85022014",
+  "specification_sha256": "aec2f0f99ccfeee9ad17c1aa47a80550f45f130a1fae917d5fa3a7f9e60db3ce",
+  "map_sha256": "52c2f5e1d641482b0b013f14c118b9e6cc6ed0d8f30f9b4df7f189e3aced4f93",
   "base_cc": 102,
   "bases": [
     {

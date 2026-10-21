@@ -202,9 +202,10 @@ public:
 
     // ── 4. Emit switch MIDI: Off for what is left, then On ────────
     // Dorico sends a switch's Off actions when the active switch changes
-    // away from it, not after each of its notes. ticksBefore sends them
-    // ahead of the note.
-    const int switchDelayMs = -static_cast<int>(std::lround(match.switchLeadMs(ctx.tempoBpm)));
+    // away from it, not after each of its notes. Dorico's "switches before
+    // notes" (or a switch's own ticksBefore) sends them ahead of the note.
+    const int switchDelayMs = -static_cast<int>(std::lround(match.switchLeadMs(
+        ctx.tempoBpm, emData_->timingOptions.switchLeadTicks.value_or(ctx.doricoSwitchLeadTicks))));
     const int firstAction = note.pre_note_size();
     if (needSend) {
       const auto incoming = match.components();

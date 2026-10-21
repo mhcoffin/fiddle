@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AnnotationRecord.h"
-#include "DoricoDurations.h"
+#include "DoricoPlaybackOptions.h"
 #include "NoteInspection.h"
 #include "TonalContext.h"
 #include "midi_event.pb.h"
@@ -35,6 +35,8 @@ struct AnnotatorContext {
   double tempoBpm = 120.0; // live Dorico tempo, for tick-based timing
   /// The project's copy of Dorico's note-duration Playback Options.
   DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
+  /// The project's Dorico "Expression map switches before notes" (ticks).
+  int doricoSwitchLeadTicks = kDoricoDefaultSwitchLeadTicks;
 
   /// Currently active notes across all strips (read-only snapshot).
   const std::vector<fiddle::Note> *activeNotes = nullptr;

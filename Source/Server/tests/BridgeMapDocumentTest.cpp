@@ -165,6 +165,8 @@ void writtenDurations() {
   CHECK(error.contains("all six"));
   CHECK(!edited([](juce::XmlElement &o) { o.removeChildElement(o.getChildElement(6), true); }));
   CHECK(error.contains("truncation off"));
+  CHECK(!edited([&](juce::XmlElement &o) { setValue(*o.getChildElement(7), "value", "int: 0"); }));
+  CHECK(error.contains("numTicksBeforeForSwitches"));
   CHECK(!edited([&](juce::XmlElement &o) {
     setValue(*o.getFirstChildElement(), "option", "timingOptions.timingHumanisePercent"); }));
   CHECK(error.contains("Unsupported bridge playback override"));
@@ -231,7 +233,12 @@ void tests() {
     durations.doricoDurationPercents = {80, 40, 20, 110, 100, 70};
     CHECK(durations.serialize().rfind("FIDDLE_SETTINGS_V4\n", 0) == 0);
     CHECK(ProjectSettings::deserialize(durations.serialize()) == durations);
+    durations.doricoSwitchLeadTicks = 0;
+    CHECK(ProjectSettings::deserialize(durations.serialize()) == durations);
   }
+  ProjectSettings lead; lead.doricoSwitchLeadTicks = 30;
+  CHECK(lead.serialize().rfind("FIDDLE_SETTINGS_V4\n", 0) == 0);
+  CHECK(ProjectSettings::deserialize(lead.serialize()) == lead);
   auto truncated = settings.serialize().substr(0, settings.serialize().find('{'));
   CHECK(!BridgeMapProject::parse(juce::String(ProjectSettings::deserialize(truncated).bridgeMapsJson), restored, error));
   auto corrupt = juce::JSON::parse(project.serialize());

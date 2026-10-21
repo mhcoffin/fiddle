@@ -968,6 +968,10 @@ void MainComponent::initAudioDevice() {
         [this] { return mixer_.projectSettings().doricoDurationPercents; };
     settingsControls.setDoricoDurationPercents =
         [this](DurationPercents percents) { changeDoricoDurationPercents(percents); };
+    settingsControls.getDoricoSwitchLeadTicks =
+        [this] { return mixer_.projectSettings().doricoSwitchLeadTicks; };
+    settingsControls.setDoricoSwitchLeadTicks =
+        [this](int ticks) { changeDoricoSwitchLeadTicks(ticks); };
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
         deviceManager,
         FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"),
@@ -3625,6 +3629,17 @@ void MainComponent::changeDoricoDurationPercents(DurationPercents percents) {
   settings.doricoDurationPercents = percents;
   if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
           mixer_, settings, "Change Dorico note durations", "dorico-durations")))
+    return;
+  saveAllStripsToDB(false);
+  pushMixerState();
+  scheduleStateRebuild();
+}
+
+void MainComponent::changeDoricoSwitchLeadTicks(int ticks) {
+  auto settings = mixer_.projectSettings();
+  settings.doricoSwitchLeadTicks = std::clamp(ticks, 0, kMaxSwitchLeadTicks);
+  if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+          mixer_, settings, "Change switches before notes", "dorico-switch-lead")))
     return;
   saveAllStripsToDB(false);
   pushMixerState();

@@ -1,5 +1,5 @@
 #pragma once
-#include "DoricoDurations.h"
+#include "DoricoPlaybackOptions.h"
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <functional>
 
@@ -18,6 +18,8 @@ public:
     std::function<void(int)> setRenderWorkers;
     std::function<DurationPercents()> getDoricoDurationPercents;
     std::function<void(DurationPercents)> setDoricoDurationPercents;
+    std::function<int()> getDoricoSwitchLeadTicks;
+    std::function<void(int)> setDoricoSwitchLeadTicks;
   };
 
   AudioDeviceSettings(juce::AudioDeviceManager &manager, juce::File file,

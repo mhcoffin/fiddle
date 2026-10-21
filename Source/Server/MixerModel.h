@@ -299,6 +299,7 @@ private:
       kDoricoDefaultDurationPercents[0], kDoricoDefaultDurationPercents[1],
       kDoricoDefaultDurationPercents[2], kDoricoDefaultDurationPercents[3],
       kDoricoDefaultDurationPercents[4], kDoricoDefaultDurationPercents[5]};
+  std::atomic<int> doricoSwitchLeadTicks_{kDoricoDefaultSwitchLeadTicks};
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
@@ -314,7 +315,7 @@ public:
   int getPlaybackDelayMs() const;
   ProjectSettings projectSettings() const {
     return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_, bridgeMapsJson_,
-            doricoDurationPercents()};
+            doricoDurationPercents(), doricoSwitchLeadTicks_.load(std::memory_order_relaxed)};
   }
   std::function<void(const std::string &)> onBridgeMapsChanged;
   void setProjectSettings(const ProjectSettings &settings) {
@@ -323,6 +324,7 @@ public:
     lockedChairIds_ = settings.lockedChairIds;
     for (size_t i = 0; i < kDurationCategoryCount; ++i)
       doricoDurationPercents_[i].store(settings.doricoDurationPercents[i], std::memory_order_relaxed);
+    doricoSwitchLeadTicks_.store(settings.doricoSwitchLeadTicks, std::memory_order_relaxed);
     chairLevels_ = settings.chairLevels;
     setPlaybackDelayMs(settings.playbackDelayMs);
     if (bridgeChanged && onBridgeMapsChanged) onBridgeMapsChanged(bridgeMapsJson_);

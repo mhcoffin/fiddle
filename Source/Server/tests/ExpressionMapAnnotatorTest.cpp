@@ -1687,8 +1687,9 @@ static void testSwitchLeadTime() {
   em->timingOptions[DurationCategory::Legato] = 105;
   ExpressionMapAnnotator ann(em);
 
-  // The note and its keyswitch move together; the keyswitch has no extra
-  // lead of its own. The end and controllers stay unless the map asks.
+  // The note and its keyswitch move together; the keyswitch also leads the
+  // note by the project's "switches before notes" (Dorico's default 10 ticks
+  // = 10.4 ms at 120 BPM). The end and controllers stay unless the map asks.
   auto natural = makeNotePTs({"pt.natural"}, 1);
   natural.set_duration_samples(44100);
   ann.onNoteStart(natural, ctx);
@@ -1696,12 +1697,13 @@ static void testSwitchLeadTime() {
   A_CHECK_EQ(ann.controllerOffsetMs(), 0.0);
   A_CHECK_EQ(natural.pre_note_size(), 1);
   if (natural.pre_note_size() == 1)
-    A_CHECK_EQ(natural.pre_note(0).delay_ms(), 0);
+    A_CHECK_EQ(natural.pre_note(0).delay_ms(), -10);
   ann.onNoteEnd(natural, ctx);
   A_CHECK_EQ(ann.durationAdjustMs(), 0.0);
 
   // The note leads by 10 ms (with its end and controllers); its switch
-  // actions lead by another 240 ticks = 250 ms at 120 BPM (480 per quarter).
+  // actions lead by its own 240 ticks = 250 ms at 120 BPM (480 per quarter),
+  // which replaces the project's lead.
   auto legato = makeNotePTs({"pt.legato"}, 2);
   legato.set_duration_samples(44100);
   ann.onNoteStart(legato, ctx);
@@ -1717,6 +1719,44 @@ static void testSwitchLeadTime() {
   ann.onNoteStart(staccato, ctx);
   A_CHECK_EQ(ann.noteStartOffsetMs(), 0.0);
   A_CHECK_EQ(ann.controllerOffsetMs(), 0.0);
+}
+
+static void testSwitchLeadSources() {
+  std::cout << "--- testSwitchLeadSources ---" << std::endl;
+  AnnotatorContext ctx;
+  ctx.tempoBpm = 120.0;
+  const auto delayFor = [&](const std::shared_ptr<ExpressionMapData> &map, int projectTicks) {
+    ctx.doricoSwitchLeadTicks = projectTicks;
+    ExpressionMapAnnotator ann(map);
+    auto note = makeNotePTs({"pt.natural"});
+    ann.onNoteStart(note, ctx);
+    return note.pre_note_size() == 1 ? note.pre_note(0).delay_ms() : 999;
+  };
+  auto map = makeSimpleEM("Natural", {"pt.natural"}, {{SwitchActionType::KeySwitch, 24, 100}});
+  A_CHECK_EQ(delayFor(map, 0), 0);    // project: no lead
+  A_CHECK_EQ(delayFor(map, 20), -21); // 20 ticks at 120 BPM = 20.8 ms
+  A_CHECK_EQ(delayFor(map, 96), -100);
+
+  // A map's own playback-option override replaces the project's value.
+  ExpressionMapData parsed;
+  A_CHECK(parseExpressionMapXml(R"xml(<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition><name>Lead</name><entityID>map.lead</entityID>
+  <playingTechniqueCombinations array="true"><playingTechniqueCombination>
+    <name>Natural</name><techniqueIDs>pt.natural</techniqueIDs>
+    <switchOnActions array="true"><switchOnAction><type>kKeySwitch</type><param1>24</param1><param2>100</param2></switchOnAction></switchOnActions>
+  </playingTechniqueCombination></playingTechniqueCombinations>
+  <playbackOptionsOverrides array="true"><optionsOverride>
+    <option>timingOptions.numTicksBeforeForSwitches</option><value>int: 48</value>
+  </optionsOverride></playbackOptionsOverrides>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)xml",
+                                parsed));
+  A_CHECK_EQ(parsed.timingOptions.switchLeadTicks.value_or(-1), 48);
+  A_CHECK_EQ(delayFor(std::make_shared<ExpressionMapData>(parsed), 0), -50);
+
+  // A switch's own ticksBefore replaces both.
+  map->combinations[0].ticksBefore = 192;
+  A_CHECK_EQ(delayFor(map, 20), -200);
 }
 
 static void testVelocityAndPitchRanges() {
@@ -1929,6 +1969,7 @@ void runAnnotatorTests() {
   testSwitchOffActionsOnChange();
   testChannelSwitchRouting();
   testSwitchLeadTime();
+  testSwitchLeadSources();
   testVelocityAndPitchRanges();
   testInitActionsAtTransportStart();
   testCanonicalTechniquePriority();

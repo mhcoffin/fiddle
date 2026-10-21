@@ -280,6 +280,8 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
       } catch (...) {
         continue;
       }
+      if (option == kSwitchLeadOption)
+        result.timingOptions.switchLeadTicks = std::clamp(val, 0, kMaxSwitchLeadTicks);
       const auto &names = durationOptionNames();
       for (size_t i = 0; i < names.size(); ++i)
         if (option == names[i])

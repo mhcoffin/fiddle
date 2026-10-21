@@ -116,14 +116,16 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the bridge map");
     require(text(*map, "microtonalPlaybackMethod") == "kAuto" && text(*map, "pitchBendRange") == "2", "Unsupported bridge pitch/microtonality configuration");
     // The one supported override policy makes Dorico send written lengths:
-    // all six note-duration options at 100% and no same-pitch truncation.
-    // Each layer then applies durations and ends same-pitch notes itself.
+    // all six note-duration options at 100%, no same-pitch truncation, and
+    // switches at Dorico's default lead. Each layer then applies durations,
+    // ends same-pitch notes and leads its own switches itself.
     const auto *overrides = map->getChildByName("playbackOptionsOverrides");
     const bool writtenDurations = overrides && overrides->getNumChildElements() > 0;
     if (writtenDurations) {
       std::map<juce::String, juce::String> required;
       for (const auto *name : durationOptionNames()) required[name] = "int:100";
       required[kTruncateSamePitchOption] = "bool:false";
+      required[kSwitchLeadOption] = "int:" + juce::String(kDoricoDefaultSwitchLeadTicks);
       std::set<juce::String> pinned;
       for (const auto *row : overrides->getChildIterator()) {
         require(row->hasTagName("optionsOverride"), "Invalid playback override");
@@ -136,7 +138,8 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
         require(pinned.insert(option).second, "Duplicate playback override: " + option);
       }
       require(pinned.size() == required.size(),
-              "Pin all six note-duration options to 100% and same-pitch truncation off, or none");
+              "Pin all six note-duration options to 100%, same-pitch truncation off and "
+              "switch lead to 10 ticks, or none");
     }
     auto result = std::make_shared<BridgeMapDocument>();
     result->sourceXml = xml; result->entityId = text(*map, "entityID"); result->name = text(*map, "name");

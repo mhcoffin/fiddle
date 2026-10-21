@@ -42,6 +42,13 @@ inline DurationCategory durationCategory(const std::set<std::string> &techniques
   return DurationCategory::Note;
 }
 
+/// Dorico's "Expression map switches before notes" (ticks, 480 per quarter
+/// note assumed). Bridge maps pin it to Dorico's default so the decoder sees
+/// fixed timing; layers apply the project's value (or their map's override).
+inline constexpr const char *kSwitchLeadOption = "timingOptions.numTicksBeforeForSwitches";
+inline constexpr int kDoricoDefaultSwitchLeadTicks = 10;
+inline constexpr int kMaxSwitchLeadTicks = 1920;
+
 /// Dorico's "Shorten note if followed by abutting note of same pitch".
 /// Bridge maps pin it off; Fiddle ends same-pitch notes per layer instead.
 inline constexpr const char *kTruncateSamePitchOption =

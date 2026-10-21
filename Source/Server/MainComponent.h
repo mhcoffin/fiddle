@@ -213,6 +213,7 @@ private:
   void pushMixerMeters();
   void changePlaybackDelay(int milliseconds);
   void changeDoricoDurationPercents(DurationPercents percents);
+  void changeDoricoSwitchLeadTicks(int ticks);
   void changeRenderWorkerCount(int count);
   bool canChangeRenderWorkerCount() const;
   bool meterUpdatePending_ = false; // Message-thread-only, one web evaluation in flight.
