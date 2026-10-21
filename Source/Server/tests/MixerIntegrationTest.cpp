@@ -2360,7 +2360,7 @@ void testWrittenDurationsUseProjectOptions() {
   fiddle::Note note;
   note.set_id(1); note.set_channel(2); note.set_note_number(60); note.set_start_velocity(90);
   (*note.mutable_notation_techniques())["articulation"] = "pt.staccato";
-  (*note.mutable_notation_dimensions())[fiddle::kWrittenDurationDimension] = 1.0f;
+  (*note.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
   const double start = f.now;
   auto on = note; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 10);
   note.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
@@ -2404,7 +2404,7 @@ void testSamePitchNotesNeverOverlap() {
     n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
     n.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
     (*n.mutable_notation_techniques())["articulation"] = "pt.legato";
-    (*n.mutable_notation_dimensions())[fiddle::kWrittenDurationDimension] = 1.0f;
+    (*n.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
     return n;
   };
   const double start = f.now;
@@ -2426,6 +2426,57 @@ void testSamePitchNotesNeverOverlap() {
     REQUIRE(std::abs(events[1].first - (start + 109)) < 2.0); // cut from 130 ms
     REQUIRE(std::abs(events[2].first - (start + 110)) < 2.0);
     REQUIRE(std::abs(events[3].first - (start + 230)) < 2.0); // last note keeps 120%
+  }
+}
+
+// A pinned bridge's linear dynamics reach the instrument on the project's
+// Dorico curve (power 1.75 here), and a layer map's own curve wins.
+void testPinnedDynamicsUseLayerCurves() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  std::array<std::vector<juce::MidiMessage>, 2> received;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto id = f.mixer.addStrip();
+    auto *strip = f.mixer.getStrip(id);
+    strip->setInputAssignment(0, 1);
+    auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+    processor->onMidi = [&, layer](const juce::MidiMessage &msg) { received[layer].push_back(msg); };
+    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+    auto map = std::make_shared<fiddle::ExpressionMapData>();
+    map->combinations.push_back(fiddle::TechniqueCombination{.name = "Natural", .techniqueIDs = {"pt.natural"}});
+    if (layer == 1)
+      map->dynamicsOverrides.curve = std::array<double, 3>{0.5, 1.0, 1.0};
+    strip->setExpressionMap(map);
+  }
+  auto settings = f.mixer.projectSettings();
+  settings.doricoDynamics.lowerPower = settings.doricoDynamics.upperPower = 1.75;
+  f.mixer.setProjectSettings(settings);
+
+  fiddle::DoricoDynamics bridge;
+  bridge.lowerPower = bridge.upperPower = 1.0;
+  bridge.minLevel = fiddle::kBridgeDynamicsMinLevel;
+  bridge.maxLevel = fiddle::kBridgeDynamicsMaxLevel;
+  fiddle::Note note;
+  note.set_id(1); note.set_channel(2); note.set_note_number(60);
+  note.set_start_velocity(bridge.midiValue(-1)); // p
+  note.set_dynamics_mode(fiddle::Note::VELOCITY);
+  (*note.mutable_notation_techniques())["articulation"] = "pt.natural";
+  (*note.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
+  auto on = note; f.mixer.routeAnnotatedNoteOn(0, 1, on, f.now + 5);
+  for (int i = 0; i < 10; ++i) f.render();
+
+  auto project = settings.doricoDynamics, linear = settings.doricoDynamics;
+  linear.lowerPower = linear.upperPower = 1.0;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto expected = (layer == 0 ? project : linear).midiValue(-1);
+    bool seen = false;
+    for (const auto &msg : received[layer])
+      if (msg.isNoteOn()) {
+        REQUIRE(std::abs(msg.getVelocity() - expected) <= 1);
+        seen = true;
+      }
+    REQUIRE(seen);
   }
 }
 
@@ -3510,6 +3561,7 @@ int main(int argc, char **argv) {
   run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
   run("written-length notes take the project's Dorico durations", testWrittenDurationsUseProjectOptions);
   run("same-pitch notes never overlap on a layer", testSamePitchNotesNeverOverlap);
+  run("pinned bridge dynamics take each layer's Dorico curve", testPinnedDynamicsUseLayerCurves);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {

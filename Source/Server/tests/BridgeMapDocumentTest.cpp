@@ -142,10 +142,10 @@ void writtenDurations() {
   const auto source = fixture("experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib");
   const auto doc = BridgeMapDocument::compile(source, error);
   if (!doc) throw std::runtime_error(error.toStdString());
-  CHECK(doc->schema == 2 && doc->compiled->writtenDurations);
+  CHECK(doc->schema == 2 && doc->compiled->pinnedPlayback);
   const auto r4 = BridgeMapDocument::compile(
       fixture("experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"), error);
-  CHECK(r4 && !r4->compiled->writtenDurations);
+  CHECK(r4 && !r4->compiled->pinnedPlayback);
 
   const auto edited = [&](const std::function<void(juce::XmlElement &)> &change) {
     auto root = juce::parseXML(source);
@@ -190,7 +190,7 @@ void writtenDurations() {
   tracker.processEvent(cc(102, 2));
   tracker.processEvent(key(72, 90));
   CHECK(notes.size() == 1);
-  CHECK(notes[0].notation_dimensions().at(kWrittenDurationDimension) == 1.0f);
+  CHECK(notes[0].notation_dimensions().at(kPinnedPlaybackDimension) == 1.0f);
 }
 
 void tests() {
@@ -239,6 +239,12 @@ void tests() {
   ProjectSettings lead; lead.doricoSwitchLeadTicks = 30;
   CHECK(lead.serialize().rfind("FIDDLE_SETTINGS_V4\n", 0) == 0);
   CHECK(ProjectSettings::deserialize(lead.serialize()) == lead);
+  ProjectSettings dynamics;
+  dynamics.doricoDynamics.lowerPower = dynamics.doricoDynamics.upperPower = 1.75;
+  dynamics.doricoDynamics.minLevel = -5;
+  dynamics.doricoDynamics.accent = 0.6;
+  CHECK(dynamics.serialize().rfind("FIDDLE_SETTINGS_V4\n", 0) == 0);
+  CHECK(ProjectSettings::deserialize(dynamics.serialize()) == dynamics);
   auto truncated = settings.serialize().substr(0, settings.serialize().find('{'));
   CHECK(!BridgeMapProject::parse(juce::String(ProjectSettings::deserialize(truncated).bridgeMapsJson), restored, error));
   auto corrupt = juce::JSON::parse(project.serialize());
@@ -316,7 +322,7 @@ void tests() {
         : "experiments/orchestral-percussion-bridge/pitched-percussion-r2/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
-    CHECK(built->schema == 2 && built->compiled->writtenDurations);
+    CHECK(built->schema == 2 && built->compiled->pinnedPlayback);
   }
   std::cout << "Bridge compiler, persistence, corruption, runtime isolation and schema 2 passed\n";
 }

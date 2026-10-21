@@ -136,9 +136,12 @@ non-neutral timing/length/velocity modifiers, monophonic behavior and playback
 overrides are rejected, except one override policy: all six note-duration
 options (`timingOptions.note/staccato/staccatissimo/legato/tenuto/marcatoDurationPercent`)
 at `int: 100`, `timingOptions.alwaysTruncateAbuttingNotesOfSamePitch` at
-`bool: false` and `timingOptions.numTicksBeforeForSwitches` at `int: 10`
-(Dorico's default), or none. That policy marks the map's notes as written-length and
-is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
+`bool: false`, `timingOptions.numTicksBeforeForSwitches` at `int: 10`
+(Dorico's default), and linear dynamics (`dynamicsOptions.dynamicCurveParams` at
+`string: "0.500000,1.000000,1.000000"`, `min/maxProfileLevelForPlayback` at
+`int: -8`/`int: 8`, and the accent, marcato, tenuto and ghost-note deltas at
+`double: 0`), or none. That policy marks the map's notes `dorico_pinned_playback`
+and is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
 
@@ -202,17 +205,17 @@ play that map directly:
   notes**: the bridge maps pin Dorico's to its default 10 ticks, so the
   decoder always sees the same timing, and each layer applies its map's own
   `timingOptions.numTicksBeforeForSwitches` override, else the project value
-  in the **Settings…** window's **Dorico playback timing** group (default 10).
+  in the **Settings…** window's **Dorico playback options** group (default 10).
   A switch's own `ticksBefore`, when set, replaces both (an assumption; the
   precedence is unverified). Ticks convert at the live tempo assuming 480 per
   quarter note. Fiddle's playback delay supplies the lookahead.
 - **Durations.** The section bridge maps override Dorico's six note-duration
   playback options (note, staccato, staccatissimo, legato, tenuto, marcato) to
   100%, so Dorico sends written lengths and the decoder marks each note
-  `dorico_written_duration`. Each layer then applies, per category, its own
+  `dorico_pinned_playback`. Each layer then applies, per category, its own
   expression map's override if it has one, else the project's Dorico options,
   which Fiddle cannot read: copy them from Dorico's **Library ▸ Playback
-  Options ▸ Timing** into the **Settings…** window's **Dorico playback timing** group (saved with the project,
+  Options ▸ Timing** into the **Settings…** window's **Dorico playback options** group (saved with the project,
   undoable; defaults 90, 50, 25, 105, 100 and 75%). Layers without an
   expression map apply the project values too. The switch's `lengthFactor`
   then applies as usual. Older bridge revisions and the universal map send
@@ -227,6 +230,26 @@ play that map directly:
   later note's `millisecondsBefore`) would silence the following note. This
   covers what the Dorico option does; the keyboard-only repeated-note gap
   options are left to Dorico.
+- **Dynamics.** Measured in [experiments/dynamics-curve](../experiments/dynamics-curve/results-01.md):
+  Dorico gives each dynamic a level (p −1, pp −2 …, mp −0.5, mf +0.5, f 1 …),
+  bends it with an S-curve between the minimum and maximum level, and sends
+  `round(1 + 126 × curve)` on CC1 or velocity; accent, marcato and tenuto add
+  to the note's level, ghost notes subtract. The bridge maps pin a linear curve
+  over −8..8 with no articulation deltas, so Fiddle reads each note's level back
+  from CC1 or velocity. Each layer then re-expresses it with its expression
+  map's own dynamics overrides, else the project's values (curve power, minimum
+  and maximum level, and the four adjustments in the **Dorico playback
+  timing** group; defaults 2.5, −6, 6, 0.5, 0.8, 0 and 2.5), on the switch's
+  `volumeType` controller(s) and/or velocity. A switch that takes dynamics only
+  on controllers gets velocity 100, as Dorico sends. Live CC1 changes are
+  re-expressed the same way; layers without an expression map use the project
+  curve on CC1 and velocity. One bridge step is about 0.13 level, so a value can
+  land one MIDI step from what Dorico would send where the layer's curve is
+  steep. Dorico sends a new dynamic's CC1 up to 7 ms after its note-on, so a
+  pinned note with CC1 dynamics is held (up to 10 ms of Dorico's time, at its
+  original trigger time) until that CC1 arrives. Beat stress, humanisation,
+  pitch contour and voice balancing stay in Dorico; they act on the level, so
+  they survive the re-expression.
   Dorico's other timing options (humanisation, repeated-note truncation,
   maximum staccato duration) still apply in Dorico and are not emulated. Host
   check pending: that Dorico applies the 100% overrides exactly.

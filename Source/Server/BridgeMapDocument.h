@@ -33,8 +33,8 @@ struct CompiledBridgeMap {
   std::vector<Dimension> dimensions;
   int musicalLow = 21, musicalHigh = 114;
   std::array<int, 2> beacon{-1, -1}; // expected beacon velocities (schema 2)
-  // Dorico's duration options are pinned to 100%: notes arrive at written length.
-  bool writtenDurations = false;
+  // Dorico's playback options are pinned (see kPinnedPlaybackDimension).
+  bool pinnedPlayback = false;
 };
 
 struct BridgeMapDocument {
@@ -153,8 +153,8 @@ public:
       for (const auto &id : v.techniques)
         (*note.mutable_notation_techniques())[key + ":" + id] = id;
     }
-    if (map_->writtenDurations)
-      (*note.mutable_notation_dimensions())[kWrittenDurationDimension] = 1.0f;
+    if (map_->pinnedPlayback)
+      (*note.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
     diagnostics_.lastWithheld = Withheld::None;
     return Withheld::None;
   }

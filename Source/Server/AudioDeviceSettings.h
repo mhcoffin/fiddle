@@ -16,10 +16,8 @@ public:
     std::function<int()> getMaximumRenderWorkers;
     std::function<bool()> canChangeRenderWorkers;
     std::function<void(int)> setRenderWorkers;
-    std::function<DurationPercents()> getDoricoDurationPercents;
-    std::function<void(DurationPercents)> setDoricoDurationPercents;
-    std::function<int()> getDoricoSwitchLeadTicks;
-    std::function<void(int)> setDoricoSwitchLeadTicks;
+    std::function<DoricoPlaybackSettings()> getDoricoPlayback;
+    std::function<void(const DoricoPlaybackSettings &)> setDoricoPlayback;
   };
 
   AudioDeviceSettings(juce::AudioDeviceManager &manager, juce::File file,

@@ -9,7 +9,7 @@
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
         <creator>Fiddle</creator>
-        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Bowed orchestral strings: 33 conduits, 25 bases, 87 add-ons. Specification SHA256: 09930c3c53a57c4962eac742d4ce741bdfc335a74de9879a7b3ade0820765627</description>
+        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Bowed orchestral strings: 33 conduits, 25 bases, 87 add-ons. Specification SHA256: 7395c99f7a92242a17eedc6bfc85b812c7344f95dcabd98a4885b0600ea9f3a2</description>
         <version>5</version>
         <pluginNames />
         <autoMutualExclusion>false</autoMutualExclusion>
@@ -2823,6 +2823,34 @@
           <optionsOverride>
             <option>timingOptions.numTicksBeforeForSwitches</option>
             <value>int: 10</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.dynamicCurveParams</option>
+            <value>string: "0.500000,1.000000,1.000000"</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.minProfileLevelForPlayback</option>
+            <value>int: -8</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.maxProfileLevelForPlayback</option>
+            <value>int: 8</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.accentDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.marcatoDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.tenutoDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.ghostNoteDynamicDelta</option>
+            <value>double: 0</value>
           </optionsOverride>
         </playbackOptionsOverrides>
       </ExpressionMapDefinition>

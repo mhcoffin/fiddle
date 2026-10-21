@@ -34,12 +34,16 @@ struct ProjectSettings {
   // The project's Dorico "Expression map switches before notes" (ticks),
   // applied to each layer's own switches (bridge maps pin Dorico's).
   int doricoSwitchLeadTicks = kDoricoDefaultSwitchLeadTicks;
+  // The project's Dorico dynamics options, applied to each layer's dynamics
+  // (bridge maps pin a linear curve) unless the layer's map overrides them.
+  DoricoDynamics doricoDynamics;
   bool operator==(const ProjectSettings &other) const {
     return playbackDelayMs == other.playbackDelayMs &&
            lockedChairIds == other.lockedChairIds && chairLevels == other.chairLevels &&
            bridgeMapsJson == other.bridgeMapsJson &&
            doricoDurationPercents == other.doricoDurationPercents &&
-           doricoSwitchLeadTicks == other.doricoSwitchLeadTicks;
+           doricoSwitchLeadTicks == other.doricoSwitchLeadTicks &&
+           doricoDynamics == other.doricoDynamics;
   }
 
   std::string serialize() const {
@@ -47,7 +51,8 @@ struct ProjectSettings {
     // V4 only when Dorico timing differs from its defaults, so older projects
     // keep their exact serialized form.
     const bool version4 = doricoDurationPercents != kDoricoDefaultDurationPercents ||
-                          doricoSwitchLeadTicks != kDoricoDefaultSwitchLeadTicks;
+                          doricoSwitchLeadTicks != kDoricoDefaultSwitchLeadTicks ||
+                          doricoDynamics != DoricoDynamics{};
     stream << (version4 ? "FIDDLE_SETTINGS_V4\n"
                : bridgeMapsJson.empty() ? "FIDDLE_SETTINGS_V2\n" : "FIDDLE_SETTINGS_V3\n") << std::setprecision(17)
            << playbackDelayMs << '\n' << lockedChairIds.size() << '\n';
@@ -63,6 +68,10 @@ struct ProjectSettings {
     if (version4) {
       for (const int percent : doricoDurationPercents) stream << percent << ' ';
       stream << doricoSwitchLeadTicks << '\n';
+      const auto &d = doricoDynamics;
+      stream << d.midpoint << ' ' << d.lowerPower << ' ' << d.upperPower << ' ' << d.minLevel << ' '
+             << d.maxLevel << ' ' << d.accent << ' ' << d.marcato << ' ' << d.tenuto << ' '
+             << d.ghost << '\n';
     }
     return stream.str();
   }
@@ -114,6 +123,12 @@ struct ProjectSettings {
         int lead = kDoricoDefaultSwitchLeadTicks;
         if (stream >> lead && lead >= 0 && lead <= kMaxSwitchLeadTicks)
           settings.doricoSwitchLeadTicks = lead;
+        DoricoDynamics d;
+        if (stream >> d.midpoint >> d.lowerPower >> d.upperPower >> d.minLevel >> d.maxLevel >>
+                d.accent >> d.marcato >> d.tenuto >> d.ghost &&
+            d.midpoint > 0 && d.midpoint < 1 && d.lowerPower > 0 && d.upperPower > 0 &&
+            d.minLevel < d.maxLevel)
+          settings.doricoDynamics = d;
       }
       return settings;
     }

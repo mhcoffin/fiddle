@@ -1,6 +1,7 @@
 # Dynamics measurement kit
 
-**Captured 2026-10-20: see [results-01.md](results-01.md).** Fiddle needs Dorico's exact
+**Captured 2026-10-20: see [results-01.md](results-01.md).** Implemented in Fiddle the same day (see "Dynamics" in
+[bridge-map-authoring.md](../../docs/bridge-map-authoring.md)). Fiddle needs Dorico's exact
 dynamic-to-MIDI mapping before it can apply each layer's own dynamic curve and
 articulation adjustments (see "What reaches instruments" in
 [bridge-map-authoring.md](../../docs/bridge-map-authoring.md)). This kit

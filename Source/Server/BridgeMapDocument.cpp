@@ -115,17 +115,23 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(text(*map, "autoMutualExclusion") == "false", "Bridge maps require explicit mutex groups (Auto off)");
     require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the bridge map");
     require(text(*map, "microtonalPlaybackMethod") == "kAuto" && text(*map, "pitchBendRange") == "2", "Unsupported bridge pitch/microtonality configuration");
-    // The one supported override policy makes Dorico send written lengths:
-    // all six note-duration options at 100%, no same-pitch truncation, and
-    // switches at Dorico's default lead. Each layer then applies durations,
-    // ends same-pitch notes and leads its own switches itself.
+    // The one supported override policy makes Dorico send playback Fiddle can
+    // undo exactly: written lengths (all six note-duration options at 100%,
+    // no same-pitch truncation), switches at Dorico's default lead, and a
+    // linear dynamic curve without articulation deltas. Each layer then
+    // applies its own durations, switch lead and dynamics.
     const auto *overrides = map->getChildByName("playbackOptionsOverrides");
-    const bool writtenDurations = overrides && overrides->getNumChildElements() > 0;
-    if (writtenDurations) {
+    const bool pinnedPlayback = overrides && overrides->getNumChildElements() > 0;
+    if (pinnedPlayback) {
       std::map<juce::String, juce::String> required;
       for (const auto *name : durationOptionNames()) required[name] = "int:100";
       required[kTruncateSamePitchOption] = "bool:false";
       required[kSwitchLeadOption] = "int:" + juce::String(kDoricoDefaultSwitchLeadTicks);
+      required[kDynamicCurveOption] = "string:\"0.500000,1.000000,1.000000\"";
+      required[kMinDynamicLevelOption] = "int:" + juce::String(kBridgeDynamicsMinLevel);
+      required[kMaxDynamicLevelOption] = "int:" + juce::String(kBridgeDynamicsMaxLevel);
+      for (const auto *delta : {kAccentDeltaOption, kMarcatoDeltaOption, kTenutoDeltaOption, kGhostDeltaOption})
+        required[delta] = "double:0";
       std::set<juce::String> pinned;
       for (const auto *row : overrides->getChildIterator()) {
         require(row->hasTagName("optionsOverride"), "Invalid playback override");
@@ -138,8 +144,8 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
         require(pinned.insert(option).second, "Duplicate playback override: " + option);
       }
       require(pinned.size() == required.size(),
-              "Pin all six note-duration options to 100%, same-pitch truncation off and "
-              "switch lead to 10 ticks, or none");
+              "Pin all six note-duration options to 100%, same-pitch truncation off, "
+              "switch lead to 10 ticks and linear dynamics, or none");
     }
     auto result = std::make_shared<BridgeMapDocument>();
     result->sourceXml = xml; result->entityId = text(*map, "entityID"); result->name = text(*map, "name");
@@ -178,8 +184,8 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     semantic.add("schema=" + juce::String(compiled->schema) + " range=" + juce::String(low) + "-" + juce::String(high)
                  + " id=" + result->entityId + " version=" + juce::String(result->revision)
                  + " multi=" + text(*map, "allowMultipleNotesAtSamePitch"));
-    compiled->writtenDurations = writtenDurations;
-    if (writtenDurations) semantic.add("durations=written");
+    compiled->pinnedPlayback = pinnedPlayback;
+    if (pinnedPlayback) semantic.add("playback=pinned");
     CompiledBridgeMap::Dimension base; base.number = 102;
     std::set<std::string> vocabulary;
     std::set<juce::String> switchIds;

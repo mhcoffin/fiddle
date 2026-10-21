@@ -689,6 +689,7 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     ctx.tempoBpm = tempoBpm();
     ctx.doricoDurationPercents = doricoDurationPercents();
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
+    ctx.doricoDynamics = doricoDynamics();
     strip->annotator->onNoteStart(note, ctx);
     // A switch's millisecondsBefore moves the note and its MIDI earlier.
     const double startMs = triggerTimeMs + strip->annotator->noteStartOffsetMs();
@@ -801,6 +802,7 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     ctx.tempoBpm = tempoBpm();
     ctx.doricoDurationPercents = doricoDurationPercents();
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
+    ctx.doricoDynamics = doricoDynamics();
     strip->annotator->onNoteEnd(note, ctx);
 
     // Update the last annotation record with duration info
@@ -865,6 +867,7 @@ void MixerModel::transportStarted(double triggerTimeMs) {
     ctx.tempoBpm = tempoBpm();
     ctx.doricoDurationPercents = doricoDurationPercents();
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
+    ctx.doricoDynamics = doricoDynamics();
     auto midiLock = strip->lockMidiState();
     std::vector<fiddle::MidiInstruction> init;
     strip->annotator->onTransportStart(ctx, init);
@@ -999,6 +1002,7 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
     ctx.tempoBpm = tempoBpm();
     ctx.doricoDurationPercents = doricoDurationPercents();
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
+    ctx.doricoDynamics = doricoDynamics();
     auto midiLock = strip->lockMidiState();
     const double t = triggerTimeMs + strip->annotator->controllerOffsetMs();
     if (strip->annotator->onCC(event, ctx)) {

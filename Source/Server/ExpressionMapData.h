@@ -209,6 +209,29 @@ struct TimingOptions {
   }
 };
 
+/// The dynamics options this map's <playbackOptionsOverrides> set; the rest
+/// come from the project's copy of Dorico's options.
+struct DynamicsOverrides {
+  std::optional<std::array<double, 3>> curve; // midpoint, lower, upper power
+  std::optional<int> minLevel, maxLevel;
+  std::optional<double> accent, marcato, tenuto, ghost;
+
+  DoricoDynamics over(DoricoDynamics project) const {
+    if (curve) {
+      project.midpoint = (*curve)[0];
+      project.lowerPower = (*curve)[1];
+      project.upperPower = (*curve)[2];
+    }
+    project.minLevel = minLevel.value_or(project.minLevel);
+    project.maxLevel = maxLevel.value_or(project.maxLevel);
+    project.accent = accent.value_or(project.accent);
+    project.marcato = marcato.value_or(project.marcato);
+    project.tenuto = tenuto.value_or(project.tenuto);
+    project.ghost = ghost.value_or(project.ghost);
+    return project;
+  }
+};
+
 /// A mutual exclusion group: a set of PTs where only one can be active.
 /// The defaultID is used when a note has no PT from this group.
 struct MutualExclusionGroup {
@@ -301,6 +324,7 @@ struct TechniqueCombination {
   int volumeCC = 1; // CC number when volumeType == kCC (usually 1)
   VolumeType volumeType2 = VolumeType::kNoteVelocity; // secondary dynamics
   int volumeCC2 = 1; // CC number when volumeType2 == kCC
+  bool hasVolumeType2 = false; // the map declares a <volumeType2>
 };
 
 /// Result of resolveMatch(): the base switch plus zero or more add-ons
@@ -413,6 +437,9 @@ struct ExpressionMapData {
 
   /// Playback timing options (category-level duration percentages)
   TimingOptions timingOptions;
+
+  /// Dynamics playback options this map overrides.
+  DynamicsOverrides dynamicsOverrides;
 
   /// Actions from an enabled <initSwitchData>, sent when playback starts.
   std::vector<SwitchAction> initActions;

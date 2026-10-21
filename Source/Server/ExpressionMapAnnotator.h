@@ -3,6 +3,7 @@
 #include "Annotator.h"
 #include "ExpressionMapData.h"
 #include "NoteInspection.h"
+#include "PinnedDynamics.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -94,8 +95,11 @@ public:
       out.push_back(inst);
     };
     if (ccNum == 1) {
-      for (const int target : liveDynamicsCCs_)
+      for (const int target : liveDynamicsCCs_) {
         emit(target);
+        if (livePinned_)
+          out.back().set_param2(PinnedDynamics::layerValue(liveDynamics_, value));
+      }
     } else if (activeChannel_ != 0 && !isDimensionCC(ccNum)) {
       emit(ccNum);
     }
@@ -236,9 +240,11 @@ public:
     controllerOffsetMs_ = match.leadAppliesToControllers() ? -leadMs : 0.0;
 
     // ── 5. Apply modifiers from the base switch ───────────────────
+    // (A pinned bridge's velocity is re-expressed in step 6, factor included.)
+    const bool pinned = hasPinnedPlayback(note);
     lastRecord_.velocityBefore = note.start_velocity();
     if (match.base) {
-      if (match.base->velocityFactor != 1.0f) {
+      if (match.base->velocityFactor != 1.0f && !pinned) {
         int v = note.start_velocity();
         v = std::clamp(static_cast<int>(v * match.base->velocityFactor), 1,
                        127);
@@ -250,7 +256,6 @@ public:
         lastRecord_.transposeApplied = match.base->transpose;
       }
     }
-    lastRecord_.velocityAfter = note.start_velocity();
 
     // ── 6. Emit dynamics MIDI output ──────────────────────────────
     if (match.base) {
@@ -271,9 +276,19 @@ public:
             " + " + fmtTarget(match.base->volumeType2, match.base->volumeCC2);
       }
 
-      emitDynamics(note, *match.base, ctx.sampleRate);
+      livePinned_ = pinned;
+      if (pinned) {
+        // Levels from the bridge, re-expressed on this map's curve.
+        liveDynamics_ = emData_->dynamicsOverrides.over(ctx.doricoDynamics);
+        PinnedDynamics::apply(note, liveDynamics_, techniqueIDs, takesVelocityDynamics(*match.base),
+                              controllerTargets(*match.base), match.base->velocityFactor,
+                              ctx.sampleRate);
+      } else {
+        emitDynamics(note, *match.base, ctx.sampleRate);
+      }
       liveDynamicsCCs_ = liveDynamicsTargets(note, *match.base);
     }
+    lastRecord_.velocityAfter = note.start_velocity();
 
     // The note-off must reach the channel and pitch this note-on used, even
     // if a later note has changed the active switch.
@@ -291,7 +306,7 @@ public:
       durationAdjustMs_ = scaledDurationAdjustMs(
           note, TimingOptions{}.durationCorrection(collectInputTechniqueIds(note),
                                                    ctx.doricoDurationPercents,
-                                                   hasWrittenDuration(note)),
+                                                   hasPinnedPlayback(note)),
           ctx.sampleRate);
       return;
     }
@@ -327,7 +342,7 @@ public:
     // Layer 2: per-combination lengthFactor
     const double combinedFactor =
         emData_->timingOptions.durationCorrection(techniqueIDs, ctx.doricoDurationPercents,
-                                                  hasWrittenDuration(note)) *
+                                                  hasPinnedPlayback(note)) *
         static_cast<double>(lengthFactor);
     durationAdjustMs_ = scaledDurationAdjustMs(note, combinedFactor, ctx.sampleRate);
     // A lead applied to end offsets moves the note-off with the note-on.
@@ -350,6 +365,8 @@ private:
   MatchResult currentMatch_;
   std::vector<int> liveDynamicsCCs_; // targets for live CC1, from the last base
   int activeChannel_ = 0; // kChannelSwitch channel of the last note, or 0
+  bool livePinned_ = false;     // the last note came from a pinned bridge
+  DoricoDynamics liveDynamics_; // this map's dynamics for live CC1 when pinned
   double durationAdjustMs_ = 0.0;
   double noteStartOffsetMs_ = 0.0;
   double controllerOffsetMs_ = 0.0;
@@ -373,6 +390,7 @@ private:
   void clearPlaybackState() {
     currentMatch_ = {};
     liveDynamicsCCs_.clear();
+    livePinned_ = false;
     activeChannel_ = 0;
     controllerOffsetMs_ = 0.0;
     sounding_.clear();
@@ -452,6 +470,24 @@ private:
   /// Both are processed independently.
   /// Controllers that should follow live CC1, or none when the input
   /// dynamics are velocity-based (CC1 is then not a dynamics stream).
+  /// Whether a switch takes dynamics on note velocity (else velocity is
+  /// Dorico's fixed controller-dynamics value).
+  static bool takesVelocityDynamics(const TechniqueCombination &combo) {
+    return combo.volumeType == VolumeType::kNoteVelocity ||
+           (combo.hasVolumeType2 && combo.volumeType2 == VolumeType::kNoteVelocity);
+  }
+
+  /// The controllers a switch takes dynamics on.
+  static std::vector<int> controllerTargets(const TechniqueCombination &combo) {
+    std::vector<int> targets;
+    if (combo.volumeType == VolumeType::kCC)
+      targets.push_back(combo.volumeCC);
+    if (combo.hasVolumeType2 && combo.volumeType2 == VolumeType::kCC &&
+        std::find(targets.begin(), targets.end(), combo.volumeCC2) == targets.end())
+      targets.push_back(combo.volumeCC2);
+    return targets;
+  }
+
   static std::vector<int> liveDynamicsTargets(const fiddle::Note &note,
                                               const TechniqueCombination &combo) {
     std::vector<int> targets;

@@ -54,6 +54,11 @@ class WrittenDurations(unittest.TestCase):
         self.assertEqual(len(expected), 6)
         expected["timingOptions.alwaysTruncateAbuttingNotesOfSamePitch"] = "bool: false"
         expected["timingOptions.numTicksBeforeForSwitches"] = "int: 10"
+        expected["dynamicsOptions.dynamicCurveParams"] = 'string: "0.500000,1.000000,1.000000"'
+        expected["dynamicsOptions.minProfileLevelForPlayback"] = "int: -8"
+        expected["dynamicsOptions.maxProfileLevelForPlayback"] = "int: 8"
+        for option in ("accent", "marcato", "tenuto", "ghostNote"):
+            expected[f"dynamicsOptions.{option}DynamicDelta"] = "double: 0"
         for spec, previous, _ in self.pairs():
             self.assertEqual(overrides(map_xml(g.build(spec))), expected, spec.NAME)
             self.assertEqual(overrides(map_xml(g.build(previous))), {}, previous.NAME)

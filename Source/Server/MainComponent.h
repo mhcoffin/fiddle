@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NoteStartSettler.h"
 #include "../AudioDiagnostics.h"
 #include "AgentControlServer.h"
 #include "DebugWindow.h"
@@ -136,6 +137,9 @@ private:
   InstrumentMapper instrumentMapper_;
   PluginScanner pluginScanner_;
   MixerModel mixer_;
+  NoteStartSettler noteStartSettler_{[this](fiddle::Note &note, double triggerTimeMs) {
+    mixer_.routeAnnotatedNoteOn((int)note.port(), (int)note.channel() - 1, note, triggerTimeMs);
+  }};
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
   TechniqueCatalogScan techniqueCatalogScan_;
@@ -212,8 +216,7 @@ private:
   void pushAudioDiagnostics();
   void pushMixerMeters();
   void changePlaybackDelay(int milliseconds);
-  void changeDoricoDurationPercents(DurationPercents percents);
-  void changeDoricoSwitchLeadTicks(int ticks);
+  void changeDoricoPlayback(const DoricoPlaybackSettings &dorico);
   void changeRenderWorkerCount(int count);
   bool canChangeRenderWorkerCount() const;
   bool meterUpdatePending_ = false; // Message-thread-only, one web evaluation in flight.

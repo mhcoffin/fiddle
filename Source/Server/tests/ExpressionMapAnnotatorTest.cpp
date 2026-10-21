@@ -4,6 +4,7 @@
 #include "../NoteInspection.h"
 #include "../BridgeReachability.h"
 #include "../NoteStreamTracker.h"
+#include "../NoteStartSettler.h"
 #include "midi_event.pb.h"
 
 #include <iostream>
@@ -1912,7 +1913,7 @@ static void testWrittenDurations() {
     auto note = makeNotePTs({pt});
     note.set_duration_samples(44100);
     if (written)
-      (*note.mutable_notation_dimensions())[kWrittenDurationDimension] = 1.0f;
+      (*note.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
     ann.onNoteStart(note, ctx);
     ann.onNoteEnd(note, ctx);
     return ann.durationAdjustMs();
@@ -1936,6 +1937,223 @@ static void testWrittenDurations() {
   A_CHECK(near(adjust(passthrough, "pt.staccatissimo", true), -800.0));
   A_CHECK(near(adjust(passthrough, "pt.tenuto", true), 0.0));
   A_CHECK(near(adjust(passthrough, "pt.staccatissimo", false), 0.0));
+}
+
+// ---------------------------------------------------------------------------
+// Dorico's dynamics (experiments/dynamics-curve/results-01.md)
+// ---------------------------------------------------------------------------
+
+static const std::vector<double> kLadderLevels{-6, -5, -4, -3, -2, -1, -0.5, 0.5, 1, 2, 3, 4, 5, 6};
+
+static void testDoricoDynamicCurve() {
+  std::cout << "--- testDoricoDynamicCurve ---" << std::endl;
+  // Values Dorico sent for pppppp..ffffff in the measurement passes.
+  DoricoDynamics passA; // power 2.5, -6..6
+  const std::vector<int> a{1, 2, 5, 12, 24, 41, 52, 76, 87, 104, 116, 123, 126, 127};
+  DoricoDynamics passB = passA;
+  passB.lowerPower = passB.upperPower = 1.0;
+  const std::vector<int> b{1, 12, 22, 33, 43, 54, 59, 69, 75, 85, 96, 106, 116, 127};
+  DoricoDynamics passC = passB;
+  passC.minLevel = -3;
+  passC.maxLevel = 3;
+  const std::vector<int> c{1, 1, 1, 1, 22, 43, 54, 75, 85, 106, 127, 127, 127, 127};
+  for (size_t i = 0; i < kLadderLevels.size(); ++i) {
+    A_CHECK_EQ(passA.midiValue(kLadderLevels[i]), a[i]);
+    A_CHECK_EQ(passC.midiValue(kLadderLevels[i]), c[i]);
+    // fffff in pass B is an exact .5 (116.5) that Dorico rounded down.
+    if (kLadderLevels[i] != 5)
+      A_CHECK_EQ(passB.midiValue(kLadderLevels[i]), b[i]);
+  }
+  // Articulations add to the level: accent (+0.5) and marcato (+0.8) at mf.
+  A_CHECK_EQ(passA.midiValue(0.5 + passA.articulationDelta({"pt.accent"})), 87);
+  A_CHECK_EQ(passA.midiValue(0.5 + passA.articulationDelta({"pt.marcato"})), 93);
+  A_CHECK_EQ(passA.articulationDelta({"pt.ghostNote"}), -2.5);
+
+  // The pinned bridge range round-trips each level within one 7-bit step.
+  DoricoDynamics bridge;
+  bridge.lowerPower = bridge.upperPower = 1.0;
+  bridge.minLevel = kBridgeDynamicsMinLevel;
+  bridge.maxLevel = kBridgeDynamicsMaxLevel;
+  for (const double level : kLadderLevels)
+    A_CHECK(std::abs(bridgeDynamicLevel(bridge.midiValue(level)) - level) <= 16.0 / 126 / 2 + 1e-9);
+}
+
+/// The value a pinned bridge sends for a level.
+static int bridgeValue(double level) {
+  DoricoDynamics bridge;
+  bridge.lowerPower = bridge.upperPower = 1.0;
+  bridge.minLevel = kBridgeDynamicsMinLevel;
+  bridge.maxLevel = kBridgeDynamicsMaxLevel;
+  return bridge.midiValue(level);
+}
+
+/// A note from a pinned bridge at `level`, with dynamics on CC1 or velocity.
+static fiddle::Note pinnedNote(const std::string &pt, double level, bool controller) {
+  DoricoDynamics bridge;
+  bridge.lowerPower = bridge.upperPower = 1.0;
+  bridge.minLevel = kBridgeDynamicsMinLevel;
+  bridge.maxLevel = kBridgeDynamicsMaxLevel;
+  auto note = makeNotePTs({pt});
+  (*note.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
+  const int value = bridge.midiValue(level);
+  if (controller) {
+    note.set_dynamics_mode(fiddle::Note::CC);
+    note.set_start_velocity(100);
+    auto *point = (*note.mutable_cc_automation())[1].add_points();
+    point->set_offset_samples(0);
+    point->set_value(value);
+  } else {
+    note.set_dynamics_mode(fiddle::Note::VELOCITY);
+    note.set_start_velocity(value);
+  }
+  return note;
+}
+
+static void testPinnedDynamicsPerLayer() {
+  std::cout << "--- testPinnedDynamicsPerLayer ---" << std::endl;
+  AnnotatorContext ctx; // project dynamics: Dorico's defaults
+  auto em = std::make_shared<ExpressionMapData>();
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Long", .techniqueIDs = {"pt.natural"},
+      .volumeType = VolumeType::kCC, .volumeCC = 11});
+  em->combinations.push_back(TechniqueCombination{
+      .name = "Short", .techniqueIDs = {"pt.staccato"}, .velocityFactor = 0.5f});
+  ExpressionMapAnnotator ann(em);
+
+  // Controller layer: CC11 gets the project's curve, velocity is Dorico's 100.
+  auto mf = pinnedNote("pt.natural", 0.5, true);
+  ann.onNoteStart(mf, ctx);
+  A_CHECK_EQ(mf.start_velocity(), 100u);
+  A_CHECK_EQ(mf.during_note_size(), 1);
+  if (mf.during_note_size() == 1) {
+    A_CHECK_EQ(mf.during_note(0).param1(), 11);
+    A_CHECK_EQ(mf.during_note(0).param2(), 76);
+  }
+  // An accent adds its level on this layer (the bridge pins it to 0).
+  auto accented = pinnedNote("pt.natural", 0.5, true);
+  (*accented.mutable_notation_techniques())["accent"] = "pt.accent";
+  ann.onNoteStart(accented, ctx);
+  A_CHECK(accented.during_note_size() == 1 && accented.during_note(0).param2() == 87);
+  // Live CC1 from the bridge is re-expressed on CC11.
+  fiddle::MidiEvent cc1;
+  cc1.mutable_cc()->set_controller_number(1);
+  cc1.mutable_cc()->set_controller_value(bridgeValue(1.0));
+  std::vector<fiddle::MidiInstruction> out;
+  A_CHECK(!ann.onCC(cc1, ctx));
+  ann.translateCC(cc1, ctx, out);
+  A_CHECK(out.size() == 1 && out[0].param1() == 11 && out[0].param2() == 87);
+
+  // Velocity layer: p on Dorico's curve, then this switch's velocity factor once.
+  auto p = pinnedNote("pt.staccato", -1, false);
+  ann.onNoteStart(p, ctx);
+  A_CHECK_EQ(p.start_velocity(), 20u); // 41 * 0.5
+  A_CHECK_EQ(p.during_note_size(), 0);
+
+  // A map's own dynamics overrides replace the project's.
+  em->dynamicsOverrides.curve = std::array<double, 3>{0.5, 1.0, 1.0};
+  ExpressionMapAnnotator linear(em);
+  auto linearMf = pinnedNote("pt.natural", 0.5, true);
+  linear.onNoteStart(linearMf, ctx);
+  A_CHECK(linearMf.during_note_size() == 1 && linearMf.during_note(0).param2() == 69);
+
+  // Notes from bridges without pinned options keep the old pass-through.
+  auto unpinned = pinnedNote("pt.natural", 0.5, true);
+  unpinned.mutable_notation_dimensions()->erase(kPinnedPlaybackDimension);
+  ann.onNoteStart(unpinned, ctx);
+  A_CHECK(unpinned.during_note_size() == 1 &&
+          unpinned.during_note(0).param2() == static_cast<int>(unpinned.cc_automation().at(1).points(0).value()));
+
+  // Layers without a map use the project's curve on CC1 and velocity. One
+  // bridge step is 0.13 level, so where the layer's curve is steep (ff: 104
+  // directly from Dorico) the result can be one value away.
+  PassthroughAnnotator passthrough;
+  auto loud = pinnedNote("pt.natural", 2, false);
+  passthrough.onNoteStart(loud, ctx);
+  A_CHECK(std::abs(static_cast<int>(loud.start_velocity()) - 104) <= 1);
+  auto held = pinnedNote("pt.natural", 2, true);
+  passthrough.onNoteStart(held, ctx);
+  A_CHECK(held.during_note_size() == 1 && held.during_note(0).param1() == 1 &&
+          std::abs(held.during_note(0).param2() - 104) <= 1);
+  out.clear();
+  A_CHECK(!passthrough.onCC(cc1, ctx));
+  passthrough.translateCC(cc1, ctx, out);
+  A_CHECK(out.size() == 1 && out[0].param1() == 1 && out[0].param2() == 87);
+}
+
+static void testDynamicsOverridesParse() {
+  std::cout << "--- testDynamicsOverridesParse ---" << std::endl;
+  ExpressionMapData parsed;
+  A_CHECK(parseExpressionMapXml(R"xml(<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary><expressionMapDefinitions><entities array="true">
+<ExpressionMapDefinition><name>Dyn</name><entityID>map.dyn</entityID>
+  <playingTechniqueCombinations array="true"><playingTechniqueCombination>
+    <name>Natural</name><techniqueIDs>pt.natural</techniqueIDs>
+  </playingTechniqueCombination></playingTechniqueCombinations>
+  <playbackOptionsOverrides array="true">
+    <optionsOverride><option>dynamicsOptions.dynamicCurveParams</option><value>string: &quot;0.500000,1.750000,1.750000&quot;</value></optionsOverride>
+    <optionsOverride><option>dynamicsOptions.minProfileLevelForPlayback</option><value>int: -5</value></optionsOverride>
+    <optionsOverride><option>dynamicsOptions.maxProfileLevelForPlayback</option><value>int: 5</value></optionsOverride>
+    <optionsOverride><option>dynamicsOptions.accentDynamicDelta</option><value>double: 0.6</value></optionsOverride>
+    <optionsOverride><option>dynamicsOptions.ghostNoteDynamicDelta</option><value>double: 2.25</value></optionsOverride>
+  </playbackOptionsOverrides>
+</ExpressionMapDefinition></entities></expressionMapDefinitions></kScoreLibrary>)xml",
+                                parsed));
+  const auto d = parsed.dynamicsOverrides.over(DoricoDynamics{});
+  A_CHECK(d.midpoint == 0.5 && d.lowerPower == 1.75 && d.upperPower == 1.75);
+  A_CHECK(d.minLevel == -5 && d.maxLevel == 5);
+  A_CHECK(d.accent == 0.6 && d.ghost == 2.25);
+  A_CHECK(d.marcato == 0.8 && d.tenuto == 0.0); // not overridden: project values
+}
+
+static void testNoteStartSettler() {
+  std::cout << "--- testNoteStartSettler ---" << std::endl;
+  std::vector<std::pair<uint64_t, int>> routed; // (note id, starting CC1)
+  std::vector<double> triggers;
+  NoteStartSettler settler([&](fiddle::Note &note, double trigger) {
+    routed.emplace_back(note.id(), note.cc_automation().count(1)
+                                       ? static_cast<int>(note.cc_automation().at(1).points(0).value())
+                                       : -1);
+    triggers.push_back(trigger);
+  });
+  settler.setHostSampleRate(48000);
+  const auto note = [](uint64_t id, uint64_t start, bool pinned, bool controller) {
+    fiddle::Note n;
+    n.set_id(id); n.set_port(0); n.set_channel(2); n.set_start_sample(start);
+    n.set_dynamics_mode(controller ? fiddle::Note::CC : fiddle::Note::VELOCITY);
+    if (pinned) (*n.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
+    auto *point = (*n.mutable_cc_automation())[1].add_points();
+    point->set_value(40);
+    return n;
+  };
+  const auto cc1 = [](int value) {
+    fiddle::MidiEvent e;
+    e.set_port(0); e.set_channel(2);
+    e.mutable_cc()->set_controller_number(1);
+    e.mutable_cc()->set_controller_value(value);
+    return e;
+  };
+  // Not pinned, velocity dynamics, or stopped transport: routed at once.
+  settler.noteStarted(note(1, 0, false, true), 500, 0);
+  settler.noteStarted(note(2, 0, true, false), 500, 0);
+  settler.noteStarted(note(3, 0, true, true), 0, 0);
+  A_CHECK_EQ(routed.size(), 3u);
+  // A CC1 5 ms after the note-on becomes its starting dynamic; the trigger
+  // time is kept; an event past the window releases it.
+  settler.noteStarted(note(4, 48000, true, true), 1000, 0);
+  A_CHECK_EQ(settler.heldCount(), 1u);
+  settler.observe(cc1(76), 48000 + 240);
+  A_CHECK_EQ(settler.heldCount(), 1u);
+  settler.observe(cc1(80), 48000 + 2000); // 42 ms later: not this note's
+  A_CHECK(routed.size() == 4 && routed[3] == std::make_pair(uint64_t{4}, 76) && triggers[3] == 1000);
+  // A note's end releases it first; so does the timer.
+  settler.noteStarted(note(5, 96000, true, true), 2000, 100);
+  settler.noteEnding(5);
+  A_CHECK(routed.size() == 5 && routed[4].first == 5);
+  settler.noteStarted(note(6, 144000, true, true), 3000, 200);
+  settler.releaseOlderThan(205);
+  A_CHECK_EQ(routed.size(), 5u);
+  settler.releaseOlderThan(211);
+  A_CHECK(routed.size() == 6 && routed[5].first == 6);
 }
 
 void runAnnotatorTests() {
@@ -1974,6 +2192,10 @@ void runAnnotatorTests() {
   testInitActionsAtTransportStart();
   testCanonicalTechniquePriority();
   testWrittenDurations();
+  testDoricoDynamicCurve();
+  testPinnedDynamicsPerLayer();
+  testDynamicsOverridesParse();
+  testNoteStartSettler();
 
   // AnnotationRecord tests
   testAnnotationRecordBasicMatch();

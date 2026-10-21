@@ -9,7 +9,7 @@ public:
                   AudioDeviceSettings::Controls controls)
       : controls_(std::move(controls)),
         playbackGroup_("playback", "Playback"),
-        durationsGroup_("durations", "Dorico playback timing"),
+        durationsGroup_("durations", "Dorico playback options"),
         renderingGroup_("rendering", "Rendering"),
         deviceGroup_("device", "Audio output"),
         selector_(manager, 0, 0, 2, 2, false, false, true, false) {
@@ -43,45 +43,31 @@ public:
     delayHelp_.setText("Saved with the project; Undo and Redo apply.",
                        juce::dontSendNotification);
 
-    for (size_t i = 0; i < kDurationCategoryCount; ++i) {
-      durationLabels_[i].setText(durationCategoryLabels()[i], juce::dontSendNotification);
-      durationLabels_[i].setJustificationType(juce::Justification::centredRight);
-      auto &slider = durations_[i];
+    for (auto &field : doricoFields()) {
+      field.label->setText(field.text, juce::dontSendNotification);
+      field.label->setJustificationType(juce::Justification::centredRight);
+      auto &slider = *field.slider;
       slider.setSliderStyle(juce::Slider::IncDecButtons);
       slider.setIncDecButtonsMode(juce::Slider::incDecButtonsDraggable_Vertical);
       slider.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 60, 26);
-      slider.setRange(kMinDurationPercent, kMaxDurationPercent, 1.0);
-      slider.setTextValueSuffix("%");
-      slider.setTooltip("Same value as Dorico's Library > Playback Options > Timing for this score");
+      slider.setRange(field.low, field.high, field.step);
+      slider.setTextValueSuffix(field.suffix);
+      slider.setTooltip("Same value as Dorico's Library > Playback Options for this score");
       slider.onValueChange = [this] {
-        if (refreshing_ || !controls_.setDoricoDurationPercents)
+        if (refreshing_ || !controls_.setDoricoPlayback || !controls_.getDoricoPlayback)
           return;
-        DurationPercents percents{};
-        for (size_t j = 0; j < kDurationCategoryCount; ++j)
-          percents[j] = static_cast<int>(durations_[j].getValue());
-        controls_.setDoricoDurationPercents(percents);
+        auto settings = controls_.getDoricoPlayback();
+        for (auto &f : doricoFields())
+          f.write(settings, f.slider->getValue());
+        controls_.setDoricoPlayback(settings);
       };
-      addAndMakeVisible(durationLabels_[i]);
+      addAndMakeVisible(*field.label);
       addAndMakeVisible(slider);
     }
-    switchLeadLabel_.setText("Switches before notes", juce::dontSendNotification);
-    switchLeadLabel_.setJustificationType(juce::Justification::centredRight);
-    switchLead_.setSliderStyle(juce::Slider::IncDecButtons);
-    switchLead_.setIncDecButtonsMode(juce::Slider::incDecButtonsDraggable_Vertical);
-    switchLead_.setTextBoxStyle(juce::Slider::TextBoxLeft, false, 60, 26);
-    switchLead_.setRange(0, kMaxSwitchLeadTicks, 1.0);
-    switchLead_.setTextValueSuffix(" ticks");
-    switchLead_.setTooltip("Dorico's \"Expression map switches before notes\" for this score");
-    switchLead_.onValueChange = [this] {
-      if (!refreshing_ && controls_.setDoricoSwitchLeadTicks)
-        controls_.setDoricoSwitchLeadTicks(static_cast<int>(switchLead_.getValue()));
-    };
-    addAndMakeVisible(switchLeadLabel_);
-    addAndMakeVisible(switchLead_);
     durationsHelp_.setText(
-        "Copy these from this score's Library > Playback Options > Timing in Dorico. Bridge maps "
-        "make Dorico send written lengths; Fiddle applies these values to each layer, unless "
-        "the layer's expression map overrides them. Saved with the project.",
+        "Copy these from this score's Library > Playback Options (Timing, Dynamics) in Dorico. "
+        "Bridge maps make Dorico send written lengths and linear dynamics; Fiddle applies these "
+        "values to each layer unless its expression map overrides them. Saved with the project.",
         juce::dontSendNotification);
     durationsHelp_.setJustificationType(juce::Justification::topLeft);
 
@@ -124,7 +110,7 @@ public:
     addAndMakeVisible(workerGuidance_);
     addAndMakeVisible(deviceGroup_);
     addAndMakeVisible(selector_);
-    setSize(780, 960);
+    setSize(780, 1060);
     refresh();
     startTimerHz(4);
   }
@@ -135,17 +121,12 @@ public:
       delay_.setValue(controls_.getPlaybackDelayMs(), juce::dontSendNotification);
     else
       delay_.setEnabled(false);
-    const auto percents = controls_.getDoricoDurationPercents
-                              ? controls_.getDoricoDurationPercents()
-                              : kDoricoDefaultDurationPercents;
-    for (size_t i = 0; i < kDurationCategoryCount; ++i) {
-      durations_[i].setValue(percents[i], juce::dontSendNotification);
-      durations_[i].setEnabled(static_cast<bool>(controls_.setDoricoDurationPercents));
+    const auto dorico = controls_.getDoricoPlayback ? controls_.getDoricoPlayback()
+                                                    : DoricoPlaybackSettings{};
+    for (auto &field : doricoFields()) {
+      field.slider->setValue(field.read(dorico), juce::dontSendNotification);
+      field.slider->setEnabled(static_cast<bool>(controls_.setDoricoPlayback));
     }
-    switchLead_.setValue(controls_.getDoricoSwitchLeadTicks ? controls_.getDoricoSwitchLeadTicks()
-                                                            : kDoricoDefaultSwitchLeadTicks,
-                         juce::dontSendNotification);
-    switchLead_.setEnabled(static_cast<bool>(controls_.setDoricoSwitchLeadTicks));
 
     const auto requested = controls_.getRequestedRenderWorkers
                                ? controls_.getRequestedRenderWorkers()
@@ -178,24 +159,19 @@ public:
     delayHelp_.setBounds(playback.removeFromTop(28));
 
     area.removeFromTop(10);
-    auto durations = area.removeFromTop(186);
+    auto &fields = doricoFields();
+    const int rows = static_cast<int>((fields.size() + 2) / 3);
+    auto durations = area.removeFromTop(78 + 32 * rows);
     durationsGroup_.setBounds(durations);
     durations = durations.reduced(14, 10);
     durations.removeFromTop(18);
-    for (size_t row = 0; row < 2; ++row) {
-      auto line = durations.removeFromTop(32);
-      const int cell = line.getWidth() / 3;
-      for (size_t column = 0; column < 3; ++column) {
-        auto slot = line.removeFromLeft(cell).reduced(4, 2);
-        const auto i = row * 3 + column;
-        durationLabels_[i].setBounds(slot.removeFromLeft(100));
-        durations_[i].setBounds(slot.removeFromLeft(110));
-      }
-    }
-    {
-      auto line = durations.removeFromTop(32).removeFromLeft(durations.getWidth() / 3 * 2).reduced(4, 2);
-      switchLeadLabel_.setBounds(line.removeFromLeft(160));
-      switchLead_.setBounds(line.removeFromLeft(140));
+    juce::Rectangle<int> line;
+    for (size_t i = 0; i < fields.size(); ++i) {
+      if (i % 3 == 0)
+        line = durations.removeFromTop(32);
+      auto slot = line.removeFromLeft((durations.getWidth()) / 3).reduced(4, 2);
+      fields[i].label->setBounds(slot.removeFromLeft(118));
+      fields[i].slider->setBounds(slot.removeFromLeft(104));
     }
     durationsHelp_.setBounds(durations.removeFromTop(44));
 
@@ -222,10 +198,60 @@ private:
   juce::Label note_, delayLabel_, delayHelp_, workersLabel_, workerStatus_,
       workerGuidance_;
   juce::GroupComponent playbackGroup_, durationsGroup_, renderingGroup_, deviceGroup_;
-  std::array<juce::Label, kDurationCategoryCount> durationLabels_;
-  std::array<juce::Slider, kDurationCategoryCount> durations_;
-  juce::Label durationsHelp_, switchLeadLabel_;
-  juce::Slider switchLead_;
+  juce::Label durationsHelp_;
+
+  /// One labelled value in the Dorico playback group.
+  struct DoricoField {
+    std::unique_ptr<juce::Label> label = std::make_unique<juce::Label>();
+    std::unique_ptr<juce::Slider> slider = std::make_unique<juce::Slider>();
+    juce::String text, suffix;
+    double low, high, step;
+    std::function<double(const DoricoPlaybackSettings &)> read;
+    std::function<void(DoricoPlaybackSettings &, double)> write;
+  };
+  std::vector<DoricoField> doricoFields_;
+  std::vector<DoricoField> &doricoFields() {
+    if (!doricoFields_.empty())
+      return doricoFields_;
+    using S = DoricoPlaybackSettings;
+    const auto add = [this](juce::String text, juce::String suffix, double low, double high, double step,
+                            std::function<double(const S &)> read, std::function<void(S &, double)> write) {
+      DoricoField field;
+      field.text = std::move(text); field.suffix = std::move(suffix);
+      field.low = low; field.high = high; field.step = step;
+      field.read = std::move(read); field.write = std::move(write);
+      doricoFields_.push_back(std::move(field));
+    };
+    for (size_t i = 0; i < kDurationCategoryCount; ++i)
+      add(durationCategoryLabels()[i], "%", kMinDurationPercent, kMaxDurationPercent, 1,
+          [i](const S &s) { return s.durations[i]; },
+          [i](S &s, double v) { s.durations[i] = static_cast<int>(v); });
+    add("Switches before", " ticks", 0, kMaxSwitchLeadTicks, 1,
+        [](const S &s) { return s.switchLeadTicks; },
+        [](S &s, double v) { s.switchLeadTicks = static_cast<int>(v); });
+    add("Curve power", "", 0.1, 8.0, 0.05,
+        [](const S &s) { return s.dynamics.lowerPower; },
+        [](S &s, double v) { s.dynamics.lowerPower = s.dynamics.upperPower = v; });
+    add("Min level", "", -12, 0, 1,
+        [](const S &s) { return s.dynamics.minLevel; },
+        [](S &s, double v) { s.dynamics.minLevel = static_cast<int>(v); });
+    add("Max level", "", 0, 12, 1,
+        [](const S &s) { return s.dynamics.maxLevel; },
+        [](S &s, double v) { s.dynamics.maxLevel = static_cast<int>(v); });
+    add("Accents +", "", 0, 6, 0.05,
+        [](const S &s) { return s.dynamics.accent; },
+        [](S &s, double v) { s.dynamics.accent = v; });
+    add("Marcato +", "", 0, 6, 0.05,
+        [](const S &s) { return s.dynamics.marcato; },
+        [](S &s, double v) { s.dynamics.marcato = v; });
+    add("Tenuto +", "", 0, 6, 0.05,
+        [](const S &s) { return s.dynamics.tenuto; },
+        [](S &s, double v) { s.dynamics.tenuto = v; });
+    add("Ghost notes −", "", 0, 6, 0.05,
+        [](const S &s) { return s.dynamics.ghost; },
+        [](S &s, double v) { s.dynamics.ghost = v; });
+    return doricoFields_;
+  }
   juce::Slider delay_;
   juce::Slider workers_;
   juce::AudioDeviceSelectorComponent selector_;

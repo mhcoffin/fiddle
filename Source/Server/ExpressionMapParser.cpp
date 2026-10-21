@@ -225,6 +225,7 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     // Parse volumeType2: secondary dynamics (e.g., CC1 for sustain)
     auto *volType2 = combo->getChildByName("volumeType2");
     if (volType2) {
+      tc.hasVolumeType2 = true;
       auto vt2Type = getChildText(volType2, "type");
       if (vt2Type == "kCC") {
         tc.volumeType2 = VolumeType::kCC;
@@ -270,16 +271,37 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     for (auto *ovr : overridesEl->getChildIterator()) {
       auto option = getChildText(ovr, "option");
       auto valueStr = getChildText(ovr, "value");
-      // Values are formatted as "int: 85"
-      int val = 0;
+      // Values are formatted as "int: 85", "double: 0.6", "bool: false" or
+      // "string: \"0.5,1.75,1.75\"".
       auto colonPos = valueStr.find(':');
       if (colonPos == std::string::npos)
         continue;
+      auto text = valueStr.substr(colonPos + 1);
+      text.erase(std::remove(text.begin(), text.end(), '"'), text.end());
+      if (option == kDynamicCurveOption) {
+        // "midpoint,lowerPower,upperPower"
+        std::istringstream fields(text);
+        std::array<double, 3> curve{};
+        char comma = 0;
+        if (fields >> curve[0] >> comma >> curve[1] >> comma >> curve[2] &&
+            curve[0] > 0 && curve[0] < 1 && curve[1] > 0 && curve[2] > 0)
+          result.dynamicsOverrides.curve = curve;
+        continue;
+      }
+      double number = 0;
       try {
-        val = std::stoi(valueStr.substr(colonPos + 1));
+        number = std::stod(text);
       } catch (...) {
         continue;
       }
+      auto &dynamics = result.dynamicsOverrides;
+      if (option == kMinDynamicLevelOption) dynamics.minLevel = static_cast<int>(number);
+      else if (option == kMaxDynamicLevelOption) dynamics.maxLevel = static_cast<int>(number);
+      else if (option == kAccentDeltaOption) dynamics.accent = number;
+      else if (option == kMarcatoDeltaOption) dynamics.marcato = number;
+      else if (option == kTenutoDeltaOption) dynamics.tenuto = number;
+      else if (option == kGhostDeltaOption) dynamics.ghost = number;
+      const int val = static_cast<int>(number);
       if (option == kSwitchLeadOption)
         result.timingOptions.switchLeadTicks = std::clamp(val, 0, kMaxSwitchLeadTicks);
       const auto &names = durationOptionNames();

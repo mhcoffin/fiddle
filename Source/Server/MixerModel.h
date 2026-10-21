@@ -300,10 +300,16 @@ private:
       kDoricoDefaultDurationPercents[2], kDoricoDefaultDurationPercents[3],
       kDoricoDefaultDurationPercents[4], kDoricoDefaultDurationPercents[5]};
   std::atomic<int> doricoSwitchLeadTicks_{kDoricoDefaultSwitchLeadTicks};
+  mutable std::mutex doricoDynamicsMutex_; // message thread writes, MIDI thread reads
+  DoricoDynamics doricoDynamics_;
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
   double tempoBpm() const; // live Dorico tempo (120 without the service)
+  DoricoDynamics doricoDynamics() const {
+    std::lock_guard<std::mutex> lock(doricoDynamicsMutex_);
+    return doricoDynamics_;
+  }
   DurationPercents doricoDurationPercents() const {
     DurationPercents result{};
     for (size_t i = 0; i < kDurationCategoryCount; ++i)
@@ -315,7 +321,8 @@ public:
   int getPlaybackDelayMs() const;
   ProjectSettings projectSettings() const {
     return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_, bridgeMapsJson_,
-            doricoDurationPercents(), doricoSwitchLeadTicks_.load(std::memory_order_relaxed)};
+            doricoDurationPercents(), doricoSwitchLeadTicks_.load(std::memory_order_relaxed),
+            doricoDynamics()};
   }
   std::function<void(const std::string &)> onBridgeMapsChanged;
   void setProjectSettings(const ProjectSettings &settings) {
@@ -325,6 +332,10 @@ public:
     for (size_t i = 0; i < kDurationCategoryCount; ++i)
       doricoDurationPercents_[i].store(settings.doricoDurationPercents[i], std::memory_order_relaxed);
     doricoSwitchLeadTicks_.store(settings.doricoSwitchLeadTicks, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(doricoDynamicsMutex_);
+      doricoDynamics_ = settings.doricoDynamics;
+    }
     chairLevels_ = settings.chairLevels;
     setPlaybackDelayMs(settings.playbackDelayMs);
     if (bridgeChanged && onBridgeMapsChanged) onBridgeMapsChanged(bridgeMapsJson_);

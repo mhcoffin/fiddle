@@ -42,7 +42,16 @@ DURATION_OPTIONS = tuple(f"timingOptions.{name}DurationPercent" for name in
                          ("note", "staccato", "staccatissimo", "legato", "tenuto", "marcato"))
 PINNED_OPTIONS = tuple((option, "int: 100") for option in DURATION_OPTIONS) + (
     ("timingOptions.alwaysTruncateAbuttingNotesOfSamePitch", "bool: false"),
-    ("timingOptions.numTicksBeforeForSwitches", "int: 10"))
+    ("timingOptions.numTicksBeforeForSwitches", "int: 10"),
+    # Linear dynamics over a known range, no articulation deltas: Fiddle reads
+    # each note's level back and applies the layer's curve (dynamics-curve/).
+    ("dynamicsOptions.dynamicCurveParams", 'string: "0.500000,1.000000,1.000000"'),
+    ("dynamicsOptions.minProfileLevelForPlayback", "int: -8"),
+    ("dynamicsOptions.maxProfileLevelForPlayback", "int: 8"),
+    ("dynamicsOptions.accentDynamicDelta", "double: 0"),
+    ("dynamicsOptions.marcatoDynamicDelta", "double: 0"),
+    ("dynamicsOptions.tenutoDynamicDelta", "double: 0"),
+    ("dynamicsOptions.ghostNoteDynamicDelta", "double: 0"))
 
 
 def written_durations(spec):

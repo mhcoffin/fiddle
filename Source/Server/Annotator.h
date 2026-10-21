@@ -3,6 +3,7 @@
 #include "AnnotationRecord.h"
 #include "DoricoPlaybackOptions.h"
 #include "NoteInspection.h"
+#include "PinnedDynamics.h"
 #include "TonalContext.h"
 #include "midi_event.pb.h"
 #include <array>
@@ -14,8 +15,8 @@ namespace fiddle {
 
 /// Whether Dorico sent this note at its written length: its bridge map pins
 /// Dorico's note-duration playback options to 100%.
-inline bool hasWrittenDuration(const fiddle::Note &note) {
-  const auto it = note.notation_dimensions().find(kWrittenDurationDimension);
+inline bool hasPinnedPlayback(const fiddle::Note &note) {
+  const auto it = note.notation_dimensions().find(kPinnedPlaybackDimension);
   return it != note.notation_dimensions().end() && it->second > 0.5f;
 }
 
@@ -37,6 +38,8 @@ struct AnnotatorContext {
   DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
   /// The project's Dorico "Expression map switches before notes" (ticks).
   int doricoSwitchLeadTicks = kDoricoDefaultSwitchLeadTicks;
+  /// The project's Dorico dynamics options.
+  DoricoDynamics doricoDynamics;
 
   /// Currently active notes across all strips (read-only snapshot).
   const std::vector<fiddle::Note> *activeNotes = nullptr;
@@ -145,25 +148,48 @@ public:
  */
 class PassthroughAnnotator : public Annotator {
 public:
-  void onNoteStart(fiddle::Note &, const AnnotatorContext &) override {}
+  /// A pinned bridge's dynamics are re-expressed on the project's curve:
+  /// velocity for velocity-dynamics notes, CC1 for controller-dynamics ones.
+  void onNoteStart(fiddle::Note &note, const AnnotatorContext &ctx) override {
+    pinned_ = hasPinnedPlayback(note);
+    dynamics_ = ctx.doricoDynamics;
+    if (!pinned_)
+      return;
+    const bool controller = note.dynamics_mode() == fiddle::Note::CC;
+    PinnedDynamics::apply(note, dynamics_, collectInputTechniqueIds(note), !controller,
+                          controller ? std::vector<int>{1} : std::vector<int>{}, 1.0f,
+                          ctx.sampleRate);
+  }
   /// A note sent at written length still gets the project's Dorico duration
   /// option, as Dorico would have applied it.
   void onNoteEnd(fiddle::Note &note, const AnnotatorContext &ctx) override {
     durationAdjustMs_ = 0.0;
-    if (!hasWrittenDuration(note))
+    if (!hasPinnedPlayback(note))
       return;
     const auto category = durationCategory(collectInputTechniqueIds(note));
     durationAdjustMs_ = scaledDurationAdjustMs(
         note, ctx.doricoDurationPercents[size_t(category)] / 100.0, ctx.sampleRate);
   }
   double durationAdjustMs() const override { return durationAdjustMs_; }
-  bool onCC(const fiddle::MidiEvent &, const AnnotatorContext &) override {
-    return true;
+  bool onCC(const fiddle::MidiEvent &event, const AnnotatorContext &) override {
+    return !(pinned_ && event.has_cc() && event.cc().controller_number() == 1);
+  }
+  void translateCC(const fiddle::MidiEvent &event, const AnnotatorContext &,
+                   std::vector<fiddle::MidiInstruction> &out) override {
+    if (!pinned_ || !event.has_cc() || event.cc().controller_number() != 1)
+      return;
+    fiddle::MidiInstruction inst;
+    inst.set_type(fiddle::MidiInstruction::CC);
+    inst.set_param1(1);
+    inst.set_param2(PinnedDynamics::layerValue(dynamics_, static_cast<int>(event.cc().controller_value())));
+    out.push_back(inst);
   }
   std::string name() const override { return "Passthrough"; }
 
 private:
   double durationAdjustMs_ = 0.0;
+  bool pinned_ = false;      // the last note came from a pinned bridge
+  DoricoDynamics dynamics_;  // the project's dynamics for live CC1
 };
 
 } // namespace fiddle
