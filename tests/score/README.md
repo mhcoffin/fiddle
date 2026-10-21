@@ -6,11 +6,12 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-21): phase 1.** The test format, the generator and eight
-basic tests exist. Phases 2–4 (recording and comparing in Fiddle, the Score
-tests pane, and looking up a run by its ID) are not built yet.
+**Status (2026-10-21): phase 2.** The test format, the generator, eight
+basic tests, and Fiddle's recorder and comparison exist. Phase 3 (the Score
+tests pane) and phase 4 (looking up a run by its ID from Claude) are not built
+yet, so nothing has been run against Dorico.
 
-## Workflow (once phases 2–4 exist)
+## Workflow (once phase 3 exists)
 
 1. In Fiddle's **Score tests** pane, press **Arm** on a test.
 2. In Dorico, open the test's MusicXML (the pane links to it) and play it from
@@ -125,6 +126,62 @@ each test project (**Play ▸ Playback Template ▸ Fiddle**).
 
 Note durations, the dynamic curve and articulation dynamics don't need
 setting: the bridge maps pin them.
+
+## Recording and comparing (Fiddle)
+
+`Source/Server/ScoreTest.h` holds the recorder and the comparison;
+`ScoreTestUi.cpp` connects them to the UI.
+
+- **Arm** (`armScoreTest` with a test ID) loads the test's expected result
+  from the app bundle (`Contents/Resources/ScoreTests`, a copy of
+  `generated/` made at build time) and notes each chair's endpoint and Dorico
+  instrument. From then on Fiddle records every note the bridge decoder
+  delivers, and every MIDI event it saw, bridge commands included.
+- **Takes.** Transport stop ends a playthrough; the next note or transport
+  start discards it, so **Done** compares the latest complete playthrough.
+  Notes still sounding at Done have no duration and fail it.
+- **Done** (`finishScoreTest`) compares, writes the run record and reports the
+  result (`scoreTestState`, field `last_run`). `cancelScoreTest` disarms
+  without a record; `requestScoreTests` sends the list of tests and state.
+
+The comparison:
+
+1. **Parts to endpoints.** Each part goes to the endpoint whose chair plays
+   its Dorico instrument (a keyed variant counts); one part left with one
+   endpoint left are paired.
+2. **Clock.** Fiddle's host time and the score's start differ by one offset:
+   the one that lines up the most notes by pitch, refined to the median of
+   their differences. Absolute latency is therefore not tested.
+3. **Matching.** Per part, in time order: the matching with the most
+   same-pitch pairs within 1 s, then the smallest total onset error. Unmatched
+   expected notes are **missing**; unmatched received notes are **extra**.
+4. **Checks per note:** `onset`, `duration`, `pinned_playback` (the bridge
+   pins Dorico's playback options), `level` or `level_between` (the starting
+   dynamic: velocity, or the CC1 in force 10 ms after the note-on, as Fiddle
+   waits for Dorico's late CC1, read through the pinned linear curve),
+   `level_during` (CC1 moves the hairpin's way while the note sounds, not
+   past its end; not checked on velocity-dynamics switches), `hairpin_order`
+   (each note in a hairpin is no softer, or louder, than the one before) and
+   `techniques`.
+
+A run passes when every expected note arrives and passes and nothing extra
+arrives.
+
+### Run records
+
+Each Done writes `~/Library/Application Support/Fiddle/ScoreTests/runs/<run ID>.json`,
+the run ID being `<test ID>-<YYYYMMDD-HHMMSS>`. It holds: the result and
+failures (one line per failed note, for example
+`#3 vln bar 1 beat 4 C5/q: onset (+12 ms)`), the comparison per note with
+every check, the received notes (with their CC1 lanes), every MIDI event
+(`[ms, port, channel, kind, a, b]`), the chairs, each bridge's beacon and
+withheld-note counts, and the expected result itself.
+
+`score_test_compare` (`Source/Server/tests/ScoreTestTest.cpp`) plays every
+test as Dorico would through the built-in bridge maps into the real decoder:
+each must pass, and deliberate faults (a late note, a dropped note, a missing
+staccato, a wrong dynamic, a hairpin out of order, an extra note) must be
+reported on the right note.
 
 ## Local checks
 

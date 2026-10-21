@@ -414,6 +414,7 @@ void MainComponent::initMidiServer() {
                           juce::String((juce::int64)n.id()) + " (Ch " +
                           juce::String((int)n.channel()) + ")");
            subnoteGenerator.onNoteStarted(n);
+           scoreTestRecorder_.noteStarted(n);
 
            double triggerTimeMs = getDelayedTriggerTimeMs();
            // Route through annotator-aware path.
@@ -441,6 +442,7 @@ void MainComponent::initMidiServer() {
            pushLogMessage("<b>[Tracker]</b> Note OFF: " +
                           juce::String((juce::int64)n.id()));
            subnoteGenerator.onNoteEnded(n);
+           scoreTestRecorder_.noteEnded(n);
 
            double triggerTimeMs = getDelayedTriggerTimeMs();
            // Route through annotator-aware path.
@@ -479,6 +481,7 @@ void MainComponent::initMidiServer() {
          [this, midiEventToJson](const fiddle::MidiEvent &event,
                                  uint64_t absoluteSamples, int oldCCVal) {
            noteStartSettler_.observe(event, absoluteSamples);
+           scoreTestRecorder_.midiEvent(event, absoluteSamples, false);
            if (event.has_transport()) {
              if (event.transport().type() ==
                  fiddle::MidiEvent_TransportEvent_Type_STOP) {
@@ -524,6 +527,7 @@ void MainComponent::initMidiServer() {
     // Bridge commands never reach instruments, but stay visible to debugging.
     trackerCallbacks.onBridgeCommand = [this, midiEventToJson](const fiddle::MidiEvent &event,
                                                                uint64_t absoluteSamples) {
+      scoreTestRecorder_.midiEvent(event, absoluteSamples, true);
       juce::var eventVar = juce::JSON::fromString(midiEventToJson(event, absoluteSamples, -1));
       if (auto *object = eventVar.getDynamicObject()) object->setProperty("bridgeCommand", true);
       debugUiFeed_.push("pushMidiEvent", eventVar);
@@ -561,6 +565,7 @@ void MainComponent::initMidiServer() {
         const auto receivedMs = juce::Time::getMillisecondCounterHiRes();
         noteTracker.setHostSampleRate(event.audio_diagnostics().sample_rate());
         noteStartSettler_.setHostSampleRate(event.audio_diagnostics().sample_rate());
+        scoreTestRecorder_.setSampleRate(event.audio_diagnostics().sample_rate());
         safeCallAsync([this, data = event.audio_diagnostics(), receivedMs] {
           returnDiagnostics_ = data;
           returnDiagnosticsReceivedMs_ = receivedMs;
@@ -3829,6 +3834,7 @@ void MainComponent::pushLibraryCatalogHistory() {
 
 void MainComponent::setupJsHandlers() {
   setupBridgeMapHandlers();
+  setupScoreTestHandlers();
   jsRouter_.registerHandler("requestTechniqueCatalogState", [this](const juce::var &) { pushTechniqueCatalogState(); });
   jsRouter_.registerHandler("scanTechniqueCatalog", [this](const juce::var &payload) {
     if (payload.isArray() && payload.size() == 1 && payload[0].isBool()) scanTechniqueCatalog(bool(payload[0]));

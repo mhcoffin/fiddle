@@ -1364,11 +1364,21 @@ target_compile_features(BridgeMapDocumentTest PRIVATE cxx_std_17)
 target_compile_definitions(BridgeMapDocumentTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME bridge_map_document COMMAND BridgeMapDocumentTest)
 set_tests_properties(bridge_map_document PROPERTIES LABELS "midi;persistence;regression;stable")
-foreach(bridge_target FiddleServer MixerIntegrationTest BridgeMapDocumentTest)
+add_executable(ScoreTestTest
+    Source/Server/tests/ScoreTestTest.cpp
+    Source/Server/NoteInspection.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
+target_include_directories(ScoreTestTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(ScoreTestTest PRIVATE juce::juce_events libprotobuf)
+target_compile_features(ScoreTestTest PRIVATE cxx_std_20)
+target_compile_definitions(ScoreTestTest PRIVATE FIDDLE_TEST_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME score_test_compare COMMAND ScoreTestTest)
+set_tests_properties(score_test_compare PROPERTIES LABELS "score-tests;midi;regression;stable")
+foreach(bridge_target FiddleServer MixerIntegrationTest BridgeMapDocumentTest ScoreTestTest)
     target_sources(${bridge_target} PRIVATE Source/Server/BridgeMapDocument.cpp)
     target_link_libraries(${bridge_target} PRIVATE juce::juce_cryptography)
 endforeach()
-target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp)
+target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp Source/Server/ScoreTestUi.cpp)
 add_custom_command(TARGET FiddleServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -1377,6 +1387,11 @@ add_custom_command(TARGET FiddleServer POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"
         "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
+# Score tests (tests/score/generated): the Score tests pane reads them here.
+add_custom_command(TARGET FiddleServer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/ScoreTests"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/tests/score/generated"
+        "$<TARGET_FILE_DIR:FiddleServer>/../Resources/ScoreTests")
 
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.

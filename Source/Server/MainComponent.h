@@ -20,6 +20,7 @@
 #include "MixerModel.h"
 #include "NoteStreamTracker.h"
 #include "PluginScanner.h"
+#include "ScoreTest.h"
 #include "ToolWindow.h"
 #include "TechniqueCatalog.h"
 
@@ -140,6 +141,11 @@ private:
   NoteStartSettler noteStartSettler_{[this](fiddle::Note &note, double triggerTimeMs) {
     mixer_.routeAnnotatedNoteOn((int)note.port(), (int)note.channel() - 1, note, triggerTimeMs);
   }};
+  // Score tests (tests/score): records decoded notes between Arm and Done.
+  scoretest::Recorder scoreTestRecorder_;
+  juce::String scoreTestArmedId_;
+  juce::var scoreTestLastRun_;
+  juce::String scoreTestError_;
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
   TechniqueCatalogScan techniqueCatalogScan_;
@@ -289,6 +295,10 @@ private:
   void setupJsHandlers();
   void setupBridgeMapHandlers();
   void pushBridgeMapState();
+  void setupScoreTestHandlers();
+  void pushScoreTestState();
+  void armScoreTest(const juce::String &testId);
+  void finishScoreTest();
   AgentControlServer::Response
   handleAgentControlRequest(const juce::String &method,
                             const juce::var &params);
