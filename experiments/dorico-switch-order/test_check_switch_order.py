@@ -37,6 +37,13 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(len(result["missing"]), 5)
         self.assertEqual([(old, new) for _, old, new in result["base_changes"]], [(2, 4), (4, 2)])
 
+    def test_beta_capture_still_shows_on_then_off(self):
+        events, rate = fixture("r2-shared-overlap-beta-2026-10-23.json")
+        result = check.analyze(events, rate)
+        self.assertEqual(result["verdict"], "STILL PRESENT")
+        [(off, on)] = result["offs"]
+        self.assertEqual(off - on, 690)
+
     def test_without_the_late_off_it_is_fixed(self):
         events, rate = fixture("r2-shared-overlap-2026-09-25.json")
         del events[at_ms(events, rate, 3000.0, 112, 0)]

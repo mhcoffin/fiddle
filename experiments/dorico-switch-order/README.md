@@ -1,6 +1,7 @@
 # Switch order: has Dorico fixed "On for the next note, then Off for the previous one"?
 
-**Prepared 2026-10-23 for a Dorico beta; not yet run.**
+**2026-10-23: case A in the Dorico beta is STILL PRESENT** ([results-01](results-01.md)).
+Case B not yet run.
 
 ## The issue
 
