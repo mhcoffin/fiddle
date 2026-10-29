@@ -2631,6 +2631,35 @@ void testBridgeSectionsFromChairs() {
   busy = false;
   // Every section is pinned now, so no built-in template is needed.
   REQUIRE(bridges.applyChairSections(chairs, [](const fiddle::BridgeSectionInfo &) { return juce::String{}; }));
+
+  // The pinned r3 can be moved to the built-in revision, with every channel
+  // that used it, in one undoable change.
+  bridges.setBuiltIns(load);
+  status = bridges.status();
+  const auto section = [&](const char *key) {
+    for (const auto &s : *status["sections"].getArray()) if (s["key"].toString() == key) return s;
+    return juce::var();
+  };
+  REQUIRE(bool(section("strings")["updateAvailable"]) && !bool(section("strings")["pinsPlayback"]));
+  REQUIRE(int(section("strings")["builtInRevision"]) == 5 && bool(section("strings")["builtInPinsPlayback"]));
+  REQUIRE(!bool(section("woodwinds")["updateAvailable"]) && bool(section("woodwinds")["pinsPlayback"]));
+  const auto beforeUpdate = f.mixer.projectSettings().bridgeMapsJson;
+  busy = true;
+  REQUIRE(!bridges.useBuiltInSections());
+  busy = false;
+  REQUIRE(bridges.useBuiltInSections({"strings"}));
+  REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
+  REQUIRE(project.sections.at("strings") != r3->contentHash);
+  REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
+  REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
+  REQUIRE(project.documents.size() == 4 && !project.documents.count(r3->contentHash));
+  REQUIRE(project.documents.at(project.sections.at("strings"))->revision == 5);
+  status = bridges.status();
+  REQUIRE(!bool(section("strings")["updateAvailable"]));
+  // Nothing left to update records nothing.
+  const auto updated = f.mixer.projectSettings().bridgeMapsJson;
+  REQUIRE(bridges.useBuiltInSections() && f.mixer.projectSettings().bridgeMapsJson == updated);
+  REQUIRE(f.undo.undo() && f.mixer.projectSettings().bridgeMapsJson == beforeUpdate);
 }
 
 void testProjectSettingsAndAtomicMixerUndo() {

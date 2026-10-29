@@ -124,7 +124,10 @@ them, notably legato on slurred notes and the exact path of a hairpin.
 2. Create one chair per instrument the tests use (`instruments` in
    `generated/index.json`; today **Violin** and **Flute**). Each needs a layer
    (any instrument) so it is routed; what layers play is not tested.
-3. With Dorico closed, open **View ▸ Chairs…** and press **Install Playback
+3. In **Technique Catalog ▸ Bridge maps**, if a section offers **Use built-in
+   revision**, press it: the tests expect the built-in maps (Strings r5,
+   Woodwinds r3 or later), which pin Dorico's playback options.
+4. With Dorico closed, open **View ▸ Chairs…** and press **Install Playback
    Template**.
 
 ### Dorico
