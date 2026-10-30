@@ -1,0 +1,13 @@
+{
+  "id": "horn",
+  "title": "Horn",
+  "description": "Horn in F through the brass bridge map: written a fifth above sounding, with articulations, a slur, dynamics and hairpins. Notes arrive at sounding pitch with their techniques and levels.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "hn",
+      "instrument": "horn",
+      "music": "!mf F3/q A3/q+stacc C4/q+ten D4/q+acc | ( E4/q D4/q C4/h ) | !p < A3/q C4/q D4/q F4/q | ] !f E4/q+marc D4/q+stacc+ten C4/q+staccmo A3/q+stacc | > G3/h A3/h | ] !p F3/w"
+    }
+  ]
+}

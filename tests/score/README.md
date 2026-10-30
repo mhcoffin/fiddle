@@ -6,8 +6,9 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-29): all four phases built; all eight tests pass in Dorico.**
-The test format and generator, eight basic tests, Fiddle's recorder and
+**Status (2026-10-30): all four phases built; the first eight tests pass in
+Dorico. The horn test (brass bridge, transposing instrument) has not been run
+yet.** The test format and generator, nine tests, Fiddle's recorder and
 comparison, the Score Tests window, and looking up a run by its ID.
 
 | Test | Latest run | Result |
@@ -22,6 +23,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | slurs | `slurs-20261029-190133` | Pass: 16 of 16. Slurred notes carry `pt.legato`, unslurred don't, confirming that expectation. The last note of each slur (three of them, currently unchecked) also carries `pt.legato`. Slurred notes play their written length (legato pinned to 100%): no overlap. |
 | hairpins | `hairpins-20261029-190413` | Pass: 13 of 13. Dorico moves the level in a straight line over time: a crescendo p→f over a held 4.8 s note steps CC1 56→72 one value every 300 ms; under a crescendo over four quarters the notes start at levels −1, −0.5, 0, +0.5 and each rises 0.5 while it sounds; the diminuendo mirrors it. |
 | two-instruments | `two-instruments-20261029-190605` | Pass: 16 of 16. Violin through Strings r5 (port 2 channel 15) and flute through Woodwinds r3 (port 1 channel 9), each bound by its chair's instrument. |
+| horn | — | Not yet run. Horn in F through Brass r3. The MusicXML is written a fifth above sounding (`<transpose>` −4/−7, written key one sharp) and the expected pitches are sounding pitches, so the run also checks that Dorico's import transposes it. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
@@ -91,9 +93,12 @@ files are stale.
 }
 ```
 
-`instrument` is one of `violin`, `viola`, `flute` (see `INSTRUMENTS` in
+`instrument` is one of `violin`, `viola`, `flute`, `horn` (see `INSTRUMENTS` in
 `scoretest.py`: each maps to Dorico's instrument ID and MusicXML sound).
-Horn waits until Dorico's import of transposing instruments is checked.
+Pitches in `music` are always sounding pitches. For a transposing instrument
+(horn, Horn in F) the generator writes the MusicXML at written pitch with a
+`<transpose>` element and the written key, and the expected results stay at
+sounding pitch: Dorico sends sounding pitch.
 
 `music` is a space-separated list of tokens:
 
@@ -144,11 +149,11 @@ The tests check both exactly.
 ### Fiddle
 1. Use a dedicated Fiddle project (or branch) for testing.
 2. Create one chair per instrument the tests use (`instruments` in
-   `generated/index.json`; today **Violin** and **Flute**). Each needs a layer
+   `generated/index.json`; today **Violin**, **Flute** and **Horn in F**). Each needs a layer
    (any instrument) so it is routed; what layers play is not tested.
 3. In **Technique Catalog ▸ Bridge maps**, if a section offers **Use built-in
    revision**, press it: the tests expect the built-in maps (Strings r5,
-   Woodwinds r3 or later), which pin Dorico's playback options.
+   Woodwinds r3, Brass r3 or later), which pin Dorico's playback options.
 4. With Dorico closed, open **View ▸ Chairs…** and press **Install Playback
    Template**.
 

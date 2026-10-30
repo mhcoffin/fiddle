@@ -50,6 +50,18 @@
       "length_ms": 16800.0
     },
     {
+      "id": "horn",
+      "title": "Horn",
+      "description": "Horn in F through the brass bridge map: written a fifth above sounding, with articulations, a slur, dynamics and hairpins. Notes arrive at sounding pitch with their techniques and levels.",
+      "musicxml": "horn.musicxml",
+      "expected": "horn.expected.json",
+      "instruments": [
+        "instrument.brass.horn.f"
+      ],
+      "notes": 18,
+      "length_ms": 14400.0
+    },
+    {
       "id": "repeated-notes",
       "title": "Repeated notes",
       "description": "The same pitch repeated at quarter and eighth speed, and tied into a repeat: each attack is a separate note with its written length.",

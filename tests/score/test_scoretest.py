@@ -88,6 +88,21 @@ class Expectations(unittest.TestCase):
         self.assertEqual([p["instrument"] for p in expected["parts"]],
                          ["instrument.strings.violin", "instrument.wind.flute"])
 
+    def test_horn_is_written_a_fifth_above_sounding(self):
+        s = dict(id="t", title="T", tempo=100, parts=[
+            dict(id="hn", instrument="horn", music="!mf F3/q Bb3/q B3/q F#4/q")])
+        xml = ET.fromstring(scoretest.musicxml(s))
+        self.assertEqual(xml.find(".//key/fifths").text, "1")
+        self.assertEqual([xml.find(f".//transpose/{t}").text for t in ("diatonic", "chromatic")], ["-4", "-7"])
+        written = [(n.findtext("pitch/step"), n.findtext("pitch/alter"), n.findtext("pitch/octave"),
+                    n.findtext("accidental")) for n in sounding(scoretest.musicxml(s))]
+        # Sounding F3, Bb3, B3, F#4 -> written C4, F4 (natural in G), F#4 (in the key), C#5.
+        self.assertEqual(written, [("C", None, "4", None), ("F", None, "4", "natural"),
+                                   ("F", "1", "4", None), ("C", "1", "5", "sharp")])
+        # Expectations stay at sounding pitch.
+        self.assertEqual([n["pitch"] for n in scoretest.sounding_notes(s)], [53, 58, 59, 66])
+        self.assertEqual(scoretest.expected(s, b"{}")["parts"][0]["instrument"], "instrument.brass.horn.f")
+
 
 if __name__ == "__main__":
     unittest.main()

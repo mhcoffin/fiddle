@@ -20,7 +20,9 @@ STEPS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 # Instruments a spec may use. "dorico" is Dorico's instrument ID (Fiddle's
 # playback template routes by it); "sound" is the MusicXML sound ID Dorico's
-# import uses to choose that instrument.
+# import uses to choose that instrument. A transposing instrument gives its
+# MusicXML <transpose> (sounding = written + chromatic) and its written key;
+# specs always give sounding pitches.
 INSTRUMENTS = {
     "violin": dict(name="Violin", sound="strings.violin", dorico="instrument.strings.violin",
                    clef=("G", 2), program=41),
@@ -28,6 +30,8 @@ INSTRUMENTS = {
                   clef=("C", 3), program=42),
     "flute": dict(name="Flute", sound="wind.flutes.flute", dorico="instrument.wind.flute",
                   clef=("G", 2), program=74),
+    "horn": dict(name="Horn in F", sound="brass.french-horn", dorico="instrument.brass.horn.f",
+                 clef=("G", 2), program=61, transpose=dict(diatonic=-4, chromatic=-7, fifths=1)),
 }
 
 # Dorico's dynamic levels (experiments/dynamics-curve/results-01.md).
@@ -67,6 +71,25 @@ def parse_pitch(text):
     step, accidental, octave = m.groups()
     alter = {"#": 1, "b": -1, None: 0}[accidental]
     return step, alter, int(octave), 12 * (int(octave) + 1) + STEPS[step] + alter
+
+
+def written_pitch(pitch, transpose):
+    """(step, alter, octave) to write for a sounding pitch on a transposing
+    instrument: the sounding note moved by the transposition's interval."""
+    step, alter, octave, midi = pitch
+    if not transpose:
+        return step, alter, octave
+    letters = "CDEFGAB"
+    index = letters.index(step) - transpose["diatonic"]
+    step, octave = letters[index % 7], octave + index // 7
+    return step, midi - transpose["chromatic"] - (12 * (octave + 1) + STEPS[step]), octave
+
+
+def key_alter(step, fifths):
+    """The alteration a key signature of `fifths` gives a step."""
+    if fifths > 0:
+        return 1 if step in "FCGDAEB"[:fifths] else 0
+    return -1 if step in "BEADGCF"[:-fifths] else 0
 
 
 def parse_length(text):
@@ -291,6 +314,7 @@ def musicxml(spec):
     tempo_at = dict(tempo)
     for index, (part, events) in enumerate(zip(spec["parts"], parts)):
         info = INSTRUMENTS[part["instrument"]]
+        fifths = info.get("transpose", {}).get("fifths", 0)
         p = sub(root, "part", id=part["id"])
         measures = {}
 
@@ -301,13 +325,17 @@ def musicxml(spec):
                 if number == 1:
                     attrs = sub(m, "attributes")
                     sub(attrs, "divisions", DIVISIONS)
-                    sub(sub(attrs, "key"), "fifths", 0)
+                    sub(sub(attrs, "key"), "fifths", fifths)
                     time = sub(attrs, "time")
                     sub(time, "beats", beats)
                     sub(time, "beat-type", beat_type)
                     clef = sub(attrs, "clef")
                     sub(clef, "sign", info["clef"][0])
                     sub(clef, "line", info["clef"][1])
+                    if "transpose" in info:
+                        transpose = sub(attrs, "transpose")
+                        sub(transpose, "diatonic", info["transpose"]["diatonic"])
+                        sub(transpose, "chromatic", info["transpose"]["chromatic"])
             return measures[number]
 
         slur_open = tie_open = False
@@ -346,7 +374,7 @@ def musicxml(spec):
                 if kind == "rest":
                     sub(n, "rest")
                 else:
-                    step, alter, octave, _ = event["pitch"]
+                    step, alter, octave = written_pitch(event["pitch"], info.get("transpose"))
                     pitch = sub(n, "pitch")
                     sub(pitch, "step", step)
                     if alter:
@@ -367,8 +395,8 @@ def musicxml(spec):
                 sub(n, "type", note_type)
                 for _ in range(dots):
                     sub(n, "dot")
-                if kind == "note" and event["pitch"][1]:
-                    sub(n, "accidental", "sharp" if event["pitch"][1] > 0 else "flat")
+                if kind == "note" and alter != key_alter(step, fifths):
+                    sub(n, "accidental", {1: "sharp", -1: "flat", 0: "natural"}[alter])
                 if kind == "note" and (tie_types or event["articulations"] or slur_open):
                     notations = sub(n, "notations")
                     for t in tie_types:

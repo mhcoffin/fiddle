@@ -29,7 +29,8 @@ std::shared_ptr<const BridgeMapDocument> bridgeFor(const juce::String &instrumen
   static std::map<BridgeSection, std::shared_ptr<const BridgeMapDocument>> cache;
   static const std::map<BridgeSection, const char *> paths{
       {BridgeSection::Strings, "experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib"},
-      {BridgeSection::Woodwinds, "experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"}};
+      {BridgeSection::Woodwinds, "experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"},
+      {BridgeSection::Brass, "experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"}};
   const auto section = bridgeSectionForInstrument(instrument);
   CHECK(paths.count(section));
   auto &doc = cache[section];
@@ -239,7 +240,7 @@ void everyTestPassesWhenPlayedAsWritten() {
     CHECK(record["midi"].getArray()->size() > 0 && record["received"].getArray()->size() == int(test["notes"]));
     ++tests;
   }
-  CHECK(tests >= 8);
+  CHECK(tests >= 9);
 }
 
 void faultsAreReportedOnTheirNote() {
@@ -285,6 +286,10 @@ void bindingsAndExtras() {
   const auto &bindings = *record["comparison"]["bindings"].getArray();
   CHECK(bindings.size() == 2 && bindings[0]["bound_by"].toString() == "chair instrument");
   CHECK(bindings[1]["chair_instrument"].toString() == "instrument.wind.flute");
+  // Horn plays through the brass bridge and arrives at sounding pitch (F3, written C4).
+  const auto horn = runTest("horn");
+  CHECK(bool(horn["pass"]) && horn["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.brass.horn.f");
+  CHECK(int(horn["received"][0]["pitch"]) == 53);
 
   // A note no test expects, and a note that never ends.
   const auto expected = loadExpected("basic-rhythm");

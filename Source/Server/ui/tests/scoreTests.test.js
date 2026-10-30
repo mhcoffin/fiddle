@@ -6,6 +6,7 @@ import { formatLength, instrumentLabel, normalizeState, recordingStatus, runHead
 
 test("tests list instruments and lengths readably", () => {
     assert.equal(instrumentLabel("instrument.strings.violin"), "Violin");
+    assert.equal(instrumentLabel("instrument.brass.horn.f"), "Horn in F");
     assert.equal(instrumentLabel("instrument.brass.trumpet"), "Trumpet");
     assert.equal(instrumentLabel(""), "");
     assert.equal(formatLength(19200), "19 s");
