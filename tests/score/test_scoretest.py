@@ -103,6 +103,35 @@ class Expectations(unittest.TestCase):
         self.assertEqual([n["pitch"] for n in scoretest.sounding_notes(s)], [53, 58, 59, 66])
         self.assertEqual(scoretest.expected(s, b"{}")["parts"][0]["instrument"], "instrument.brass.horn.f")
 
+    def test_unpitched_hits_rolls_and_codes(self):
+        s = dict(id="t", title="T", tempo=100, parts=[
+            dict(id="sn", instrument="snare", music="!mf x/q x/q+acc x/h+roll | !p x/q+xhead x/q+ghost x/h+buzz")])
+        notes = scoretest.sounding_notes(s)
+        # Pitches are the unpitched bridge's codes: Natural 36, roll 72, buzz roll 74.
+        self.assertEqual([n["pitch"] for n in notes], [36, 36, 72, 36, 36, 74])
+        self.assertEqual(notes[2]["techniques"]["includes"], ["pt.roll"])
+        self.assertIn("pt.buzzRoll", notes[2]["techniques"]["excludes"])
+        self.assertEqual(notes[1]["techniques"]["includes"], ["pt.accent"])
+        xml = ET.fromstring(scoretest.musicxml(s))
+        self.assertEqual(xml.find(".//clef/sign").text, "percussion")
+        self.assertEqual(xml.find(".//note/unpitched/display-step").text, "C")
+        self.assertIsNone(xml.find(".//note/pitch"))
+        tremolos = xml.findall(".//ornaments/tremolo")
+        self.assertEqual([(t.get("type"), t.text) for t in tremolos], [("single", "3"), ("unmeasured", None)])
+        heads = xml.findall(".//notehead")
+        self.assertEqual([(h.text, h.get("parentheses")) for h in heads], [("x", None), ("normal", "yes")])
+        self.assertTrue(scoretest.expected(s, b"{}")["parts"][0]["unpitched"])
+        with self.assertRaises(scoretest.SpecError):
+            scoretest.sounding_notes(spec("!mf x/q"))  # x heads need an unpitched instrument
+        with self.assertRaises(scoretest.SpecError):
+            scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf C5/q")]))
+
+    def test_percussion_code_rule(self):
+        self.assertEqual(scoretest.percussion_code([]), 36)
+        self.assertEqual(scoretest.percussion_code(["pt.accent"]), 36)
+        self.assertEqual(scoretest.percussion_code(["pt.roll", "pt.accent"]), 72)
+        self.assertEqual(scoretest.percussion_code(["pt.rim"]), 37 + 3)
+
 
 if __name__ == "__main__":
     unittest.main()

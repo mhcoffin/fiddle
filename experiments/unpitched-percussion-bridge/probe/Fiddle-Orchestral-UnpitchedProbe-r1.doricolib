@@ -1,0 +1,1210 @@
+<?xml version='1.0' encoding='utf-8'?>
+<kScoreLibrary>
+  <fileVersion>1.1438</fileVersion>
+  <expressionMapDefinitions>
+    <entities array="true">
+      <ExpressionMapDefinition>
+        <name>Fiddle Bridge - Unpitched Percussion Probe r1</name>
+        <entityID>xmap.user.Fiddle.UnpitchedProbe.r1</entityID>
+        <parentEntityID />
+        <inheritanceMask>0</inheritanceMask>
+        <creator>Fiddle</creator>
+        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Unpitched percussion probe: 8 conduits, 25 bases, 15 add-ons. Specification SHA256: f9bb28451b20cb2d5156ce12ba15ea32b7b912d0a7a96855acc437f6b69cd92a</description>
+        <version>1</version>
+        <pluginNames />
+        <autoMutualExclusion>false</autoMutualExclusion>
+        <allowMultipleNotesAtSamePitch>true</allowMultipleNotesAtSamePitch>
+        <applyStageTemplateSettings>false</applyStageTemplateSettings>
+        <pitchBendRange>2</pitchBendRange>
+        <microtonalPlaybackMethod>kAuto</microtonalPlaybackMethod>
+        <initSwitchData>
+          <enabled>true</enabled>
+          <initActions array="true">
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>102</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>104</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>105</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>106</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>108</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kKeySwitch</type>
+              <param1>4</param1>
+              <param2>1</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kKeySwitch</type>
+              <param1>12</param1>
+              <param2>1</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kControlChange</type>
+              <param1>112</param1>
+              <param2>0</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kKeySwitch</type>
+              <param1>126</param1>
+              <param2>30</param2>
+            </switchOnAction>
+            <switchOnAction>
+              <type>kKeySwitch</type>
+              <param1>127</param1>
+              <param2>11</param2>
+            </switchOnAction>
+          </initActions>
+        </initSwitchData>
+        <playingTechniqueCombinations array="true">
+          <playingTechniqueCombination>
+            <baseSwitchID>0</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kVeryShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>0</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>1</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>2</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kMedium</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>3</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>3</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>4</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength &gt; kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>4</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>5</baseSwitchID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kVeryShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>5</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>6</baseSwitchID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>6</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>7</baseSwitchID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kMedium</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>7</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>8</baseSwitchID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>8</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>9</baseSwitchID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength &gt; kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>9</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>10</baseSwitchID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kVeryShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>10</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>11</baseSwitchID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>11</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>12</baseSwitchID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kMedium</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>12</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>13</baseSwitchID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>13</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>14</baseSwitchID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength &gt; kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>14</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>15</baseSwitchID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kVeryShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>15</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>16</baseSwitchID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kShort</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>16</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>17</baseSwitchID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kMedium</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>17</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>18</baseSwitchID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength == kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>18</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+          <playingTechniqueCombination>
+            <baseSwitchID>19</baseSwitchID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString>NoteLength &gt; kLong</conditionString>
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>true</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>true</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>102</param1>
+                <param2>19</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+        </playingTechniqueCombinations>
+        <techniqueAddOns array="true">
+          <techniqueAddOn>
+            <techAddOnSwitchID>0</techAddOnSwitchID>
+            <techniqueIDs>pt.accent</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>104</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>104</param1>
+                <param2>65</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>1</techAddOnSwitchID>
+            <techniqueIDs>pt.marcato</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>104</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>104</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>2</techAddOnSwitchID>
+            <techniqueIDs>pt.beaterFelt</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>65</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>3</techAddOnSwitchID>
+            <techniqueIDs>pt.beaterRods</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>4</techAddOnSwitchID>
+            <techniqueIDs>pt.beaterPuffy</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>3</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>67</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>5</techAddOnSwitchID>
+            <techniqueIDs>pt.beaterDreads</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>4</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>68</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>6</techAddOnSwitchID>
+            <techniqueIDs>pt.sticks</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>5</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>105</param1>
+                <param2>69</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>7</techAddOnSwitchID>
+            <techniqueIDs>pt.centre</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>65</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>8</techAddOnSwitchID>
+            <techniqueIDs>pt.edgeDrums</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>9</techAddOnSwitchID>
+            <techniqueIDs>pt.rim</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>3</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>106</param1>
+                <param2>67</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>10</techAddOnSwitchID>
+            <techniqueIDs>pt.deadStroke</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>108</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>108</param1>
+                <param2>65</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>11</techAddOnSwitchID>
+            <techniqueIDs>pt.ghostNote</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kKeySwitch</type>
+                <param1>4</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kKeySwitch</type>
+                <param1>4</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>12</techAddOnSwitchID>
+            <techniqueIDs>pt.damp</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kKeySwitch</type>
+                <param1>12</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kKeySwitch</type>
+                <param1>12</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>13</techAddOnSwitchID>
+            <techniqueIDs>pt.snareOn</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>112</param1>
+                <param2>1</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>112</param1>
+                <param2>65</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+          <techniqueAddOn>
+            <techAddOnSwitchID>14</techAddOnSwitchID>
+            <techniqueIDs>pt.snareOff</techniqueIDs>
+            <enabled>true</enabled>
+            <switchOnActions array="true">
+              <switchOnAction>
+                <type>kControlChange</type>
+                <param1>112</param1>
+                <param2>2</param2>
+              </switchOnAction>
+            </switchOnActions>
+            <switchOffActions array="true">
+              <switchOffAction>
+                <type>kControlChange</type>
+                <param1>112</param1>
+                <param2>66</param2>
+              </switchOffAction>
+            </switchOffActions>
+          </techniqueAddOn>
+        </techniqueAddOns>
+        <mutualExclusionGroups array="true">
+          <mutualExclusionGroup>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedProbe.r1.accent</groupID>
+            <name>UnpitchedProbe: accent</name>
+            <techniqueIDs>pt.accent, pt.marcato</techniqueIDs>
+          </mutualExclusionGroup>
+          <mutualExclusionGroup>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedProbe.r1.beater</groupID>
+            <name>UnpitchedProbe: beater</name>
+            <techniqueIDs>pt.beaterFelt, pt.beaterRods, pt.beaterPuffy, pt.beaterDreads, pt.sticks</techniqueIDs>
+          </mutualExclusionGroup>
+          <mutualExclusionGroup>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedProbe.r1.strike_location</groupID>
+            <name>UnpitchedProbe: strike location</name>
+            <techniqueIDs>pt.natural, pt.centre, pt.edgeDrums, pt.rim</techniqueIDs>
+          </mutualExclusionGroup>
+          <mutualExclusionGroup>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedProbe.r1.snares</groupID>
+            <name>UnpitchedProbe: snares</name>
+            <techniqueIDs>pt.snareOn, pt.snareOff</techniqueIDs>
+          </mutualExclusionGroup>
+        </mutualExclusionGroups>
+        <playbackOptionsOverrides array="true">
+          <optionsOverride>
+            <option>timingOptions.noteDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.staccatoDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.staccatissimoDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.legatoDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.tenutoDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.marcatoDurationPercent</option>
+            <value>int: 100</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.alwaysTruncateAbuttingNotesOfSamePitch</option>
+            <value>bool: false</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>timingOptions.numTicksBeforeForSwitches</option>
+            <value>int: 10</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.dynamicCurveParams</option>
+            <value>string: "0.500000,1.000000,1.000000"</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.minProfileLevelForPlayback</option>
+            <value>int: -8</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.maxProfileLevelForPlayback</option>
+            <value>int: 8</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.accentDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.marcatoDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.tenutoDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+          <optionsOverride>
+            <option>dynamicsOptions.ghostNoteDynamicDelta</option>
+            <value>double: 0</value>
+          </optionsOverride>
+        </playbackOptionsOverrides>
+      </ExpressionMapDefinition>
+    </entities>
+  </expressionMapDefinitions>
+  <drumKitNoteMapDefinitions>
+    <entities array="true">
+      <DrumKitNoteMapDefinition>
+        <name>Fiddle Unpitched Probe A</name>
+        <entityID>drumkitmap.user.Fiddle.UnpitchedProbe.A</entityID>
+        <parentEntityID />
+        <inheritanceMask>0</inheritanceMask>
+        <version>1</version>
+        <forSingleInstrument>true</forSingleInstrument>
+        <applyStageTemplateSettings>false</applyStageTemplateSettings>
+        <entries array="true">
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <pitch>60</pitch>
+            <name>Natural</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.rim</techniqueIDs>
+            <pitch>61</pitch>
+            <name>Rim</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.sideStick</techniqueIDs>
+            <pitch>62</pitch>
+            <name>Side stick</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.crossStick</techniqueIDs>
+            <pitch>63</pitch>
+            <name>Cross stick</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.roll</techniqueIDs>
+            <pitch>64</pitch>
+            <name>Roll</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.tremolo</techniqueIDs>
+            <pitch>65</pitch>
+            <name>Tremolo</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.buzzRoll</techniqueIDs>
+            <pitch>66</pitch>
+            <name>Buzz roll</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.rim+pt.roll</techniqueIDs>
+            <pitch>67</pitch>
+            <name>Rim + Roll</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.beaterRods</techniqueIDs>
+            <pitch>68</pitch>
+            <keyswitches>15</keyswitches>
+            <name>Rods (beater)</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.beaterRods+pt.rim</techniqueIDs>
+            <pitch>69</pitch>
+            <name>Rods (beater) + Rim</name>
+          </entry>
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.accent</techniqueIDs>
+            <pitch>70</pitch>
+            <name>Accent</name>
+          </entry>
+        </entries>
+      </DrumKitNoteMapDefinition>
+      <DrumKitNoteMapDefinition>
+        <name>Fiddle Unpitched Probe B</name>
+        <entityID>drumkitmap.user.Fiddle.UnpitchedProbe.B</entityID>
+        <parentEntityID />
+        <inheritanceMask>0</inheritanceMask>
+        <version>1</version>
+        <forSingleInstrument>true</forSingleInstrument>
+        <applyStageTemplateSettings>false</applyStageTemplateSettings>
+        <entries array="true">
+          <entry>
+            <instrumentEntityID>instrument.orchestral.unpitched.snare.drum</instrumentEntityID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <pitch>60</pitch>
+            <name>Natural</name>
+          </entry>
+        </entries>
+      </DrumKitNoteMapDefinition>
+    </entities>
+  </drumKitNoteMapDefinitions>
+</kScoreLibrary>

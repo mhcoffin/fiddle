@@ -6,11 +6,13 @@ expected result: every sounding note with its onset, duration, dynamic level
 and playing techniques as Fiddle's bridge decoder should receive them. The
 spec is the single source of truth for both. See README.md.
 """
+import functools
 import hashlib
 import json
 import re
 import xml.etree.ElementTree as ET
 from fractions import Fraction
+from pathlib import Path
 
 DIVISIONS = 12  # per quarter note: sixteenths and eighth-note triplets fit
 LENGTHS = {"w": 48, "h": 24, "q": 12, "e": 6, "s": 3}
@@ -36,7 +38,22 @@ INSTRUMENTS = {
                     clef=("F", 4), program=48),
     "marimba": dict(name="Marimba", sound="pitched-percussion.marimba",
                     dorico="instrument.pitchedpercussion.marimba", clef=("G", 2), program=13),
+    # Unpitched instruments: notes are written as x heads ("x/q"), shown at
+    # "unpitched" (display step, octave) on a percussion clef. Dorico sends
+    # the pitch code of the unpitched bridge's percussion map, so each
+    # expected note's pitch is that code (percussion_code).
+    "snare": dict(name="Snare Drum", sound="drum.snare-drum", dorico="instrument.orchestral.unpitched.snare.drum",
+                  clef=("percussion", 2), program=1, unpitched=("C", 5)),
+    "bass-drum": dict(name="Bass Drum", sound="drum.bass-drum", dorico="instrument.orchestral.unpitched.bass.drum",
+                      clef=("percussion", 2), program=1, unpitched=("E", 4)),
+    "suspended-cymbal": dict(name="Suspended Cymbal", sound="metal.cymbal.suspended",
+                             dorico="instrument.orchestral.unpitched.suspended.cymbal",
+                             clef=("percussion", 2), program=1, unpitched=("C", 5)),
+    "triangle": dict(name="Triangle", sound="metal.triangle", dorico="instrument.orchestral.unpitched.triangle",
+                     clef=("percussion", 2), program=1, unpitched=("C", 5)),
 }
+CODES_SOURCE = (Path(__file__).resolve().parents[2]
+                / "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/allocation.json")
 
 # Dorico's dynamic levels (experiments/dynamics-curve/results-01.md).
 LEVELS = dict(pppppp=-6, ppppp=-5, pppp=-4, ppp=-3, pp=-2, p=-1, mp=-0.5,
@@ -51,14 +68,49 @@ ARTICULATIONS = {
     "marc": ("strong-accent", "pt.marcato"),
 }
 
+# Marks that are MusicXML ornaments: (element, attributes, text) and the
+# playback technique Dorico should send. A three-stroke tremolo on an
+# unpitched note is a roll; "unmeasured" is MusicXML 4's buzz roll.
+ORNAMENTS = {
+    "roll": (("tremolo", {"type": "single"}, "3"), "pt.roll"),
+    "buzz": (("tremolo", {"type": "unmeasured"}, None), "pt.buzzRoll"),
+}
+# Noteheads carry no expected technique: whether Dorico's import turns them
+# into one is what the unpitched probe finds out.
+NOTEHEADS = {"xhead": ("x", {}), "ghost": ("normal", {"parentheses": "yes"})}
+MARKS = set(ARTICULATIONS) | set(ORNAMENTS) | set(NOTEHEADS)
+
+
 def articulation_elements(articulations):
     """MusicXML elements for a note's articulations. Tenuto with staccato is
     the single combined mark <detached-legato/>: Dorico imports separate
     <tenuto/> and <staccato/> elements as staccato alone."""
-    names = [ARTICULATIONS[a][0] for a in articulations]
+    names = [ARTICULATIONS[a][0] for a in articulations if a in ARTICULATIONS]
     if "tenuto" in names and "staccato" in names:
         names = ["detached-legato"] + [n for n in names if n not in ("tenuto", "staccato")]
     return names
+
+
+@functools.lru_cache(maxsize=None)
+def percussion_codes():
+    """The unpitched bridge's pitch codes, [(pitch, frozenset of technique IDs)]."""
+    manifest = json.loads(CODES_SOURCE.read_text())
+    return [(c["pitch"], frozenset(c["techniques"])) for c in manifest["percussion"][0]["codes"]]
+
+
+def percussion_code(techniques):
+    """The pitch Dorico should send for an unpitched note: the code whose
+    techniques are all among the note's, with the most of them (ties: the
+    fewest techniques, then table order), else Natural. The same rule as
+    the Dorico simulator in Source/Server/tests/ScoreTestTest.cpp."""
+    wanted = set(techniques)
+    best = None
+    for pitch, ids in percussion_codes():
+        if ids <= wanted and (best is None or (len(ids & wanted), -len(ids)) > (len(best[1] & wanted), -len(best[1]))):
+            best = (pitch, ids)
+    if best is None:
+        best = next((pitch, ids) for pitch, ids in percussion_codes() if ids == {"pt.natural"})
+    return best[0]
 
 
 DEFAULT_TOLERANCES = dict(onset_ms=5.0, duration_ms=5.0, level=0.2)
@@ -134,13 +186,14 @@ def parse_music(text):
             length = length.rstrip("~")
             length, *articulations = length.split("+")
             for a in articulations:
-                if a not in ARTICULATIONS:
+                if a not in MARKS:
                     raise SpecError(f"Unknown articulation {a!r} in {token!r}")
             if head == "r":
                 events.append(dict(kind="rest", length=parse_length(length), token=token))
             else:
-                events.append(dict(kind="note", pitch=parse_pitch(head), length=parse_length(length),
-                                   articulations=articulations, tie=tie, token=token))
+                # "x" is an unpitched hit.
+                events.append(dict(kind="note", pitch=None if head == "x" else parse_pitch(head),
+                                   length=parse_length(length), articulations=articulations, tie=tie, token=token))
     return events
 
 
@@ -157,11 +210,14 @@ def timeline(spec):
     for index, part in enumerate(spec["parts"]):
         if part["instrument"] not in INSTRUMENTS:
             raise SpecError(f"Unknown instrument {part['instrument']!r}")
+        unpitched = "unpitched" in INSTRUMENTS[part["instrument"]]
         position, placed = 0, []
         for event in parse_music(part["music"]):
             event = dict(event, position=position)
             if event["kind"] == "barline" and position % bar:
                 raise SpecError(f"{part['id']}: bar line at {position} is not on a bar boundary")
+            if event["kind"] == "note" and (event["pitch"] is None) != unpitched:
+                raise SpecError(f"{part['id']}: {event['token']}: unpitched instruments take x heads, pitched ones pitches")
             if event["kind"] == "tempo":
                 if index:
                     raise SpecError("Tempo changes belong in the first part")
@@ -227,8 +283,9 @@ def sounding_notes(spec):
                     raise SpecError(f"{part['id']}: slur end before any note")
                 in_slur = False
             elif kind == "note":
+                midi = event["pitch"][3] if event["pitch"] else None
                 if chain is not None:  # continuation of a tie
-                    if chain["pitch"] != event["pitch"][3]:
+                    if chain["pitch"] != midi:
                         raise SpecError(f"{part['id']}: tie to a different pitch at {event['token']}")
                     chain["length"] += event["length"]
                     if not event["tie"]:
@@ -236,7 +293,7 @@ def sounding_notes(spec):
                     continue
                 if level is None:
                     raise SpecError(f"{part['id']}: give a dynamic before the first note")
-                note = dict(part=part["id"], pitch=event["pitch"][3], position=event["position"],
+                note = dict(part=part["id"], pitch=midi, position=event["position"],
                             length=event["length"], articulations=event["articulations"],
                             slurred=in_slur, level=level, token=event["token"],
                             hairpin=hairpin if hairpin and not hairpin["closed"] else None)
@@ -248,8 +305,9 @@ def sounding_notes(spec):
             if not h["closed"]:
                 raise SpecError(f"{part['id']}: hairpin {h['id']} is never ended")
         rows.extend(pending)
-    rows.sort(key=lambda r: (r["position"], [p["id"] for p in spec["parts"]].index(r["part"]), r["pitch"]))
+    rows.sort(key=lambda r: (r["position"], [p["id"] for p in spec["parts"]].index(r["part"]), r["pitch"] or 0))
     bar = bar_length(spec)
+    unpitched = {p["id"] for p in spec["parts"] if "unpitched" in INSTRUMENTS[p["instrument"]]}
     result = []
     for r in rows:
         start = milliseconds(r["position"], tempo)
@@ -273,14 +331,18 @@ def sounding_notes(spec):
             if h["to"] is not None:
                 dynamic["level"] = round(along(start), 3)
                 dynamic["between"] = bounds
-        includes = sorted(ARTICULATIONS[a][1] for a in r["articulations"])
+        includes = sorted(ARTICULATIONS[a][1] for a in r["articulations"] if a in ARTICULATIONS)
+        includes += sorted(ORNAMENTS[a][1] for a in r["articulations"] if a in ORNAMENTS)
         # Every slurred note, the slur's last included (slurs-20261029-190133).
         if r["slurred"]:
             includes.append("pt.legato")
         excludes = sorted(pt for name, (_, pt) in ARTICULATIONS.items() if name not in r["articulations"])
+        if r["part"] in unpitched:
+            excludes += sorted(pt for name, (_, pt) in ORNAMENTS.items() if name not in r["articulations"])
         if not r["slurred"]:
             excludes.append("pt.legato")
-        result.append(dict(part=r["part"], index=len(result), pitch=r["pitch"],
+        pitch = percussion_code(includes) if r["part"] in unpitched else r["pitch"]
+        result.append(dict(part=r["part"], index=len(result), pitch=pitch,
                            bar=r["position"] // bar + 1,
                            beat=float(Fraction(r["position"] % bar, DIVISIONS)) + 1,
                            onset_ms=round(start, 3),
@@ -375,8 +437,13 @@ def musicxml(spec):
                 sub(notations, "slur", type="stop", number="1")
             elif kind in ("note", "rest"):
                 n = sub(m, "note")
+                alter = 0
                 if kind == "rest":
                     sub(n, "rest")
+                elif event["pitch"] is None:
+                    shown = sub(n, "unpitched")
+                    sub(shown, "display-step", info["unpitched"][0])
+                    sub(shown, "display-octave", info["unpitched"][1])
                 else:
                     step, alter, octave = written_pitch(event["pitch"], info.get("transpose"))
                     pitch = sub(n, "pitch")
@@ -399,8 +466,11 @@ def musicxml(spec):
                 sub(n, "type", note_type)
                 for _ in range(dots):
                     sub(n, "dot")
-                if kind == "note" and alter != key_alter(step, fifths):
+                if kind == "note" and event["pitch"] is not None and alter != key_alter(step, fifths):
                     sub(n, "accidental", {1: "sharp", -1: "flat", 0: "natural"}[alter])
+                heads = [NOTEHEADS[a] for a in event.get("articulations", []) if a in NOTEHEADS]
+                if heads:
+                    sub(n, "notehead", heads[0][0], **heads[0][1])
                 if kind == "note" and (tie_types or event["articulations"] or slur_open):
                     notations = sub(n, "notations")
                     for t in tie_types:
@@ -408,10 +478,15 @@ def musicxml(spec):
                     if slur_open:
                         sub(notations, "slur", type="start", number="1")
                         slur_open = False
-                    if event["articulations"]:
+                    if any(a in ARTICULATIONS for a in event["articulations"]):
                         arts = sub(notations, "articulations")
                         for element in articulation_elements(event["articulations"]):
                             sub(arts, element)
+                    ornaments = [ORNAMENTS[a][0] for a in event["articulations"] if a in ORNAMENTS]
+                    if ornaments:
+                        container = sub(notations, "ornaments")
+                        for element, attrs, text in ornaments:
+                            sub(container, element, text, **attrs)
         last = measures[max(measures)]
         sub(sub(last, "barline", location="right"), "bar-style", "light-heavy")
     ET.indent(root, space="  ")
@@ -428,7 +503,9 @@ def expected(spec, spec_bytes):
         tempo_map=[dict(quarter=float(Fraction(p, DIVISIONS)), bpm=b) for p, b in tempo],
         length_ms=round(milliseconds(total, tempo), 3),
         parts=[dict(id=p["id"], name=p.get("name", INSTRUMENTS[p["instrument"]]["name"]),
-                    instrument=INSTRUMENTS[p["instrument"]]["dorico"]) for p in spec["parts"]],
+                    instrument=INSTRUMENTS[p["instrument"]]["dorico"],
+                    **({"unpitched": True} if "unpitched" in INSTRUMENTS[p["instrument"]] else {}))
+               for p in spec["parts"]],
         tolerances={**DEFAULT_TOLERANCES, **spec.get("tolerances", {})},
         notes=sounding_notes(spec))
 
