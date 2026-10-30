@@ -197,7 +197,6 @@ def sounding_notes(spec):
             elif kind == "slur_end":
                 if not pending:
                     raise SpecError(f"{part['id']}: slur end before any note")
-                pending[-1]["slur_last"] = True
                 in_slur = False
             elif kind == "note":
                 if chain is not None:  # continuation of a tie
@@ -211,7 +210,7 @@ def sounding_notes(spec):
                     raise SpecError(f"{part['id']}: give a dynamic before the first note")
                 note = dict(part=part["id"], pitch=event["pitch"][3], position=event["position"],
                             length=event["length"], articulations=event["articulations"],
-                            slurred=in_slur, slur_last=False, level=level, token=event["token"],
+                            slurred=in_slur, level=level, token=event["token"],
                             hairpin=hairpin if hairpin and not hairpin["closed"] else None)
                 pending.append(note)
                 chain = note if event["tie"] else None
@@ -238,7 +237,8 @@ def sounding_notes(spec):
             if h["to"] is not None:
                 dynamic["between"] = bounds
         includes = sorted(ARTICULATIONS[a][1] for a in r["articulations"])
-        if r["slurred"] and not r["slur_last"]:
+        # Every slurred note, the slur's last included (slurs-20261029-190133).
+        if r["slurred"]:
             includes.append("pt.legato")
         excludes = sorted(pt for name, (_, pt) in ARTICULATIONS.items() if name not in r["articulations"])
         if not r["slurred"]:

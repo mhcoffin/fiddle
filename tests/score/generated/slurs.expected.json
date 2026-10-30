@@ -113,7 +113,9 @@
         "level": 0.5
       },
       "techniques": {
-        "includes": [],
+        "includes": [
+          "pt.legato"
+        ],
         "excludes": [
           "pt.accent",
           "pt.marcato",
@@ -234,7 +236,9 @@
         "level": 0.5
       },
       "techniques": {
-        "includes": [],
+        "includes": [
+          "pt.legato"
+        ],
         "excludes": [
           "pt.accent",
           "pt.marcato",
@@ -356,7 +360,9 @@
         "level": 0.5
       },
       "techniques": {
-        "includes": [],
+        "includes": [
+          "pt.legato"
+        ],
         "excludes": [
           "pt.accent",
           "pt.marcato",

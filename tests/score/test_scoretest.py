@@ -57,8 +57,7 @@ class Expectations(unittest.TestCase):
         notes = scoretest.sounding_notes(spec("!mf ( C5/q+stacc D5/q E5/q ) F5/q+marc"))
         self.assertEqual(notes[0]["techniques"]["includes"], ["pt.legato", "pt.staccato"])
         self.assertIn("pt.marcato", notes[0]["techniques"]["excludes"])
-        self.assertEqual(notes[2]["techniques"]["includes"], [])  # last slurred note: legato unchecked
-        self.assertNotIn("pt.legato", notes[2]["techniques"]["excludes"])
+        self.assertEqual(notes[2]["techniques"]["includes"], ["pt.legato"])  # the slur's last note too
         self.assertEqual(notes[3]["techniques"]["includes"], ["pt.marcato"])
         self.assertIn("pt.legato", notes[3]["techniques"]["excludes"])
 

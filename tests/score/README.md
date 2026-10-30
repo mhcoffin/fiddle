@@ -125,12 +125,13 @@ relative to the start of the score), dynamic, and playing techniques.
   hairpin keeps changing (`during`).
 - **Techniques**: `includes` must arrive, `excludes` must not. Articulations
   map to `pt.staccato`, `pt.staccatissimo`, `pt.tenuto`, `pt.accent` and
-  `pt.marcato`; slurred notes include `pt.legato`, except a slur's last note,
-  which is not checked; unslurred notes exclude it.
+  `pt.marcato`; slurred notes include `pt.legato`, the slur's last note too;
+  unslurred notes exclude it.
 - **Tolerances** (per test, default): onset and duration ±5 ms, level ±0.2.
 
 Expectations about Dorico's own behaviour are hypotheses until a run confirms
-them, notably legato on slurred notes and the exact path of a hairpin.
+them. Legato on slurred notes, the last included, is confirmed
+(`slurs-20261029-190133`); the exact path of a hairpin is not yet.
 
 ## One-time setup
 
