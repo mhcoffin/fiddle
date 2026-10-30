@@ -97,6 +97,22 @@ documented elsewhere; this list records the remaining work and intended order.
 - Optional stereo-width/dual-pan utilities and more detailed phase/correlation
   diagnostics.
 
+## Before the first release to other users
+
+- **Dorico's maximum staccato duration (decided 2026-10-29: live with it).**
+  Playback Options ▸ **Maximum duration for staccato playback technique** (on by
+  default at a quarter note, apparently exclusive) can't be overridden in an
+  expression map. With it on, longer staccato notes reach Fiddle as Natural and,
+  with the bridge maps' staccato length at 100%, play full length. Turning it off
+  is project-wide, so in a mixed playback template (Fiddle first, another
+  library as default) the other library gets Staccato on long notes. For now the
+  bridge maps stay as they are and Fiddle projects turn the option off. A Dorico
+  feature request for an expression-map override is filed. Before a release:
+  check whether Dorico added the override; otherwise choose between leaving the
+  bridge maps' staccato length to the project (long staccatos then arrive
+  shortened, as Dorico plays them) and documenting the limitation. Also decide
+  whether Fiddle applies the maximum per layer (a project setting).
+
 ## Deferred scope
 
 - Mix automation. Existing score dynamics and CC1/7/11 cover the immediate
