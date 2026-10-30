@@ -6,9 +6,8 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-30): all four phases built; nine of ten tests pass in
-Dorico. The pitched-percussion test (timpani and marimba) has not been run
-yet.** The test format and generator, ten tests, Fiddle's recorder and
+**Status (2026-10-30): all four phases built; all ten tests pass in Dorico.**
+The test format and generator, ten tests, Fiddle's recorder and
 comparison, the Score Tests window, and looking up a run by its ID.
 
 | Test | Latest run | Result |
@@ -24,7 +23,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | hairpins | `hairpins-20261029-190413` | Pass: 13 of 13. Dorico moves the level in a straight line over time: a crescendo p→f over a held 4.8 s note steps CC1 56→72 one value every 300 ms; under a crescendo over four quarters the notes start at levels −1, −0.5, 0, +0.5 and each rises 0.5 while it sounds; the diminuendo mirrors it. |
 | two-instruments | `two-instruments-20261029-190605` | Pass: 16 of 16. Violin through Strings r5 (port 2 channel 15) and flute through Woodwinds r3 (port 1 channel 9), each bound by its chair's instrument. |
 | horn | `horn-20261030-122642` | Pass: 18 of 18. Horn in F through Brass r3 (port 2 channel 5). Dorico imported the written-pitch MusicXML with its `<transpose>` and sent sounding pitches (first note F3, written C4). Onsets +0 ms, durations −0.2 ms; articulations, legato under the slur, and tenuto+staccato (Staccato+Tenuto switch) arrive as on strings; levels exact (mf CC1 68, f 72, p 56) and both hairpins move CC1 one value at a time in a straight line. |
-| pitched-percussion | — | Not yet run. Timpani and marimba, both through Pitched percussion r2, each bound by its chair's instrument. Repeated timpani eighths under a crescendo; their short-note switches may carry velocity dynamics, in which case the level while a note sounds is not checked. |
+| pitched-percussion | `pitched-percussion-20261030-124022` | Pass: 33 of 33. Timpani (port 2 channel 13) and marimba (port 3 channel 6, Dorico's default `marimba.4.3oct`) both through Pitched percussion r2, each bound by its chair's instrument. Onsets +0 ms, durations −0.2 ms. The crescendo over eight timpani eighths starts each note on the hairpin's line (CC1 56, 58, … 70) and rises two values while it sounds. Staccato notes take the map's velocity-dynamics switch (velocity 60 at mp, 72 at f); everything else arrives on CC1. Slurred marimba notes carry legato, the slur's last included. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
