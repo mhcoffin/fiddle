@@ -47,6 +47,7 @@ everything after a point.
 | Extra notes | Auditioned notes while armed (clicking in Dorico), or another instrument on the bound endpoint. |
 | Onsets drifting through the test | Tempo: Dorico's tempo differs from the spec (tempo-changes test), or swing/humanize is on. |
 | Onsets scattered by a few ms | Humanize start positions isn't 0 in Dorico's Playback Options. |
+| `pt.staccato` missing on notes longer than an eighth (Dorico shows Natural) | Playback Options ▸ Timing ▸ **Use staccato playing technique only for notes up to** is on; expression maps can't override it. |
 | Durations wrong by a fixed percentage | Dorico's note-duration options aren't pinned: `pinned_playback` failing means the endpoint's bridge isn't a pinned revision (Strings r5, Woodwinds r3, Brass r3, Pitched percussion r2 or later). |
 | Durations short only before a same-pitch note | Dorico's truncation of abutting same-pitch notes. |
 | `level` off on every note | The dynamic curve isn't the bridge's pinned linear curve, or beat-stress/humanize dynamics are on. |

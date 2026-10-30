@@ -129,6 +129,28 @@ following is the first host smoke test, not a claim that it has already passed.
 No acceptance evidence is implied by the automated installer tests: Dorico's
 initialization, export normalization and playback behavior remain to be observed.
 
+## Playback options an expression map can override
+
+Dorico 6's expression-map editor offers these overrides (checked 2026-10-29);
+anything else in Playback Options, such as **Use staccato playing technique
+only for notes up to**, applies from the project and can't be pinned:
+
+| Group | Overrides |
+| --- | --- |
+| Durations | default, staccato, staccatissimo, tenuto, marcato and legato note durations *(pinned at 100%)* |
+| Repeated notes | shorten note if followed by abutting note of same pitch *(pinned off)*; additionally enforce a gap between repeated notes, minimum and maximum gap |
+| Switches | expression map switches before notes *(pinned at 10 ticks)* |
+| Timing | humanize start positions; humanize end positions; default unmeasured tremolo length; consider tempo changes in tremolos; in trills |
+| Dynamic curve | curve power, minimum and maximum level *(pinned linear, −8..8)* |
+| Humanize and stress | humanize written dynamic (pitched, unpitched); reset level for short consecutive gradual dynamics of the same direction; first-beat and other-beat increases (pitched, unpitched) |
+| Articulation dynamics | accents, marcato, tenuto, ghost notes *(pinned at 0)* |
+| Pitch contour | use pitch contour emphasis; scale of its effect; maximum effect on dynamics |
+| Voice balancing | use polyphonic instrument voice balancing; percentage of its effect |
+
+The bridge maps pin only the rows marked; humanization, beat stress, contour
+and voice balancing are left to the project (they act on the level, which
+Fiddle carries through).
+
 ## Supported compiler schemas 1 and 2
 
 The compiler accepts one flattened map with independent CC102–119 and positive

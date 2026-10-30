@@ -142,11 +142,14 @@ them, notably legato on slurred notes and the exact path of a hairpin.
    Template**.
 
 ### Dorico
-Expected results assume no randomness and no added beat emphasis. In
-**Library ▸ Playback Options**, set:
+Expected results assume no randomness, no added beat emphasis, and that every
+staccato reaches Fiddle. In **Library ▸ Playback Options**, set:
 
 - **Timing:** **Humanize the start positions of notes by** 0%, **Humanize the
-  end positions of notes by** 0%.
+  end positions of notes by** 0%, and turn off **Use staccato playing technique
+  only for notes up to** (on by default, up to an eighth): otherwise Dorico
+  plays staccato quarters as Natural and Fiddle never sees the staccato.
+  Expression maps can't override this option.
 - **Dynamics:** **Humanize written dynamic on pitched instruments by** 0%,
   **Increase dynamic of first beat in the bar on pitched instruments by** 0,
   **Increase dynamic of other beats in the bar on pitched instruments by** 0.
@@ -154,7 +157,7 @@ Expected results assume no randomness and no added beat emphasis. In
 
 Then press **Save as Default**, so every project created from a test's MusicXML
 starts this way. This also changes the defaults of your other new projects; if
-you'd rather not, set these five values in each test project instead.
+you'd rather not, set these six values in each test project instead.
 
 To skip applying the playback template each time, set **Fiddle** as the
 default playback template in **Preferences ▸ Play**; otherwise apply it to
