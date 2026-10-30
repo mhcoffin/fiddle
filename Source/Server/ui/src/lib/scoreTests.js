@@ -5,6 +5,8 @@ const instrumentNames = {
     "instrument.strings.viola": "Viola",
     "instrument.wind.flute": "Flute",
     "instrument.brass.horn.f": "Horn in F",
+    "instrument.pitchedpercussion.timpani": "Timpani",
+    "instrument.pitchedpercussion.marimba": "Marimba",
 };
 
 /** "instrument.strings.violin" → "Violin"; unknown IDs by their last part. */

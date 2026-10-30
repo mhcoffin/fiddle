@@ -30,7 +30,9 @@ std::shared_ptr<const BridgeMapDocument> bridgeFor(const juce::String &instrumen
   static const std::map<BridgeSection, const char *> paths{
       {BridgeSection::Strings, "experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib"},
       {BridgeSection::Woodwinds, "experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"},
-      {BridgeSection::Brass, "experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"}};
+      {BridgeSection::Brass, "experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"},
+      {BridgeSection::PitchedPercussion,
+       "experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"}};
   const auto section = bridgeSectionForInstrument(instrument);
   CHECK(paths.count(section));
   auto &doc = cache[section];
@@ -240,7 +242,7 @@ void everyTestPassesWhenPlayedAsWritten() {
     CHECK(record["midi"].getArray()->size() > 0 && record["received"].getArray()->size() == int(test["notes"]));
     ++tests;
   }
-  CHECK(tests >= 9);
+  CHECK(tests >= 10);
 }
 
 void faultsAreReportedOnTheirNote() {
@@ -290,6 +292,12 @@ void bindingsAndExtras() {
   const auto horn = runTest("horn");
   CHECK(bool(horn["pass"]) && horn["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.brass.horn.f");
   CHECK(int(horn["received"][0]["pitch"]) == 53);
+  // Timpani and marimba share the pitched percussion bridge; each binds to its own chair.
+  const auto percussion = runTest("pitched-percussion");
+  const auto &percussionBindings = *percussion["comparison"]["bindings"].getArray();
+  CHECK(bool(percussion["pass"]) && percussionBindings.size() == 2);
+  CHECK(percussionBindings[0]["chair_instrument"].toString() == "instrument.pitchedpercussion.timpani");
+  CHECK(percussionBindings[1]["chair_instrument"].toString() == "instrument.pitchedpercussion.marimba");
 
   // A note no test expects, and a note that never ends.
   const auto expected = loadExpected("basic-rhythm");

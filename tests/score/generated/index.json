@@ -62,6 +62,19 @@
       "length_ms": 14400.0
     },
     {
+      "id": "pitched-percussion",
+      "title": "Pitched percussion",
+      "description": "Timpani and marimba through the pitched percussion bridge map: accents, marcato and staccato, a crescendo over repeated timpani eighths, and a slurred marimba line. Each part arrives on its own instrument with its techniques and levels.",
+      "musicxml": "pitched-percussion.musicxml",
+      "expected": "pitched-percussion.expected.json",
+      "instruments": [
+        "instrument.pitchedpercussion.marimba",
+        "instrument.pitchedpercussion.timpani"
+      ],
+      "notes": 33,
+      "length_ms": 9600.0
+    },
+    {
       "id": "repeated-notes",
       "title": "Repeated notes",
       "description": "The same pitch repeated at quarter and eighth speed, and tied into a repeat: each attack is a separate note with its written length.",

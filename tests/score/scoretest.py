@@ -32,6 +32,10 @@ INSTRUMENTS = {
                   clef=("G", 2), program=74),
     "horn": dict(name="Horn in F", sound="brass.french-horn", dorico="instrument.brass.horn.f",
                  clef=("G", 2), program=61, transpose=dict(diatonic=-4, chromatic=-7, fifths=1)),
+    "timpani": dict(name="Timpani", sound="drum.timpani", dorico="instrument.pitchedpercussion.timpani",
+                    clef=("F", 4), program=48),
+    "marimba": dict(name="Marimba", sound="pitched-percussion.marimba",
+                    dorico="instrument.pitchedpercussion.marimba", clef=("G", 2), program=13),
 }
 
 # Dorico's dynamic levels (experiments/dynamics-curve/results-01.md).
