@@ -6,7 +6,7 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-29): all four phases built; basic-rhythm, tempo-changes and repeated-notes pass in Dorico.**
+**Status (2026-10-29): all four phases built; basic-rhythm, tempo-changes, repeated-notes and articulations pass in Dorico.**
 The test format and generator, eight basic tests, Fiddle's recorder and
 comparison, the Score Tests window, and looking up a run by its ID.
 
@@ -17,6 +17,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | repeated-notes | `repeated-notes-20261029-180823` | Pass: 12 of 12. Each repeated C5 ends 0.23–0.25 ms before the next starts: no overlap. |
 | articulations | `articulations-20261029-180936` | Fail: 8 of 11. Dorico never selected a staccato base: the staccato quarter, staccato+accent and tenuto+staccato all kept Natural (CC102=2), so tenuto was lost in the last too. Staccatissimo, tenuto, accent and marcato arrive. Cause: Dorico's **Maximum duration for staccato playback technique** (`timingOptions.useMaximumDurationForStaccatoPlayingTechnique` on, `maximumDurationForStaccatoPlayingTechnique` `8`, shown as a quarter note) withheld Staccato from these quarters, so the maximum appears to be exclusive; Dorico's display shows only "Natural, Note length = medium". The bridge maps don't pin this option. |
 | articulations | `articulations-20261029-185032` | 10 of 11 with the maximum staccato option off: staccato arrives alone and with accent. Tenuto + staccato arrives as Staccato only (CC102=12, not the Staccato+Tenuto switch 17); with the option on it arrived as Natural, not Tenuto, so Dorico doesn't request Tenuto for that pair. The expectation, not Fiddle, is wrong there. |
+| articulations | `articulations-20261029-185829` | Pass: 11 of 11, with the maximum staccato option off and tenuto+staccato written as `<detached-legato/>` (Dorico imported separate tenuto and staccato elements as staccato alone). Dorico now sends the Staccato+Tenuto switch (CC102=17). |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
