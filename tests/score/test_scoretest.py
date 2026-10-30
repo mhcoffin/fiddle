@@ -62,6 +62,12 @@ class Expectations(unittest.TestCase):
         self.assertEqual(notes[3]["techniques"]["includes"], ["pt.marcato"])
         self.assertIn("pt.legato", notes[3]["techniques"]["excludes"])
 
+    def test_tenuto_staccato_is_one_mark(self):
+        xml = scoretest.musicxml(spec("!mf C5/q+ten+stacc D5/q+stacc+acc E5/h"))
+        arts = [[c.tag for c in n.find("notations/articulations")]
+                for n in ET.fromstring(xml).iter("note") if n.find("notations/articulations") is not None]
+        self.assertEqual(arts, [["detached-legato"], ["staccato", "accent"]])
+
     def test_dynamics_and_hairpins(self):
         notes = scoretest.sounding_notes(spec("!p < C5/q D5/q E5/q ] !f F5/q | > G5/w~ | G5/w ] !pp"))
         self.assertEqual(notes[0]["dynamic"], dict(level=-1, during=dict(direction="up", to=1)))

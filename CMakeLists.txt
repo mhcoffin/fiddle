@@ -1388,10 +1388,14 @@ add_custom_command(TARGET FiddleServer POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"
         "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
 # Score tests (tests/score/generated): the Score tests pane reads them here.
-add_custom_command(TARGET FiddleServer POST_BUILD
+# Synced on every build, so a regenerated score reaches the app even when
+# nothing in FiddleServer itself changed.
+add_custom_target(FiddleScoreTests ALL
     COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/ScoreTests"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/tests/score/generated"
-        "$<TARGET_FILE_DIR:FiddleServer>/../Resources/ScoreTests")
+        "$<TARGET_FILE_DIR:FiddleServer>/../Resources/ScoreTests"
+    COMMENT "Syncing score tests to FiddleServer bundle")
+add_dependencies(FiddleServer FiddleScoreTests)
 
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.

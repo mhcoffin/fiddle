@@ -43,6 +43,16 @@ ARTICULATIONS = {
     "marc": ("strong-accent", "pt.marcato"),
 }
 
+def articulation_elements(articulations):
+    """MusicXML elements for a note's articulations. Tenuto with staccato is
+    the single combined mark <detached-legato/>: Dorico imports separate
+    <tenuto/> and <staccato/> elements as staccato alone."""
+    names = [ARTICULATIONS[a][0] for a in articulations]
+    if "tenuto" in names and "staccato" in names:
+        names = ["detached-legato"] + [n for n in names if n not in ("tenuto", "staccato")]
+    return names
+
+
 DEFAULT_TOLERANCES = dict(onset_ms=5.0, duration_ms=5.0, level=0.2)
 
 
@@ -358,8 +368,8 @@ def musicxml(spec):
                         slur_open = False
                     if event["articulations"]:
                         arts = sub(notations, "articulations")
-                        for a in event["articulations"]:
-                            sub(arts, ARTICULATIONS[a][0])
+                        for element in articulation_elements(event["articulations"]):
+                            sub(arts, element)
         last = measures[max(measures)]
         sub(sub(last, "barline", location="right"), "bar-style", "light-heavy")
     ET.indent(root, space="  ")

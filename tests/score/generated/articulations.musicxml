@@ -154,8 +154,7 @@
         <type>quarter</type>
         <notations>
           <articulations>
-            <tenuto />
-            <staccato />
+            <detached-legato />
           </articulations>
         </notations>
       </note>
