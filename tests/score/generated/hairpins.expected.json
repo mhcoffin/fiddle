@@ -38,7 +38,8 @@
         "level": -1,
         "during": {
           "direction": "up",
-          "to": 1
+          "to": 1,
+          "end_level": 1.0
         }
       },
       "techniques": {
@@ -114,7 +115,8 @@
         "level": -1,
         "during": {
           "direction": "up",
-          "to": 1
+          "to": 1,
+          "end_level": -0.5
         }
       },
       "techniques": {
@@ -145,8 +147,10 @@
         "to": 1,
         "during": {
           "direction": "up",
-          "to": 1
+          "to": 1,
+          "end_level": 0.0
         },
+        "level": -0.5,
         "between": [
           -1,
           1
@@ -180,8 +184,10 @@
         "to": 1,
         "during": {
           "direction": "up",
-          "to": 1
+          "to": 1,
+          "end_level": 0.5
         },
+        "level": 0.0,
         "between": [
           -1,
           1
@@ -215,8 +221,10 @@
         "to": 1,
         "during": {
           "direction": "up",
-          "to": 1
+          "to": 1,
+          "end_level": 1.0
         },
+        "level": 0.5,
         "between": [
           -1,
           1
@@ -271,7 +279,8 @@
         "level": 1,
         "during": {
           "direction": "down",
-          "to": -1
+          "to": -1,
+          "end_level": 0.5
         }
       },
       "techniques": {
@@ -302,8 +311,10 @@
         "to": -1,
         "during": {
           "direction": "down",
-          "to": -1
+          "to": -1,
+          "end_level": 0.0
         },
+        "level": 0.5,
         "between": [
           -1,
           1
@@ -337,8 +348,10 @@
         "to": -1,
         "during": {
           "direction": "down",
-          "to": -1
+          "to": -1,
+          "end_level": -0.5
         },
+        "level": 0.0,
         "between": [
           -1,
           1
@@ -372,8 +385,10 @@
         "to": -1,
         "during": {
           "direction": "down",
-          "to": -1
+          "to": -1,
+          "end_level": -1.0
         },
+        "level": -0.5,
         "between": [
           -1,
           1

@@ -186,12 +186,13 @@ def sounding_notes(spec):
                     raise SpecError(f"{part['id']}: a hairpin needs a dynamic before it")
                 hairpin_id += 1
                 hairpin = dict(id=hairpin_id, direction=event["direction"], start=event["position"],
-                               **{"from": level}, to=None, closed=False)
+                               **{"from": level}, to=None, closed=False, end=None)
                 hairpins.append(hairpin)
             elif kind == "hairpin_end":
                 if not hairpin:
                     raise SpecError(f"{part['id']}: hairpin end without a hairpin")
                 hairpin["closed"] = True
+                hairpin["end"] = event["position"]
             elif kind == "slur_start":
                 in_slur = True
             elif kind == "slur_end":
@@ -230,11 +231,20 @@ def sounding_notes(spec):
         if h:
             # The dynamic keeps moving while the note sounds (live CC1).
             dynamic["during"] = dict(direction=h["direction"], to=h["to"])
+        # Dorico moves the level in a straight line over time from the
+        # hairpin's start to its end (hairpins-20261029-190413).
+        along = None
+        if h and h["to"] is not None:
+            h_start, h_end = milliseconds(h["start"], tempo), milliseconds(h["end"], tempo)
+            along = lambda ms: h["from"] + (h["to"] - h["from"]) * min(1.0, (ms - h_start) / (h_end - h_start))
+            end = milliseconds(r["position"] + r["length"], tempo)
+            dynamic["during"]["end_level"] = round(along(end), 3)
         if h and r["position"] > h["start"]:
             bounds = sorted([h["from"], h["to"] if h["to"] is not None else h["from"]])
             dynamic = dict(hairpin=h["id"], direction=h["direction"], **{"from": h["from"]}, to=h["to"],
                            during=dynamic["during"])
             if h["to"] is not None:
+                dynamic["level"] = round(along(start), 3)
                 dynamic["between"] = bounds
         includes = sorted(ARTICULATIONS[a][1] for a in r["articulations"])
         # Every slurred note, the slur's last included (slurs-20261029-190133).

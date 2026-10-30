@@ -169,11 +169,12 @@ Played play(const juce::var &expected, const Fault &fault = {}) {
     timed.push_back({at(onset), {2, noteOn(ep, at(onset), int(n["pitch"]), choice.ccDynamics ? 100 : value)}});
     timed.push_back({at(onset + 3), {1, cc(ep, at(onset + 3), 1, value)}});
     if (const auto &during = dynamic["during"]; during.isObject()) {
-      const double to = during["to"].isVoid() ? level + (during["direction"].toString() == "up" ? 1 : -1)
-                                              : double(during["to"]);
-      for (int step = 1; step <= 3; ++step) {
-        const double t = onset + (end - onset) * step / 4.0;
-        timed.push_back({at(t), {1, cc(ep, at(t), 1, valueFor(level + (to - level) * step / 8.0))}});
+      // Like Dorico, ramp toward where the hairpin's line is at the note's end.
+      const double target = during.hasProperty("end_level") ? double(during["end_level"])
+                            : level + (during["direction"].toString() == "up" ? 0.5 : -0.5);
+      for (int step = 1; step <= 4; ++step) {
+        const double t = onset + (end - onset) * step / 4.0 - (step == 4 ? 1.0 : 0.0);
+        timed.push_back({at(t), {1, cc(ep, at(t), 1, valueFor(level + (target - level) * step / 4.0))}});
       }
     }
     timed.push_back({at(end), {0, noteOff(ep, at(end), int(n["pitch"]))}});

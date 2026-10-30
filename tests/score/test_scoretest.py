@@ -69,10 +69,13 @@ class Expectations(unittest.TestCase):
 
     def test_dynamics_and_hairpins(self):
         notes = scoretest.sounding_notes(spec("!p < C5/q D5/q E5/q ] !f F5/q | > G5/w~ | G5/w ] !pp"))
-        self.assertEqual(notes[0]["dynamic"], dict(level=-1, during=dict(direction="up", to=1)))
+        # Levels follow a straight line over the hairpin's time span.
+        self.assertEqual(notes[0]["dynamic"], dict(level=-1, during=dict(direction="up", to=1, end_level=-0.333)))
         self.assertEqual(notes[1]["dynamic"]["between"], [-1, 1])
+        self.assertEqual(notes[1]["dynamic"]["level"], -0.333)
+        self.assertEqual(notes[2]["dynamic"]["during"]["end_level"], 1.0)
         self.assertEqual(notes[3]["dynamic"], dict(level=1))
-        self.assertEqual(notes[4]["dynamic"], dict(level=1, during=dict(direction="down", to=-2)))
+        self.assertEqual(notes[4]["dynamic"], dict(level=1, during=dict(direction="down", to=-2, end_level=-2.0)))
 
     def test_two_parts_interleave_by_onset(self):
         s = dict(id="t", title="T", tempo=100, parts=[

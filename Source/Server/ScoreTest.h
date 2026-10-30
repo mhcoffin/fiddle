@@ -350,6 +350,14 @@ private:
               break;
             }
         }
+        // Where the hairpin's straight line is when the note ends.
+        if (ok && during.hasProperty("end_level")) {
+          const double want = during["end_level"], got = bridgeDynamicLevel(later.back());
+          if (std::abs(got - want) > tolerances_.level) {
+            ok = false;
+            detail << ", ends at level " << rounded(got, 0.01) << " instead of " << want;
+          }
+        }
         add("level_during", ok, during, later.empty() ? juce::var() : juce::var(rounded(bridgeDynamicLevel(later.back()))),
             detail);
       }

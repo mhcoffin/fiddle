@@ -121,9 +121,11 @@ relative to the start of the score), dynamic, and playing techniques.
 - **Dynamic** is Dorico's level (p −1, pp −2 …, mp −0.5, mf +0.5, f 1 …; from
   [the dynamics measurement](../../experiments/dynamics-curve/results-01.md)).
   The bridge pins a linear curve and no articulation adjustments, so the level
-  is exact for a written dynamic. Inside a hairpin a note's level lies between
-  the hairpin's ends (`between`), and levels move one way; a note held under a
-  hairpin keeps changing (`during`).
+  is exact for a written dynamic. A hairpin moves the level in a straight line
+  over time from its start to its end, so a note inside one starts at that
+  line's level (`level`, also bounded by `between`), levels move one way, and a
+  note held under a hairpin keeps changing and ends where the line is when it
+  ends (`during.end_level`).
 - **Techniques**: `includes` must arrive, `excludes` must not. Articulations
   map to `pt.staccato`, `pt.staccatissimo`, `pt.tenuto`, `pt.accent` and
   `pt.marcato`; slurred notes include `pt.legato`, the slur's last note too;
@@ -134,7 +136,7 @@ Expectations about Dorico's own behaviour are hypotheses until a run confirms
 them. Legato on slurred notes, the last included, is confirmed
 (`slurs-20261029-190133`), and so is a hairpin's path: a straight line in
 level from one dynamic to the next over time (`hairpins-20261029-190413`).
-The test still checks only bounds and direction.
+The tests check both exactly.
 
 ## One-time setup
 
@@ -210,7 +212,8 @@ The comparison:
    dynamic: velocity, or the CC1 in force 10 ms after the note-on, as Fiddle
    waits for Dorico's late CC1, read through the pinned linear curve),
    `level_during` (CC1 moves the hairpin's way while the note sounds, not
-   past its end; not checked on velocity-dynamics switches), `hairpin_order`
+   past the hairpin's end, and ends at `end_level`; not checked on
+   velocity-dynamics switches), `hairpin_order`
    (each note in a hairpin is no softer, or louder, than the one before) and
    `techniques`.
 
