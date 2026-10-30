@@ -6,10 +6,18 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-21): all four phases built** — the test format and
-generator, eight basic tests, Fiddle's recorder and comparison, the Score
-Tests window, and looking up a run by its ID. No test has been run against
-Dorico yet.
+**Status (2026-10-29): all four phases built; basic-rhythm passes in Dorico.**
+The test format and generator, eight basic tests, Fiddle's recorder and
+comparison, the Score Tests window, and looking up a run by its ID.
+
+| Test | Latest run | Result |
+| --- | --- | --- |
+| basic-rhythm | `basic-rhythm-20261029-180214` | Pass: 18 of 18. Onsets +0.0 to +0.6 ms, durations −0.8 to −0.2 ms, every mf note CC1 68 (level 0.5). |
+
+The first two basic-rhythm runs failed every note on `pinned_playback`: the
+Fiddle version in use pinned Strings r4, and reopening a saved test project
+restores the Fiddle version it was saved with. Open each test as a new
+project from the window, or reapply the template and save.
 
 ## Workflow
 

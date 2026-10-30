@@ -256,8 +256,10 @@ play that map directly:
   pitch contour and voice balancing stay in Dorico; they act on the level, so
   they survive the re-expression.
   Dorico's other timing options (humanisation, repeated-note truncation,
-  maximum staccato duration) still apply in Dorico and are not emulated. Host
-  check pending: that Dorico applies the 100% overrides exactly.
+  maximum staccato duration) still apply in Dorico and are not emulated.
+  Confirmed in Dorico by score test `basic-rhythm-20261029-180214` (Strings
+  r5): written lengths arrive within 1 ms, and an mf note's CC1 is 68
+  (level 0.5 on the pinned linear −8..8 curve) on every note.
 - **Initialization.** When Dorico's transport starts, each layer sends its
   map's enabled `initSwitchData` actions on its input channel and forgets the
   switch state left from the previous playback, so the first note sends its
