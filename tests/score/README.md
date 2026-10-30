@@ -15,7 +15,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | basic-rhythm | `basic-rhythm-20261029-180214` | Pass: 18 of 18. Onsets +0.0 to +0.6 ms, durations −0.8 to −0.2 ms, every mf note CC1 68 (level 0.5). |
 | tempo-changes | `tempo-changes-20261029-180649` | Pass: 11 of 11. |
 | repeated-notes | `repeated-notes-20261029-180823` | Pass: 12 of 12. Each repeated C5 ends 0.23–0.25 ms before the next starts: no overlap. |
-| articulations | `articulations-20261029-180936` | Fail: 8 of 11. Dorico never selected a staccato base: the staccato quarter, staccato+accent and tenuto+staccato all kept Natural (CC102=2), so tenuto was lost in the last too. Staccatissimo, tenuto, accent and marcato arrive. Under investigation: the r5 staccato rows are the only bases with Dorico `flags` 1. |
+| articulations | `articulations-20261029-180936` | Fail: 8 of 11. Dorico never selected a staccato base: the staccato quarter, staccato+accent and tenuto+staccato all kept Natural (CC102=2), so tenuto was lost in the last too. Staccatissimo, tenuto, accent and marcato arrive. Cause: Dorico's **Use staccato playing technique only for notes up to** (`timingOptions.useMaximumDurationForStaccatoPlayingTechnique`, on, maximum `8`) withholds Staccato from these quarters; Dorico's display shows only "Natural, Note length = medium". The bridge maps don't pin this option. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
