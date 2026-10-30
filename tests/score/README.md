@@ -6,7 +6,7 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-29): all four phases built; basic-rhythm, tempo-changes, repeated-notes, articulations, dynamics-ladder, slurs and hairpins pass in Dorico.**
+**Status (2026-10-29): all four phases built; all eight tests pass in Dorico.**
 The test format and generator, eight basic tests, Fiddle's recorder and
 comparison, the Score Tests window, and looking up a run by its ID.
 
@@ -21,6 +21,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | dynamics-ladder | `dynamics-ladder-20261029-190005` | Pass: 24 of 24. CC1 ppp 40, pp 48, p 56, mp 60, mf 68, f 72, ff 80, fff 88: exactly Dorico's levels on the pinned linear −8..8 curve (largest error 0.05 level, from 7-bit rounding). |
 | slurs | `slurs-20261029-190133` | Pass: 16 of 16. Slurred notes carry `pt.legato`, unslurred don't, confirming that expectation. The last note of each slur (three of them, currently unchecked) also carries `pt.legato`. Slurred notes play their written length (legato pinned to 100%): no overlap. |
 | hairpins | `hairpins-20261029-190413` | Pass: 13 of 13. Dorico moves the level in a straight line over time: a crescendo p→f over a held 4.8 s note steps CC1 56→72 one value every 300 ms; under a crescendo over four quarters the notes start at levels −1, −0.5, 0, +0.5 and each rises 0.5 while it sounds; the diminuendo mirrors it. |
+| two-instruments | `two-instruments-20261029-190605` | Pass: 16 of 16. Violin through Strings r5 (port 2 channel 15) and flute through Woodwinds r3 (port 1 channel 9), each bound by its chair's instrument. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
