@@ -102,7 +102,7 @@
         <summary>Before your first run</summary>
         <ol>
             <li>In Fiddle, make one chair per instrument the tests use (Violin, Flute), each with a layer, then install the playback template from Chairs (with Dorico closed).</li>
-            <li>In Dorico, Library ▸ Playback Options: set humanize (start, end, dynamics) and the beat dynamic increases to 0, turn off “Use staccato playing technique only for notes up to”, leave pitch contour emphasis off, and press Save as Default.</li>
+            <li>In Dorico, Library ▸ Playback Options: set humanize (start, end, dynamics) and the beat dynamic increases to 0, turn off “Maximum duration for staccato playback technique”, leave pitch contour emphasis off, and press Save as Default.</li>
             <li>Make Fiddle Dorico's default playback template (Preferences ▸ Play), or apply it to each test project.</li>
         </ol>
         <p>Details: tests/score/README.md, “One-time setup”.</p>

@@ -15,7 +15,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | basic-rhythm | `basic-rhythm-20261029-180214` | Pass: 18 of 18. Onsets +0.0 to +0.6 ms, durations −0.8 to −0.2 ms, every mf note CC1 68 (level 0.5). |
 | tempo-changes | `tempo-changes-20261029-180649` | Pass: 11 of 11. |
 | repeated-notes | `repeated-notes-20261029-180823` | Pass: 12 of 12. Each repeated C5 ends 0.23–0.25 ms before the next starts: no overlap. |
-| articulations | `articulations-20261029-180936` | Fail: 8 of 11. Dorico never selected a staccato base: the staccato quarter, staccato+accent and tenuto+staccato all kept Natural (CC102=2), so tenuto was lost in the last too. Staccatissimo, tenuto, accent and marcato arrive. Cause: Dorico's **Use staccato playing technique only for notes up to** (`timingOptions.useMaximumDurationForStaccatoPlayingTechnique`, on, maximum `8`) withholds Staccato from these quarters; Dorico's display shows only "Natural, Note length = medium". The bridge maps don't pin this option. |
+| articulations | `articulations-20261029-180936` | Fail: 8 of 11. Dorico never selected a staccato base: the staccato quarter, staccato+accent and tenuto+staccato all kept Natural (CC102=2), so tenuto was lost in the last too. Staccatissimo, tenuto, accent and marcato arrive. Cause: Dorico's **Maximum duration for staccato playback technique** (`timingOptions.useMaximumDurationForStaccatoPlayingTechnique` on, `maximumDurationForStaccatoPlayingTechnique` `8`, shown as a quarter note) withheld Staccato from these quarters, so the maximum appears to be exclusive; Dorico's display shows only "Natural, Note length = medium". The bridge maps don't pin this option. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
@@ -146,10 +146,12 @@ Expected results assume no randomness, no added beat emphasis, and that every
 staccato reaches Fiddle. In **Library ▸ Playback Options**, set:
 
 - **Timing:** **Humanize the start positions of notes by** 0%, **Humanize the
-  end positions of notes by** 0%, and turn off **Use staccato playing technique
-  only for notes up to** (on by default, up to an eighth): otherwise Dorico
-  plays staccato quarters as Natural and Fiddle never sees the staccato.
-  Expression maps can't override this option.
+  end positions of notes by** 0%, and turn off **Maximum duration for
+  staccato playback technique** (on by default at a quarter note): otherwise
+  Dorico plays longer staccato notes as Natural and Fiddle never sees the
+  staccato. Expression maps can't override this option. In the articulations
+  run Dorico withheld Staccato from quarters with the maximum at a quarter, so
+  the limit appears to be exclusive.
 - **Dynamics:** **Humanize written dynamic on pitched instruments by** 0%,
   **Increase dynamic of first beat in the bar on pitched instruments by** 0,
   **Increase dynamic of other beats in the bar on pitched instruments by** 0.

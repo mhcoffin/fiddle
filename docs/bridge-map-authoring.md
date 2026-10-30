@@ -132,8 +132,9 @@ initialization, export normalization and playback behavior remain to be observed
 ## Playback options an expression map can override
 
 Dorico 6's expression-map editor offers these overrides (checked 2026-10-29);
-anything else in Playback Options, such as **Use staccato playing technique
-only for notes up to**, applies from the project and can't be pinned:
+anything else in Playback Options, such as **Maximum duration for staccato
+playback technique** (default a quarter note, stored as `8`), applies from the
+project and can't be pinned:
 
 | Group | Overrides |
 | --- | --- |
