@@ -105,11 +105,11 @@ class Expectations(unittest.TestCase):
 
     def test_unpitched_hits_rolls_and_codes(self):
         s = dict(id="t", title="T", tempo=100, parts=[
-            dict(id="sn", instrument="snare", music="!mf x/q x/q+acc x/h+roll | !p x/q+xhead x/q+ghost x/h+buzz")])
+            dict(id="sn", instrument="snare", music="!mf x/q x/q+acc x/h+trem | !p x/q+xhead x/q+ghost x/h+buzz")])
         notes = scoretest.sounding_notes(s)
-        # Pitches are the unpitched bridge's codes: Natural 36, roll 72, buzz roll 74.
-        self.assertEqual([n["pitch"] for n in notes], [36, 36, 72, 36, 36, 74])
-        self.assertEqual(notes[2]["techniques"]["includes"], ["pt.roll"])
+        # Pitches are the unpitched bridge's codes: Natural 36, tremolo 73, buzz roll 74.
+        self.assertEqual([n["pitch"] for n in notes], [36, 36, 73, 36, 36, 74])
+        self.assertEqual(notes[2]["techniques"]["includes"], ["pt.tremolo"])
         self.assertIn("pt.buzzRoll", notes[2]["techniques"]["excludes"])
         self.assertEqual(notes[1]["techniques"]["includes"], ["pt.accent"])
         xml = ET.fromstring(scoretest.musicxml(s))

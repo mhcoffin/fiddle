@@ -151,7 +151,7 @@ UNPITCHED_R1 = SimpleNamespace(
     PERCUSSION=SimpleNamespace(
         ENTITY_ID="drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
         NAME="Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
-        INSTRUMENTS=INSTRUMENTS, CODES=CODES, FOR_SINGLE_INSTRUMENT=False),
+        INSTRUMENTS=INSTRUMENTS, CODES=CODES, FOR_SINGLE_INSTRUMENT=True),
 )
 
 # The Phase 0 probe: a snare drum through two percussion maps. Map A has

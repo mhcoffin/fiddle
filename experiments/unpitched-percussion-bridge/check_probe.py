@@ -146,6 +146,16 @@ def u6_velocity(a):
     return dict(verdict=f"{verdict}; {stress}; {cc1_on_hits}", lines=lines)
 
 
+ROLL_BASES = {0: "natural base", 1: "roll base", 2: "tremolo base", 3: "buzz roll base"}
+
+
+def roll_base_name(code):
+    """The probe's bases are natural 0-4, roll 5-9, tremolo 10-14, buzz roll 15-19."""
+    if code is None:
+        return "no base switch"
+    return ROLL_BASES.get(code // 5, f"unknown base {code}") + (" - a roll-family base" if 5 <= code <= 19 else "")
+
+
 def u1_routing(a):
     accent, marcato, ghost, plain = (a.note_at(beat(4, k)) for k in (1, 2, 3, 4))
     dead = a.note_at(beat(7, 4))
@@ -161,8 +171,7 @@ def u1_routing(a):
     lines = [f"  bar 4 accent: pitch {facts['accent_pitch']}, CC104 {facts['accent_cc']}; "
              f"marcato: CC104 {facts['marcato_cc']}; ghost: KS4 velocity {facts['ghost_ks']}",
              f"  bar 7 dead stroke: pitch {facts['dead_pitch']}, CC108 {facts['dead_cc']}",
-             f"  bar 5 roll: CC102 {facts['roll_base']} before the note "
-             + ("(roll base selected)" if facts["roll_base"] is not None and 5 <= facts["roll_base"] <= 9 else "(not a roll base)")]
+             f"  bar 5 roll: CC102 {facts['roll_base']} before the note ({roll_base_name(facts['roll_base'])})"]
     any_addon = any([facts["accent_cc"], facts["marcato_cc"], facts["ghost_ks"] == 2, facts["dead_cc"]])
     if accent is None or dead is None:
         verdict = "INCOMPLETE"
@@ -202,11 +211,18 @@ def u2_rolls(a, b):
 
 def u3_combos(a):
     combo = a.note_at(beat(6, 3))
+    combo_strokes = a.notes_between(beat(6, 3) - TOLERANCE, beat(7, 1) - TOLERANCE)
     buzz = a.note_at(beat(6, 1))
     dead = a.note_at(beat(7, 4))
     xhead = a.note_at(beat(7, 3))
-    lines = [f"  bar 6 buzz roll: pitch {buzz[1] if buzz else None}",
-             f"  bar 6 rim+roll: pitch {combo[1] if combo else None}",
+    roll = a.note_at(beat(5, 1))
+    # What Dorico made of the written three-stroke tremolo decides which entry
+    # the bar 6 combination could match: rim+roll exists, rim+tremolo does not.
+    written = "tremolo" if roll and roll[1] == PITCH["tremolo"] else "roll"
+    pitches9 = [n[1] for n in a.notes_between(beat(9, 1) - TOLERANCE, beat(10, 1) - TOLERANCE)]
+    lines = [f"  bar 5 written roll resolves to pt.{written}",
+             f"  bar 6 buzz roll: pitch {buzz[1] if buzz else None}",
+             f"  bar 6 rim+{written}: pitch {combo[1] if combo else None}, {len(combo_strokes)} note-on(s) over the half note",
              f"  bar 7 x notehead: pitch {xhead[1] if xhead else None} (63 = imported as cross stick)",
              f"  bar 7 dead stroke (no entry): pitch {dead[1] if dead else None}"]
     if combo is None:
@@ -221,6 +237,12 @@ def u3_combos(a):
         verdict = "NATURAL-FALLBACK"
     else:
         verdict = f"OTHER pitch {combo[1]}"
+    if written == "tremolo":
+        verdict += " - the rim+roll entry never applied"
+        if PITCH["rods_rim"] in pitches9:
+            verdict += "; EXACT-COMBO shown by bar 9 rods+rim"
+    if combo and combo[1] != PITCH["rim_roll"]:
+        verdict += "; the combination's roll played as " + ("STROKES" if len(combo_strokes) >= 4 else "one note")
     verdict += "; unmatched technique " + ("DROP-WHEN-UNMATCHED" if dead is None else
                                            "falls back to Natural" if dead[1] == PITCH["natural"] else f"pitch {dead[1]}")
     return dict(verdict=verdict, lines=lines)

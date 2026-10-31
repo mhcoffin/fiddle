@@ -25,8 +25,8 @@
     "mutex_groups": 8,
     "pitch_code_ids": 47
   },
-  "specification_sha256": "5525cbac0f33d77471eae5332762f9ca26e6ec0d4693ff3c746d67f9b27353ff",
-  "map_sha256": "80adc138281caf48804e47697b88696e059b66b7900805141bf7ae8904698560",
+  "specification_sha256": "fcc0dcb11fe74ce59db1e7ccd2e689060591a29a34b77f66b17f001d329d98f9",
+  "map_sha256": "88c754cb72dc999def46862e0f9898594f70980b90ad61a42873c9606d769096",
   "base_cc": 102,
   "bases": [
     {
@@ -945,7 +945,7 @@
     {
       "entity_id": "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
       "name": "Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
-      "for_single_instrument": false,
+      "for_single_instrument": true,
       "instruments": [
         "instrument.band.unpitched.floortom.high",
         "instrument.band.unpitched.floortom.low",

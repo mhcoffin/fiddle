@@ -5,9 +5,10 @@ A bridge for Dorico's unpitched instruments: an expression map and a
 library, so Fiddle receives every stroke, roll and dynamic as Dorico plays
 it. Plan: `/Users/mhc/.claude/plans/zany-sprouting-perlis.md` (2026-10-30).
 
-Status: **the probe has not been played in Dorico yet.** `unpitched-percussion-r1/`
-is a candidate built on the "both maps see every technique" assumption; it is
-regenerated once `results-01.md` exists.
+Status: **probe played 2026-10-31, see `results-01.md`.** Dorico lets both
+maps see every technique, so `unpitched-percussion-r1/` is the design as
+planned; the run changed only `forSingleInstrument` (true) and taught the
+score-test writer that a written tremolo is `pt.tremolo`.
 
 ## How it works
 

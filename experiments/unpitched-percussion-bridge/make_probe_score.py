@@ -25,10 +25,10 @@ TEMPO = 100
 # 9 the same hits marked rim (by hand); 10 Snares off (by hand); 11 Snares on.
 PART_A = ("!ppp x/q !pp x/q !p x/q !mp x/q | !mf x/q !f x/q !ff x/q !fff x/q | "
           "!mf x/e x/e x/e x/e x/e x/e x/e x/e | x/q+acc x/q+marc x/q+ghost x/q | "
-          "!p < x/w+roll | ] !f x/h+buzz x/h+roll | x/q x/q x/q+xhead x/q | "
+          "!p < x/w+trem | ] !f x/h+buzz x/h+trem | x/q x/q x/q+xhead x/q | "
           "x/q x/q x/q x/q | x/q x/q x/q x/q | x/q x/q x/q x/q | x/q x/q x/q x/q")
 # Map B (Natural only): the same rolls, bars 5-6.
-PART_B = "!p r/w | r/w | r/w | r/w | < x/w+roll | ] !f x/h+buzz x/h+roll | r/w | r/w | r/w | r/w | r/w"
+PART_B = "!p r/w | r/w | r/w | r/w | < x/w+trem | ] !f x/h+buzz x/h+trem | r/w | r/w | r/w | r/w | r/w"
 SPEC = dict(id="unpitched-probe", title="Unpitched percussion probe", tempo=TEMPO, time="4/4",
             parts=[dict(id="A", name="Snare Drum (map A)", instrument="snare", music=PART_A),
                    dict(id="B", name="Snare Drum (map B)", instrument="snare", music=PART_B)])

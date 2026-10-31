@@ -14,10 +14,10 @@ class Dorico:
 
     def __init__(self, routing="A1", rolls="sustained", fallback="sustained", combo="exact",
                  unmatched="natural", keyswitch=True, beater="both", snares="addon", velocity="exact",
-                 stress=False, cc1_on_hits=False):
+                 stress=False, cc1_on_hits=False, written_roll="roll", combo_shape=None):
         self.o = dict(routing=routing, rolls=rolls, fallback=fallback, combo=combo, unmatched=unmatched,
                       keyswitch=keyswitch, beater=beater, snares=snares, velocity=velocity, stress=stress,
-                      cc1_on_hits=cc1_on_hits)
+                      cc1_on_hits=cc1_on_hits, written_roll=written_roll, combo_shape=combo_shape or rolls)
         self.events = []
 
     def at(self, ms):
@@ -48,7 +48,7 @@ class Dorico:
     def roll(self, bar, beat, pitch, ch, beats, shape, from_level, to_level):
         t, length = check.beat(bar, beat), beats * check.BEAT
         if shape == "sustained":
-            self.cc(t - 5, 102, 5, ch)
+            self.cc(t - 5, 102, 5 if self.o["written_roll"] == "roll" else 10, ch)
             self.events.append([self.at(t), ON, ch, pitch, 100])
             steps = 8
             for k in range(steps + 1):
@@ -75,12 +75,12 @@ class Dorico:
         self.hit(4, 3, 68)
         self.hit(4, 4, 68)
         # Bar 5: roll p<f on both maps; bar 6: buzz roll, rim+roll.
-        roll_pitch = 64 if o["routing"] != "B-nopitch" else 60
+        roll_pitch = 64 if o["written_roll"] == "roll" else 65
         self.roll(5, 1, roll_pitch, 1, 4, o["rolls"], 56, 72)
         self.roll(5, 1, 60, 2, 4, o["fallback"], 56, 72)
         self.roll(6, 1, 66, 1, 2, o["rolls"], 72, 72)
-        combo_pitch = dict(exact=67, roll=64, rim=61, natural=60)[o["combo"]]
-        self.roll(6, 3, combo_pitch, 1, 2, o["rolls"], 72, 72)
+        combo_pitch = dict(exact=67, roll=roll_pitch, rim=61, natural=60)[o["combo"]]
+        self.roll(6, 3, combo_pitch, 1, 2, o["combo_shape"], 72, 72)
         # Bar 7: rim, side stick, x head (cross stick), dead stroke (no entry).
         self.hit(7, 1, 72, pitch=61, addons=[(106, 3)] if both else [])
         self.hit(7, 2, 72, pitch=62)
@@ -135,6 +135,18 @@ class Verdicts(unittest.TestCase):
         self.assertTrue(verdicts(combo="rim")["U3"].startswith("BEST-SUBSET (rim wins)"))
         self.assertTrue(verdicts(combo="natural")["U3"].startswith("NATURAL-FALLBACK"))
         self.assertTrue(verdicts(unmatched="drop")["U3"].endswith("DROP-WHEN-UNMATCHED"))
+
+    def test_dorico_6_capture_shape(self):
+        """results-01.md: the written roll is pt.tremolo, the combination
+        takes the rim entry and plays its tremolo as strokes, map B strokes."""
+        v = verdicts(written_roll="tremolo", combo="rim", combo_shape="strokes", fallback="strokes")
+        self.assertEqual(v["U1"], "A1")
+        self.assertEqual(v["U2"], "A SUSTAINED; B FALLBACK-STROKES")
+        self.assertEqual(v["U3"], "BEST-SUBSET (rim wins) - the rim+roll entry never applied; "
+                                  "EXACT-COMBO shown by bar 9 rods+rim; the combination's roll played as STROKES; "
+                                  "unmatched technique falls back to Natural")
+        text = check.report(check.analyze(Dorico(written_roll="tremolo").build(), RATE))
+        self.assertIn("CC102 10 before the note (tremolo base - a roll-family base)", text)
 
     def test_velocity_deviations(self):
         self.assertTrue(verdicts(velocity="off")["U6"].startswith("OFF +3 +3"))

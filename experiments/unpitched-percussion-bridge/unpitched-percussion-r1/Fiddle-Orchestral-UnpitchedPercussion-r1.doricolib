@@ -9,7 +9,7 @@
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
         <creator>Fiddle</creator>
-        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral unpitched percussion: 18 conduits, 25 bases, 40 add-ons. Specification SHA256: 5525cbac0f33d77471eae5332762f9ca26e6ec0d4693ff3c746d67f9b27353ff</description>
+        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral unpitched percussion: 18 conduits, 25 bases, 40 add-ons. Specification SHA256: fcc0dcb11fe74ce59db1e7ccd2e689060591a29a34b77f66b17f001d329d98f9</description>
         <version>1</version>
         <pluginNames />
         <autoMutualExclusion>false</autoMutualExclusion>
@@ -3476,7 +3476,7 @@
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
         <version>1</version>
-        <forSingleInstrument>false</forSingleInstrument>
+        <forSingleInstrument>true</forSingleInstrument>
         <applyStageTemplateSettings>false</applyStageTemplateSettings>
         <entries array="true">
           <entry>

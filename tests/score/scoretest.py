@@ -70,10 +70,11 @@ ARTICULATIONS = {
 
 # Marks that are MusicXML ornaments: (element, attributes, text) and the
 # playback technique Dorico should send. A three-stroke tremolo on an
-# unpitched note is a roll; "unmeasured" with 0 marks is MusicXML 3.1's
-# buzz roll (the tremolo-marks content is required, 0 meaning unmeasured).
+# unpitched note plays as pt.tremolo in Dorico 6 (results-01.md: not
+# pt.roll); "unmeasured" with 0 marks is MusicXML 3.1's buzz roll (the
+# tremolo-marks content is required, 0 meaning unmeasured).
 ORNAMENTS = {
-    "roll": (("tremolo", {"type": "single"}, "3"), "pt.roll"),
+    "trem": (("tremolo", {"type": "single"}, "3"), "pt.tremolo"),
     "buzz": (("tremolo", {"type": "unmeasured"}, "0"), "pt.buzzRoll"),
 }
 # Noteheads carry no expected technique: whether Dorico's import turns them

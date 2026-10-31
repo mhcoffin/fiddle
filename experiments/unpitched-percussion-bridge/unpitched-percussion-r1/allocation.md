@@ -91,7 +91,7 @@ Dynamics: cc1 = the level arrives on CC1 just after the note-on; velocity = in t
 
 ## Percussion map `drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1`
 
-Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test): 47 pitch codes × 75 instruments = 3525 entries; forSingleInstrument false. Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names the stroke and the chair names the instrument. Every instrument has the same table.
+Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test): 47 pitch codes × 75 instruments = 3525 entries; forSingleInstrument true. Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names the stroke and the chair names the instrument. Every instrument has the same table.
 
 | Pitch | PTs | Keyswitch |
 | --- | --- | --- |
