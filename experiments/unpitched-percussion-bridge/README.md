@@ -106,9 +106,18 @@ too. Save the project as `Unpitched probe.dorico` here.
 
 ### Dorico setup and capture
 
-1. Library ▸ Import Library… the probe `.doricolib`. **U0:** Library ▸
-   Expression Maps should list "Fiddle Bridge - Unpitched Percussion Probe
-   r1" and Library ▸ Percussion Maps both "Fiddle Unpitched Probe A/B".
+1. With Dorico closed, copy the probe `.doricolib` to where Fiddle installs
+   its bridge maps, then start Dorico:
+
+       cp experiments/unpitched-percussion-bridge/probe/Fiddle-Orchestral-UnpitchedProbe-r1.doricolib \
+          "$HOME/Library/Application Support/Steinberg/Dorico 6/DefaultLibraryAdditions/Fiddle-Probe-UnpitchedPercussion-r1.doricolib"
+
+   **U0:** Library ▸ Expression Maps should list "Fiddle Bridge - Unpitched
+   Percussion Probe r1" and Library ▸ Percussion Maps both "Fiddle Unpitched
+   Probe A/B". (Library ▸ Import Library… can't answer this: each of its
+   two entry points imports only its own kind of entity from the file, so an
+   import as an expression map drops the percussion maps and vice versa.
+   Fiddle never imports; it installs files here.)
 2. Open the MusicXML. Both parts should come in as Snare Drum; add the bold
    marks above.
 3. Play ▸ Endpoint Setup for the Fiddle MIDI Probe instance: part A on
