@@ -1,0 +1,23 @@
+{
+  "id": "cymbals-and-triangle",
+  "title": "Cymbals and triangle",
+  "description": "Suspended cymbal, triangle and bass drum, each on its own chair through the unpitched percussion bridge: cymbal rolls under hairpins, triangle and bass-drum hits with accents, and a bass-drum roll. Each part binds to its chair's instrument; rolls take CC1, hits take velocity.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "cym",
+      "instrument": "suspended-cymbal",
+      "music": "!p < x/w+trem | ] !f x/q r/q r/h | !mf x/h+trem r/h | !pp < x/w+trem | ] !ff x/q r/q r/h"
+    },
+    {
+      "id": "tri",
+      "instrument": "triangle",
+      "music": "r/w | !mf x/q x/q+acc x/q x/q | r/w | !f x/h+trem x/q x/q+acc | r/w"
+    },
+    {
+      "id": "bd",
+      "instrument": "bass-drum",
+      "music": "!f x/q r/q x/q+acc r/q | r/w | !p x/q r/q r/h | r/w | !ff x/w+trem"
+    }
+  ]
+}

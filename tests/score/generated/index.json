@@ -26,6 +26,20 @@
       "length_ms": 19200.0
     },
     {
+      "id": "cymbals-and-triangle",
+      "title": "Cymbals and triangle",
+      "description": "Suspended cymbal, triangle and bass drum, each on its own chair through the unpitched percussion bridge: cymbal rolls under hairpins, triangle and bass-drum hits with accents, and a bass-drum roll. Each part binds to its chair's instrument; rolls take CC1, hits take velocity.",
+      "musicxml": "cymbals-and-triangle.musicxml",
+      "expected": "cymbals-and-triangle.expected.json",
+      "instruments": [
+        "instrument.orchestral.unpitched.bass.drum",
+        "instrument.orchestral.unpitched.suspended.cymbal",
+        "instrument.orchestral.unpitched.triangle"
+      ],
+      "notes": 16,
+      "length_ms": 12000.0
+    },
+    {
       "id": "dynamics-ladder",
       "title": "Dynamics ladder",
       "description": "Every dynamic from ppp to fff on a long note and two short notes: each note's dynamic level, whether it arrives on CC1 or velocity.",
@@ -97,6 +111,18 @@
       ],
       "notes": 16,
       "length_ms": 12000.0
+    },
+    {
+      "id": "snare-drum",
+      "title": "Snare drum",
+      "description": "One snare drum through the unpitched percussion bridge: a dynamics ladder of hits (velocity on the pinned curve), accent, marcato, staccato and tenuto, eighths at one level, and tremolo rolls under a crescendo and at a fixed level (CC1 on the roll base). Every note arrives at the Natural or Tremolo code.",
+      "musicxml": "snare-drum.musicxml",
+      "expected": "snare-drum.expected.json",
+      "instruments": [
+        "instrument.orchestral.unpitched.snare.drum"
+      ],
+      "notes": 28,
+      "length_ms": 16800.0
     },
     {
       "id": "tempo-changes",

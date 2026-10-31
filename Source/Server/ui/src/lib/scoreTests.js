@@ -7,6 +7,10 @@ const instrumentNames = {
     "instrument.brass.horn.f": "Horn in F",
     "instrument.pitchedpercussion.timpani": "Timpani",
     "instrument.pitchedpercussion.marimba": "Marimba",
+    "instrument.orchestral.unpitched.snare.drum": "Snare Drum",
+    "instrument.orchestral.unpitched.suspended.cymbal": "Suspended Cymbal",
+    "instrument.orchestral.unpitched.triangle": "Triangle",
+    "instrument.orchestral.unpitched.bass.drum": "Bass Drum",
 };
 
 /** "instrument.strings.violin" → "Violin"; unknown IDs by their last part. */

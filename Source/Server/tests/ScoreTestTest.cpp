@@ -32,7 +32,9 @@ std::shared_ptr<const BridgeMapDocument> bridgeFor(const juce::String &instrumen
       {BridgeSection::Woodwinds, "experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"},
       {BridgeSection::Brass, "experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"},
       {BridgeSection::PitchedPercussion,
-       "experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"}};
+       "experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"},
+      {BridgeSection::UnpitchedPercussion,
+       "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib"}};
   const auto section = bridgeSectionForInstrument(instrument);
   CHECK(paths.count(section));
   auto &doc = cache[section];
@@ -242,7 +244,7 @@ void everyTestPassesWhenPlayedAsWritten() {
     CHECK(record["midi"].getArray()->size() > 0 && record["received"].getArray()->size() == int(test["notes"]));
     ++tests;
   }
-  CHECK(tests >= 10);
+  CHECK(tests >= 12);
 }
 
 void faultsAreReportedOnTheirNote() {
@@ -298,6 +300,17 @@ void bindingsAndExtras() {
   CHECK(bool(percussion["pass"]) && percussionBindings.size() == 2);
   CHECK(percussionBindings[0]["chair_instrument"].toString() == "instrument.pitchedpercussion.timpani");
   CHECK(percussionBindings[1]["chair_instrument"].toString() == "instrument.pitchedpercussion.marimba");
+  // Unpitched parts play the percussion map's codes: hits at Natural (36) by
+  // velocity, tremolo rolls at 73 with CC1 dynamics on the tremolo base.
+  const auto snare = runTest("snare-drum");
+  CHECK(bool(snare["pass"]) && snare["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.orchestral.unpitched.snare.drum");
+  CHECK(int(snare["received"][0]["pitch"]) == 36);
+  const auto cymbals = runTest("cymbals-and-triangle");
+  CHECK(bool(cymbals["pass"]) && cymbals["comparison"]["bindings"].size() == 3);
+  CHECK(cymbals["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.orchestral.unpitched.suspended.cymbal");
+  std::set<int> codes;
+  for (const auto &n : *cymbals["received"].getArray()) codes.insert(int(n["pitch"]));
+  CHECK(codes == std::set<int>({36, 73}));
 
   // A note no test expects, and a note that never ends.
   const auto expected = loadExpected("basic-rhythm");

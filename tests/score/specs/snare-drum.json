@@ -1,0 +1,13 @@
+{
+  "id": "snare-drum",
+  "title": "Snare drum",
+  "description": "One snare drum through the unpitched percussion bridge: a dynamics ladder of hits (velocity on the pinned curve), accent, marcato, staccato and tenuto, eighths at one level, and tremolo rolls under a crescendo and at a fixed level (CC1 on the roll base). Every note arrives at the Natural or Tremolo code.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "sn",
+      "instrument": "snare",
+      "music": "!mf x/q x/q x/q+acc x/q | !p x/q x/q+marc x/q+stacc x/q+ten | !ppp x/q !pp x/q !p x/q !mp x/q | !mf x/q !f x/q !ff x/q !fff x/q | !p < x/w+trem | ] !f x/h+trem x/q x/q | !mf x/e x/e x/e x/e x/e x/e x/e x/e"
+    }
+  ]
+}

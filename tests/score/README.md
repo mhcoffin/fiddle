@@ -93,7 +93,8 @@ files are stale.
 }
 ```
 
-`instrument` is one of `violin`, `viola`, `flute`, `horn`, `timpani`, `marimba` (see `INSTRUMENTS` in
+`instrument` is one of `violin`, `viola`, `flute`, `horn`, `timpani`, `marimba`,
+`snare`, `bass-drum`, `suspended-cymbal`, `triangle` (see `INSTRUMENTS` in
 `scoretest.py`: each maps to Dorico's instrument ID and MusicXML sound).
 Pitches in `music` are always sounding pitches. For a transposing instrument
 (horn, Horn in F) the generator writes the MusicXML at written pitch with a
@@ -106,6 +107,7 @@ sounding pitch: Dorico sends sounding pitch.
 | --- | --- |
 | `C5/q` | a note: pitch (`C#5`, `Bb4`, octave 4 starts at middle C) / length `w h q e s`, dotted with `.` (`q.`) |
 | `C5/q+stacc+acc` | articulations: `stacc`, `staccmo` (staccatissimo), `ten`, `acc`, `marc` (marcato) |
+| `x/q+trem` | on an unpitched instrument, a hit (`x`, no pitch) with ornaments `trem` (three-stroke tremolo, `pt.tremolo`) or `buzz` (buzz roll; Dorico's import drops it, so avoid it in specs) and noteheads `xhead`, `ghost` |
 | `C5/h~` | tied to the next note (same pitch); a tie chain sounds once |
 | `r/q` | a rest |
 | `!mf` | a dynamic, from `pppppp` to `ffffff`; a part must start with one |
@@ -115,6 +117,12 @@ sounding pitch: Dorico sends sounding pitch.
 | `|` | a bar line (checked against the time signature) |
 
 Notes may not cross bar lines: tie them.
+
+An unpitched part's expected pitches are the unpitched bridge's percussion-map
+codes (`experiments/unpitched-percussion-bridge/unpitched-percussion-r1/allocation.json`):
+Natural 36 for a hit, 73 for a tremolo. Dorico sends the code as the note's
+pitch; hits carry their dynamic as velocity, rolls on CC1 (see
+`experiments/unpitched-percussion-bridge/results-01.md`).
 
 ## What a test expects
 
@@ -170,7 +178,9 @@ staccato reaches Fiddle. In **Library ▸ Playback Options**, set:
   the limit appears to be exclusive.
 - **Dynamics:** **Humanize written dynamic on pitched instruments by** 0%,
   **Increase dynamic of first beat in the bar on pitched instruments by** 0,
-  **Increase dynamic of other beats in the bar on pitched instruments by** 0.
+  **Increase dynamic of other beats in the bar on pitched instruments by** 0,
+  and the same three options **on unpitched instruments** (the unpitched
+  tests play hits by velocity, which these would alter).
   Leave **Use pitch contour emphasis** off (Dorico's default).
 
 Then press **Save as Default**, so every project created from a test's MusicXML
