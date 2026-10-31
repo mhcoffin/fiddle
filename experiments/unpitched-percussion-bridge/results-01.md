@@ -113,9 +113,12 @@ does; the first score-test run will show the latter if a spec uses one.
 
 Why r2 rather than a regenerated r1: the first attempt kept the r1 IDs and
 version, and `snare-drum-20261031-144228` then played the tremolos on pitch
-73, the pitch-code r1 map's tremolo. Dorico keeps a project's own copy of a
-map whose entity ID and version match the library's, so a changed map must
-change its version, as Fiddle's installer insists.
+73, the pitch-code r1 map's tremolo. Dorico's log shows the simpler cause:
+Dorico had run since 11:28 and never loaded the 13:43 file, so it still had
+the pitch-code library (and the project its copy). Whether Dorico would
+prefer a project's copy over a same-ID library file after a restart is
+untested; either way Fiddle's installer refuses a different-content file
+under an existing Dorico ID, so a changed map gets a new revision.
 
 ## Re-run 02 (2026-10-31, capture `fiddle-midi-probe-1793469528030453-2`)
 
