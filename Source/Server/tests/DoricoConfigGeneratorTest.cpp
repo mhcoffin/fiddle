@@ -232,6 +232,59 @@ void testFailedPublicationRestoresExistingFiles() {
   CHECK(sandbox.dir.getChildFile("DefaultLibraryAdditions").findChildFiles(juce::File::findFiles, false).isEmpty());
 }
 
+// An unpitched chair's bridge carries a percussion map: it reaches both the
+// endpoint entry and the preset, and an installed file under its ID must
+// match, like the expression map's.
+void testPercussionMapReachesEndpointAndPreset() {
+  Sandbox sandbox;
+  fiddle::DoricoConfigGenerator generator(sandbox.dir);
+  const auto unpitched = bridge("experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib");
+  const auto strings = bridge("experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib");
+  CHECK(unpitched->percussionMapId.isNotEmpty() && strings->percussionMapId.isEmpty());
+  fiddle::BridgeMapProject project;
+  project.documents[unpitched->contentHash] = unpitched;
+  project.documents[strings->contentHash] = strings;
+  project.assignments[{0, 2}] = unpitched->contentHash;
+  project.assignments[{0, 3}] = strings->contentHash;
+  std::vector<fiddle::InstrumentAssignment> assignments(2);
+  assignments[0].entityID = "instrument.orchestral.unpitched.snare.drum"; assignments[0].name = "Snare Drum";
+  assignments[0].flatIndex = 1; assignments[0].program = 1; assignments[0].isSolo = true;
+  assignments[1].entityID = "instrument.strings.violin"; assignments[1].name = "Violin";
+  assignments[1].flatIndex = 2; assignments[1].program = 2; assignments[1].isSolo = true;
+  auto result = generator.generateAndInstallFiles(assignments, 3, {}, project.serialize());
+  if (result.failed()) throw std::runtime_error(result.getErrorMessage().toStdString());
+  const auto endpoint = sandbox.dir.getChildFile("EndpointConfigs/Fiddle/endpointconfig.xml");
+  const auto presetsFile = sandbox.dir.getChildFile("PluginPresetLibraries/Fiddle/presets.xml");
+  const auto xml = juce::parseXML(endpoint), presets = juce::parseXML(presetsFile);
+  CHECK(xml && presets);
+  if (!xml || !presets) return;
+  const auto *entries = xml->getChildByName("slots")->getFirstChildElement()->getChildByName("instanceData")
+      ->getChildByName("programContents")->getChildByName("entries");
+  CHECK(entries->getChildElement(0)->getChildElementAllSubText("expressionMapID", {}) == unpitched->entityId);
+  CHECK(entries->getChildElement(0)->getChildElementAllSubText("drumkitNoteMapID", {}) == unpitched->percussionMapId);
+  CHECK(entries->getChildElement(1)->getChildElementAllSubText("drumkitNoteMapID", {}).isEmpty());
+  CHECK(presets->getChildElement(0)->getChildElementAllSubText("DrumKitNoteMap", {}) == unpitched->percussionMapId);
+  CHECK(presets->getChildElement(1)->getChildByName("DrumKitNoteMap") == nullptr);
+  const auto library = sandbox.dir.getChildFile("DefaultLibraryAdditions");
+  CHECK(library.getChildFile("Fiddle-Bridge-" + unpitched->contentHash + ".doricolib").loadFileAsString() == unpitched->sourceXml);
+  // Another revision that keeps the percussion map's ID but changes its
+  // content cannot install beside it, even under a new expression-map ID.
+  auto renamed = juce::parseXML(unpitched->sourceXml.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1", "xmap.user.Fiddle.fixture.r2")
+      .replace("ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.", "ptmg.user.Fiddle.fixture.r2."));
+  CHECK(renamed && fiddle::BridgeMapDocument::stampBeacon(*renamed->getChildByName("expressionMapDefinitions")
+      ->getChildByName("entities")->getFirstChildElement()));
+  auto *entry = renamed->getChildByName("drumKitNoteMapDefinitions")->getChildByName("entities")->getFirstChildElement()
+      ->getChildByName("entries")->getFirstChildElement()->getChildByName("name");
+  entry->deleteAllChildElements(); entry->addTextElement("Renamed entry");
+  juce::String error;
+  const auto clashing = fiddle::BridgeMapDocument::compile(renamed->toString(), error);
+  if (!clashing) throw std::runtime_error(error.toStdString());
+  auto clash = project; clash.documents.erase(unpitched->contentHash);
+  clash.documents[clashing->contentHash] = clashing; clash.assignments[{0, 2}] = clashing->contentHash;
+  result = generator.generateAndInstallFiles(assignments, 3, {}, clash.serialize());
+  CHECK(result.failed() && result.getErrorMessage().contains(unpitched->percussionMapId));
+}
+
 } // namespace
 
 int main() {
@@ -243,6 +296,7 @@ int main() {
     testPlayerIndexFollowsOrdinalNotListOrder();
     testPinnedMapsInstallWithMatchingEndpointsAndPresets();
     testFailedPublicationRestoresExistingFiles();
+    testPercussionMapReachesEndpointAndPreset();
   } catch (const std::exception &error) { ++failed; std::cerr << error.what() << '\n'; }
   previousDirectory.setAsCurrentWorkingDirectory();
   std::cout << "Passed: " << passed << std::endl;

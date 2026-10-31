@@ -430,14 +430,26 @@ void tests() {
   CHECK(section("instrument.pitchedpercussion.bells.tubular.alias.chimes") == BridgeSection::PitchedPercussion);
   CHECK(section("instrument.pitchedpercussion.almglocken") == BridgeSection::None);
   CHECK(section("instrument.keyboard.piano") == BridgeSection::None);
+  CHECK(section("instrument.orchestral.unpitched.snare.drum") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.band.unpitched.tomtom.high.alias.tom-high") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.orchestral.unpitched.hihat.pedal") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.orchestral.unpitched.percussion.1line") == BridgeSection::None);
+  CHECK(section("instrument.kit.drumset.basic") == BridgeSection::None);
+  CHECK(section("instrument.unpitched.kick.drum") == BridgeSection::None); // not a stem
   for (const auto &info : bridgeSections()) {
     const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r5/"
         : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
         : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
-        : "experiments/orchestral-percussion-bridge/pitched-percussion-r2/");
+        : info.section == BridgeSection::PitchedPercussion ? "experiments/orchestral-percussion-bridge/pitched-percussion-r2/"
+        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
     CHECK(built->schema == 2 && built->compiled->pinnedPlayback);
+    CHECK((info.section == BridgeSection::UnpitchedPercussion) == built->compiled->hasPercussionMap);
+    // The section's stems and the percussion map's instruments stay in lockstep.
+    for (const auto &instrument : built->percussionInstruments)
+      CHECK(section(instrument.toRawUTF8()) == info.section);
+    if (info.section == BridgeSection::UnpitchedPercussion) CHECK(built->percussionInstruments.size() == 75);
   }
   std::cout << "Bridge compiler, persistence, corruption, runtime isolation and schema 2 passed\n";
 }

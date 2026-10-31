@@ -128,6 +128,16 @@ public:
             id->addTextElement("ptmg.user.Fiddle.Bridge." + juce::Uuid().toString().removeCharacters("-"));
           }
       BridgeMapDocument::stampBeacon(*map);
+      // A percussion map published with the expression map gets its own new
+      // identity and the same version, as the compiler requires.
+      if (auto *drums = root->getChildByName("drumKitNoteMapDefinitions"))
+        if (auto *drumEntities = drums->getChildByName("entities"))
+          for (auto *drumMap : drumEntities->getChildIterator()) {
+            auto *drumId = drumMap->getChildByName("entityID"), *drumVersion = drumMap->getChildByName("version");
+            if (!drumId || !drumVersion) return fail("Invalid percussion-map XML");
+            drumId->deleteAllChildElements(); drumId->addTextElement("drumkitmap.user.Fiddle.Bridge." + juce::Uuid().toString().removeCharacters("-"));
+            drumVersion->deleteAllChildElements(); drumVersion->addTextElement(juce::String(found->second->revision + 1));
+          }
       xml = root->toString();
     } else {
       // An edited schema-2 map may carry a stale beacon. Restamp only then, so
@@ -196,6 +206,7 @@ public:
     for (const auto &[hash, doc] : project_.documents) {
       auto *d = new juce::DynamicObject(); d->setProperty("hash", hash); d->setProperty("name", doc->name);
       d->setProperty("entityId", doc->entityId); d->setProperty("revision", doc->revision);
+      d->setProperty("percussionMapId", doc->percussionMapId);
       d->setProperty("dimensions", int(doc->compiled->dimensions.size())); d->setProperty("sourceXml", doc->sourceXml);
       d->setProperty("low", doc->musicalLow); d->setProperty("high", doc->musicalHigh);
       d->setProperty("schema", doc->schema); docs.add(juce::var(d));

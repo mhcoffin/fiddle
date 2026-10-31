@@ -45,8 +45,10 @@ struct CompiledBridgeMap {
 struct BridgeMapDocument {
   static constexpr int latestSchema = 2;
   juce::String sourceXml, entityId, name, contentHash;
-  // The percussion map published in the same library, when there is one.
+  // The percussion map published in the same library, when there is one,
+  // and the Dorico instruments it covers.
   juce::String percussionMapId, percussionMapName;
+  std::set<juce::String> percussionInstruments;
   // Identity of everything Dorico or the decoder act on, independent of XML
   // formatting, row order and display text. Used to compare Dorico exports.
   juce::String semanticHash;

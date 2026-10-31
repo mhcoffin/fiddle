@@ -24,6 +24,7 @@ struct InstrumentAssignment {
   int flatIndex = -1;    // Stable MIDI slot; sequential when unspecified
   int ordinal = -1;      // Player number among same instrument/role (Flute 1, 2…); list order when unspecified
   juce::String expressionMapID = "xmap.user.Fiddle.1";
+  juce::String drumkitNoteMapID; // the bridge's percussion map, for unpitched chairs
 };
 
 /**

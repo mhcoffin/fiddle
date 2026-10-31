@@ -2588,7 +2588,8 @@ void testBridgeSectionsFromChairs() {
   const auto root = juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments");
   const auto load = [&](const fiddle::BridgeSectionInfo &info) {
     for (const auto *dir : {"orchestral-strings-bridge/r5", "orchestral-winds-bridge/woodwinds-r3",
-                            "orchestral-winds-bridge/brass-r3", "orchestral-percussion-bridge/pitched-percussion-r2"}) {
+                            "orchestral-winds-bridge/brass-r3", "orchestral-percussion-bridge/pitched-percussion-r2",
+                            "unpitched-percussion-bridge/unpitched-percussion-r1"}) {
       const auto file = root.getChildFile(dir).getChildFile(info.templateFile);
       if (file.existsAsFile()) return file.loadFileAsString();
     }
@@ -2596,18 +2597,22 @@ void testBridgeSectionsFromChairs() {
   };
   const std::vector<fiddle::BridgeMapCommands::ChairInput> chairs{
       {1, "instrument.strings.violin"}, {2, "instrument.wind.flute"}, {3, "instrument.brass.horn.f"},
-      {4, "instrument.pitchedpercussion.timpani"}, {5, "instrument.keyboard.piano"}, {17, "instrument.strings.viola"}};
+      {4, "instrument.pitchedpercussion.timpani"}, {5, "instrument.keyboard.piano"}, {17, "instrument.strings.viola"},
+      {6, "instrument.orchestral.unpitched.snare.drum"}};
   REQUIRE(bridges.applyChairSections(chairs, load));
   auto status = bridges.status();
-  REQUIRE(status["documents"].size() == 4);
-  REQUIRE(status["assignments"].size() == 5); // piano keeps the universal map
+  REQUIRE(status["documents"].size() == 5);
+  REQUIRE(status["assignments"].size() == 6); // piano keeps the universal map
   fiddle::BridgeMapProject project; juce::String error;
   REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
-  REQUIRE(project.sections.size() == 4);
+  REQUIRE(project.sections.size() == 5);
   REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
   REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
   REQUIRE(project.assignments.at({0, 5}) == project.sections.at("pitched-percussion"));
   REQUIRE(!project.assignments.count({0, 6}));
+  REQUIRE(project.assignments.at({0, 7}) == project.sections.at("unpitched-percussion"));
+  REQUIRE(project.documents.at(project.sections.at("unpitched-percussion"))->percussionMapId
+          == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1");
   // Reapplying unchanged chairs records nothing.
   const auto before = f.mixer.projectSettings().bridgeMapsJson;
   REQUIRE(bridges.applyChairSections(chairs, load));
@@ -2625,7 +2630,7 @@ void testBridgeSectionsFromChairs() {
   REQUIRE(bridges.applyChairSections(chairs, load));
   REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
   REQUIRE(project.assignments.at({0, 2}) == r3->contentHash);
-  REQUIRE(project.documents.size() == 4); // the unused built-in strings revision is dropped
+  REQUIRE(project.documents.size() == 5); // the unused built-in strings revision is dropped
   busy = true;
   REQUIRE(!bridges.applyChairSections(chairs, load));
   busy = false;
@@ -2652,7 +2657,7 @@ void testBridgeSectionsFromChairs() {
   REQUIRE(project.sections.at("strings") != r3->contentHash);
   REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
   REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
-  REQUIRE(project.documents.size() == 4 && !project.documents.count(r3->contentHash));
+  REQUIRE(project.documents.size() == 5 && !project.documents.count(r3->contentHash));
   REQUIRE(project.documents.at(project.sections.at("strings"))->revision == 5);
   status = bridges.status();
   REQUIRE(!bool(section("strings")["updateAvailable"]));

@@ -361,6 +361,7 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     if (auto *drums = root->getChildByName("drumKitNoteMapDefinitions")) {
       auto perc = percussionMap(*drums, low, high, result->revision, result->entityId);
       result->percussionMapId = perc.id; result->percussionMapName = perc.name;
+      result->percussionInstruments = perc.instruments;
       compiled->hasPercussionMap = true;
       compiled->pitchTechniques = std::move(perc.codes);
       semantic.add("perc=" + perc.id + " single=" + (perc.single ? "true" : "false"));
