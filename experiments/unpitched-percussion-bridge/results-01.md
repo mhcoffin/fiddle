@@ -97,19 +97,25 @@ rolls on a surface turn out to matter for playback.
 
 U1 = A1 and U3's Natural fallback together mean the percussion map need not
 carry strokes at all: a stroke technique the map lacks still switches its
-expression-map add-on, and the note plays on the Natural entry. So r1 was
-regenerated with **the expression map doing everything**, as for the pitched
-sections: strokes and surfaces extend the pitched `strike_location`
-dimension (CC106), hi-hat openness is a dimension, and the percussion map
-gives every instrument **one pitch (36)** for Natural and for each roll kind
-(finding 2: a roll sustains only when the chosen entry carries it; Dorico's
-own Yamaha XG map likewise puts roll and tremolo on one pitch). The r2
-stroke × roll question dissolves: rim + tremolo now matches the tremolo
+expression-map add-on, and the note plays on the Natural entry. So the map
+was regenerated as **r2, with the expression map doing everything**, as for
+the pitched sections: strokes and surfaces extend the pitched
+`strike_location` dimension (CC106), hi-hat openness is a dimension, and the
+percussion map gives every instrument **one pitch (36)** for Natural and for
+each roll kind (finding 2: a roll sustains only when the chosen entry carries
+it; Dorico's own Yamaha XG map likewise puts roll and tremolo on one pitch).
+The stroke × roll question dissolves: rim + tremolo now matches the tremolo
 entry (best subset) and plays as one sustained note with rim as an add-on.
 Still unverified, and not needed: whether Dorico plays an unpitched
 instrument with no percussion map at all, and whether a notehead-assigned
 technique (the x head, finding 5) reaches the expression map as a text mark
 does; the first score-test run will show the latter if a spec uses one.
+
+Why r2 rather than a regenerated r1: the first attempt kept the r1 IDs and
+version, and `snare-drum-20261031-144228` then played the tremolos on pitch
+73, the pitch-code r1 map's tremolo. Dorico keeps a project's own copy of a
+map whose entity ID and version match the library's, so a changed map must
+change its version, as Fiddle's installer insists.
 
 ## Re-run 02 (2026-10-31, capture `fiddle-midi-probe-1793469528030453-2`)
 

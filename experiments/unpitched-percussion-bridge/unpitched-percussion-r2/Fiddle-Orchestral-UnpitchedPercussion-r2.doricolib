@@ -4,13 +4,13 @@
   <expressionMapDefinitions>
     <entities array="true">
       <ExpressionMapDefinition>
-        <name>Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)</name>
-        <entityID>xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1</entityID>
+        <name>Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)</name>
+        <entityID>xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2</entityID>
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
         <creator>Fiddle</creator>
-        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral unpitched percussion: 20 conduits, 25 bases, 76 add-ons. Specification SHA256: bae5a1d2897ad2a74b5eb7fb394eec2cc0a7b1f2dff5b2f04decee18a3db0fbc</description>
-        <version>1</version>
+        <description>Fiddle bridge wire schema 2: typed Off (On+64) and revision beacon on KS126/KS127. Note durations pinned to 100% (written lengths). Pending Dorico host acceptance. Orchestral unpitched percussion: 20 conduits, 25 bases, 76 add-ons. Specification SHA256: ea239edbb24f709058ff7d917836136d32b2f911b19e57ec11aeb270ee3b28b4</description>
+        <version>2</version>
         <pluginNames />
         <autoMutualExclusion>false</autoMutualExclusion>
         <allowMultipleNotesAtSamePitch>true</allowMultipleNotesAtSamePitch>
@@ -123,12 +123,12 @@
             <switchOnAction>
               <type>kKeySwitch</type>
               <param1>126</param1>
-              <param2>33</param2>
+              <param2>95</param2>
             </switchOnAction>
             <switchOnAction>
               <type>kKeySwitch</type>
               <param1>127</param1>
-              <param2>111</param2>
+              <param2>103</param2>
             </switchOnAction>
           </initActions>
         </initSwitchData>
@@ -4057,52 +4057,52 @@
         </techniqueAddOns>
         <mutualExclusionGroups array="true">
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.shortening</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.shortening</groupID>
             <name>UnpitchedPercussion: shortening</name>
             <techniqueIDs>pt.staccatissimo, pt.staccato</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.accent</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.accent</groupID>
             <name>UnpitchedPercussion: accent</name>
             <techniqueIDs>pt.accent, pt.marcato</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.dynamic_level</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.dynamic_level</groupID>
             <name>UnpitchedPercussion: dynamic level</name>
             <techniqueIDs>pt.ppp, pt.pp, pt.p, pt.mp, pt.mf, pt.f, pt.ff, pt.fff</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.dynamic_attack</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.dynamic_attack</groupID>
             <name>UnpitchedPercussion: dynamic attack</name>
             <techniqueIDs>pt.ffp, pt.fp, pt.pf, pt.sf, pt.sfp, pt.sfz</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.dynamic_shape</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.dynamic_shape</groupID>
             <name>UnpitchedPercussion: dynamic shape</name>
             <techniqueIDs>pt.crescendo, pt.diminuendo, pt.crescendoDiminuendo, pt.diminuendoCrescendo, pt.volumeSwell</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.beater</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.beater</groupID>
             <name>UnpitchedPercussion: beater</name>
             <techniqueIDs>pt.beaterFelt, pt.beaterRods, pt.beaterPuffy, pt.beaterDreads, pt.sticks</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.strike_location</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.strike_location</groupID>
             <name>UnpitchedPercussion: strike location</name>
             <techniqueIDs>pt.natural, pt.centre, pt.edgeDrums, pt.rim, pt.edgeCymbals, pt.rimShot, pt.rimKnock, pt.crossStick, pt.sideStick, pt.shell, pt.bell, pt.frame, pt.skin, pt.hiHat, pt.stickShot, pt.stickClick, pt.stickSnap, pt.backstick, pt.standClick, pt.tap, pt.click, pt.ping, pt.ding, pt.foot, pt.scrape, pt.swish, pt.slap, pt.slapCongas, pt.bassTone, pt.shake, pt.crush, pt.sizzle, pt.zing</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.snares</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.snares</groupID>
             <name>UnpitchedPercussion: snares</name>
             <techniqueIDs>pt.snareOn, pt.snareOff</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.throwoff</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.throwoff</groupID>
             <name>UnpitchedPercussion: throwoff</name>
             <techniqueIDs>pt.throwoffOn, pt.throwoffOff</techniqueIDs>
           </mutualExclusionGroup>
           <mutualExclusionGroup>
-            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.openness</groupID>
+            <groupID>ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.openness</groupID>
             <name>UnpitchedPercussion: openness</name>
             <techniqueIDs>pt.closed, pt.halfOpen, pt.open2, pt.pedal</techniqueIDs>
           </mutualExclusionGroup>
@@ -4175,11 +4175,11 @@
   <drumKitNoteMapDefinitions>
     <entities array="true">
       <DrumKitNoteMapDefinition>
-        <name>Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)</name>
-        <entityID>drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1</entityID>
+        <name>Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)</name>
+        <entityID>drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2</entityID>
         <parentEntityID />
         <inheritanceMask>0</inheritanceMask>
-        <version>1</version>
+        <version>2</version>
         <forSingleInstrument>true</forSingleInstrument>
         <applyStageTemplateSettings>false</applyStageTemplateSettings>
         <entries array="true">

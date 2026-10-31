@@ -1,10 +1,10 @@
-# Orchestral unpitched percussion r1 — generated allocation
+# Orchestral unpitched percussion r2 — generated allocation
 
 Wire schema 2 candidate: compiled by Fiddle, **not yet host-verified**. See [README](README.md) for scope, cancellation policy and caveats.
 
 **20/50 conduits: 11 CCs + 9 KS pitches; 30 spare.** 75 bases + 76 add-ons = 151 switch rows, plus one Init switch (22 actions, including the two beacon keyswitches). 90 distinct encoded IDs + 0 built-in alias + 11 IDs with percussion-map entries; 10 explicit mutex groups.
 
-All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases are not dimension resets. Every add-on Off writes its typed value On+64: it clears the dimension only while that technique is current. Init writes the unspecified value. Init also sends the revision beacon KS126 velocity 33 and KS127 velocity 111; those pitches are reserved and carry no technique.
+All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases are not dimension resets. Every add-on Off writes its typed value On+64: it clears the dimension only while that technique is current. Init writes the unspecified value. Init also sends the revision beacon KS126 velocity 95 and KS127 velocity 103; those pitches are reserved and carry no technique.
 
 ## Base (CC102)
 
@@ -89,9 +89,9 @@ Dynamics: cc1 = the level arrives on CC1 just after the note-on; velocity = in t
 | 73 | pt.trill.whole | `NoteLength == kLong` | cc1 |
 | 74 | pt.trill.whole | `NoteLength > kLong` | cc1 |
 
-## Percussion map `drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1`
+## Percussion map `drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2`
 
-Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test): 11 entries × 75 instruments = 825 entries; forSingleInstrument true. Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique falls back to Natural and still reaches the expression map), and sustains a roll only when that entry carries the roll. Every instrument has the same table.
+Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test): 11 entries × 75 instruments = 825 entries; forSingleInstrument true. Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique falls back to Natural and still reaches the expression map), and sustains a roll only when that entry carries the roll. Every instrument has the same table.
 
 | Pitch | PTs | Keyswitch |
 | --- | --- | --- |

@@ -1,4 +1,4 @@
-"""Orchestral unpitched percussion r1 (candidate) and the Phase 0 probe.
+"""Orchestral unpitched percussion r2 (candidate) and the Phase 0 probe.
 
 Dorico resolves an unpitched note's techniques through a percussion map
 (instrument + techniques -> pitch) paired with the expression map on the
@@ -156,17 +156,17 @@ FAMILY_EXCLUSIONS = {
     "E": "Electronic/FX control outside this acoustic section profile.",
 }
 
-UNPITCHED_R1 = SimpleNamespace(
-    REVISION=1, WIRE_SCHEMA=2, WRITTEN_DURATIONS=True, SECTION="UnpitchedPercussion",
+UNPITCHED_R2 = SimpleNamespace(
+    REVISION=2, WIRE_SCHEMA=2, WRITTEN_DURATIONS=True, SECTION="UnpitchedPercussion",
     LABEL="Orchestral unpitched percussion", TITLE="Orchestral unpitched percussion",
-    NAME="Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
-    ENTITY_ID="xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
+    NAME="Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
+    ENTITY_ID="xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
     BASES=BASES, BASE_IDS=set(strings.BASE_IDS) | set(ROLL_FAMILY), ALIASES={},
     DIMENSIONS=DIMENSIONS, CONDUITS=wire, VALUES=values,
     INSTRUMENTS=INSTRUMENTS, EXTRA_MUTEX_GROUPS=[], EXCLUSIONS={}, FAMILY_EXCLUSIONS=FAMILY_EXCLUSIONS,
     PERCUSSION=SimpleNamespace(
-        ENTITY_ID="drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
-        NAME="Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
+        ENTITY_ID="drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
+        NAME="Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
         INSTRUMENTS=INSTRUMENTS, CODES=CODES, FOR_SINGLE_INSTRUMENT=True),
 )
 
@@ -204,4 +204,4 @@ PROBE = SimpleNamespace(
     ],
 )
 
-REVISIONS = [UNPITCHED_R1]
+REVISIONS = [UNPITCHED_R2]

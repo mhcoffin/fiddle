@@ -238,7 +238,7 @@ void testFailedPublicationRestoresExistingFiles() {
 void testPercussionMapReachesEndpointAndPreset() {
   Sandbox sandbox;
   fiddle::DoricoConfigGenerator generator(sandbox.dir);
-  const auto unpitched = bridge("experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib");
+  const auto unpitched = bridge("experiments/unpitched-percussion-bridge/unpitched-percussion-r2/Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib");
   const auto strings = bridge("experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib");
   CHECK(unpitched->percussionMapId.isNotEmpty() && strings->percussionMapId.isEmpty());
   fiddle::BridgeMapProject project;
@@ -269,8 +269,8 @@ void testPercussionMapReachesEndpointAndPreset() {
   CHECK(library.getChildFile("Fiddle-Bridge-" + unpitched->contentHash + ".doricolib").loadFileAsString() == unpitched->sourceXml);
   // Another revision that keeps the percussion map's ID but changes its
   // content cannot install beside it, even under a new expression-map ID.
-  auto renamed = juce::parseXML(unpitched->sourceXml.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1", "xmap.user.Fiddle.fixture.r2")
-      .replace("ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r1.", "ptmg.user.Fiddle.fixture.r2."));
+  auto renamed = juce::parseXML(unpitched->sourceXml.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2", "xmap.user.Fiddle.fixture.r2")
+      .replace("ptmg.user.Fiddle.OrchestralUnpitchedPercussion.r2.", "ptmg.user.Fiddle.fixture.r2."));
   CHECK(renamed && fiddle::BridgeMapDocument::stampBeacon(*renamed->getChildByName("expressionMapDefinitions")
       ->getChildByName("entities")->getFirstChildElement()));
   auto *entry = renamed->getChildByName("drumKitNoteMapDefinitions")->getChildByName("entities")->getFirstChildElement()

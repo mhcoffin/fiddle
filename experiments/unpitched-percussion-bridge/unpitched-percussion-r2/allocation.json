@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "revision": 1,
-  "name": "Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
-  "entity_id": "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
+  "revision": 2,
+  "name": "Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
+  "entity_id": "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
   "runtime_compatible": true,
   "dorico_import_verified": false,
   "written_durations": true,
@@ -25,8 +25,8 @@
     "mutex_groups": 10,
     "percussion_entry_ids": 11
   },
-  "specification_sha256": "bae5a1d2897ad2a74b5eb7fb394eec2cc0a7b1f2dff5b2f04decee18a3db0fbc",
-  "map_sha256": "08fe72e408a0a24cc21ba71c5a25d26e26473f7e705cb9dd6ffab53d5dcfb97e",
+  "specification_sha256": "ea239edbb24f709058ff7d917836136d32b2f911b19e57ec11aeb270ee3b28b4",
+  "map_sha256": "077a33f7b7fa78098609146fa34689416d9faa9655202234ff0aadfd7d78c383",
   "base_cc": 102,
   "bases": [
     {
@@ -913,8 +913,8 @@
       127
     ],
     "velocities": [
-      33,
-      111
+      95,
+      103
     ]
   },
   "section": "UnpitchedPercussion",
@@ -999,8 +999,8 @@
   "title": "Orchestral unpitched percussion",
   "percussion": [
     {
-      "entity_id": "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1",
-      "name": "Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test)",
+      "entity_id": "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
+      "name": "Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
       "for_single_instrument": true,
       "instruments": [
         "instrument.band.unpitched.floortom.high",

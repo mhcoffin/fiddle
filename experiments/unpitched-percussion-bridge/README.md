@@ -8,10 +8,12 @@ it. Plan: `/Users/mhc/.claude/plans/zany-sprouting-perlis.md` (2026-10-30).
 Status: **probe played 2026-10-31, see `results-01.md`; design revised the
 same day.** Dorico lets both maps see every technique and falls back to the
 Natural entry for a technique the percussion map lacks, so
-`unpitched-percussion-r1/` now uses the expression map for everything, as
-the pitched sections do, and a percussion map of one pitch per instrument.
-The run also set `forSingleInstrument` true and taught the score-test writer
-that a written tremolo is `pt.tremolo`.
+`unpitched-percussion-r2/` uses the expression map for everything, as the
+pitched sections do, and a percussion map of one pitch per instrument. (r1,
+with strokes as pitch codes, was installed once and is retired; it got a
+new revision number because Dorico keeps a project's copy of a map whose ID
+and version it already has.) The run also set `forSingleInstrument` true and
+taught the score-test writer that a written tremolo is `pt.tremolo`.
 
 ## How it works
 
@@ -154,9 +156,9 @@ each hypothesis, so every verdict is exercised before a capture exists.
 
 | File | Purpose |
 | --- | --- |
-| `profiles.py` | r1 profile (`UNPITCHED_R1`), the probe profile, the code table, instruments |
-| `generate_unpitched.py` | writes `probe/` and `unpitched-percussion-r1/` (`--check` verifies) |
+| `profiles.py` | the r2 profile (`UNPITCHED_R2`), the probe profile, the entry table, instruments |
+| `generate_unpitched.py` | writes `probe/` and `unpitched-percussion-r2/` (`--check` verifies) |
 | `test_unpitched.py` | profile contracts |
 | `make_probe_score.py` → `unpitched-probe.musicxml` | the probe score |
 | `check_probe.py`, `test_check_probe.py` | verdicts from a MIDI Probe capture |
-| `unpitched-percussion-r1/` | the r1 candidate: library, `allocation.json/md`, `inventory.md` |
+| `unpitched-percussion-r2/` | the r2 library (r1, pitch codes, was superseded the day the probe ran), `allocation.json/md`, `inventory.md` |

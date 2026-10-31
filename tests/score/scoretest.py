@@ -54,7 +54,7 @@ INSTRUMENTS = {
                      clef=("percussion", 2), program=1, unpitched=("C", 5)),
 }
 CODES_SOURCE = (Path(__file__).resolve().parents[2]
-                / "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/allocation.json")
+                / "experiments/unpitched-percussion-bridge/unpitched-percussion-r2/allocation.json")
 
 # Dorico's dynamic levels (experiments/dynamics-curve/results-01.md).
 LEVELS = dict(pppppp=-6, ppppp=-5, pppp=-4, ppp=-3, pp=-2, p=-1, mp=-0.5,

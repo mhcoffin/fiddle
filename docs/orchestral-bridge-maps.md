@@ -12,7 +12,7 @@ and coordinated installation remain pending.
 
 All five profiles now exist. [Pitched percussion r1](../experiments/orchestral-percussion-bridge/README.md)
 covers timpani and the orchestral mallet instruments (review pending).
-[Unpitched percussion r1](../experiments/unpitched-percussion-bridge/README.md)
+[Unpitched percussion r2](../experiments/unpitched-percussion-bridge/README.md)
 (2026-10-31) covers Dorico's orchestral unpitched set plus toms, congas,
 bongos, tambourine, blocks and cowbells as single instruments: its library
 also holds the percussion map Dorico needs to play them, one pitch per

@@ -1386,7 +1386,7 @@ add_custom_command(TARGET FiddleServer POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/woodwinds-r3/Fiddle-Orchestral-Woodwinds-r3.doricolib"
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-winds-bridge/brass-r3/Fiddle-Orchestral-Brass-r3.doricolib"
         "${CMAKE_CURRENT_SOURCE_DIR}/experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"
-        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/experiments/unpitched-percussion-bridge/unpitched-percussion-r2/Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib"
         "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps")
 # Score tests (tests/score/generated): the Score tests pane reads them here.
 # Synced on every build, so a regenerated score reaches the app even when

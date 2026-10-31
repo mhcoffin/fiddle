@@ -34,7 +34,7 @@ std::shared_ptr<const BridgeMapDocument> bridgeFor(const juce::String &instrumen
       {BridgeSection::PitchedPercussion,
        "experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"},
       {BridgeSection::UnpitchedPercussion,
-       "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib"}};
+       "experiments/unpitched-percussion-bridge/unpitched-percussion-r2/Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib"}};
   const auto section = bridgeSectionForInstrument(instrument);
   CHECK(paths.count(section));
   auto &doc = cache[section];

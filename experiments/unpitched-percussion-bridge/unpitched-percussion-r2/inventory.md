@@ -1,4 +1,4 @@
-# Orchestral unpitched percussion r1 — full built-in inventory disposition
+# Orchestral unpitched percussion r2 — full built-in inventory disposition
 
 All 298 exact IDs from the recorded Dorico 6.2 inventory are accounted for. The family classification and section scope are our review decisions, not a Dorico-supplied instrument compatibility guarantee. No custom PT definitions are imported.
 

@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 
 import generate_unpitched as generator
 from profiles import (BASES, CODES, COMMON_IDS, HIT_BASES, INSTRUMENTS, PITCH, PITCHED_IDS, PROBE, ROLL_FAMILY,
-                      STROKES, UNPITCHED_R1 as spec, engine, pitched_dims)
+                      STROKES, UNPITCHED_R2 as spec, engine, pitched_dims)
 
 
 class UnpitchedPercussion(unittest.TestCase):
@@ -17,12 +17,12 @@ class UnpitchedPercussion(unittest.TestCase):
     def setUpClass(cls):
         cls.outputs = engine.build(spec)
         cls.manifest = json.loads(cls.outputs["allocation.json"])
-        cls.root = ET.fromstring(cls.outputs["Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib"])
+        cls.root = ET.fromstring(cls.outputs["Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib"])
         cls.probe = engine.build(PROBE)
 
     def test_artifacts_are_current(self):
         for name, data in self.outputs.items():
-            self.assertEqual((generator.HERE / "unpitched-percussion-r1" / name).read_bytes(), data, name)
+            self.assertEqual((generator.HERE / "unpitched-percussion-r2" / name).read_bytes(), data, name)
         for name, data in self.probe.items():
             self.assertEqual((generator.HERE / "probe" / name).read_bytes(), data, name)
 
@@ -81,7 +81,7 @@ class UnpitchedPercussion(unittest.TestCase):
         self.assertEqual(len(definitions), 1)
         definition = definitions[0]
         self.assertEqual(definition.findtext("entityID"), spec.PERCUSSION.ENTITY_ID)
-        self.assertEqual(definition.findtext("version"), "1")
+        self.assertEqual(definition.findtext("version"), "2")
         entries = definition.findall("entries/entry")
         self.assertEqual(len(entries), len(INSTRUMENTS) * len(CODES))
         tables = {}

@@ -9,7 +9,7 @@ documented elsewhere; this list records the remaining work and intended order.
 - **Orchestral bridge maps — current plan (2026-09-24).** Follow
   [Orchestral bridge maps](orchestral-bridge-maps.md), the authoritative decision
   record. Woodwinds, brass, bowed orchestral strings, pitched percussion, and
-  (2026-10-31) unpitched percussion r1 — single instruments, with a one-pitch
+  (2026-10-31) unpitched percussion r2 — single instruments, with a one-pitch
   percussion map so the expression map carries everything; drum-set kits, the
   entry keyswitch as a conduit, and library-side percussion maps are later
   work. Other instruments are deferred. Start with the

@@ -211,7 +211,7 @@ showed that Dorico gives the expression map every technique regardless of
 the percussion map, falls back to the Natural entry for a technique the map
 lacks, and sustains a roll only when the entry it picked carries the roll.
 So every instrument gets the same small table, Natural and the roll kinds,
-all on one pitch (36 in r1): the pitch names nothing, the chair names the
+all on one pitch (36 in r2): the pitch names nothing, the chair names the
 instrument, and strokes, surfaces, rolls, modifiers and dynamics arrive
 through the bridge's dimensions exactly as for a pitched section. The
 decoder withholds a note on a pitch the map never sends (`UnmappedPitch`).
@@ -223,7 +223,7 @@ false and the expression map's version; entries with only
 `keyswitches` and `variant` are rejected); pitches inside the musical range;
 no instrument with the same technique set twice; the same table for every
 instrument; and an entry that is exactly `pt.natural`. Several entries may
-share a pitch. The r1 generator (`profiles.py`, `PERCUSSION`) produces this
+share a pitch. The r2 generator (`profiles.py`, `PERCUSSION`) produces this
 shape from `PITCH` and `ENTRIES`.
 
 ## What reaches instruments

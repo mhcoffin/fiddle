@@ -29,7 +29,7 @@ inline const std::array<BridgeSectionInfo, 5> &bridgeSections() {
       // covered. The stems must match the percussion map's instrument list
       // (experiments/unpitched-percussion-bridge/profiles.py); a test keeps them so.
       {BridgeSection::UnpitchedPercussion, "unpitched-percussion", "Orchestral unpitched percussion",
-       "Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib"},
+       "Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib"},
   }};
   return sections;
 }

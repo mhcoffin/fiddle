@@ -2589,7 +2589,7 @@ void testBridgeSectionsFromChairs() {
   const auto load = [&](const fiddle::BridgeSectionInfo &info) {
     for (const auto *dir : {"orchestral-strings-bridge/r5", "orchestral-winds-bridge/woodwinds-r3",
                             "orchestral-winds-bridge/brass-r3", "orchestral-percussion-bridge/pitched-percussion-r2",
-                            "unpitched-percussion-bridge/unpitched-percussion-r1"}) {
+                            "unpitched-percussion-bridge/unpitched-percussion-r2"}) {
       const auto file = root.getChildFile(dir).getChildFile(info.templateFile);
       if (file.existsAsFile()) return file.loadFileAsString();
     }
@@ -2612,7 +2612,7 @@ void testBridgeSectionsFromChairs() {
   REQUIRE(!project.assignments.count({0, 6}));
   REQUIRE(project.assignments.at({0, 7}) == project.sections.at("unpitched-percussion"));
   REQUIRE(project.documents.at(project.sections.at("unpitched-percussion"))->percussionMapId
-          == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1");
+          == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2");
   // Reapplying unchanged chairs records nothing.
   const auto before = f.mixer.projectSettings().bridgeMapsJson;
   REQUIRE(bridges.applyChairSections(chairs, load));

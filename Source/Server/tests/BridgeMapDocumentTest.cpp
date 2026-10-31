@@ -199,11 +199,11 @@ void writtenDurations() {
 // rolls and dynamics arrive through the expression map as for any section.
 void percussion() {
   juce::String error;
-  const auto source = fixture("experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib");
+  const auto source = fixture("experiments/unpitched-percussion-bridge/unpitched-percussion-r2/Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib");
   const auto doc = BridgeMapDocument::compile(source, error);
   if (!doc) throw std::runtime_error(error.toStdString());
   CHECK(doc->schema == 2 && doc->compiled->pinnedPlayback && doc->compiled->hasPercussionMap);
-  CHECK(doc->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1");
+  CHECK(doc->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2");
   CHECK(doc->percussionMapName.isNotEmpty());
   // Every entry (Natural and the ten roll kinds) sends pitch 36; strokes and
   // surfaces extend the pitched strike_location dimension on CC106.
@@ -241,7 +241,7 @@ void percussion() {
     auto *field = node.getChildByName(tag);
     field->deleteAllChildElements(); field->addTextElement(value);
   };
-  CHECK(!edited([&](juce::XmlElement &m) { setText(m, "version", "2"); }) && error.contains("version"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(m, "version", "3"); }) && error.contains("version"));
   CHECK(!edited([&](juce::XmlElement &m) { setText(m, "applyStageTemplateSettings", "true"); }) && error.contains("Stage Template"));
   CHECK(!edited([&](juce::XmlElement &m) { setText(m, "entityID", doc->entityId.toRawUTF8()); }) && error.contains("own entity ID"));
   CHECK(!edited([&](juce::XmlElement &m) { m.createNewChildElement("futureBehavior"); }) && error.contains("futureBehavior"));
@@ -279,7 +279,7 @@ void percussion() {
   BridgeMapProject restored;
   CHECK(BridgeMapProject::parse(project.serialize(), restored, error));
   CHECK(restored.documents.begin()->second->percussionMapId == doc->percussionMapId);
-  const auto other = BridgeMapDocument::compile(source.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1", "xmap.user.Fiddle.Other.r1"), error);
+  const auto other = BridgeMapDocument::compile(source.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2", "xmap.user.Fiddle.Other.r1"), error);
   CHECK(!other && error.contains("beacon")); // identity changed: restamp would be needed
   NoteStreamTracker tracker;
   tracker.setBridgeMaps(project);
@@ -446,7 +446,7 @@ void tests() {
         : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
         : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
         : info.section == BridgeSection::PitchedPercussion ? "experiments/orchestral-percussion-bridge/pitched-percussion-r2/"
-        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r1/");
+        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r2/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
     CHECK(built->schema == 2 && built->compiled->pinnedPlayback);
