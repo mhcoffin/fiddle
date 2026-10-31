@@ -63,14 +63,13 @@ findings.
    buzz roll took its written length (code 18, kLong). Harmless for r1
    (every roll base has all five rows) but the decoder must not infer the
    written length from a roll base's bucket.
-4. **The ghost note sent nothing**: no KS4, velocity 68 like its neighbours.
-   The saved project (`Unpitched percussion probe.dorico`) holds a
-   user-made *playback* technique `pt.user.ghost`, also named "Ghost note",
-   beside the built-in `pt.ghostNote`; the ghost playing technique
-   (`pta.user.ghost`) most likely resolves to that copy, which no map knows.
-   To be re-run after pointing it at the built-in technique. Dorico also has
-   a `ghostNoteDynamicDelta` playback option (pinned to 0 by the map), so a
-   ghost note is at least partly a dynamics matter in Dorico.
+4. **The ghost note works once it resolves to `pt.ghostNote`.** In the first
+   run it sent nothing: the project's ghost playing technique (`pta.user.ghost`)
+   pointed at a user-made *playback* technique `pt.user.ghost`, also named
+   "Ghost note", which no map knows. Re-run 02 (below), with the built-in
+   technique: KS4 On (velocity 2) 12.5 ms before the hit, its typed Off (66)
+   before the next note. Dorico also has a `ghostNoteDynamicDelta` playback
+   option, pinned to 0 by the map.
 5. **The x notehead imports as side stick.** The note played 62, and in the
    project that note alone carries `kEventPlayingTechnique = pt.sideStick`
    (the mark on the previous note was a text playing technique, which does
@@ -93,6 +92,22 @@ Changes to r1 from this run: `forSingleInstrument` true. Open for r2: the
 entry keyswitch as a conduit (U4: simultaneous with the note, so Fiddle
 would pair by time), and stroke × roll combinations in 90–114 if sustained
 rolls on a surface turn out to matter for playback.
+
+## Re-run 02 (2026-10-31, capture `fiddle-midi-probe-1793469528030453-2`)
+
+Same score, the ghost playing technique now resolving to the built-in Ghost
+note, plus a whole note with a three-stroke tremolo in part B bar 8.
+
+- Ghost: `KS4=2` before bar 4 beat 3, `KS4=66` after it (finding 4).
+- Part B bar 8: CC102=10 (the `pt.tremolo` row) and 24 strokes of 100 ms at
+  60, exactly as bar 5. The probe map offers a `pt.roll` row (CC102 5-9) and
+  map A a `pt.roll` pitch, and Dorico never chose them, so the technique it
+  computes for a three-stroke tremolo on a snare is `pt.tremolo`. Dorico's
+  popover has no "roll" playing technique; `pt.roll` would need a playing
+  technique created for it, or a percussion playing technique defined with
+  tremolo strokes (Edit Percussion Playing Techniques). r1 keeps both codes
+  and both bases; the score tests expect `pt.tremolo` for `+trem`.
+- Everything else matches run 01.
 
 ## Checker output
 
