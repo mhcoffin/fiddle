@@ -27,6 +27,7 @@ looking up a run by its ID.
 | pitched-percussion | `pitched-percussion-20261030-124022` | Pass: 33 of 33. Timpani (port 2 channel 13) and marimba (port 3 channel 6, Dorico's default `marimba.4.3oct`) both through Pitched percussion r2, each bound by its chair's instrument. Onsets +0 ms, durations −0.2 ms. The crescendo over eight timpani eighths starts each note on the hairpin's line (CC1 56, 58, … 70) and rises two values while it sounds. Staccato notes take the map's velocity-dynamics switch (velocity 60 at mp, 72 at f); everything else arrives on CC1. Slurred marimba notes carry legato, the slur's last included. |
 | snare-drum | `snare-drum-20261031-144228` | Fail: 26 of 28, the two tremolos missing. Dorico sent them on pitch 73, the retired pitch-code map's tremolo entry: Dorico had run since before that map was replaced and never loaded the new library (it reads `DefaultLibraryAdditions` only at startup). The hits all passed. |
 | snare-drum | `snare-drum-20261031-154157` | Pass: 28 of 28, through Unpitched percussion r2 (port 3 channel 7), bound by the chair's instrument. Every note on the map's one pitch (36). Hits carry their dynamic as velocity (mf 68, ladder ppp 40 … fff 88) with accent, marcato, staccato and tenuto arriving; the whole-note tremolo is one 2.4 s note on the tremolo base (CC102=30, VeryShort bucket) with CC1 56→72 under the hairpin, and the half-note tremolo likewise. |
+| cymbals-and-triangle | `cymbals-and-triangle-20261031-160247` | Fail: 0 of 16, 5 extra. Dorico's import put the bass drum part into its marching bass drums kit (part name "Bass Drum" matches a drum of that kit), the template could not route the kit, and Dorico loaded nine Fiddle plug-in instances; the cymbal's five notes arrived on the snare chair's channel, nothing else arrived. The spec now names the part Gran Cassa (above). |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
@@ -98,7 +99,15 @@ files are stale.
 
 `instrument` is one of `violin`, `viola`, `flute`, `horn`, `timpani`, `marimba`,
 `snare`, `bass-drum`, `suspended-cymbal`, `triangle` (see `INSTRUMENTS` in
-`scoretest.py`: each maps to Dorico's instrument ID and MusicXML sound).
+`scoretest.py`: each maps to Dorico's instrument ID and MusicXML sound). An
+optional `name` renames the part (its part and score-instrument names in the
+MusicXML; the instrument still comes from the sound ID). Dorico's MusicXML
+import wraps each unpitched part in a percussion kit chosen by the part's
+name: a name matching a component of one of Dorico's stock kits selects that
+kit ("Bass Drum" selects the eight-drum marching bass drums kit, which the
+template cannot route, so Dorico spawns a plug-in instance per drum), any
+other name selects its Drum Set, which only costs one idle plug-in instance
+that Fiddle rejects. So the bass drum part is named `Gran Cassa`.
 Pitches in `music` are always sounding pitches. For a transposing instrument
 (horn, Horn in F) the generator writes the MusicXML at written pitch with a
 `<transpose>` element and the written key, and the expected results stay at

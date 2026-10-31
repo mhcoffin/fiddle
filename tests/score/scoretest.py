@@ -374,9 +374,14 @@ def musicxml(spec):
     for channel, part in enumerate(spec["parts"], start=1):
         info = INSTRUMENTS[part["instrument"]]
         sp = sub(part_list, "score-part", id=part["id"])
+        # A part's "name" renames both names Dorico reads. Dorico's import
+        # wraps each unpitched part in a kit whose component names match the
+        # part name (else its Drum Set, harmless): "Bass Drum" matches its
+        # marching bass drums kit, which no bridge routes, so that spec says
+        # "Gran Cassa". The instrument itself comes from instrument-sound.
         sub(sp, "part-name", part.get("name", info["name"]))
         si = sub(sp, "score-instrument", id=f"{part['id']}-I1")
-        sub(si, "instrument-name", info["name"])
+        sub(si, "instrument-name", part.get("name", info["name"]))
         sub(si, "instrument-sound", info["sound"])
         midi = sub(sp, "midi-instrument", id=f"{part['id']}-I1")
         sub(midi, "midi-channel", channel)
