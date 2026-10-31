@@ -6,9 +6,10 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-30): all four phases built; all ten tests pass in Dorico.**
-The test format and generator, ten tests, Fiddle's recorder and
-comparison, the Score Tests window, and looking up a run by its ID.
+**Status (2026-10-31): all four phases built; eleven of twelve tests pass in
+Dorico, cymbals-and-triangle not yet run.** The test format and generator,
+twelve tests, Fiddle's recorder and comparison, the Score Tests window, and
+looking up a run by its ID.
 
 | Test | Latest run | Result |
 | --- | --- | --- |
@@ -24,6 +25,8 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | two-instruments | `two-instruments-20261029-190605` | Pass: 16 of 16. Violin through Strings r5 (port 2 channel 15) and flute through Woodwinds r3 (port 1 channel 9), each bound by its chair's instrument. |
 | horn | `horn-20261030-122642` | Pass: 18 of 18. Horn in F through Brass r3 (port 2 channel 5). Dorico imported the written-pitch MusicXML with its `<transpose>` and sent sounding pitches (first note F3, written C4). Onsets +0 ms, durations −0.2 ms; articulations, legato under the slur, and tenuto+staccato (Staccato+Tenuto switch) arrive as on strings; levels exact (mf CC1 68, f 72, p 56) and both hairpins move CC1 one value at a time in a straight line. |
 | pitched-percussion | `pitched-percussion-20261030-124022` | Pass: 33 of 33. Timpani (port 2 channel 13) and marimba (port 3 channel 6, Dorico's default `marimba.4.3oct`) both through Pitched percussion r2, each bound by its chair's instrument. Onsets +0 ms, durations −0.2 ms. The crescendo over eight timpani eighths starts each note on the hairpin's line (CC1 56, 58, … 70) and rises two values while it sounds. Staccato notes take the map's velocity-dynamics switch (velocity 60 at mp, 72 at f); everything else arrives on CC1. Slurred marimba notes carry legato, the slur's last included. |
+| snare-drum | `snare-drum-20261031-144228` | Fail: 26 of 28, the two tremolos missing. Dorico sent them on pitch 73, the retired pitch-code map's tremolo entry: Dorico had run since before that map was replaced and never loaded the new library (it reads `DefaultLibraryAdditions` only at startup). The hits all passed. |
+| snare-drum | `snare-drum-20261031-154157` | Pass: 28 of 28, through Unpitched percussion r2 (port 3 channel 7), bound by the chair's instrument. Every note on the map's one pitch (36). Hits carry their dynamic as velocity (mf 68, ladder ppp 40 … fff 88) with accent, marcato, staccato and tenuto arriving; the whole-note tremolo is one 2.4 s note on the tremolo base (CC102=30, VeryShort bucket) with CC1 56→72 under the hairpin, and the half-note tremolo likewise. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
