@@ -6,10 +6,13 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Expression-map foundation — current focus
 
-- **Four orchestral bridge maps — current plan (2026-09-24).** Follow
+- **Orchestral bridge maps — current plan (2026-09-24).** Follow
   [Orchestral bridge maps](orchestral-bridge-maps.md), the authoritative decision
-  record. Woodwinds, brass, bowed orchestral strings, and pitched percussion;
-  other instruments and unpitched percussion are deferred. Start with the
+  record. Woodwinds, brass, bowed orchestral strings, pitched percussion, and
+  (2026-10-31) unpitched percussion r1 — single instruments, with a one-pitch
+  percussion map so the expression map carries everything; drum-set kits, the
+  entry keyswitch as a conduit, and library-side percussion maps are later
+  work. Other instruments are deferred. Start with the
   hand-built map's 25 bases, then built-in PT add-ons with meaningful mutex
   groups and one CC/KS conduit per dimension. All layers of a chair share its
   section profile. **Supersedes universal-map and chair-specific base-only
@@ -119,6 +122,11 @@ documented elsewhere; this list records the remaining work and intended order.
   musical needs. Revisit effect/send/parameter automation when a concrete use
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
+- Unpitched percussion r2: drum-set kits (`instrument.kit.*`, one pitch per
+  kit component in the percussion map), the percussion-map entry keyswitch as
+  a conduit (Dorico sends it with the hit, velocity 127, same length), and
+  library-side percussion maps for driving instruments. Not needed after the
+  one-pitch design: stroke × roll combination codes.
 - Surround or immersive output.
 - Multi-output instruments.
 - External audio tracks, recording, comping, and waveform editing.

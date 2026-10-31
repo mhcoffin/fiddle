@@ -134,15 +134,15 @@ def percussion_maps(spec):
 
 
 def pitch_codes(spec):
-    """Every technique ID that some percussion-map code carries."""
+    """Every technique ID that some percussion-map entry carries."""
     return {pt for m in percussion_maps(spec) for code in m.CODES for pt in code[1].split("+")}
 
 
 def disposition(pt, row, owners, spec=legacy_profile):
     codes = pitch_codes(spec)
     if pt in codes:
-        kinds = ["Pitch code"] + (["Base"] if pt in spec.BASE_IDS else []) + (["Add-on"] if pt in owners else [])
-        return " + ".join(kinds), "Percussion map pitch" + ("; CC102 base" if pt in spec.BASE_IDS else "") \
+        kinds = ["Percussion entry"] + (["Base"] if pt in spec.BASE_IDS else []) + (["Add-on"] if pt in owners else [])
+        return " + ".join(kinds), "Percussion map entry" + ("; CC102 base" if pt in spec.BASE_IDS else "") \
             + (f"; add-on {owners[pt]}" if pt in owners else "")
     if pt in spec.BASE_IDS:
         return "Base", "CC102; original articulation/length encoding"
@@ -190,25 +190,26 @@ def validate(dims, catalog, spec=legacy_profile):
 
 
 def validate_percussion(spec, catalog):
-    """Percussion-map codes: musical pitches only (never a keyswitch conduit or
-    the beacon), unique per map, each a non-empty set of catalog IDs, and one
-    code that is exactly Natural so Dorico's fallback has somewhere to land."""
+    """Percussion-map entries: musical pitches only (never a keyswitch conduit
+    or the beacon; several entries may share a pitch, as Dorico's own maps
+    do for roll and tremolo), each a distinct non-empty set of catalog IDs,
+    and one entry that is exactly Natural so Dorico's fallback has somewhere
+    to land."""
     low, high = MUSICAL_RANGE
     ids = set()
     for m in percussion_maps(spec):
         if m.ENTITY_ID in ids or not m.INSTRUMENTS or not m.CODES:
             raise ValueError(f"Percussion map needs a unique ID, instruments and codes: {m.ENTITY_ID}")
         ids.add(m.ENTITY_ID)
-        pitches, sets = set(), set()
+        sets = set()
         for code in m.CODES:
             pitch, pts = code[0], code[1].split("+")
-            if not low <= pitch <= high or pitch in pitches:
-                raise ValueError(f"Percussion code pitch must be unique and musical: {pitch}")
+            if not low <= pitch <= high:
+                raise ValueError(f"Percussion entry pitch must be musical: {pitch}")
             if len(set(pts)) != len(pts) or any(pt not in catalog for pt in pts) or frozenset(pts) in sets:
-                raise ValueError(f"Invalid or duplicate percussion code techniques: {code[1]}")
+                raise ValueError(f"Invalid or duplicate percussion entry techniques: {code[1]}")
             if len(code) > 2 and not (0 <= code[2] <= 127 and not low <= code[2] <= high):
-                raise ValueError(f"Percussion code keyswitch must lie outside the musical range: {code[2]}")
-            pitches.add(pitch)
+                raise ValueError(f"Percussion entry keyswitch must lie outside the musical range: {code[2]}")
             sets.add(frozenset(pts))
         if frozenset(["pt.natural"]) not in sets:
             raise ValueError(f"Percussion map needs a Natural code: {m.ENTITY_ID}")
@@ -436,7 +437,7 @@ def build(spec=legacy_profile):
                         supported_routing="one Dorico voice per endpoint/port/channel",
                         title=title)
     if percussion:
-        counts["pitch_code_ids"] = len(pitch_codes(spec))
+        counts["percussion_entry_ids"] = len(pitch_codes(spec))
         manifest.update(percussion=percussion)
     return {f"Fiddle-Orchestral-{section}-r{spec.REVISION}.doricolib": xml,
             "allocation.json": (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode(),
@@ -456,7 +457,7 @@ def allocation_markdown(m, catalog):
              f"{c['switch_rows']} switch rows, plus one Init switch ({c['conduits'] + (2 if typed else 0)} actions"
              + (", including the two beacon keyswitches). " if typed else "). ") +
              f"{c['explicit_pt_ids']} distinct encoded IDs + {c['aliases']} built-in alias"
-             + (f" + {c['pitch_code_ids']} IDs carried by percussion-map pitch codes" if "pitch_code_ids" in c else "")
+             + (f" + {c['percussion_entry_ids']} IDs with percussion-map entries" if "percussion_entry_ids" in c else "")
              + f"; {c['mutex_groups']} explicit mutex groups.", "",
              "All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified "
              "except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases "
@@ -479,10 +480,11 @@ def allocation_markdown(m, catalog):
                      + (f" {b['dynamics']} |" if dynamics else ""))
     for p in m.get("percussion", []):
         lines += ["", f"## Percussion map `{p['entity_id']}`", "",
-                  f"{p['name']}: {len(p['codes'])} pitch codes × {len(p['instruments'])} instruments = "
+                  f"{p['name']}: {len(p['codes'])} entries × {len(p['instruments'])} instruments = "
                   f"{p['entry_count']} entries; forSingleInstrument {str(p['for_single_instrument']).lower()}. "
-                  "Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names "
-                  "the stroke and the chair names the instrument. Every instrument has the same table.", "",
+                  "Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique "
+                  "falls back to Natural and still reaches the expression map), and sustains a roll only when "
+                  "that entry carries the roll. Every instrument has the same table.", "",
                   "| Pitch | PTs | Keyswitch |", "| --- | --- | --- |"]
         for c in p["codes"]:
             labels = " + ".join(f"{catalog[pt]['label']} (`{pt}`)" for pt in c["techniques"])

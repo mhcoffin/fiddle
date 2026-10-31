@@ -107,8 +107,8 @@ class Expectations(unittest.TestCase):
         s = dict(id="t", title="T", tempo=100, parts=[
             dict(id="sn", instrument="snare", music="!mf x/q x/q+acc x/h+trem | !p x/q+xhead x/q+ghost x/h+buzz")])
         notes = scoretest.sounding_notes(s)
-        # Pitches are the unpitched bridge's codes: Natural 36, tremolo 73, buzz roll 74.
-        self.assertEqual([n["pitch"] for n in notes], [36, 36, 73, 36, 36, 74])
+        # Every unpitched note plays on the bridge's one percussion-map pitch (36).
+        self.assertEqual([n["pitch"] for n in notes], [36] * 6)
         self.assertEqual(notes[2]["techniques"]["includes"], ["pt.tremolo"])
         self.assertIn("pt.buzzRoll", notes[2]["techniques"]["excludes"])
         self.assertEqual(notes[1]["techniques"]["includes"], ["pt.accent"])
@@ -127,10 +127,13 @@ class Expectations(unittest.TestCase):
             scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf C5/q")]))
 
     def test_percussion_code_rule(self):
-        self.assertEqual(scoretest.percussion_code([]), 36)
-        self.assertEqual(scoretest.percussion_code(["pt.accent"]), 36)
-        self.assertEqual(scoretest.percussion_code(["pt.roll", "pt.accent"]), 72)
-        self.assertEqual(scoretest.percussion_code(["pt.rim"]), 37 + 3)
+        # r1's entries (Natural and the roll kinds) all share pitch 36; the
+        # best-subset rule still picks the roll entry, as Dorico does.
+        entries = scoretest.percussion_codes()
+        self.assertEqual({pitch for pitch, _ in entries}, {36})
+        self.assertIn(frozenset(["pt.tremolo"]), {ids for _, ids in entries})
+        for techniques in ([], ["pt.accent"], ["pt.roll", "pt.accent"], ["pt.rim"], ["pt.rim", "pt.tremolo"]):
+            self.assertEqual(scoretest.percussion_code(techniques), 36)
 
 
 if __name__ == "__main__":

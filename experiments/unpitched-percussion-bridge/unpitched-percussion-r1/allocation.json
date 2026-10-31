@@ -12,21 +12,21 @@
   ],
   "counts": {
     "base_switches": 75,
-    "add_on_switches": 40,
-    "switch_rows": 115,
+    "add_on_switches": 76,
+    "switch_rows": 151,
     "init_switches": 1,
-    "explicit_pt_ids": 54,
+    "explicit_pt_ids": 90,
     "aliases": 0,
-    "addon_dimensions": 17,
-    "conduits": 18,
-    "cc_conduits": 10,
-    "ks_conduits": 8,
-    "spare_conduits": 32,
-    "mutex_groups": 8,
-    "pitch_code_ids": 47
+    "addon_dimensions": 19,
+    "conduits": 20,
+    "cc_conduits": 11,
+    "ks_conduits": 9,
+    "spare_conduits": 30,
+    "mutex_groups": 10,
+    "percussion_entry_ids": 11
   },
-  "specification_sha256": "fcc0dcb11fe74ce59db1e7ccd2e689060591a29a34b77f66b17f001d329d98f9",
-  "map_sha256": "88c754cb72dc999def46862e0f9898594f70980b90ad61a42873c9606d769096",
+  "specification_sha256": "bae5a1d2897ad2a74b5eb7fb394eec2cc0a7b1f2dff5b2f04decee18a3db0fbc",
+  "map_sha256": "08fe72e408a0a24cc21ba71c5a25d26e26473f7e705cb9dd6ffab53d5dcfb97e",
   "base_cc": 102,
   "bases": [
     {
@@ -812,6 +812,48 @@
       }
     },
     {
+      "id": "strike_location",
+      "kind": "CC",
+      "number": 106,
+      "unspecified": 0,
+      "natural_cancels": true,
+      "rationale": "Where, or with what, the instrument is struck: the pitched map's centre/edge/rim on the same conduit and values, then every other built-in stroke and surface. Natural returns to the normal spot.",
+      "values": {
+        "pt.centre": 1,
+        "pt.edgeDrums": 2,
+        "pt.rim": 3,
+        "pt.edgeCymbals": 4,
+        "pt.rimShot": 5,
+        "pt.rimKnock": 6,
+        "pt.crossStick": 7,
+        "pt.sideStick": 8,
+        "pt.shell": 9,
+        "pt.bell": 10,
+        "pt.frame": 11,
+        "pt.skin": 12,
+        "pt.hiHat": 13,
+        "pt.stickShot": 14,
+        "pt.stickClick": 15,
+        "pt.stickSnap": 16,
+        "pt.backstick": 17,
+        "pt.standClick": 18,
+        "pt.tap": 19,
+        "pt.click": 20,
+        "pt.ping": 21,
+        "pt.ding": 22,
+        "pt.foot": 23,
+        "pt.scrape": 24,
+        "pt.swish": 25,
+        "pt.slap": 26,
+        "pt.slapCongas": 27,
+        "pt.bassTone": 28,
+        "pt.shake": 29,
+        "pt.crush": 30,
+        "pt.sizzle": 31,
+        "pt.zing": 32
+      }
+    },
+    {
       "id": "snares",
       "kind": "CC",
       "number": 112,
@@ -844,6 +886,20 @@
       "rationale": "Cymbal choke: a damping action on one stroke, independent of dead stroke and muffling.",
       "values": {
         "pt.choke": 1
+      }
+    },
+    {
+      "id": "openness",
+      "kind": "KS",
+      "number": 5,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Hi-hat openness and the pedal stroke, a direction that holds until changed.",
+      "values": {
+        "pt.closed": 2,
+        "pt.halfOpen": 3,
+        "pt.open2": 4,
+        "pt.pedal": 5
       }
     }
   ],
@@ -1032,329 +1088,77 @@
           "name": "Natural"
         },
         {
-          "pitch": 37,
-          "techniques": [
-            "pt.centre"
-          ],
-          "name": "Centre"
-        },
-        {
-          "pitch": 38,
-          "techniques": [
-            "pt.edgeDrums"
-          ],
-          "name": "Edge (drums)"
-        },
-        {
-          "pitch": 39,
-          "techniques": [
-            "pt.edgeCymbals"
-          ],
-          "name": "Edge (cymbals)"
-        },
-        {
-          "pitch": 40,
-          "techniques": [
-            "pt.rim"
-          ],
-          "name": "Rim"
-        },
-        {
-          "pitch": 41,
-          "techniques": [
-            "pt.rimShot"
-          ],
-          "name": "Rim shot"
-        },
-        {
-          "pitch": 42,
-          "techniques": [
-            "pt.rimKnock"
-          ],
-          "name": "Rim knock"
-        },
-        {
-          "pitch": 43,
-          "techniques": [
-            "pt.crossStick"
-          ],
-          "name": "Cross stick"
-        },
-        {
-          "pitch": 44,
-          "techniques": [
-            "pt.sideStick"
-          ],
-          "name": "Side stick"
-        },
-        {
-          "pitch": 45,
-          "techniques": [
-            "pt.shell"
-          ],
-          "name": "Shell"
-        },
-        {
-          "pitch": 46,
-          "techniques": [
-            "pt.bell"
-          ],
-          "name": "Bell"
-        },
-        {
-          "pitch": 47,
-          "techniques": [
-            "pt.frame"
-          ],
-          "name": "Frame"
-        },
-        {
-          "pitch": 48,
-          "techniques": [
-            "pt.skin"
-          ],
-          "name": "Skin"
-        },
-        {
-          "pitch": 49,
-          "techniques": [
-            "pt.hiHat"
-          ],
-          "name": "Hi-hat"
-        },
-        {
-          "pitch": 50,
-          "techniques": [
-            "pt.stickShot"
-          ],
-          "name": "Stick shot"
-        },
-        {
-          "pitch": 51,
-          "techniques": [
-            "pt.stickClick"
-          ],
-          "name": "Stick click"
-        },
-        {
-          "pitch": 52,
-          "techniques": [
-            "pt.stickSnap"
-          ],
-          "name": "Stick snap"
-        },
-        {
-          "pitch": 53,
-          "techniques": [
-            "pt.backstick"
-          ],
-          "name": "Backstick"
-        },
-        {
-          "pitch": 54,
-          "techniques": [
-            "pt.standClick"
-          ],
-          "name": "Stand click"
-        },
-        {
-          "pitch": 55,
-          "techniques": [
-            "pt.tap"
-          ],
-          "name": "Tap"
-        },
-        {
-          "pitch": 56,
-          "techniques": [
-            "pt.click"
-          ],
-          "name": "Click"
-        },
-        {
-          "pitch": 57,
-          "techniques": [
-            "pt.ping"
-          ],
-          "name": "Ping"
-        },
-        {
-          "pitch": 58,
-          "techniques": [
-            "pt.ding"
-          ],
-          "name": "Ding"
-        },
-        {
-          "pitch": 59,
-          "techniques": [
-            "pt.foot"
-          ],
-          "name": "Foot"
-        },
-        {
-          "pitch": 60,
-          "techniques": [
-            "pt.scrape"
-          ],
-          "name": "Scrape"
-        },
-        {
-          "pitch": 61,
-          "techniques": [
-            "pt.swish"
-          ],
-          "name": "Swish"
-        },
-        {
-          "pitch": 62,
-          "techniques": [
-            "pt.slap"
-          ],
-          "name": "Slap"
-        },
-        {
-          "pitch": 63,
-          "techniques": [
-            "pt.slapCongas"
-          ],
-          "name": "Slap (congas)"
-        },
-        {
-          "pitch": 64,
-          "techniques": [
-            "pt.bassTone"
-          ],
-          "name": "Bass tone"
-        },
-        {
-          "pitch": 65,
-          "techniques": [
-            "pt.shake"
-          ],
-          "name": "Shake"
-        },
-        {
-          "pitch": 66,
-          "techniques": [
-            "pt.crush"
-          ],
-          "name": "Crush"
-        },
-        {
-          "pitch": 67,
-          "techniques": [
-            "pt.sizzle"
-          ],
-          "name": "Sizzle"
-        },
-        {
-          "pitch": 68,
-          "techniques": [
-            "pt.zing"
-          ],
-          "name": "Zing"
-        },
-        {
-          "pitch": 72,
+          "pitch": 36,
           "techniques": [
             "pt.roll"
           ],
           "name": "Roll"
         },
         {
-          "pitch": 73,
+          "pitch": 36,
           "techniques": [
             "pt.tremolo"
           ],
           "name": "Tremolo"
         },
         {
-          "pitch": 74,
+          "pitch": 36,
           "techniques": [
             "pt.buzzRoll"
           ],
           "name": "Buzz roll"
         },
         {
-          "pitch": 75,
+          "pitch": 36,
           "techniques": [
             "pt.pressRoll"
           ],
           "name": "Press roll"
         },
         {
-          "pitch": 76,
+          "pitch": 36,
           "techniques": [
             "pt.flatRoll"
           ],
           "name": "Flat roll"
         },
         {
-          "pitch": 77,
+          "pitch": 36,
           "techniques": [
             "pt.circularRoll"
           ],
           "name": "Circular roll"
         },
         {
-          "pitch": 78,
+          "pitch": 36,
           "techniques": [
             "pt.swooshRoll"
           ],
           "name": "Swoosh roll"
         },
         {
-          "pitch": 79,
+          "pitch": 36,
           "techniques": [
             "pt.trill"
           ],
           "name": "Trill"
         },
         {
-          "pitch": 80,
+          "pitch": 36,
           "techniques": [
             "pt.trill.half"
           ],
           "name": "Trill (half-step)"
         },
         {
-          "pitch": 81,
+          "pitch": 36,
           "techniques": [
             "pt.trill.whole"
           ],
           "name": "Trill (whole step)"
-        },
-        {
-          "pitch": 84,
-          "techniques": [
-            "pt.closed"
-          ],
-          "name": "Closed"
-        },
-        {
-          "pitch": 85,
-          "techniques": [
-            "pt.halfOpen"
-          ],
-          "name": "Half-open"
-        },
-        {
-          "pitch": 86,
-          "techniques": [
-            "pt.open2"
-          ],
-          "name": "Open 2"
-        },
-        {
-          "pitch": 87,
-          "techniques": [
-            "pt.pedal"
-          ],
-          "name": "Pedal"
         }
       ],
-      "entry_count": 3525
+      "entry_count": 825
     }
   ]
 }

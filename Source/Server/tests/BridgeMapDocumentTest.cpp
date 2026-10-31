@@ -194,8 +194,9 @@ void writtenDurations() {
 }
 
 // An unpitched library carries a percussion map beside the expression map:
-// every instrument shares one technique -> pitch table, so the decoder reads
-// the stroke from the pitch and the roll kind and dynamics from the base.
+// every instrument shares one small table (Natural and the roll kinds, all
+// on one pitch) that makes Dorico play and sustain rolls, while strokes,
+// rolls and dynamics arrive through the expression map as for any section.
 void percussion() {
   juce::String error;
   const auto source = fixture("experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib");
@@ -204,11 +205,14 @@ void percussion() {
   CHECK(doc->schema == 2 && doc->compiled->pinnedPlayback && doc->compiled->hasPercussionMap);
   CHECK(doc->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1");
   CHECK(doc->percussionMapName.isNotEmpty());
-  const auto &codes = doc->compiled->pitchTechniques;
-  CHECK(codes.size() == 47);
-  CHECK(codes.at(36) == std::set<std::string>{"pt.natural"});
-  CHECK(codes.at(73) == std::set<std::string>{"pt.tremolo"});
-  CHECK(!codes.count(70) && !codes.count(21) && !codes.count(114));
+  // Every entry (Natural and the ten roll kinds) sends pitch 36; strokes and
+  // surfaces extend the pitched strike_location dimension on CC106.
+  CHECK(doc->compiled->percussionPitches == std::set<int>{36});
+  const auto strike = std::find_if(doc->compiled->dimensions.begin(), doc->compiled->dimensions.end(),
+                                   [](const auto &d) { return !d.key && d.number == 106; });
+  CHECK(strike != doc->compiled->dimensions.end() && strike->values.size() == 33);
+  CHECK(strike->values.at(3).techniques == std::set<std::string>{"pt.rim"});
+  CHECK(strike->values.at(8).techniques == std::set<std::string>{"pt.sideStick"});
   // Hits take velocity; every roll-family base takes CC1.
   const auto &bases = doc->compiled->dimensions[0].values;
   CHECK(bases.size() == 75);
@@ -253,21 +257,21 @@ void percussion() {
     auto *copy = new juce::XmlElement(*entries->getFirstChildElement());
     setText(*copy, "pitch", "90"); entries->addChildElement(copy);
   }) && error.contains("Duplicate percussion technique set"));
-  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "techniqueIDs", "pt.centre"); })
+  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "techniqueIDs", "pt.roll"); })
         && error.contains("Duplicate percussion technique set"));
   // Dropping Natural from every instrument.
   CHECK(!edited([&](juce::XmlElement &m) {
     for (auto *row : m.getChildByName("entries")->getChildIterator())
-      if (row->getChildByName("pitch")->getAllSubText().trim() == "36") setText(*row, "techniqueIDs", "pt.natural+pt.accent");
-  }) && error.contains("Natural code"));
+      if (row->getChildByName("techniqueIDs")->getAllSubText().trim() == "pt.natural") setText(*row, "techniqueIDs", "pt.natural+pt.accent");
+  }) && error.contains("Natural entry"));
   // Format and display text are not identity; the table is.
   const auto renamed = edited([&](juce::XmlElement &m) { setText(m, "name", "Renamed by Dorico"); });
   CHECK(renamed && renamed->contentHash != doc->contentHash && renamed->semanticHash == doc->semanticHash);
   const auto recoded = edited([&](juce::XmlElement &m) {
     for (auto *row : m.getChildByName("entries")->getChildIterator())
-      if (row->getChildByName("pitch")->getAllSubText().trim() == "73") setText(*row, "pitch", "71");
+      if (row->getChildByName("techniqueIDs")->getAllSubText().trim() == "pt.tremolo") setText(*row, "pitch", "37");
   });
-  CHECK(recoded && recoded->semanticHash != doc->semanticHash && recoded->compiled->pitchTechniques.count(71));
+  CHECK(recoded && recoded->semanticHash != doc->semanticHash && recoded->compiled->percussionPitches == std::set<int>({36, 37}));
 
   BridgeMapProject project;
   project.documents[doc->contentHash] = doc;
@@ -286,20 +290,21 @@ void percussion() {
   initialize(tracker, *doc->compiled);
   tracker.processEvent(cc(102, 2));
   tracker.processEvent(key(36, 68)); CHECK(notes.size() == 1);
-  CHECK(notes.back().notation_dimensions().at("percussion_code") == 36.0f);
-  CHECK(notes.back().notation_techniques().at("PM:pt.natural") == "pt.natural");
+  CHECK(!notes.back().notation_dimensions().count("percussion_code"));
   CHECK(notes.back().dynamics_mode() == Note::VELOCITY);
   CHECK(collectInputTechniqueIds(notes.back()) == std::set<std::string>{"pt.natural"});
-  // A tremolo: its base selects CC1 dynamics, its code names the roll once.
+  // A tremolo on the same pitch: its base names the roll and selects CC1 dynamics.
   tracker.processEvent(cc(102, 32));
-  tracker.processEvent(key(73, 56)); CHECK(notes.size() == 2);
+  tracker.processEvent(key(36, 56)); CHECK(notes.size() == 2);
   CHECK(notes.back().dynamics_mode() == Note::CC);
   CHECK(collectInputTechniqueIds(notes.back()) == std::set<std::string>{"pt.tremolo"});
-  // The same tremolo on a surface (results-01: Dorico picks the stroke's entry).
-  tracker.processEvent(key(40, 72)); CHECK(notes.size() == 3);
+  // The same tremolo on the rim: the surface is an add-on, so one sustained
+  // note carries both (in r1's pitch-code design this was strokes on a rim pitch).
+  tracker.processEvent(cc(106, 3));
+  tracker.processEvent(key(36, 72)); CHECK(notes.size() == 3);
   const std::set<std::string> rimTremolo{"pt.rim", "pt.tremolo"};
   CHECK(collectInputTechniqueIds(notes.back()) == rimTremolo);
-  // Pitches that are not codes are withheld, after the range test.
+  // Pitches the map never sends are withheld, after the range test.
   tracker.processEvent(key(70, 72)); CHECK(notes.size() == 3);
   CHECK(tracker.bridgeDiagnostics(0, 2)->lastWithheld == BridgeDecoderState::Withheld::UnmappedPitch);
   tracker.processEvent(key(20, 72)); CHECK(notes.size() == 3);

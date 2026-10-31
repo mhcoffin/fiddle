@@ -450,7 +450,7 @@
     {
       "part": "sn",
       "index": 16,
-      "pitch": 73,
+      "pitch": 36,
       "bar": 5,
       "beat": 1.0,
       "onset_ms": 9600.0,
@@ -482,7 +482,7 @@
     {
       "part": "sn",
       "index": 17,
-      "pitch": 73,
+      "pitch": 36,
       "bar": 6,
       "beat": 1.0,
       "onset_ms": 12000.0,

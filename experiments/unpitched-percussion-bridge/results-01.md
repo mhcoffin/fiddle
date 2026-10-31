@@ -49,8 +49,8 @@ findings.
 1. **A written three-stroke tremolo is `pt.tremolo`, not `pt.roll`.** Bar 5
    selected base 10 (tremolo) and entry 65 (tremolo). The `pt.rim+pt.roll`
    combination entry was therefore never a candidate. What produces
-   `pt.roll` in Dorico is still unknown; r1 keeps both codes and both bases.
-   `scoretest.py`'s tremolo token expects `pt.tremolo`.
+   `pt.roll` in Dorico is still unknown; r1 keeps both as bases and as
+   percussion entries. `scoretest.py`'s tremolo token expects `pt.tremolo`.
 2. **Sustain follows the chosen entry.** A tremolo whose chosen entry carries
    the tremolo technique (65) is one sustained note; otherwise (rim 61 by
    best subset; natural 60 on map B) Dorico plays repeated 100 ms strokes at
@@ -93,6 +93,24 @@ entry keyswitch as a conduit (U4: simultaneous with the note, so Fiddle
 would pair by time), and stroke × roll combinations in 90–114 if sustained
 rolls on a surface turn out to matter for playback.
 
+### Design revision (same day)
+
+U1 = A1 and U3's Natural fallback together mean the percussion map need not
+carry strokes at all: a stroke technique the map lacks still switches its
+expression-map add-on, and the note plays on the Natural entry. So r1 was
+regenerated with **the expression map doing everything**, as for the pitched
+sections: strokes and surfaces extend the pitched `strike_location`
+dimension (CC106), hi-hat openness is a dimension, and the percussion map
+gives every instrument **one pitch (36)** for Natural and for each roll kind
+(finding 2: a roll sustains only when the chosen entry carries it; Dorico's
+own Yamaha XG map likewise puts roll and tremolo on one pitch). The r2
+stroke × roll question dissolves: rim + tremolo now matches the tremolo
+entry (best subset) and plays as one sustained note with rim as an add-on.
+Still unverified, and not needed: whether Dorico plays an unpitched
+instrument with no percussion map at all, and whether a notehead-assigned
+technique (the x head, finding 5) reaches the expression map as a text mark
+does; the first score-test run will show the latter if a spec uses one.
+
 ## Re-run 02 (2026-10-31, capture `fiddle-midi-probe-1793469528030453-2`)
 
 Same score, the ghost playing technique now resolving to the built-in Ghost
@@ -105,8 +123,8 @@ note, plus a whole note with a three-stroke tremolo in part B bar 8.
   computes for a three-stroke tremolo on a snare is `pt.tremolo`. Dorico's
   popover has no "roll" playing technique; `pt.roll` would need a playing
   technique created for it, or a percussion playing technique defined with
-  tremolo strokes (Edit Percussion Playing Techniques). r1 keeps both codes
-  and both bases; the score tests expect `pt.tremolo` for `+trem`.
+  tremolo strokes (Edit Percussion Playing Techniques). r1 keeps both as
+  bases and as entries; the score tests expect `pt.tremolo` for `+trem`.
 - Everything else matches run 01.
 
 ## Checker output

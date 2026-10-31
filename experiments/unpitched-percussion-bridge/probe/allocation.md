@@ -2,7 +2,7 @@
 
 Wire schema 2 candidate: compiled by Fiddle, **not yet host-verified**. See [README](README.md) for scope, cancellation policy and caveats.
 
-**8/50 conduits: 6 CCs + 2 KS pitches; 42 spare.** 20 bases + 15 add-ons = 35 switch rows, plus one Init switch (10 actions, including the two beacon keyswitches). 19 distinct encoded IDs + 0 built-in alias + 9 IDs carried by percussion-map pitch codes; 4 explicit mutex groups.
+**8/50 conduits: 6 CCs + 2 KS pitches; 42 spare.** 20 bases + 15 add-ons = 35 switch rows, plus one Init switch (10 actions, including the two beacon keyswitches). 19 distinct encoded IDs + 0 built-in alias + 9 IDs with percussion-map entries; 4 explicit mutex groups.
 
 All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases are not dimension resets. Every add-on Off writes its typed value On+64: it clears the dimension only while that technique is current. Init writes the unspecified value. Init also sends the revision beacon KS126 velocity 30 and KS127 velocity 11; those pitches are reserved and carry no technique.
 
@@ -36,7 +36,7 @@ Dynamics: cc1 = the level arrives on CC1 just after the note-on; velocity = in t
 
 ## Percussion map `drumkitmap.user.Fiddle.UnpitchedProbe.A`
 
-Fiddle Unpitched Probe A: 11 pitch codes × 1 instruments = 11 entries; forSingleInstrument true. Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names the stroke and the chair names the instrument. Every instrument has the same table.
+Fiddle Unpitched Probe A: 11 entries × 1 instruments = 11 entries; forSingleInstrument true. Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique falls back to Natural and still reaches the expression map), and sustains a roll only when that entry carries the roll. Every instrument has the same table.
 
 | Pitch | PTs | Keyswitch |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ Instruments: `instrument.orchestral.unpitched.snare.drum`
 
 ## Percussion map `drumkitmap.user.Fiddle.UnpitchedProbe.B`
 
-Fiddle Unpitched Probe B: 1 pitch codes × 1 instruments = 1 entries; forSingleInstrument true. Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names the stroke and the chair names the instrument. Every instrument has the same table.
+Fiddle Unpitched Probe B: 1 entries × 1 instruments = 1 entries; forSingleInstrument true. Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique falls back to Natural and still reaches the expression map), and sustains a roll only when that entry carries the roll. Every instrument has the same table.
 
 | Pitch | PTs | Keyswitch |
 | --- | --- | --- |

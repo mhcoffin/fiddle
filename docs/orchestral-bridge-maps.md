@@ -10,12 +10,17 @@ and coordinated installation remain pending.
 
 ## Section maps in the playback template (2026-10-19)
 
-All four profiles now exist. [Pitched percussion r1](../experiments/orchestral-percussion-bridge/README.md)
+All five profiles now exist. [Pitched percussion r1](../experiments/orchestral-percussion-bridge/README.md)
 covers timpani and the orchestral mallet instruments (review pending).
-Template installation assigns each chair its section's map from the Dorico
-instrument, pins the four revisions with the branch/version, and leaves every
-other instrument on the universal map. There is no manual assignment step; see
-[bridge maps](bridge-map-authoring.md).
+[Unpitched percussion r1](../experiments/unpitched-percussion-bridge/README.md)
+(2026-10-31) covers Dorico's orchestral unpitched set plus toms, congas,
+bongos, tambourine, blocks and cowbells as single instruments: its library
+also holds the percussion map Dorico needs to play them, one pitch per
+instrument, so the expression map carries every technique as in the other
+sections. Template installation assigns each chair its section's map from the
+Dorico instrument, pins the five revisions with the branch/version, and leaves
+every other instrument on the universal map. There is no manual assignment
+step; see [bridge maps](bridge-map-authoring.md).
 
 ## Wire schema 2 (2026-10-19)
 
@@ -221,8 +226,14 @@ be added later; do not silently broaden Strings to include harp/guitar or
 Pitched Percussion to cover all keyboards/synthesizers. The allocation table
 must explicitly list the instruments covered by each profile.
 
-**Unpitched percussion is deferred** and will require percussion-map work.
-User/vendor-defined playback techniques are also a later project. Start with
+**Unpitched percussion** (2026-10-31) is the fifth section, single
+instruments only: Dorico plays it through a percussion map, which the
+section's library supplies as one pitch per instrument (Natural and the roll
+kinds, so rolls sustain) while every technique still arrives through the
+expression map's dimensions. Drum-set kits are later work; see
+[the experiment](../experiments/unpitched-percussion-bridge/README.md) and
+[bridge maps](bridge-map-authoring.md). User/vendor-defined playback
+techniques are also a later project. Start with
 the appropriate **built-in Dorico PTs** for each section. Retain exact canonical
 IDs; aliases and score-notation activation require explicit review.
 

@@ -40,8 +40,9 @@ INSTRUMENTS = {
                     dorico="instrument.pitchedpercussion.marimba", clef=("G", 2), program=13),
     # Unpitched instruments: notes are written as x heads ("x/q"), shown at
     # "unpitched" (display step, octave) on a percussion clef. Dorico sends
-    # the pitch code of the unpitched bridge's percussion map, so each
-    # expected note's pitch is that code (percussion_code).
+    # the pitch of the unpitched bridge's percussion-map entry it picks, so
+    # each expected note's pitch comes from that map (percussion_code); r1
+    # puts every entry on one pitch.
     "snare": dict(name="Snare Drum", sound="drum.snare-drum", dorico="instrument.orchestral.unpitched.snare.drum",
                   clef=("percussion", 2), program=1, unpitched=("C", 5)),
     "bass-drum": dict(name="Bass Drum", sound="drum.bass-drum", dorico="instrument.orchestral.unpitched.bass.drum",
@@ -95,16 +96,17 @@ def articulation_elements(articulations):
 
 @functools.lru_cache(maxsize=None)
 def percussion_codes():
-    """The unpitched bridge's pitch codes, [(pitch, frozenset of technique IDs)]."""
+    """The unpitched bridge's percussion-map entries, [(pitch, frozenset of technique IDs)]."""
     manifest = json.loads(CODES_SOURCE.read_text())
     return [(c["pitch"], frozenset(c["techniques"])) for c in manifest["percussion"][0]["codes"]]
 
 
 def percussion_code(techniques):
-    """The pitch Dorico should send for an unpitched note: the code whose
+    """The pitch Dorico should send for an unpitched note: the entry whose
     techniques are all among the note's, with the most of them (ties: the
-    fewest techniques, then table order), else Natural. The same rule as
-    the Dorico simulator in Source/Server/tests/ScoreTestTest.cpp."""
+    fewest techniques, then table order), else Natural (results-01.md). In
+    r1 every entry shares one pitch, so this is always that pitch; the rule
+    is kept so a map with several pitches (kits) needs no new code."""
     wanted = set(techniques)
     best = None
     for pitch, ids in percussion_codes():

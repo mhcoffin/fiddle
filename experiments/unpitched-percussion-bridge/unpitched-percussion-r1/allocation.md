@@ -2,7 +2,7 @@
 
 Wire schema 2 candidate: compiled by Fiddle, **not yet host-verified**. See [README](README.md) for scope, cancellation policy and caveats.
 
-**18/50 conduits: 10 CCs + 8 KS pitches; 32 spare.** 75 bases + 40 add-ons = 115 switch rows, plus one Init switch (20 actions, including the two beacon keyswitches). 54 distinct encoded IDs + 0 built-in alias + 47 IDs carried by percussion-map pitch codes; 8 explicit mutex groups.
+**20/50 conduits: 11 CCs + 9 KS pitches; 30 spare.** 75 bases + 76 add-ons = 151 switch rows, plus one Init switch (22 actions, including the two beacon keyswitches). 90 distinct encoded IDs + 0 built-in alias + 11 IDs with percussion-map entries; 10 explicit mutex groups.
 
 All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases are not dimension resets. Every add-on Off writes its typed value On+64: it clears the dimension only while that technique is current. Init writes the unspecified value. Init also sends the revision beacon KS126 velocity 33 and KS127 velocity 111; those pitches are reserved and carry no technique.
 
@@ -91,57 +91,21 @@ Dynamics: cc1 = the level arrives on CC1 just after the note-on; velocity = in t
 
 ## Percussion map `drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1`
 
-Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test): 47 pitch codes × 75 instruments = 3525 entries; forSingleInstrument true. Dorico picks the entry matching a note's techniques and sends its pitch, so the pitch names the stroke and the chair names the instrument. Every instrument has the same table.
+Fiddle Bridge - Orchestral Unpitched Percussion r1 (host test): 11 entries × 75 instruments = 825 entries; forSingleInstrument true. Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique falls back to Natural and still reaches the expression map), and sustains a roll only when that entry carries the roll. Every instrument has the same table.
 
 | Pitch | PTs | Keyswitch |
 | --- | --- | --- |
 | 36 | Natural (`pt.natural`) | — |
-| 37 | Centre (`pt.centre`) | — |
-| 38 | Edge (drums) (`pt.edgeDrums`) | — |
-| 39 | Edge (cymbals) (`pt.edgeCymbals`) | — |
-| 40 | Rim (`pt.rim`) | — |
-| 41 | Rim shot (`pt.rimShot`) | — |
-| 42 | Rim knock (`pt.rimKnock`) | — |
-| 43 | Cross stick (`pt.crossStick`) | — |
-| 44 | Side stick (`pt.sideStick`) | — |
-| 45 | Shell (`pt.shell`) | — |
-| 46 | Bell (`pt.bell`) | — |
-| 47 | Frame (`pt.frame`) | — |
-| 48 | Skin (`pt.skin`) | — |
-| 49 | Hi-hat (`pt.hiHat`) | — |
-| 50 | Stick shot (`pt.stickShot`) | — |
-| 51 | Stick click (`pt.stickClick`) | — |
-| 52 | Stick snap (`pt.stickSnap`) | — |
-| 53 | Backstick (`pt.backstick`) | — |
-| 54 | Stand click (`pt.standClick`) | — |
-| 55 | Tap (`pt.tap`) | — |
-| 56 | Click (`pt.click`) | — |
-| 57 | Ping (`pt.ping`) | — |
-| 58 | Ding (`pt.ding`) | — |
-| 59 | Foot (`pt.foot`) | — |
-| 60 | Scrape (`pt.scrape`) | — |
-| 61 | Swish (`pt.swish`) | — |
-| 62 | Slap (`pt.slap`) | — |
-| 63 | Slap (congas) (`pt.slapCongas`) | — |
-| 64 | Bass tone (`pt.bassTone`) | — |
-| 65 | Shake (`pt.shake`) | — |
-| 66 | Crush (`pt.crush`) | — |
-| 67 | Sizzle (`pt.sizzle`) | — |
-| 68 | Zing (`pt.zing`) | — |
-| 72 | Roll (`pt.roll`) | — |
-| 73 | Tremolo (`pt.tremolo`) | — |
-| 74 | Buzz roll (`pt.buzzRoll`) | — |
-| 75 | Press roll (`pt.pressRoll`) | — |
-| 76 | Flat roll (`pt.flatRoll`) | — |
-| 77 | Circular roll (`pt.circularRoll`) | — |
-| 78 | Swoosh roll (`pt.swooshRoll`) | — |
-| 79 | Trill (`pt.trill`) | — |
-| 80 | Trill (half-step) (`pt.trill.half`) | — |
-| 81 | Trill (whole step) (`pt.trill.whole`) | — |
-| 84 | Closed (`pt.closed`) | — |
-| 85 | Half-open (`pt.halfOpen`) | — |
-| 86 | Open 2 (`pt.open2`) | — |
-| 87 | Pedal (`pt.pedal`) | — |
+| 36 | Roll (`pt.roll`) | — |
+| 36 | Tremolo (`pt.tremolo`) | — |
+| 36 | Buzz roll (`pt.buzzRoll`) | — |
+| 36 | Press roll (`pt.pressRoll`) | — |
+| 36 | Flat roll (`pt.flatRoll`) | — |
+| 36 | Circular roll (`pt.circularRoll`) | — |
+| 36 | Swoosh roll (`pt.swooshRoll`) | — |
+| 36 | Trill (`pt.trill`) | — |
+| 36 | Trill (half-step) (`pt.trill.half`) | — |
+| 36 | Trill (whole step) (`pt.trill.whole`) | — |
 
 Instruments: `instrument.band.unpitched.floortom.high`, `instrument.band.unpitched.floortom.low`, `instrument.band.unpitched.roto.tom.high`, `instrument.band.unpitched.roto.tom.low`, `instrument.band.unpitched.roto.tom.medium`, `instrument.band.unpitched.roto.tom.medium-high`, `instrument.band.unpitched.roto.tom.medium-low`, `instrument.band.unpitched.tomtom.high`, `instrument.band.unpitched.tomtom.high.alias.tom-high`, `instrument.band.unpitched.tomtom.low`, `instrument.band.unpitched.tomtom.low.alias.tom-low`, `instrument.band.unpitched.tomtom.medium`, `instrument.band.unpitched.tomtom.medium.alias.tom-medium`, `instrument.band.unpitched.tomtom.medium-high`, `instrument.band.unpitched.tomtom.medium-high.alias.tom-medium-high`, `instrument.band.unpitched.tomtom.medium-low`, `instrument.band.unpitched.tomtom.medium-low.alias.tom-medium-low`, `instrument.latin.unpitched.bongo.bell.high`, `instrument.latin.unpitched.bongo.bell.low`, `instrument.latin.unpitched.bongo.high`, `instrument.latin.unpitched.bongo.low`, `instrument.latin.unpitched.conga.high`, `instrument.latin.unpitched.conga.low`, `instrument.latin.unpitched.conga.medium`, `instrument.latin.unpitched.conga.very.high`, `instrument.latin.unpitched.conga.very.low`, `instrument.orchestral.unpitched.anvil`, `instrument.orchestral.unpitched.bass.drum`, `instrument.orchestral.unpitched.belltree`, `instrument.orchestral.unpitched.clash.cymbals`, `instrument.orchestral.unpitched.crash.cymbal.high`, `instrument.orchestral.unpitched.crash.cymbal.low`, `instrument.orchestral.unpitched.hihat`, `instrument.orchestral.unpitched.hihat.pedal`, `instrument.orchestral.unpitched.large.gong`, `instrument.orchestral.unpitched.opera.gong`, `instrument.orchestral.unpitched.ratchet`, `instrument.orchestral.unpitched.ride.cymbal.high`, `instrument.orchestral.unpitched.ride.cymbal.low`, `instrument.orchestral.unpitched.side.drum`, `instrument.orchestral.unpitched.sizzle.cymbal`, `instrument.orchestral.unpitched.sleigh.bells`, `instrument.orchestral.unpitched.small.gong`, `instrument.orchestral.unpitched.snare.drum`, `instrument.orchestral.unpitched.suspended.cymbal`, `instrument.orchestral.unpitched.tamtam`, `instrument.orchestral.unpitched.temple.high`, `instrument.orchestral.unpitched.temple.low`, `instrument.orchestral.unpitched.temple.medium`, `instrument.orchestral.unpitched.temple.medium.high`, `instrument.orchestral.unpitched.temple.medium.low`, `instrument.orchestral.unpitched.tenor.drum`, `instrument.orchestral.unpitched.tenor.drum.high`, `instrument.orchestral.unpitched.tenor.drum.medium`, `instrument.orchestral.unpitched.tenor.drum.medium.high`, `instrument.orchestral.unpitched.tenor.drum.medium.low`, `instrument.orchestral.unpitched.thundersheet`, `instrument.orchestral.unpitched.triangle`, `instrument.orchestral.unpitched.whip`, `instrument.orchestral.unpitched.whistle`, `instrument.orchestral.unpitched.wind.gong`, `instrument.percussion.other.cowbell.high`, `instrument.percussion.other.cowbell.low`, `instrument.percussion.other.tambourine`, `instrument.percussion.other.wood.block.high`, `instrument.percussion.other.wood.block.low`, `instrument.percussion.other.wood.block.medium`, `instrument.percussion.other.wood.block.medium.high`, `instrument.percussion.other.wood.block.medium.low`, `instrument.unpitched.china.cymbal`, `instrument.unpitched.flexatone`, `instrument.unpitched.kick.drum.low`, `instrument.unpitched.kick.drum.very.low`, `instrument.unpitched.ribboncrasher`, `instrument.unpitched.splash.cymbal`
 
@@ -165,9 +129,11 @@ Each multi-value row is one mutex group. Singletons are independent; those marke
 | beater | CC105 | 0 | 1: Felt (beater) (`pt.beaterFelt`); 2: Rods (beater) (`pt.beaterRods`); 3: Puffy (beater) (`pt.beaterPuffy`); 4: Dreads (beater) (`pt.beaterDreads`); 5: Sticks (`pt.sticks`) | No |
 | dead_stroke | CC108 | 0 | 1: Dead stroke (`pt.deadStroke`) | No |
 | muffled | CC109 | 0 | 1: Muffled/Damped (`pt.muffledDamped`) | No |
+| strike_location | CC106 | 0 | 1: Centre (`pt.centre`); 2: Edge (drums) (`pt.edgeDrums`); 3: Rim (`pt.rim`); 4: Edge (cymbals) (`pt.edgeCymbals`); 5: Rim shot (`pt.rimShot`); 6: Rim knock (`pt.rimKnock`); 7: Cross stick (`pt.crossStick`); 8: Side stick (`pt.sideStick`); 9: Shell (`pt.shell`); 10: Bell (`pt.bell`); 11: Frame (`pt.frame`); 12: Skin (`pt.skin`); 13: Hi-hat (`pt.hiHat`); 14: Stick shot (`pt.stickShot`); 15: Stick click (`pt.stickClick`); 16: Stick snap (`pt.stickSnap`); 17: Backstick (`pt.backstick`); 18: Stand click (`pt.standClick`); 19: Tap (`pt.tap`); 20: Click (`pt.click`); 21: Ping (`pt.ping`); 22: Ding (`pt.ding`); 23: Foot (`pt.foot`); 24: Scrape (`pt.scrape`); 25: Swish (`pt.swish`); 26: Slap (`pt.slap`); 27: Slap (congas) (`pt.slapCongas`); 28: Bass tone (`pt.bassTone`); 29: Shake (`pt.shake`); 30: Crush (`pt.crush`); 31: Sizzle (`pt.sizzle`); 32: Zing (`pt.zing`) | Proposed yes |
 | snares | CC112 | 0 | 1: Snares on (`pt.snareOn`); 2: Snares off (`pt.snareOff`) | No |
 | throwoff | CC113 | 0 | 1: Throwoff on (`pt.throwoffOn`); 2: Throwoff off (`pt.throwoffOff`) | No |
 | choke | CC114 | 0 | 1: Choke (`pt.choke`) | No |
+| openness | KS5 | 1 | 2: Closed (`pt.closed`); 3: Half-open (`pt.halfOpen`); 4: Open 2 (`pt.open2`); 5: Pedal (`pt.pedal`) | No |
 
 ## Grouping rationale
 
@@ -185,6 +151,8 @@ Each multi-value row is one mutex group. Singletons are independent; those marke
 - **beater**: Beater/mallet choice for one stroke. Built-in beater alternatives plus generic Sticks; ord. does not change mallets, so Natural does not cancel this group.
 - **dead_stroke**: Stroke that is stopped immediately, independent of later damping or l.v.
 - **muffled**: Muffled/damped resonance (e.g. covered timpani), kept separate from the Damp action.
+- **strike_location**: Where, or with what, the instrument is struck: the pitched map's centre/edge/rim on the same conduit and values, then every other built-in stroke and surface. Natural returns to the normal spot.
 - **snares**: Snare mechanism, a direction that holds until changed. An explicit Off is not the unspecified state.
 - **throwoff**: Throw-off lever, kept apart from the snare state: verify what notation emits it before merging.
 - **choke**: Cymbal choke: a damping action on one stroke, independent of dead stroke and muffling.
+- **openness**: Hi-hat openness and the pedal stroke, a direction that holds until changed.

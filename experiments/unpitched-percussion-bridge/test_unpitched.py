@@ -1,13 +1,15 @@
 """Unpitched-percussion profile contracts: artifacts current, shared conduits
-identical to pitched percussion r2, schema 2, base dynamics as declared,
-pitch codes musical and uniform across instruments, full inventory."""
+identical to pitched percussion r2 (strike_location extended on its conduit),
+schema 2, base dynamics as declared, the percussion map one pitch per
+instrument carrying Natural and the roll kinds, identical for every
+instrument, full inventory."""
 import json
 import unittest
 import xml.etree.ElementTree as ET
 
 import generate_unpitched as generator
-from profiles import (BASES, CODES, COMMON_IDS, HIT_BASES, INSTRUMENTS, PITCHED_IDS, PROBE, ROLL_FAMILY,
-                      UNPITCHED_R1 as spec, engine, pitched_dims)
+from profiles import (BASES, CODES, COMMON_IDS, HIT_BASES, INSTRUMENTS, PITCH, PITCHED_IDS, PROBE, ROLL_FAMILY,
+                      STROKES, UNPITCHED_R1 as spec, engine, pitched_dims)
 
 
 class UnpitchedPercussion(unittest.TestCase):
@@ -29,9 +31,14 @@ class UnpitchedPercussion(unittest.TestCase):
         for key in COMMON_IDS + PITCHED_IDS:
             self.assertEqual((dims[key]["kind"], dims[key]["number"], dims[key]["values"]),
                              (pitched_dims[key]["kind"], pitched_dims[key]["number"], pitched_dims[key]["values"]))
+        # strike_location keeps the pitched conduit and its first values, then extends them.
+        strike, reference = dims["strike_location"], pitched_dims["strike_location"]
+        self.assertEqual((strike["kind"], strike["number"]), (reference["kind"], reference["number"]))
+        self.assertEqual({pt: strike["values"][pt] for pt in reference["values"]}, reference["values"])
+        self.assertEqual(len(strike["values"]), len(STROKES))
         # New mechanisms sit on conduits no pitched dimension uses.
         taken = {(d["kind"], d["number"]) for d in pitched_dims.values()}
-        for key in ("snares", "throwoff", "choke"):
+        for key in ("snares", "throwoff", "choke", "openness"):
             self.assertNotIn((dims[key]["kind"], dims[key]["number"]), taken)
 
     def test_schema_two(self):
@@ -60,16 +67,16 @@ class UnpitchedPercussion(unittest.TestCase):
         flags = {r.findtext("techniqueIDs"): r.findtext("flags") for r in rows}
         self.assertEqual((flags["pt.staccato"], flags["pt.natural"], flags["pt.roll"]), ("1", "0", "0"))
 
-    def test_pitch_codes(self):
+    def test_percussion_entries(self):
         low, high = engine.MUSICAL_RANGE
-        pitches = [pitch for pitch, *_ in CODES]
-        self.assertEqual(len(set(pitches)), len(CODES))
-        self.assertTrue(all(low <= p <= high for p in pitches))
-        self.assertIn((36, "pt.natural"), CODES)
+        self.assertTrue(low <= PITCH <= high)
+        self.assertNotIn(PITCH, {int(a.findtext("param1")) for a in self.root.iter("switchOnAction")
+                                 if a.findtext("type") == "kKeySwitch"})
+        # One pitch for every entry: Natural, and each roll kind so Dorico sustains it.
+        self.assertEqual(CODES, [(PITCH, pt) for pt in ["pt.natural"] + ROLL_FAMILY])
         catalog = engine.inventory()
         for _, ids in CODES:
-            for pt in ids.split("+"):
-                self.assertIn(pt, catalog)
+            self.assertIn(ids, catalog)
         definitions = self.root.findall("drumKitNoteMapDefinitions/entities/DrumKitNoteMapDefinition")
         self.assertEqual(len(definitions), 1)
         definition = definitions[0]
@@ -86,13 +93,14 @@ class UnpitchedPercussion(unittest.TestCase):
         self.assertEqual(set(tables.values().__iter__().__next__()), set(CODES))
         self.assertEqual(len({frozenset(t) for t in tables.values()}), 1)
 
-    def test_roll_family_is_both_base_and_code(self):
+    def test_roll_family_is_both_base_and_entry(self):
         inventory = self.outputs["inventory.md"].decode()
         for pt in ROLL_FAMILY:
             self.assertIn(f"| `{pt}` |", inventory)
-            self.assertRegex(inventory, rf"\| `{pt}` \|[^|]*\|[^|]*\| Pitch code \+ Base \|")
-        self.assertRegex(inventory, r"\| `pt\.rim` \|[^|]*\|[^|]*\| Pitch code \|")
-        self.assertEqual(self.manifest["counts"]["pitch_code_ids"], len({pt for _, ids in CODES for pt in ids.split("+")}))
+            self.assertRegex(inventory, rf"\| `{pt}` \|[^|]*\|[^|]*\| Percussion entry \+ Base \|")
+        self.assertRegex(inventory, r"\| `pt\.rim` \|[^|]*\|[^|]*\| Add-on \|")
+        self.assertRegex(inventory, r"\| `pt\.sideStick` \|[^|]*\|[^|]*\| Add-on \|")
+        self.assertEqual(self.manifest["counts"]["percussion_entry_ids"], len(CODES))
 
     def test_full_inventory(self):
         self.assertEqual(self.outputs["inventory.md"].decode().count("\n| `pt."), 298)
@@ -110,15 +118,17 @@ class UnpitchedPercussion(unittest.TestCase):
         self.assertEqual(volumes, {"pt.natural": "kNoteVelocity", "pt.roll": "kCC", "pt.tremolo": "kCC", "pt.buzzRoll": "kCC"})
         self.assertNotIn("pt.staccato", [g.findtext("techniqueIDs") for g in root.iter("mutualExclusionGroup")])
 
-    def test_engine_rejects_bad_codes(self):
+    def test_engine_rejects_bad_entries(self):
         from types import SimpleNamespace
         catalog = engine.inventory()
+        def spec_for(codes):
+            return SimpleNamespace(PERCUSSION=SimpleNamespace(ENTITY_ID="x", INSTRUMENTS=["i"], CODES=codes,
+                                                               FOR_SINGLE_INSTRUMENT=False))
         def bad(codes):
-            s = SimpleNamespace(PERCUSSION=SimpleNamespace(ENTITY_ID="x", INSTRUMENTS=["i"], CODES=codes,
-                                                           FOR_SINGLE_INSTRUMENT=False))
             with self.assertRaises(ValueError):
-                engine.validate_percussion(s, catalog)
-        bad([(36, "pt.natural"), (36, "pt.rim")])          # duplicate pitch
+                engine.validate_percussion(spec_for(codes), catalog)
+        engine.validate_percussion(spec_for([(36, "pt.natural"), (36, "pt.roll")]), catalog)  # a shared pitch is fine
+        bad([(36, "pt.natural"), (37, "pt.natural")])      # duplicate technique set
         bad([(36, "pt.natural"), (20, "pt.rim")])          # keyswitch pitch
         bad([(36, "pt.natural"), (37, "pt.nonsense")])     # unknown ID
         bad([(36, "pt.natural"), (37, "pt.rim+pt.rim")])   # duplicate technique

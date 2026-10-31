@@ -23,7 +23,7 @@
     "ks_conduits": 2,
     "spare_conduits": 42,
     "mutex_groups": 4,
-    "pitch_code_ids": 9
+    "percussion_entry_ids": 9
   },
   "specification_sha256": "f9bb28451b20cb2d5156ce12ba15ea32b7b912d0a7a96855acc437f6b69cd92a",
   "map_sha256": "89dc0355d801abf3d6c6287a4f84fbbd9a212f8306600d99d5736134075ef82e",

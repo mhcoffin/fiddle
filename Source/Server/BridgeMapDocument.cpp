@@ -79,13 +79,17 @@ juce::XmlElement *beaconAction(juce::XmlElement &actions, int pitch) {
     if (text(*row, "type") == "kKeySwitch" && text(*row, "param1") == juce::String(pitch)) return row;
   return nullptr;
 }
-// Dorico's percussion map: instrument + technique set -> pitch. The bridge
-// requires the same table for every instrument, so a pitch means the same
-// stroke on every chair and the chair, not the map, names the instrument.
+// Dorico's percussion map: instrument + technique set -> pitch. Dorico plays
+// the pitch of the entry it picks (Natural when nothing matches) and sustains
+// a roll only when that entry carries the roll; every technique reaches the
+// expression map regardless. So the bridge's map is the same small table for
+// every instrument (Natural and the roll kinds, normally on one pitch), and
+// the chair, not the pitch, names the instrument.
 struct Percussion {
+  using Table = std::map<std::set<std::string>, int>; // technique set -> pitch
   juce::String id, name;
   bool single = false;
-  std::map<int, std::set<std::string>> codes;
+  Table entries;
   std::set<juce::String> instruments;
   juce::XmlElement *definition = nullptr;
 };
@@ -108,7 +112,7 @@ Percussion percussionMap(juce::XmlElement &defs, int low, int high, int revision
   p.single = single == "true";
   const auto *entries = map->getChildByName("entries");
   require(entries && entries->getNumChildElements() > 0, "Missing percussion entries");
-  std::map<juce::String, std::map<int, std::set<std::string>>> tables;
+  std::map<juce::String, Percussion::Table> tables;
   for (const auto *row : entries->getChildIterator()) {
     require(row->hasTagName("entry"), "Invalid percussion entry");
     // An entry's own keyswitch is a note Dorico sends with the hit (results-01);
@@ -120,20 +124,16 @@ Percussion percussionMap(juce::XmlElement &defs, int low, int high, int revision
     const auto instrument = text(*row, "instrumentEntityID");
     require(instrument.startsWith("instrument."), "Expected a Dorico instrument entity ID");
     const int pitch = integer(text(*row, "pitch"), 0, 127);
-    require(pitch >= low && pitch <= high, "Percussion code outside the musical range");
-    auto ids = techniques(text(*row, "techniqueIDs"));
-    auto &table = tables[instrument];
-    for (const auto &[code, existing] : table) require(existing != ids, "Duplicate percussion technique set for an instrument");
-    require(table.emplace(pitch, std::move(ids)).second, "Duplicate percussion code for an instrument");
+    require(pitch >= low && pitch <= high, "Percussion entry pitch outside the musical range");
+    require(tables[instrument].emplace(techniques(text(*row, "techniqueIDs")), pitch).second,
+            "Duplicate percussion technique set for an instrument");
   }
-  p.codes = tables.begin()->second;
+  p.entries = tables.begin()->second;
   for (const auto &[instrument, table] : tables) {
-    require(table == p.codes, "Percussion map codes must be identical for every instrument");
+    require(table == p.entries, "Percussion map entries must be identical for every instrument");
     p.instruments.insert(instrument);
   }
-  bool natural = false;
-  for (const auto &[code, ids] : p.codes) natural = natural || ids == std::set<std::string>{"pt.natural"};
-  require(natural, "Percussion map needs a Natural code");
+  require(p.entries.count({"pt.natural"}), "Percussion map needs a Natural entry");
   return p;
 }
 void normalize(juce::XmlElement &node) {
@@ -363,9 +363,11 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
       result->percussionMapId = perc.id; result->percussionMapName = perc.name;
       result->percussionInstruments = perc.instruments;
       compiled->hasPercussionMap = true;
-      compiled->pitchTechniques = std::move(perc.codes);
       semantic.add("perc=" + perc.id + " single=" + (perc.single ? "true" : "false"));
-      for (const auto &[code, ids] : compiled->pitchTechniques) semantic.add("perc|" + juce::String(code) + "|" + sortedIds(ids));
+      for (const auto &[ids, pitch] : perc.entries) {
+        compiled->percussionPitches.insert(pitch);
+        semantic.add("perc|" + juce::String(pitch) + "|" + sortedIds(ids));
+      }
       for (const auto &instrument : perc.instruments) semantic.add("perc-instrument|" + instrument);
       normalize(*perc.definition);
       percussionCanonical = "\n" + perc.definition->toString(juce::XmlElement::TextFormat().singleLine());

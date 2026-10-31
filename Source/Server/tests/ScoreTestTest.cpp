@@ -300,8 +300,8 @@ void bindingsAndExtras() {
   CHECK(bool(percussion["pass"]) && percussionBindings.size() == 2);
   CHECK(percussionBindings[0]["chair_instrument"].toString() == "instrument.pitchedpercussion.timpani");
   CHECK(percussionBindings[1]["chair_instrument"].toString() == "instrument.pitchedpercussion.marimba");
-  // Unpitched parts play the percussion map's codes: hits at Natural (36) by
-  // velocity, tremolo rolls at 73 with CC1 dynamics on the tremolo base.
+  // Unpitched parts play on the percussion map's one pitch (36): hits by
+  // velocity, tremolo rolls with CC1 dynamics on the tremolo base.
   const auto snare = runTest("snare-drum");
   CHECK(bool(snare["pass"]) && snare["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.orchestral.unpitched.snare.drum");
   CHECK(int(snare["received"][0]["pitch"]) == 36);
@@ -310,7 +310,7 @@ void bindingsAndExtras() {
   CHECK(cymbals["comparison"]["bindings"][0]["chair_instrument"].toString() == "instrument.orchestral.unpitched.suspended.cymbal");
   std::set<int> codes;
   for (const auto &n : *cymbals["received"].getArray()) codes.insert(int(n["pitch"]));
-  CHECK(codes == std::set<int>({36, 73}));
+  CHECK(codes == std::set<int>({36}));
 
   // A note no test expects, and a note that never ends.
   const auto expected = loadExpected("basic-rhythm");

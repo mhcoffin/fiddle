@@ -118,11 +118,12 @@ sounding pitch: Dorico sends sounding pitch.
 
 Notes may not cross bar lines: tie them.
 
-An unpitched part's expected pitches are the unpitched bridge's percussion-map
-codes (`experiments/unpitched-percussion-bridge/unpitched-percussion-r1/allocation.json`):
-Natural 36 for a hit, 73 for a tremolo. Dorico sends the code as the note's
-pitch; hits carry their dynamic as velocity, rolls on CC1 (see
-`experiments/unpitched-percussion-bridge/results-01.md`).
+An unpitched part's expected pitch is the unpitched bridge's percussion-map
+pitch (`experiments/unpitched-percussion-bridge/unpitched-percussion-r1/allocation.json`),
+36 for every note: Dorico plays the pitch of the entry it picks, and the map
+puts Natural and every roll kind on one pitch. The techniques arrive through
+the expression map as for any instrument; hits carry their dynamic as
+velocity, rolls on CC1 (see `experiments/unpitched-percussion-bridge/results-01.md`).
 
 ## What a test expects
 

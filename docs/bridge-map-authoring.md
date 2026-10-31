@@ -192,6 +192,40 @@ techniques and actions, mutex groups and Init. It ignores display text,
 formatting and row order, and is what **Verify assigned map** compares. Neither
 proves audible playback; the beacon is the live check.
 
+## Percussion maps (unpitched sections)
+
+Dorico plays an unpitched instrument only through a **percussion map**
+(`DrumKitNoteMapDefinition`: instrument + technique set → pitch) paired with
+the expression map on the endpoint. The unpitched section's `.doricolib`
+therefore holds both entities, and one document compiles both: the content
+fingerprint appends the percussion map (existing pitched fingerprints are
+unchanged), the semantic fingerprint adds the map's identity, entries and
+instruments, and the installer writes the map's `drumkitNoteMapID` into the
+endpoint configuration and a `<DrumKitNoteMap>` beside each `<ExpressionMap>`
+in the template presets. Publishing renames and reversions the percussion
+entity in lockstep with the expression map.
+
+The percussion map carries no technique the expression map does not. The
+host run in [`experiments/unpitched-percussion-bridge/results-01.md`](../experiments/unpitched-percussion-bridge/results-01.md)
+showed that Dorico gives the expression map every technique regardless of
+the percussion map, falls back to the Natural entry for a technique the map
+lacks, and sustains a roll only when the entry it picked carries the roll.
+So every instrument gets the same small table, Natural and the roll kinds,
+all on one pitch (36 in r1): the pitch names nothing, the chair names the
+instrument, and strokes, surfaces, rolls, modifiers and dynamics arrive
+through the bridge's dimensions exactly as for a pitched section. The
+decoder withholds a note on a pitch the map never sends (`UnmappedPitch`).
+
+The compiler requires: exactly one percussion map in the library, with its
+own entity ID, no parent (`inheritanceMask` 0), `applyStageTemplateSettings`
+false and the expression map's version; entries with only
+`instrumentEntityID`, `techniqueIDs`, `pitch` and `name` (an entry's own
+`keyswitches` and `variant` are rejected); pitches inside the musical range;
+no instrument with the same technique set twice; the same table for every
+instrument; and an entry that is exactly `pt.natural`. Several entries may
+share a pitch. The r1 generator (`profiles.py`, `PERCUSSION`) produces this
+shape from `PITCH` and `ENTRIES`.
+
 ## What reaches instruments
 
 Besides notes and bridge commands, the plug-in maps every CC 0–119 plus channel

@@ -2,17 +2,20 @@
 
 Dorico resolves an unpitched note's techniques through a percussion map
 (instrument + techniques -> pitch) paired with the expression map on the
-endpoint. Here the two are one library: strokes (what the note is: natural,
-rim, side stick, bell, closed/open, the roll family...) are percussion-map
-pitch codes, the same table for every instrument, so the pitch names the
-stroke and the chair names the instrument. Modifiers (accent, dynamic marks,
-ghost, damping, beaters, snares) stay add-on dimensions on the pitched
-percussion conduits. Hit bases take velocity dynamics; the roll family also
-has CC102 bases with CC1 dynamics so a hairpin rides a roll.
+endpoint. Here the two are one library, and the expression map does the
+work, exactly as for pitched instruments: strokes and surfaces (rim, side
+stick, bell, closed/open...) and modifiers (accent, dynamic marks, ghost,
+damping, beaters, snares) are add-on dimensions; hit bases take velocity
+dynamics and every roll kind is a CC102 base with CC1 dynamics so a hairpin
+rides a roll. The percussion map only makes Dorico play: every instrument
+gets one pitch, for Natural and for each roll kind, because Dorico sends the
+pitch of the entry it picks and sustains a roll only when that entry carries
+the roll (results-01.md, finding 2). The pitch names nothing; the chair
+names the instrument.
 
-Which of this Dorico honours is unknown until the probe is played
-(README.md, unknowns U0-U6); the r1 candidate assumes both maps see every
-technique and is regenerated from results-01.md.
+The probe (README.md, unknowns U0-U6) established that both maps see every
+technique and that an unmatched technique falls back to the Natural entry,
+which is what lets the percussion map be this small.
 """
 import importlib.util
 from pathlib import Path
@@ -39,17 +42,23 @@ ROLL_FAMILY = ["pt.roll", "pt.tremolo", "pt.buzzRoll", "pt.pressRoll", "pt.flatR
                "pt.swooshRoll", "pt.trill", "pt.trill.half", "pt.trill.whole"]
 BASES = [(ids, "velocity") for ids in HIT_BASES] + [(ids, "cc1") for ids in ROLL_FAMILY]
 
-# Pitch codes (MIDI notes 21..114; keyswitch conduits and the beacon lie
-# outside). 21-35 and 90-114 are reserved: drum-set kit components, and the
-# stroke x modifier combinations the probe may show Dorico needs.
-STROKES = ("centre edgeDrums edgeCymbals rim rimShot rimKnock crossStick sideStick shell bell frame skin hiHat "
+# Strokes and surfaces extend the pitched map's strike_location dimension on
+# its conduit: centre, edge and rim keep their pitched values, the rest
+# follow. Openness (hi-hat) is its own mechanism. Dorico's mutual-exclusion
+# groups make each one value at a time, like any add-on.
+STROKES = ("centre edgeDrums rim "
+           "edgeCymbals rimShot rimKnock crossStick sideStick shell bell frame skin hiHat "
            "stickShot stickClick stickSnap backstick standClick tap click ping ding foot scrape swish slap "
            "slapCongas bassTone shake crush sizzle zing").split()
 OPENNESS = ["closed", "halfOpen", "open2", "pedal"]
-CODES = [(36, "pt.natural")]
-CODES += [(37 + i, "pt." + pt) for i, pt in enumerate(STROKES)]      # 37..68
-CODES += [(72 + i, pt) for i, pt in enumerate(ROLL_FAMILY)]           # 72..81
-CODES += [(84 + i, "pt." + pt) for i, pt in enumerate(OPENNESS)]      # 84..87
+
+# The percussion map: one pitch per instrument (MIDI 21..114, outside the
+# keyswitch conduits and the beacon), carried by the Natural entry and by
+# one entry per roll kind so rolls sustain. Drum-set kits would give each
+# component its own pitch; r1 covers single instruments only.
+PITCH = 36
+ENTRIES = ["pt.natural"] + ROLL_FAMILY
+CODES = [(PITCH, pt) for pt in ENTRIES]
 
 # Dorico 6's built-in unpitched instruments in scope: the orchestral set,
 # toms, bongos and congas, tambourine, blocks and cowbells, and the stray
@@ -114,13 +123,20 @@ MECHANISMS = [
      "Throw-off lever, kept apart from the snare state: verify what notation emits it before merging."),
     ("choke", "choke", False,
      "Cymbal choke: a damping action on one stroke, independent of dead stroke and muffling."),
+    ("openness", " ".join(OPENNESS), False,
+     "Hi-hat openness and the pedal stroke, a direction that holds until changed."),
 ]
+STRIKE_LOCATION = ("strike_location", " ".join(STROKES), True,
+                   "Where, or with what, the instrument is struck: the pitched map's centre/edge/rim on the same "
+                   "conduit and values, then every other built-in stroke and surface. Natural returns to the normal spot.")
 pitched_dims = {d["id"]: d for d in engine.dimensions(pitched.PITCHED_PERCUSSION_R2)}
 by_id = {d[0]: d for d in pitched.DIMENSIONS}
-DIMENSIONS = [by_id[key] for key in COMMON_IDS + PITCHED_IDS] + MECHANISMS
-# Shared dimensions keep the pitched conduits and values; new ones take
-# conduits no pitched dimension uses, so one CC means one thing in both maps.
-wire = {key: (pitched_dims[key]["kind"], pitched_dims[key]["number"]) for key in COMMON_IDS + PITCHED_IDS}
+DIMENSIONS = [by_id[key] for key in COMMON_IDS + PITCHED_IDS] + [STRIKE_LOCATION] + MECHANISMS
+# Shared dimensions keep the pitched conduits and values (strike_location its
+# conduit and first values); new ones take conduits no pitched dimension
+# uses, so one CC means one thing in both maps.
+wire = {key: (pitched_dims[key]["kind"], pitched_dims[key]["number"])
+        for key in COMMON_IDS + PITCHED_IDS + ("strike_location",)}
 taken = {(d["kind"], d["number"]) for d in pitched_dims.values()}
 free = iter(pair for pair in pitched.SCHEMA_TWO_POOL if pair not in taken)
 for key, *_ in MECHANISMS:
@@ -134,8 +150,8 @@ FAMILY_EXCLUSIONS = {
     "W": "Wind/brass/vocal technique outside unpitched percussion.",
     "G": "Guitar or pitch gesture outside unpitched percussion.",
     "P": "Stick-part, hand, motion, tension and tabla variants: r1 keeps the generic stroke; "
-         "add codes when a score test needs them.",
-    "R": "Specialized gesture not in the r1 code table; add a code when a score test needs it.",
+         "add values when a score test needs them.",
+    "R": "Specialized gesture not in r1's strike_location dimension; add a value when a score test needs it.",
     "K": "Keyboard pedal PT; pedal controllers pass through as MIDI.",
     "E": "Electronic/FX control outside this acoustic section profile.",
 }

@@ -35,11 +35,12 @@ struct CompiledBridgeMap {
   std::array<int, 2> beacon{-1, -1}; // expected beacon velocities (schema 2)
   // Dorico's playback options are pinned (see kPinnedPlaybackDimension).
   bool pinnedPlayback = false;
-  // Unpitched sections: the library's percussion map gives every covered
-  // instrument the same technique table, so a note's pitch is a code for
-  // the stroke (the chair names the instrument). Other pitches are withheld.
+  // Unpitched sections: the library's percussion map exists so Dorico plays
+  // (and sustains rolls); every technique still arrives through the
+  // dimensions above, and the chair names the instrument. A note on a pitch
+  // the map never sends is withheld.
   bool hasPercussionMap = false;
-  std::map<int, std::set<std::string>> pitchTechniques;
+  std::set<int> percussionPitches;
 };
 
 struct BridgeMapDocument {
@@ -164,14 +165,6 @@ public:
     }
     if (map_->pinnedPlayback)
       (*note.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
-    if (map_->hasPercussionMap) {
-      // The pitch is the stroke; the base and add-ons above still apply, so a
-      // roll arrives as its base (with CC1 dynamics) and its code at once.
-      const int code = int(note.note_number());
-      (*note.mutable_notation_dimensions())["percussion_code"] = float(code);
-      for (const auto &id : map_->pitchTechniques.at(code))
-        (*note.mutable_notation_techniques())["PM:" + id] = id;
-    }
     diagnostics_.lastWithheld = Withheld::None;
     return Withheld::None;
   }
@@ -189,7 +182,7 @@ public:
     case Withheld::BaseUnknown: return "base articulation not received (start playback so Dorico sends Init)";
     case Withheld::InvalidCommand: return "an unknown command value invalidated a dimension";
     case Withheld::OutsideRange: return "note outside the bridge's musical range";
-    case Withheld::UnmappedPitch: return "pitch is not a code in the percussion map";
+    case Withheld::UnmappedPitch: return "pitch is not one the percussion map sends";
     case Withheld::Count: break;
     }
     return "";
@@ -247,7 +240,7 @@ private:
   Withheld check(const Note &note) const {
     if (int(note.note_number()) < map_->musicalLow || int(note.note_number()) > map_->musicalHigh)
       return Withheld::OutsideRange;
-    if (map_->hasPercussionMap && !map_->pitchTechniques.count(int(note.note_number())))
+    if (map_->hasPercussionMap && !map_->percussionPitches.count(int(note.note_number())))
       return Withheld::UnmappedPitch;
     if (diagnostics_.beacon == Beacon::Mismatched) return Withheld::BeaconMismatch;
     if (!playable()) return Withheld::Unverified;
