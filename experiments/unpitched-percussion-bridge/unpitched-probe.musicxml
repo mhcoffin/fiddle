@@ -365,7 +365,7 @@
         <type>half</type>
         <notations>
           <ornaments>
-            <tremolo type="unmeasured" />
+            <tremolo type="unmeasured">0</tremolo>
           </ornaments>
         </notations>
       </note>
@@ -678,7 +678,7 @@
         <type>half</type>
         <notations>
           <ornaments>
-            <tremolo type="unmeasured" />
+            <tremolo type="unmeasured">0</tremolo>
           </ornaments>
         </notations>
       </note>

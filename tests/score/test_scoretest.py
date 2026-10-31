@@ -117,7 +117,7 @@ class Expectations(unittest.TestCase):
         self.assertEqual(xml.find(".//note/unpitched/display-step").text, "C")
         self.assertIsNone(xml.find(".//note/pitch"))
         tremolos = xml.findall(".//ornaments/tremolo")
-        self.assertEqual([(t.get("type"), t.text) for t in tremolos], [("single", "3"), ("unmeasured", None)])
+        self.assertEqual([(t.get("type"), t.text) for t in tremolos], [("single", "3"), ("unmeasured", "0")])
         heads = xml.findall(".//notehead")
         self.assertEqual([(h.text, h.get("parentheses")) for h in heads], [("x", None), ("normal", "yes")])
         self.assertTrue(scoretest.expected(s, b"{}")["parts"][0]["unpitched"])
