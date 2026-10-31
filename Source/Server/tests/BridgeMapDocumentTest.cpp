@@ -193,6 +193,120 @@ void writtenDurations() {
   CHECK(notes[0].notation_dimensions().at(kPinnedPlaybackDimension) == 1.0f);
 }
 
+// An unpitched library carries a percussion map beside the expression map:
+// every instrument shares one technique -> pitch table, so the decoder reads
+// the stroke from the pitch and the roll kind and dynamics from the base.
+void percussion() {
+  juce::String error;
+  const auto source = fixture("experiments/unpitched-percussion-bridge/unpitched-percussion-r1/Fiddle-Orchestral-UnpitchedPercussion-r1.doricolib");
+  const auto doc = BridgeMapDocument::compile(source, error);
+  if (!doc) throw std::runtime_error(error.toStdString());
+  CHECK(doc->schema == 2 && doc->compiled->pinnedPlayback && doc->compiled->hasPercussionMap);
+  CHECK(doc->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r1");
+  CHECK(doc->percussionMapName.isNotEmpty());
+  const auto &codes = doc->compiled->pitchTechniques;
+  CHECK(codes.size() == 47);
+  CHECK(codes.at(36) == std::set<std::string>{"pt.natural"});
+  CHECK(codes.at(73) == std::set<std::string>{"pt.tremolo"});
+  CHECK(!codes.count(70) && !codes.count(21) && !codes.count(114));
+  // Hits take velocity; every roll-family base takes CC1.
+  const auto &bases = doc->compiled->dimensions[0].values;
+  CHECK(bases.size() == 75);
+  CHECK(!bases.at(2).ccDynamics && bases.at(2).techniques == std::set<std::string>{"pt.natural"});
+  CHECK(bases.at(32).ccDynamics && bases.at(32).techniques == std::set<std::string>{"pt.tremolo"} && bases.at(32).length == 2);
+  // A pitched map keeps its fingerprint and has no percussion map.
+  const auto pitched = BridgeMapDocument::compile(
+      fixture("experiments/orchestral-percussion-bridge/pitched-percussion-r2/Fiddle-Orchestral-PitchedPercussion-r2.doricolib"), error);
+  CHECK(pitched && !pitched->compiled->hasPercussionMap && pitched->percussionMapId.isEmpty());
+
+  // The probe library holds two percussion maps, and map A uses an entry
+  // keyswitch; this schema rejects both.
+  const auto probe = fixture("experiments/unpitched-percussion-bridge/probe/Fiddle-Orchestral-UnpitchedProbe-r1.doricolib");
+  CHECK(!BridgeMapDocument::compile(probe, error) && error.contains("one percussion map"));
+  auto probeRoot = juce::parseXML(probe);
+  auto *probeMaps = probeRoot->getChildByName("drumKitNoteMapDefinitions")->getChildByName("entities");
+  probeMaps->removeChildElement(probeMaps->getChildElement(1), true);
+  CHECK(!BridgeMapDocument::compile(probeRoot->toString(), error));
+  CHECK(error.contains("Unsupported percussion entry field: keyswitches"));
+  const auto edited = [&](const std::function<void(juce::XmlElement &)> &change) {
+    auto root = juce::parseXML(source);
+    change(*root->getChildByName("drumKitNoteMapDefinitions")->getChildByName("entities")->getFirstChildElement());
+    return BridgeMapDocument::compile(root->toString(), error);
+  };
+  const auto setText = [](juce::XmlElement &node, const char *tag, const char *value) {
+    auto *field = node.getChildByName(tag);
+    field->deleteAllChildElements(); field->addTextElement(value);
+  };
+  CHECK(!edited([&](juce::XmlElement &m) { setText(m, "version", "2"); }) && error.contains("version"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(m, "applyStageTemplateSettings", "true"); }) && error.contains("Stage Template"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(m, "entityID", doc->entityId.toRawUTF8()); }) && error.contains("own entity ID"));
+  CHECK(!edited([&](juce::XmlElement &m) { m.createNewChildElement("futureBehavior"); }) && error.contains("futureBehavior"));
+  // One instrument's table differing from the rest, in pitch or technique.
+  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "pitch", "35"); })
+        && error.contains("identical for every instrument"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "techniqueIDs", "pt.accent"); })
+        && error.contains("identical for every instrument"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "pitch", "20"); })
+        && error.contains("outside the musical range"));
+  CHECK(!edited([&](juce::XmlElement &m) {
+    auto *entries = m.getChildByName("entries");
+    auto *copy = new juce::XmlElement(*entries->getFirstChildElement());
+    setText(*copy, "pitch", "90"); entries->addChildElement(copy);
+  }) && error.contains("Duplicate percussion technique set"));
+  CHECK(!edited([&](juce::XmlElement &m) { setText(*m.getChildByName("entries")->getFirstChildElement(), "techniqueIDs", "pt.centre"); })
+        && error.contains("Duplicate percussion technique set"));
+  // Dropping Natural from every instrument.
+  CHECK(!edited([&](juce::XmlElement &m) {
+    for (auto *row : m.getChildByName("entries")->getChildIterator())
+      if (row->getChildByName("pitch")->getAllSubText().trim() == "36") setText(*row, "techniqueIDs", "pt.natural+pt.accent");
+  }) && error.contains("Natural code"));
+  // Format and display text are not identity; the table is.
+  const auto renamed = edited([&](juce::XmlElement &m) { setText(m, "name", "Renamed by Dorico"); });
+  CHECK(renamed && renamed->contentHash != doc->contentHash && renamed->semanticHash == doc->semanticHash);
+  const auto recoded = edited([&](juce::XmlElement &m) {
+    for (auto *row : m.getChildByName("entries")->getChildIterator())
+      if (row->getChildByName("pitch")->getAllSubText().trim() == "73") setText(*row, "pitch", "71");
+  });
+  CHECK(recoded && recoded->semanticHash != doc->semanticHash && recoded->compiled->pitchTechniques.count(71));
+
+  BridgeMapProject project;
+  project.documents[doc->contentHash] = doc;
+  project.assignments[{0, 2}] = doc->contentHash;
+  BridgeMapProject restored;
+  CHECK(BridgeMapProject::parse(project.serialize(), restored, error));
+  CHECK(restored.documents.begin()->second->percussionMapId == doc->percussionMapId);
+  const auto other = BridgeMapDocument::compile(source.replace("xmap.user.Fiddle.OrchestralUnpitchedPercussion.r1", "xmap.user.Fiddle.Other.r1"), error);
+  CHECK(!other && error.contains("beacon")); // identity changed: restamp would be needed
+  NoteStreamTracker tracker;
+  tracker.setBridgeMaps(project);
+  std::vector<Note> notes;
+  NoteStreamTracker::Callbacks callbacks;
+  callbacks.onNoteStarted = [&](const Note &note) { notes.push_back(note); };
+  tracker.setCallbacks(callbacks);
+  initialize(tracker, *doc->compiled);
+  tracker.processEvent(cc(102, 2));
+  tracker.processEvent(key(36, 68)); CHECK(notes.size() == 1);
+  CHECK(notes.back().notation_dimensions().at("percussion_code") == 36.0f);
+  CHECK(notes.back().notation_techniques().at("PM:pt.natural") == "pt.natural");
+  CHECK(notes.back().dynamics_mode() == Note::VELOCITY);
+  CHECK(collectInputTechniqueIds(notes.back()) == std::set<std::string>{"pt.natural"});
+  // A tremolo: its base selects CC1 dynamics, its code names the roll once.
+  tracker.processEvent(cc(102, 32));
+  tracker.processEvent(key(73, 56)); CHECK(notes.size() == 2);
+  CHECK(notes.back().dynamics_mode() == Note::CC);
+  CHECK(collectInputTechniqueIds(notes.back()) == std::set<std::string>{"pt.tremolo"});
+  // The same tremolo on a surface (results-01: Dorico picks the stroke's entry).
+  tracker.processEvent(key(40, 72)); CHECK(notes.size() == 3);
+  const std::set<std::string> rimTremolo{"pt.rim", "pt.tremolo"};
+  CHECK(collectInputTechniqueIds(notes.back()) == rimTremolo);
+  // Pitches that are not codes are withheld, after the range test.
+  tracker.processEvent(key(70, 72)); CHECK(notes.size() == 3);
+  CHECK(tracker.bridgeDiagnostics(0, 2)->lastWithheld == BridgeDecoderState::Withheld::UnmappedPitch);
+  tracker.processEvent(key(20, 72)); CHECK(notes.size() == 3);
+  CHECK(tracker.bridgeDiagnostics(0, 2)->lastWithheld == BridgeDecoderState::Withheld::OutsideRange);
+  tracker.processEvent(key(36, 72)); CHECK(notes.size() == 4);
+}
+
 void tests() {
   juce::String error;
   const auto source = fixture("experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib");
@@ -297,6 +411,7 @@ void tests() {
   tracker.processEvent(key(76, 90)); CHECK(notes.size() == 1);
   schemaTwo();
   writtenDurations();
+  percussion();
   const auto section = [](const char *id) { return bridgeSectionForInstrument(id); };
   CHECK(section("instrument.strings.violin") == BridgeSection::Strings);
   CHECK(section("instrument.strings.violoncello") == BridgeSection::Strings);
