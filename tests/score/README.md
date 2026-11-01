@@ -7,7 +7,7 @@ check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
 **Status (2026-11-01): all four phases built; twelve of thirteen tests pass
-in Dorico, and percussion-techniques has not been run yet.** The test format
+in Dorico; percussion-techniques' first run passed 22 of 38 (below).** The test format
 and generator, thirteen tests, Fiddle's recorder and comparison, the Score
 Tests window, and looking up a run by its ID.
 
@@ -30,7 +30,7 @@ Tests window, and looking up a run by its ID.
 | snare-drum | `snare-drum-20261031-172210` | Pass: 28 of 28 on the one-line staff: imported as the single instrument (no kit, two plug-in slots), same results as the run above. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-160247` | Fail: 0 of 16, 5 extra. Dorico's import put the bass drum part into its marching bass drums kit (part name "Bass Drum" matches a drum of that kit), the template could not route the kit, and Dorico loaded nine Fiddle plug-in instances; the cymbal's five notes arrived on the snare chair's channel, nothing else arrived. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-165626` | Fail: 0 of 16, 5 extra, with the bass drum part renamed so every part fell to Dorico's Drum Set: the same five cymbal notes on the snare chair's channel. Dorico routes the one-instrument Drum Set wrapper through its snare component; the fix is the one-line staff (above). |
-| percussion-techniques | not yet run | Strokes and modifiers the other percussion tests don't reach, each from Dorico's own items: snare noteheads (side stick from the imported x head; rim shot and cross stick set by hand), On Rim, Stick Shot, buzz roll, Snares Off/On; hi-hat Open, Closed, Half-open; cymbal Choke, l.v., Damp; a tambourine trill; conga Open and Muffled. The notehead techniques answer the open question in `experiments/unpitched-percussion-bridge/results-01.md`: whether a technique Dorico takes from the notehead reaches the expression map as a text mark does. Needs three new chairs (Hi-hat, Tambourine, Conga (Quinto)). See "Hand-applied marks". |
+| percussion-techniques | 22 of 38 (`percussion-techniques-20261101-144822`): every snare and cymbal mark but side stick | Strokes and modifiers the other percussion tests don't reach, each from Dorico's own items: snare noteheads (side stick from the imported x head; rim shot and cross stick set by hand), On Rim, Stick Shot, buzz roll, Snares Off/On; hi-hat Open, Closed, Half-open; cymbal Choke, l.v., Damp; a tambourine trill; conga Open and Muffled. The notehead techniques answer the open question in `experiments/unpitched-percussion-bridge/results-01.md`: whether a technique Dorico takes from the notehead reaches the expression map as a text mark does. Needs three new chairs (Hi-hat, Tambourine, Conga (Quinto)). See "Hand-applied marks". First run: rim shot and cross stick (noteheads set by hand) arrive, so a notehead's technique does reach the expression map; so do On Rim, Stick Shot, buzz roll, Snares Off/On, Choke, l.v. (written length kept) and Damp. Side stick failed: on a one-line staff the import makes the x head a notehead-set override (`noteheadset.Xnoteheads`, no technique), unlike the probe's five-line staff. Hi-hat, tambourine and conga sent nothing: the hi-hat chair was the marching hi-hat, and no chair had a bridge map (the template wasn't reinstalled after adding them). |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-171854` | Pass: 16 of 16 on one-line staves: Dorico imported three single instruments (no kit, two plug-in slots) and routed each to its chair (suspended cymbal port 3 channel 8, triangle 9, bass drum 10). The cymbal's whole-note roll under p < f is one 2.4 s note on the tremolo base with CC1 56→72 one value every 150 ms; the bass drum's ff roll one note at CC1 80; hits by velocity (triangle mf 68, cymbal f 72), accents arriving on CC104. Switches 12.5 ms before each note, Off 25 ms before. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
@@ -206,7 +206,9 @@ relative to the start of the score), dynamic, and playing techniques.
   and applies to its note only (Dorico's `playingTechniqueDefinitions.xml`).
   An instrument's natural equivalent (Closed on the hi-hat, Open on the
   triangle, from `instruments.xml`) is never excluded: a plain note may carry it.
-  On the snare the x notehead includes `pt.sideStick` (verified in the probe).
+  On the snare the x notehead includes `pt.sideStick` (verified in the probe,
+  on a five-line staff; on the one-line staff the tests use, the import keeps
+  only the x head: `percussion-techniques-20261101-144822`).
 - **Tolerances** (per test, default): onset and duration ±5 ms, level ±0.2.
 
 Expectations about Dorico's own behaviour are hypotheses until a run confirms
@@ -215,9 +217,8 @@ them. Legato on slurred notes, the last included, is confirmed
 level from one dynamic to the next over time (`hairpins-20261029-190413`).
 The tests check both exactly.
 
-percussion-techniques has first guesses that its first run may correct: that
-a plain hi-hat note doesn't need Closed, that l.v. leaves the note's written
-length alone, that a trill on the tambourine arrives as `pt.trill` (not a
+percussion-techniques has first guesses that its runs may correct: that
+a plain hi-hat note doesn't need Closed, that a trill on the tambourine arrives as `pt.trill` (not a
 trill interval), and that Dorico imports Conga (Quinto) by its name.
 
 ## One-time setup
