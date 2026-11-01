@@ -76,6 +76,41 @@
       "length_ms": 14400.0
     },
     {
+      "id": "percussion-techniques",
+      "title": "Percussion techniques",
+      "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine trill; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
+      "musicxml": "percussion-techniques.musicxml",
+      "expected": "percussion-techniques.expected.json",
+      "instruments": [
+        "instrument.latin.unpitched.conga.high",
+        "instrument.orchestral.unpitched.hihat",
+        "instrument.orchestral.unpitched.snare.drum",
+        "instrument.orchestral.unpitched.suspended.cymbal",
+        "instrument.percussion.other.tambourine"
+      ],
+      "notes": 38,
+      "length_ms": 26400.0,
+      "by_hand": [
+        "Bar 1 beat 3, Snare Drum: Option-Shift-Up/Down on the note until its head is slashed (Rim shot)",
+        "Bar 1 beat 4, Snare Drum: Option-Shift-Up/Down on the note until its head is circled (Cross stick)",
+        "Bar 2 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 On Rim",
+        "Bar 2 beat 3, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Stick Shot",
+        "Bar 2 beat 4, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 On Rim",
+        "Bar 3 beat 1, Snare Drum: Tremolos panel \u25b8 Buzz roll, if the import dropped it (z on the stem)",
+        "Bar 4 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Snares Off",
+        "Bar 5 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Snares On",
+        "Bar 6 beat 2, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 6 beat 3, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Closed / Rim Shot (+)",
+        "Bar 7 beat 1, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Half-open",
+        "Bar 7 beat 3, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 8 beat 1, Suspended Cymbal: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Choke (Weinberg)",
+        "Bar 8 beat 3, Suspended Cymbal: Playing Techniques panel \u25b8 Common \u25b8 Laissez Vibrer (l.v.)",
+        "Bar 9 beat 1, Suspended Cymbal: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Damp",
+        "Bar 11 beat 2, Conga (Quinto): Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 11 beat 3, Conga (Quinto): Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Muffled"
+      ]
+    },
+    {
       "id": "pitched-percussion",
       "title": "Pitched percussion",
       "description": "Timpani and marimba through the pitched percussion bridge map: accents, marcato and staccato, a crescendo over repeated timpani eighths, and a slurred marimba line. Each part arrives on its own instrument with its techniques and levels.",

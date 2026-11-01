@@ -11,6 +11,9 @@ const instrumentNames = {
     "instrument.orchestral.unpitched.suspended.cymbal": "Suspended Cymbal",
     "instrument.orchestral.unpitched.triangle": "Triangle",
     "instrument.orchestral.unpitched.bass.drum": "Bass Drum",
+    "instrument.orchestral.unpitched.hihat": "Hi-hat",
+    "instrument.percussion.other.tambourine": "Tambourine",
+    "instrument.latin.unpitched.conga.high": "Conga (Quinto)",
 };
 
 /** "instrument.strings.violin" → "Violin"; unknown IDs by their last part. */
@@ -24,6 +27,11 @@ export function instrumentLabel(id) {
 export function formatLength(ms) {
     const seconds = Math.round((Number(ms) || 0) / 1000);
     return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/** The marks a test's operator adds in Dorico before playing, one line each. */
+export function byHandSteps(test) {
+    return Array.isArray(test?.by_hand) ? test.by_hand.map(String) : [];
 }
 
 /** The pane's state with defaults, whatever arrived. */

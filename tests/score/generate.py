@@ -25,7 +25,8 @@ def artifacts():
         index.append(dict(id=spec["id"], title=spec["title"], description=spec.get("description", ""),
                           musicxml=f"{spec['id']}.musicxml", expected=f"{spec['id']}.expected.json",
                           instruments=sorted({p["instrument"] for p in expected["parts"]}),
-                          notes=len(expected["notes"]), length_ms=expected["length_ms"]))
+                          notes=len(expected["notes"]), length_ms=expected["length_ms"],
+                          **({"by_hand": [s["text"] for s in expected["by_hand"]]} if "by_hand" in expected else {})))
     files["index.json"] = (json.dumps(dict(schema_version=1, tests=index), indent=2) + "\n").encode()
     return files
 

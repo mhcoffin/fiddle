@@ -126,6 +126,50 @@ class Expectations(unittest.TestCase):
         with self.assertRaises(scoretest.SpecError):
             scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf C5/q")]))
 
+    def test_percussion_marks(self):
+        s = dict(id="t", title="T", tempo=100, parts=[
+            dict(id="sn", instrument="snare",
+                 music="!mf x/q+xhead x/q+rim x/q+snaresoff x/q | x/q+acc x/q+snareson x/h+buzz"),
+            dict(id="hh", instrument="hi-hat", music="!mf x/q x/q+open x/q+closed x/q | r/w"),
+            dict(id="tri", instrument="triangle", music="!mf x/q+xhead r/q r/h | r/w")])
+        notes = {(n["part"], n["bar"], n["beat"]): n["techniques"] for n in scoretest.sounding_notes(s)}
+        # The snare's x head is side stick; elsewhere a notehead expects nothing.
+        self.assertEqual(notes["sn", 1, 1.0]["includes"], ["pt.sideStick"])
+        self.assertEqual(notes["tri", 1, 1.0]["includes"], [])
+        self.assertNotIn("pt.sideStick", notes["tri", 1, 1.0]["excludes"])
+        # Attribute marks apply to their note; the next note expects them gone.
+        self.assertEqual(notes["sn", 1, 2.0]["includes"], ["pt.rim"])
+        self.assertIn("pt.rim", notes["sn", 1, 3.0]["excludes"])
+        # Snares off holds until snares on, which then holds too.
+        self.assertEqual(notes["sn", 1, 4.0]["includes"], ["pt.snareOff"])
+        self.assertEqual(notes["sn", 2, 1.0]["includes"], ["pt.accent", "pt.snareOff"])
+        self.assertEqual(notes["sn", 2, 2.0]["includes"], ["pt.snareOn"])
+        self.assertEqual(notes["sn", 2, 3.0]["includes"], ["pt.buzzRoll", "pt.snareOn"])
+        self.assertIn("pt.snareOff", notes["sn", 2, 3.0]["excludes"])
+        # A plain hi-hat note may carry Closed, Dorico's natural equivalent.
+        self.assertNotIn("pt.closed", notes["hh", 1, 1.0]["excludes"])
+        self.assertIn("pt.open2", notes["hh", 1, 3.0]["excludes"])
+        self.assertEqual(notes["hh", 1, 3.0]["includes"], ["pt.closed"])
+        steps = scoretest.by_hand(s)
+        self.assertEqual([(x["part"], x["bar"], x["beat"], x["mark"]) for x in steps],
+                         [("sn", 1, 2.0, "rim"), ("hh", 1, 2.0, "open"), ("sn", 1, 3.0, "snaresoff"),
+                          ("hh", 1, 3.0, "closed"), ("sn", 2, 2.0, "snareson"), ("sn", 2, 3.0, "buzz")])
+        self.assertEqual(steps[0]["text"], "Bar 1 beat 2, Snare Drum: Playing Techniques panel ▸ Unpitched Percussion ▸ On Rim")
+        self.assertEqual(scoretest.expected(s, b"{}")["by_hand"], steps)
+        cues = [w.text for w in ET.fromstring(scoretest.musicxml(s)).iter("words")]
+        self.assertEqual(cues, ["add: On Rim", "add: Snares Off", "add: Snares On",
+                                "add: Buzz roll, if the import dropped it (z on the stem)",
+                                "add: Open (o)", "add: Closed / Rim Shot (+)"])
+        self.assertNotIn("by_hand", scoretest.expected(spec("!mf C5/w"), b"{}"))
+        with self.assertRaises(scoretest.SpecError):
+            scoretest.sounding_notes(spec("!mf C5/q+rim r/h."))  # percussion marks need an unpitched part
+        with self.assertRaises(scoretest.SpecError):
+            scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf x/q+snaresoff+snareson r/h.")]))
+
+    def test_rim_shot_and_cross_stick_cues_name_the_notehead(self):
+        self.assertEqual(scoretest.cue_text("rimshot"), "add: Rim shot notehead")
+        self.assertEqual(scoretest.cue_text("crossstick"), "add: Cross stick notehead")
+
     def test_percussion_code_rule(self):
         # r1's entries (Natural and the roll kinds) all share pitch 36; the
         # best-subset rule still picks the roll entry, as Dorico does.

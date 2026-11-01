@@ -42,17 +42,31 @@ INSTRUMENTS = {
     # "unpitched" (display step, octave) on a one-line percussion staff (five
     # lines make Dorico import a kit; see the clef writer). Dorico sends
     # the pitch of the unpitched bridge's percussion-map entry it picks, so
-    # each expected note's pitch comes from that map (percussion_code); r1
-    # puts every entry on one pitch.
+    # each expected note's pitch comes from that map (percussion_code); r2
+    # puts every entry on one pitch. Dorico's import picks the instrument by
+    # sound and then by name, so a part's name must be Dorico's own name for
+    # it ("Hi-hat", not the marching hi-hat that shares metal.hi-hat).
+    # "natural" is a technique Dorico calls the instrument's natural
+    # equivalent (instruments.xml): a plain note may carry it, so it is
+    # never expected absent. "noteheads" maps a notehead mark to the
+    # technique the instrument's notehead set gives it on import.
     "snare": dict(name="Snare Drum", sound="drum.snare-drum", dorico="instrument.orchestral.unpitched.snare.drum",
-                  clef=("percussion", 2), program=1, unpitched=("C", 5)),
+                  clef=("percussion", 2), program=1, unpitched=("C", 5), noteheads={"xhead": "pt.sideStick"}),
     "bass-drum": dict(name="Bass Drum", sound="drum.bass-drum", dorico="instrument.orchestral.unpitched.bass.drum",
                       clef=("percussion", 2), program=1, unpitched=("E", 4)),
     "suspended-cymbal": dict(name="Suspended Cymbal", sound="metal.cymbal.suspended",
                              dorico="instrument.orchestral.unpitched.suspended.cymbal",
                              clef=("percussion", 2), program=1, unpitched=("C", 5)),
     "triangle": dict(name="Triangle", sound="metal.triangle", dorico="instrument.orchestral.unpitched.triangle",
-                     clef=("percussion", 2), program=1, unpitched=("C", 5)),
+                     clef=("percussion", 2), program=1, unpitched=("C", 5), natural="pt.open2"),
+    "hi-hat": dict(name="Hi-hat", sound="metal.hi-hat", dorico="instrument.orchestral.unpitched.hihat",
+                   clef=("percussion", 2), program=1, unpitched=("C", 5), natural="pt.closed"),
+    "tambourine": dict(name="Tambourine", sound="drum.tambourine", dorico="instrument.percussion.other.tambourine",
+                       clef=("percussion", 2), program=1, unpitched=("C", 5)),
+    # Five congas share drum.conga and the name "Conga"; the high one is
+    # "Conga (Quinto)" in Dorico's instrument picker.
+    "conga": dict(name="Conga (Quinto)", sound="drum.conga", dorico="instrument.latin.unpitched.conga.high",
+                  clef=("percussion", 2), program=1, unpitched=("C", 5)),
 }
 CODES_SOURCE = (Path(__file__).resolve().parents[2]
                 / "experiments/unpitched-percussion-bridge/unpitched-percussion-r2/allocation.json")
@@ -78,11 +92,39 @@ ARTICULATIONS = {
 ORNAMENTS = {
     "trem": (("tremolo", {"type": "single"}, "3"), "pt.tremolo"),
     "buzz": (("tremolo", {"type": "unmeasured"}, "0"), "pt.buzzRoll"),
+    "trill": (("trill-mark", {}, None), "pt.trill"),
 }
-# Noteheads carry no expected technique: whether Dorico's import turns them
-# into one is what the unpitched probe finds out.
+# Dorico's import drops these ornaments, so the operator adds them by hand
+# (results-01.md, "MusicXML import").
+ORNAMENT_BY_HAND = {"buzz": "Tremolos panel ▸ Buzz roll, if the import dropped it (z on the stem)"}
+# A notehead's technique depends on the instrument's notehead set
+# (INSTRUMENTS "noteheads"); elsewhere it carries no expectation.
 NOTEHEADS = {"xhead": ("x", {}), "ghost": ("normal", {"parentheses": "yes"})}
-MARKS = set(ARTICULATIONS) | set(ORNAMENTS) | set(NOTEHEADS)
+
+# Unpitched techniques MusicXML cannot carry. The operator applies each in
+# Dorico with Dorico's own item named in "how" (never a new playing
+# technique made by typing in the popover: that plays back as a user
+# technique no map knows, results-01.md finding 4). A mark with a "group"
+# is a Dorico Direction and holds until another member of its group; the
+# rest are Attributes and apply to their note only.
+_PANEL = "Playing Techniques panel ▸ Unpitched Percussion ▸ "
+_HEAD = "Option-Shift-Up/Down on the note until its head is "
+PERCUSSION = {
+    "rimshot": dict(pt="pt.rimShot", how=_HEAD + "slashed (Rim shot)"),
+    "crossstick": dict(pt="pt.crossStick", how=_HEAD + "circled (Cross stick)"),
+    "rim": dict(pt="pt.rim", how=_PANEL + "On Rim"),
+    "stickshot": dict(pt="pt.stickShot", how=_PANEL + "Stick Shot"),
+    "open": dict(pt="pt.open2", how=_PANEL + "Open (o)"),
+    "closed": dict(pt="pt.closed", how=_PANEL + "Closed / Rim Shot (+)"),
+    "halfopen": dict(pt="pt.halfOpen", how=_PANEL + "Half-open"),
+    "choke": dict(pt="pt.choke", how=_PANEL + "Choke (Weinberg)"),
+    "damp": dict(pt="pt.damp", how=_PANEL + "Damp"),
+    "muffled": dict(pt="pt.muffledDamped", how=_PANEL + "Muffled"),
+    "lv": dict(pt="pt.laissezVibrer", how="Playing Techniques panel ▸ Common ▸ Laissez Vibrer (l.v.)"),
+    "snaresoff": dict(pt="pt.snareOff", how=_PANEL + "Snares Off", group="snares"),
+    "snareson": dict(pt="pt.snareOn", how=_PANEL + "Snares On", group="snares"),
+}
+MARKS = set(ARTICULATIONS) | set(ORNAMENTS) | set(NOTEHEADS) | set(PERCUSSION)
 
 
 def articulation_elements(articulations):
@@ -223,6 +265,12 @@ def timeline(spec):
                 raise SpecError(f"{part['id']}: bar line at {position} is not on a bar boundary")
             if event["kind"] == "note" and (event["pitch"] is None) != unpitched:
                 raise SpecError(f"{part['id']}: {event['token']}: unpitched instruments take x heads, pitched ones pitches")
+            if event["kind"] == "note" and not unpitched and set(event["articulations"]) & set(PERCUSSION):
+                raise SpecError(f"{part['id']}: {event['token']}: percussion marks need an unpitched instrument")
+            if event["kind"] == "note":
+                groups = [PERCUSSION[a]["group"] for a in event["articulations"] if "group" in PERCUSSION.get(a, {})]
+                if len(groups) != len(set(groups)):
+                    raise SpecError(f"{part['id']}: {event['token']}: two marks of one group on a note")
             if event["kind"] == "tempo":
                 if index:
                     raise SpecError("Tempo changes belong in the first part")
@@ -261,6 +309,7 @@ def sounding_notes(spec):
     rows, hairpin_id = [], 0
     for part, events in zip(spec["parts"], parts):
         level, hairpin, in_slur, chain = None, None, False, None
+        held = {}  # group -> the Direction mark in force (snares)
         pending = []  # notes of the part in order, before slur ends are known
         hairpins = []
         for i, event in enumerate(events):
@@ -298,8 +347,12 @@ def sounding_notes(spec):
                     continue
                 if level is None:
                     raise SpecError(f"{part['id']}: give a dynamic before the first note")
+                for a in event["articulations"]:
+                    if "group" in PERCUSSION.get(a, {}):
+                        held[PERCUSSION[a]["group"]] = a
                 note = dict(part=part["id"], pitch=midi, position=event["position"],
                             length=event["length"], articulations=event["articulations"],
+                            held=sorted(held.values()),
                             slurred=in_slur, level=level, token=event["token"],
                             hairpin=hairpin if hairpin and not hairpin["closed"] else None)
                 pending.append(note)
@@ -313,6 +366,7 @@ def sounding_notes(spec):
     rows.sort(key=lambda r: (r["position"], [p["id"] for p in spec["parts"]].index(r["part"]), r["pitch"] or 0))
     bar = bar_length(spec)
     unpitched = {p["id"] for p in spec["parts"] if "unpitched" in INSTRUMENTS[p["instrument"]]}
+    instruments = {p["id"]: p["instrument"] for p in spec["parts"]}
     result = []
     for r in rows:
         start = milliseconds(r["position"], tempo)
@@ -344,6 +398,17 @@ def sounding_notes(spec):
         excludes = sorted(pt for name, (_, pt) in ARTICULATIONS.items() if name not in r["articulations"])
         if r["part"] in unpitched:
             excludes += sorted(pt for name, (_, pt) in ORNAMENTS.items() if name not in r["articulations"])
+            info = INSTRUMENTS[instruments[r["part"]]]
+            heads = info.get("noteheads", {})
+            includes += sorted(PERCUSSION[a]["pt"] for a in r["articulations"]
+                               if a in PERCUSSION and "group" not in PERCUSSION[a])
+            includes += sorted(PERCUSSION[a]["pt"] for a in r["held"])
+            includes += sorted(heads[a] for a in r["articulations"] if a in heads)
+            # Every other percussion technique is absent, so a switch that
+            # stays on past its note fails the next one; the instrument's
+            # natural equivalent may ride on any plain note.
+            possible = {p["pt"] for p in PERCUSSION.values()} | set(heads.values())
+            excludes += sorted(possible - set(includes) - {info.get("natural")})
         if not r["slurred"]:
             excludes.append("pt.legato")
         pitch = percussion_code(includes) if r["part"] in unpitched else r["pitch"]
@@ -356,6 +421,41 @@ def sounding_notes(spec):
                            techniques=dict(includes=sorted(includes), excludes=sorted(excludes)),
                            source=r["token"]))
     return result
+
+
+def hand_marks(articulations):
+    """(mark, Dorico item) for each of a note's marks the operator applies."""
+    return [(a, PERCUSSION[a]["how"] if a in PERCUSSION else ORNAMENT_BY_HAND[a])
+            for a in articulations if a in PERCUSSION or a in ORNAMENT_BY_HAND]
+
+
+def cue_text(mark):
+    """The score cue for a hand-applied mark: "add: Snares Off"."""
+    how = PERCUSSION[mark]["how"] if mark in PERCUSSION else ORNAMENT_BY_HAND[mark]
+    item = how.rsplit("▸ ", 1)[-1]
+    if "(" in item and how.startswith(_HEAD):
+        item = item[item.index("(") + 1:item.rindex(")")] + " notehead"
+    return "add: " + item
+
+
+def by_hand(spec):
+    """What the operator adds in Dorico before playing, in score order: one
+    step per hand-applied mark, with the bar and beat of its note."""
+    parts, _, _ = timeline(spec)
+    bar = bar_length(spec)
+    steps = []
+    for part, events in zip(spec["parts"], parts):
+        name = part.get("name", INSTRUMENTS[part["instrument"]]["name"])
+        for event in events:
+            if event["kind"] != "note":
+                continue
+            for mark, how in hand_marks(event["articulations"]):
+                beat = Fraction(event["position"] % bar, DIVISIONS) + 1
+                steps.append(dict(part=part["id"], bar=event["position"] // bar + 1, beat=float(beat),
+                                  mark=mark, position=event["position"],
+                                  text=f"Bar {event['position'] // bar + 1} beat {float(beat):g}, {name}: {how}"))
+    steps.sort(key=lambda s: (s["position"], [p["id"] for p in spec["parts"]].index(s["part"])))
+    return [{k: v for k, v in s.items() if k != "position"} for s in steps]
 
 
 def sub(parent, tag, value=None, **attrs):
@@ -449,6 +549,10 @@ def musicxml(spec):
                     notations = sub(last, "notations")
                 sub(notations, "slur", type="stop", number="1")
             elif kind in ("note", "rest"):
+                # A cue above each note that needs a mark added in Dorico.
+                for mark, _ in hand_marks(event.get("articulations", [])):
+                    d = sub(m, "direction", placement="above")
+                    sub(sub(d, "direction-type"), "words", cue_text(mark))
                 n = sub(m, "note")
                 alter = 0
                 if kind == "rest":
@@ -520,6 +624,7 @@ def expected(spec, spec_bytes):
                     **({"unpitched": True} if "unpitched" in INSTRUMENTS[p["instrument"]] else {}))
                for p in spec["parts"]],
         tolerances={**DEFAULT_TOLERANCES, **spec.get("tolerances", {})},
+        **({"by_hand": steps} if (steps := by_hand(spec)) else {}),
         notes=sounding_notes(spec))
 
 

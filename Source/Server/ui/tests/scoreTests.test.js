@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { formatLength, instrumentLabel, normalizeState, recordingStatus, runHeadline } from "../src/lib/scoreTests.js";
+import { byHandSteps, formatLength, instrumentLabel, normalizeState, recordingStatus, runHeadline } from "../src/lib/scoreTests.js";
 
 test("tests list instruments and lengths readably", () => {
     assert.equal(instrumentLabel("instrument.strings.violin"), "Violin");
@@ -11,6 +11,16 @@ test("tests list instruments and lengths readably", () => {
     assert.equal(instrumentLabel(""), "");
     assert.equal(formatLength(19200), "19 s");
     assert.equal(formatLength(95000), "1:35");
+});
+
+test("a test's by-hand marks list in order; tests without them list none", () => {
+    assert.deepEqual(byHandSteps({ by_hand: ["Bar 1 beat 3, Snare Drum: Rim shot", "Bar 4 beat 1, Snare Drum: Snares Off"] }),
+        ["Bar 1 beat 3, Snare Drum: Rim shot", "Bar 4 beat 1, Snare Drum: Snares Off"]);
+    assert.deepEqual(byHandSteps({ id: "slurs" }), []);
+    assert.deepEqual(byHandSteps(undefined), []);
+    assert.equal(instrumentLabel("instrument.latin.unpitched.conga.high"), "Conga (Quinto)");
+    const pane = readFileSync(new URL("../src/lib/ScoreTests.svelte", import.meta.url), "utf8");
+    assert.match(pane, /byHandSteps\(armedEntry\)/);
 });
 
 test("state from C++ gets defaults for anything missing", () => {

@@ -1,12 +1,14 @@
 <script>
     import { onMount } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
-    import { formatLength, instrumentLabel, normalizeState, recordingStatus, runHeadline } from "./scoreTests.js";
+    import { byHandSteps, formatLength, instrumentLabel, normalizeState, recordingStatus, runHeadline } from "./scoreTests.js";
 
     let { visible = true, onClose = () => {} } = $props();
     let state = $state(normalizeState(null));
     let copied = $state(false);
-    let armedTitle = $derived(state.tests.find(test => test.id === state.armedTest)?.title || state.armedTest);
+    let armedEntry = $derived(state.tests.find(test => test.id === state.armedTest));
+    let armedTitle = $derived(armedEntry?.title || state.armedTest);
+    let armedSteps = $derived(byHandSteps(armedEntry));
 
     onMount(() => onFromCpp("scoreTestState", value => { state = normalizeState(value); }));
     $effect(() => {
@@ -39,6 +41,12 @@
             <div>
                 <h2>Armed: {armedTitle}</h2>
                 <p>Open the score in Dorico, play it from the start to the end, then press Done.</p>
+                {#if armedSteps.length}
+                    <p>Before playing, add these marks in Dorico (each note has an “add:” cue above it). Use only these items: a playing technique made by typing new text plays as a technique no bridge map knows.</p>
+                    <ol class="by-hand" aria-label="Marks to add by hand">
+                        {#each armedSteps as step}<li>{step}</li>{/each}
+                    </ol>
+                {/if}
                 <p class="status" aria-live="polite">{recordingStatus(state)}</p>
             </div>
             <div class="actions">
@@ -77,7 +85,8 @@
             <tbody>
                 {#each state.tests as test (test.id)}
                     <tr class:armed-row={state.armed && state.armedTest === test.id}>
-                        <td><strong>{test.title}</strong><small>{test.description}</small></td>
+                        <td><strong>{test.title}</strong><small>{test.description}</small>
+                            {#if byHandSteps(test).length}<small class="by-hand-count">{byHandSteps(test).length} marks to add by hand in Dorico</small>{/if}</td>
                         <td>{(test.instruments || []).map(instrumentLabel).join(", ")}</td>
                         <td>{test.notes}</td>
                         <td>{formatLength(test.length_ms)}</td>
@@ -101,7 +110,7 @@
     <details class="setup">
         <summary>Before your first run</summary>
         <ol>
-            <li>In Fiddle, make one chair per instrument the tests use (Violin, Flute, Horn in F, Timpani, Marimba), each with a layer, then install the playback template from Chairs (with Dorico closed).</li>
+            <li>In Fiddle, make one chair per instrument the tests use (the Instruments column; the percussion tests need Snare Drum, Bass Drum, Suspended Cymbal, Triangle, Hi-hat, Tambourine and Conga (Quinto)), each with a layer, then install the playback template from Chairs (with Dorico closed).</li>
             <li>In Dorico, Library ▸ Playback Options: set humanize (start, end, dynamics, for pitched and unpitched instruments) and the beat dynamic increases (pitched and unpitched) to 0, turn off “Maximum duration for staccato playback technique”, leave pitch contour emphasis off, and press Save as Default.</li>
             <li>Make Fiddle Dorico's default playback template (Preferences ▸ Play), or apply it to each test project.</li>
         </ol>
@@ -125,6 +134,8 @@
     section { padding:14px 24px; border-bottom:1px solid #334155; }
     .armed { display:flex; justify-content:space-between; gap:16px; align-items:center; flex-wrap:wrap; background:#14283d; }
     .status { color:#bae6fd; }
+    .by-hand { margin:6px 0; padding-left:20px; max-height:30vh; overflow:auto; color:#e2e8f0; font-size:12px; }
+    .by-hand li { margin:2px 0; } .by-hand-count { color:#fbbf24; }
     .result.pass { background:#12291f; } .result.fail { background:#2a1a1f; }
     .result-head { display:flex; justify-content:space-between; gap:16px; align-items:flex-start; flex-wrap:wrap; }
     .run-id code { font-size:12px; color:#f1f5f9; background:#0b1220; padding:2px 6px; border-radius:4px; user-select:all; }

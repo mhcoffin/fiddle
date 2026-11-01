@@ -43,12 +43,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -69,12 +84,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -96,12 +126,27 @@
         ],
         "excludes": [
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q+acc"
@@ -122,12 +167,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -148,12 +208,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -176,11 +251,26 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q+marc"
@@ -203,11 +293,26 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q+stacc"
@@ -230,11 +335,26 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
-          "pt.tremolo"
+          "pt.stickShot",
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q+ten"
@@ -255,12 +375,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -281,12 +416,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -307,12 +457,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -333,12 +498,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -359,12 +539,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -385,12 +580,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -411,12 +621,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -437,12 +662,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -470,11 +710,26 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
-          "pt.tenuto"
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.trill"
         ]
       },
       "source": "x/w+trem"
@@ -497,11 +752,26 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
-          "pt.tenuto"
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.trill"
         ]
       },
       "source": "x/h+trem"
@@ -522,12 +792,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -548,12 +833,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/q"
@@ -574,12 +874,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -600,12 +915,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -626,12 +956,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -652,12 +997,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -678,12 +1038,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -704,12 +1079,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -730,12 +1120,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"
@@ -756,12 +1161,27 @@
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
           "pt.legato",
           "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
           "pt.staccatissimo",
           "pt.staccato",
+          "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.tremolo",
+          "pt.trill"
         ]
       },
       "source": "x/e"

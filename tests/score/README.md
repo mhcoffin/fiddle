@@ -6,9 +6,10 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-31): all four phases built; all twelve tests pass in
-Dorico.** The test format and generator, twelve tests, Fiddle's recorder and
-comparison, the Score Tests window, and looking up a run by its ID.
+**Status (2026-11-01): all four phases built; twelve of thirteen tests pass
+in Dorico, and percussion-techniques has not been run yet.** The test format
+and generator, thirteen tests, Fiddle's recorder and comparison, the Score
+Tests window, and looking up a run by its ID.
 
 | Test | Latest run | Result |
 | --- | --- | --- |
@@ -29,6 +30,7 @@ comparison, the Score Tests window, and looking up a run by its ID.
 | snare-drum | `snare-drum-20261031-172210` | Pass: 28 of 28 on the one-line staff: imported as the single instrument (no kit, two plug-in slots), same results as the run above. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-160247` | Fail: 0 of 16, 5 extra. Dorico's import put the bass drum part into its marching bass drums kit (part name "Bass Drum" matches a drum of that kit), the template could not route the kit, and Dorico loaded nine Fiddle plug-in instances; the cymbal's five notes arrived on the snare chair's channel, nothing else arrived. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-165626` | Fail: 0 of 16, 5 extra, with the bass drum part renamed so every part fell to Dorico's Drum Set: the same five cymbal notes on the snare chair's channel. Dorico routes the one-instrument Drum Set wrapper through its snare component; the fix is the one-line staff (above). |
+| percussion-techniques | not yet run | Strokes and modifiers the other percussion tests don't reach, each from Dorico's own items: snare noteheads (side stick from the imported x head; rim shot and cross stick set by hand), On Rim, Stick Shot, buzz roll, Snares Off/On; hi-hat Open, Closed, Half-open; cymbal Choke, l.v., Damp; a tambourine trill; conga Open and Muffled. The notehead techniques answer the open question in `experiments/unpitched-percussion-bridge/results-01.md`: whether a technique Dorico takes from the notehead reaches the expression map as a text mark does. Needs three new chairs (Hi-hat, Tambourine, Conga (Quinto)). See "Hand-applied marks". |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-171854` | Pass: 16 of 16 on one-line staves: Dorico imported three single instruments (no kit, two plug-in slots) and routed each to its chair (suspended cymbal port 3 channel 8, triangle 9, bass drum 10). The cymbal's whole-note roll under p < f is one 2.4 s note on the tremolo base with CC1 56→72 one value every 150 ms; the bass drum's ff roll one note at CC1 80; hits by velocity (triangle mf 68, cymbal f 72), accents arriving on CC104. Switches 12.5 ms before each note, Off 25 ms before. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
@@ -44,8 +46,10 @@ project from the window, or reapply the template and save.
    armed bar). Fiddle copies the MusicXML to
    `~/Library/Application Support/Fiddle/ScoreTests/scores/` and opens it in
    the newest installed Dorico.
-3. In Dorico, play it from the start to the end. The armed bar counts the
-   notes Fiddle receives. Played it twice? Only the latest playthrough counts.
+3. If the armed bar lists marks to add, add them in Dorico first (see
+   "Hand-applied marks"). Then play the score from the start to the end. The
+   armed bar counts the notes Fiddle receives. Played it twice? Only the
+   latest playthrough counts.
 4. Press **Done**. The window shows pass or fail, a line per failed note, and
    the run ID. **Copy run ID** puts it on the clipboard; **Show run record**
    reveals the file in Finder. **Cancel** disarms without a record.
@@ -100,10 +104,15 @@ files are stale.
 ```
 
 `instrument` is one of `violin`, `viola`, `flute`, `horn`, `timpani`, `marimba`,
-`snare`, `bass-drum`, `suspended-cymbal`, `triangle` (see `INSTRUMENTS` in
-`scoretest.py`: each maps to Dorico's instrument ID and MusicXML sound). An
-optional `name` renames the part (its part and score-instrument names in the
-MusicXML; the instrument still comes from the sound ID). Unpitched parts are
+`snare`, `bass-drum`, `suspended-cymbal`, `triangle`, `hi-hat`, `tambourine`,
+`conga` (see `INSTRUMENTS` in `scoretest.py`: each maps to Dorico's
+instrument ID and MusicXML sound). An optional `name` renames the part (its
+part and score-instrument names in the MusicXML). Dorico's import picks the
+instrument by sound ID and then by name, so the default names are Dorico's
+own: "Hi-hat" (not the marching hi-hat, which shares `metal.hi-hat`) and
+"Conga (Quinto)", the high conga (all five congas share `drum.conga` and the
+name "Conga"; if Dorico imports another one, change it in Setup to Conga
+(Quinto) before playing). Unpitched parts are
 written on a **one-line** percussion staff, which Dorico imports as the single
 instrument. On a five-line staff Dorico wraps the part in a percussion kit
 (its Drum Set, or a stock kit with a component named like the part: "Bass
@@ -122,7 +131,8 @@ sounding pitch: Dorico sends sounding pitch.
 | --- | --- |
 | `C5/q` | a note: pitch (`C#5`, `Bb4`, octave 4 starts at middle C) / length `w h q e s`, dotted with `.` (`q.`) |
 | `C5/q+stacc+acc` | articulations: `stacc`, `staccmo` (staccatissimo), `ten`, `acc`, `marc` (marcato) |
-| `x/q+trem` | on an unpitched instrument, a hit (`x`, no pitch) with ornaments `trem` (three-stroke tremolo, `pt.tremolo`) or `buzz` (buzz roll; Dorico's import drops it, so avoid it in specs) and noteheads `xhead`, `ghost` |
+| `x/q+trem` | on an unpitched instrument, a hit (`x`, no pitch) with ornaments `trem` (three-stroke tremolo, `pt.tremolo`), `trill` (`<trill-mark/>`, `pt.trill`) or `buzz` (buzz roll, `pt.buzzRoll`; Dorico's import drops it, so it is also a hand-applied mark), and noteheads `xhead`, `ghost` |
+| `x/q+rim` | a hand-applied percussion mark (below): `rimshot`, `crossstick`, `rim`, `stickshot`, `open`, `closed`, `halfopen`, `choke`, `damp`, `muffled`, `lv`, `snaresoff`, `snareson` |
 | `C5/h~` | tied to the next note (same pitch); a tie chain sounds once |
 | `r/q` | a rest |
 | `!mf` | a dynamic, from `pppppp` to `ffffff`; a part must start with one |
@@ -132,6 +142,35 @@ sounding pitch: Dorico sends sounding pitch.
 | `|` | a bar line (checked against the time signature) |
 
 Notes may not cross bar lines: tie them.
+
+### Hand-applied marks
+
+MusicXML can't carry most unpitched techniques: Dorico's import keeps hits,
+dynamics, accents, marcato, staccato, tenuto, tremolos, trills and the x
+notehead, and drops the rest. So a spec names them as marks (`PERCUSSION` in
+`scoretest.py`) and the operator adds each in Dorico before playing. The
+generator puts an "add: …" cue above each such note in the MusicXML, and
+writes the list of steps into the expected result and `index.json`. The
+Score Tests window shows that list while the test is armed, with the bar,
+beat, part and the exact Dorico item, for example:
+
+    Bar 4 beat 1, Snare Drum: Playing Techniques panel ▸ Unpitched Percussion ▸ Snares Off
+    Bar 1 beat 3, Snare Drum: Option-Shift-Up/Down on the note until its head is slashed (Rim shot)
+
+Use exactly those items. Typing a technique's name into the Shift-P popover
+can make a new user playing technique instead, which plays back as a user
+technique no bridge map knows: in the probe, a ghost note added that way
+sent nothing (results-01.md, finding 4). Rim shot and cross stick are the
+snare's notehead techniques (its notehead set: x is side stick, slashed is
+rim shot, circled is cross stick), so they test whether a notehead-assigned
+technique reaches the expression map. The cues stay in the score as staff
+text; they don't affect playback. Save the edited project if you want to
+re-run without marking it again, but open it after reapplying the Fiddle
+template (see the note on saved projects above).
+
+Dead stroke, Rods and the ghost note have no built-in Dorico item, so no test
+marks them. The probe carried all three on the same conduits r2 uses (CC108,
+CC105, KS4).
 
 An unpitched part's expected pitch is the unpitched bridge's percussion-map
 pitch (`experiments/unpitched-percussion-bridge/unpitched-percussion-r2/allocation.json`),
@@ -160,6 +199,14 @@ relative to the start of the score), dynamic, and playing techniques.
   map to `pt.staccato`, `pt.staccatissimo`, `pt.tenuto`, `pt.accent` and
   `pt.marcato`; slurred notes include `pt.legato`, the slur's last note too;
   unslurred notes exclude it.
+- **Percussion techniques**: a note's marks are included; every other
+  percussion technique the harness knows is excluded, so a switch left on
+  past its note fails the next one. Snares Off and Snares On are Dorico
+  Directions and hold until the other one; every other mark is an Attribute
+  and applies to its note only (Dorico's `playingTechniqueDefinitions.xml`).
+  An instrument's natural equivalent (Closed on the hi-hat, Open on the
+  triangle, from `instruments.xml`) is never excluded: a plain note may carry it.
+  On the snare the x notehead includes `pt.sideStick` (verified in the probe).
 - **Tolerances** (per test, default): onset and duration ±5 ms, level ±0.2.
 
 Expectations about Dorico's own behaviour are hypotheses until a run confirms
@@ -168,12 +215,20 @@ them. Legato on slurred notes, the last included, is confirmed
 level from one dynamic to the next over time (`hairpins-20261029-190413`).
 The tests check both exactly.
 
+percussion-techniques has first guesses that its first run may correct: that
+a plain hi-hat note doesn't need Closed, that l.v. leaves the note's written
+length alone, that a trill on the tambourine arrives as `pt.trill` (not a
+trill interval), and that Dorico imports Conga (Quinto) by its name.
+
 ## One-time setup
 
 ### Fiddle
 1. Use a dedicated Fiddle project (or branch) for testing.
 2. Create one chair per instrument the tests use (`instruments` in
-   `generated/index.json`; today **Violin**, **Flute**, **Horn in F**, **Timpani** and **Marimba**). Each needs a layer
+   `generated/index.json`; today **Violin**, **Flute**, **Horn in F**,
+   **Timpani**, **Marimba**, **Snare Drum**, **Bass Drum**, **Suspended
+   Cymbal**, **Triangle**, **Hi-hat**, **Tambourine** and **Conga
+   (Quinto)**). Each needs a layer
    (any instrument) so it is routed; what layers play is not tested.
 3. In **Technique Catalog ▸ Bridge maps**, if a section offers **Use built-in
    revision**, press it: the tests expect the built-in maps (Strings r5,
