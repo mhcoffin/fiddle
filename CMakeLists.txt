@@ -1354,6 +1354,19 @@ target_compile_features(DebugUiFeedTest PRIVATE cxx_std_17)
 add_test(NAME debug_ui_feed COMMAND DebugUiFeedTest)
 set_tests_properties(debug_ui_feed PROPERTIES LABELS "ui;regression;stable")
 
+# JsTestBridgeTest — the WebView JS bridge survives evaluations that outlive
+# its 5 s wait (message thread busy at launch). Uses an injected evaluator, so
+# no WKWebView or window is created.
+add_executable(JsTestBridgeTest
+    Source/Server/tests/JsTestBridgeTest.cpp
+    Source/Server/JsTestBridge.cpp)
+target_include_directories(JsTestBridgeTest PRIVATE Source/Server)
+target_link_libraries(JsTestBridgeTest PRIVATE juce::juce_gui_extra)
+target_compile_definitions(JsTestBridgeTest PRIVATE JUCE_WEB_BROWSER=1 JUCE_MODAL_LOOPS_PERMITTED=1)
+target_compile_features(JsTestBridgeTest PRIVATE cxx_std_17)
+add_test(NAME js_test_bridge COMMAND JsTestBridgeTest)
+set_tests_properties(js_test_bridge PROPERTIES LABELS "ui;regression;stable")
+
 add_executable(BridgeMapDocumentTest
     Source/Server/tests/BridgeMapDocumentTest.cpp
     Source/Server/NoteInspection.cpp
