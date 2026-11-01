@@ -149,7 +149,8 @@ class Expectations(unittest.TestCase):
         # A plain hi-hat note may carry Closed, Dorico's natural equivalent.
         self.assertNotIn("pt.closed", notes["hh", 1, 1.0]["excludes"])
         self.assertIn("pt.open2", notes["hh", 1, 3.0]["excludes"])
-        self.assertEqual(notes["hh", 1, 3.0]["includes"], ["pt.closed"])
+        # Closed, the hi-hat's natural equivalent, plays as Natural.
+        self.assertEqual(notes["hh", 1, 3.0]["includes"], [])
         steps = scoretest.by_hand(s)
         self.assertEqual([(x["part"], x["bar"], x["beat"], x["mark"]) for x in steps],
                          [("sn", 1, 1.0, "sidestick"), ("sn", 1, 2.0, "rim"), ("hh", 1, 2.0, "open"), ("sn", 1, 3.0, "snaresoff"),
@@ -165,6 +166,8 @@ class Expectations(unittest.TestCase):
             scoretest.sounding_notes(spec("!mf C5/q+rim r/h."))  # percussion marks need an unpitched part
         with self.assertRaises(scoretest.SpecError):
             scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf x/q+snaresoff+snareson r/h.")]))
+        with self.assertRaises(scoretest.SpecError):
+            scoretest.sounding_notes(dict(s, parts=[dict(s["parts"][0], music="!mf x/w+trill")]))
 
     def test_notehead_cues_name_the_notehead(self):
         self.assertEqual(scoretest.cue_text("sidestick"), "add: Side stick notehead")

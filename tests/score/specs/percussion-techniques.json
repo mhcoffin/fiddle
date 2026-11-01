@@ -1,7 +1,7 @@
 {
   "id": "percussion-techniques",
   "title": "Percussion techniques",
-  "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine trill; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
+  "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine roll; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
   "tempo": 100,
   "parts": [
     {
@@ -22,7 +22,7 @@
     {
       "id": "tamb",
       "instrument": "tambourine",
-      "music": "r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | !mf x/h+trill x/q x/q | r/w"
+      "music": "r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | !mf x/h+trem x/q x/q | r/w"
     },
     {
       "id": "cga",

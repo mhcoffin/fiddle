@@ -888,7 +888,7 @@
         <type>half</type>
         <notations>
           <ornaments>
-            <trill-mark />
+            <tremolo type="single">3</tremolo>
           </ornaments>
         </notations>
       </note>

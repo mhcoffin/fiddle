@@ -2,9 +2,9 @@
   "schema_version": 1,
   "id": "percussion-techniques",
   "title": "Percussion techniques",
-  "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine trill; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
+  "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine roll; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
   "musicxml": "percussion-techniques.musicxml",
-  "spec_sha256": "0ffd5b18c341c2ff9506d4d370af7559577d9b13a6786021f8e182bff2e1dc46",
+  "spec_sha256": "5a9bae5dca613aaceb51c097d538c08aa172ec1a978cc67ba2d98f534ed1d179",
   "time": "4/4",
   "tempo_map": [
     {
@@ -1066,9 +1066,7 @@
         "level": 0.5
       },
       "techniques": {
-        "includes": [
-          "pt.closed"
-        ],
+        "includes": [],
         "excludes": [
           "pt.accent",
           "pt.buzzRoll",
@@ -1478,7 +1476,7 @@
       },
       "techniques": {
         "includes": [
-          "pt.trill"
+          "pt.tremolo"
         ],
         "excludes": [
           "pt.accent",
@@ -1502,10 +1500,10 @@
           "pt.staccato",
           "pt.stickShot",
           "pt.tenuto",
-          "pt.tremolo"
+          "pt.trill"
         ]
       },
-      "source": "x/h+trill"
+      "source": "x/h+trem"
     },
     {
       "part": "tamb",

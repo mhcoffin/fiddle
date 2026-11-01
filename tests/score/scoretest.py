@@ -269,6 +269,10 @@ def timeline(spec):
                 raise SpecError(f"{part['id']}: {event['token']}: unpitched instruments take x heads, pitched ones pitches")
             if event["kind"] == "note" and not unpitched and set(event["articulations"]) & set(PERCUSSION):
                 raise SpecError(f"{part['id']}: {event['token']}: percussion marks need an unpitched instrument")
+            if event["kind"] == "note" and "trill" in event["articulations"]:
+                # Kept in ORNAMENTS so every unpitched note expects pt.trill absent.
+                raise SpecError(f"{part['id']}: {event['token']}: Dorico plays an unpitched trill as generated "
+                                "strokes, not pt.trill (percussion-techniques-20261101-153952); use trem")
             if event["kind"] == "note":
                 groups = [PERCUSSION[a]["group"] for a in event["articulations"] if "group" in PERCUSSION.get(a, {})]
                 if len(groups) != len(set(groups)):
@@ -401,9 +405,13 @@ def sounding_notes(spec):
         if r["part"] in unpitched:
             excludes += sorted(pt for name, (_, pt) in ORNAMENTS.items() if name not in r["articulations"])
             info = INSTRUMENTS[instruments[r["part"]]]
+            # A mark that is the instrument's natural equivalent plays as
+            # Natural: Dorico sends no switch for Closed on the hi-hat
+            # (percussion-techniques-20261101-153952).
             includes += sorted(PERCUSSION[a]["pt"] for a in r["articulations"]
-                               if a in PERCUSSION and "group" not in PERCUSSION[a])
-            includes += sorted(PERCUSSION[a]["pt"] for a in r["held"])
+                               if a in PERCUSSION and "group" not in PERCUSSION[a]
+                               and PERCUSSION[a]["pt"] != info.get("natural"))
+            includes += sorted(PERCUSSION[a]["pt"] for a in r["held"] if PERCUSSION[a]["pt"] != info.get("natural"))
             # Every other percussion technique is absent, so a switch that
             # stays on past its note fails the next one; the instrument's
             # natural equivalent may ride on any plain note.
