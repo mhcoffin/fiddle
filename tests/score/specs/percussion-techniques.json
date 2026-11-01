@@ -7,7 +7,7 @@
     {
       "id": "sn",
       "instrument": "snare",
-      "music": "!mf x/q x/q+xhead x/q+rimshot x/q+crossstick | x/q+rim x/q x/q+stickshot x/q+acc+rim | x/h+buzz x/q x/q | x/q+snaresoff x/q x/q x/q | x/q+snareson x/q x/q x/q | r/w | r/w | r/w | r/w | r/w | r/w"
+      "music": "!mf x/q x/q+sidestick x/q+rimshot x/q+crossstick | x/q+rim x/q x/q+stickshot x/q+acc+rim | x/h+buzz x/q x/q | x/q+snaresoff x/q x/q x/q | x/q+snareson x/q x/q x/q | r/w | r/w | r/w | r/w | r/w | r/w"
     },
     {
       "id": "hh",

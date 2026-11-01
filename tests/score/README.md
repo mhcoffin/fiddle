@@ -30,7 +30,7 @@ Tests window, and looking up a run by its ID.
 | snare-drum | `snare-drum-20261031-172210` | Pass: 28 of 28 on the one-line staff: imported as the single instrument (no kit, two plug-in slots), same results as the run above. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-160247` | Fail: 0 of 16, 5 extra. Dorico's import put the bass drum part into its marching bass drums kit (part name "Bass Drum" matches a drum of that kit), the template could not route the kit, and Dorico loaded nine Fiddle plug-in instances; the cymbal's five notes arrived on the snare chair's channel, nothing else arrived. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-165626` | Fail: 0 of 16, 5 extra, with the bass drum part renamed so every part fell to Dorico's Drum Set: the same five cymbal notes on the snare chair's channel. Dorico routes the one-instrument Drum Set wrapper through its snare component; the fix is the one-line staff (above). |
-| percussion-techniques | 22 of 38 (`percussion-techniques-20261101-144822`): every snare and cymbal mark but side stick | Strokes and modifiers the other percussion tests don't reach, each from Dorico's own items: snare noteheads (side stick from the imported x head; rim shot and cross stick set by hand), On Rim, Stick Shot, buzz roll, Snares Off/On; hi-hat Open, Closed, Half-open; cymbal Choke, l.v., Damp; a tambourine trill; conga Open and Muffled. The notehead techniques answer the open question in `experiments/unpitched-percussion-bridge/results-01.md`: whether a technique Dorico takes from the notehead reaches the expression map as a text mark does. Needs three new chairs (Hi-hat, Tambourine, Conga (Quinto)). See "Hand-applied marks". First run: rim shot and cross stick (noteheads set by hand) arrive, so a notehead's technique does reach the expression map; so do On Rim, Stick Shot, buzz roll, Snares Off/On, Choke, l.v. (written length kept) and Damp. Side stick failed: on a one-line staff the import makes the x head a notehead-set override (`noteheadset.Xnoteheads`, no technique), unlike the probe's five-line staff. Hi-hat, tambourine and conga sent nothing: the hi-hat chair was the marching hi-hat, and no chair had a bridge map (the template wasn't reinstalled after adding them). |
+| percussion-techniques | 22 of 38 (`percussion-techniques-20261101-144822`): every snare and cymbal mark but side stick | Strokes and modifiers the other percussion tests don't reach, each from Dorico's own items: snare noteheads set by hand (side stick, rim shot, cross stick), On Rim, Stick Shot, buzz roll, Snares Off/On; hi-hat Open, Closed, Half-open; cymbal Choke, l.v., Damp; a tambourine trill; conga Open and Muffled. The notehead techniques answer the open question in `experiments/unpitched-percussion-bridge/results-01.md`: whether a technique Dorico takes from the notehead reaches the expression map as a text mark does. Needs three new chairs (Hi-hat, Tambourine, Conga (Quinto)). See "Hand-applied marks". First run: rim shot and cross stick (noteheads set by hand) arrive, so a notehead's technique does reach the expression map; so do On Rim, Stick Shot, buzz roll, Snares Off/On, Choke, l.v. (written length kept) and Damp. Side stick failed: on a one-line staff the import makes the x head a notehead-set override (`noteheadset.Xnoteheads`, no technique), unlike the probe's five-line staff, so side stick is now a notehead set by hand like the other two. Hi-hat, tambourine and conga sent nothing: the hi-hat chair was the marching hi-hat, and no chair had a bridge map (the template wasn't reinstalled after adding them). |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-171854` | Pass: 16 of 16 on one-line staves: Dorico imported three single instruments (no kit, two plug-in slots) and routed each to its chair (suspended cymbal port 3 channel 8, triangle 9, bass drum 10). The cymbal's whole-note roll under p < f is one 2.4 s note on the tremolo base with CC1 56→72 one value every 150 ms; the bass drum's ff roll one note at CC1 80; hits by velocity (triangle mf 68, cymbal f 72), accents arriving on CC104. Switches 12.5 ms before each note, Off 25 ms before. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
@@ -131,8 +131,8 @@ sounding pitch: Dorico sends sounding pitch.
 | --- | --- |
 | `C5/q` | a note: pitch (`C#5`, `Bb4`, octave 4 starts at middle C) / length `w h q e s`, dotted with `.` (`q.`) |
 | `C5/q+stacc+acc` | articulations: `stacc`, `staccmo` (staccatissimo), `ten`, `acc`, `marc` (marcato) |
-| `x/q+trem` | on an unpitched instrument, a hit (`x`, no pitch) with ornaments `trem` (three-stroke tremolo, `pt.tremolo`), `trill` (`<trill-mark/>`, `pt.trill`) or `buzz` (buzz roll, `pt.buzzRoll`; Dorico's import drops it, so it is also a hand-applied mark), and noteheads `xhead`, `ghost` |
-| `x/q+rim` | a hand-applied percussion mark (below): `rimshot`, `crossstick`, `rim`, `stickshot`, `open`, `closed`, `halfopen`, `choke`, `damp`, `muffled`, `lv`, `snaresoff`, `snareson` |
+| `x/q+trem` | on an unpitched instrument, a hit (`x`, no pitch) with ornaments `trem` (three-stroke tremolo, `pt.tremolo`), `trill` (`<trill-mark/>`, `pt.trill`) or `buzz` (buzz roll, `pt.buzzRoll`; Dorico's import drops it, so it is also a hand-applied mark), and noteheads `xhead`, `ghost` (written in the MusicXML, no technique expected) |
+| `x/q+rim` | a hand-applied percussion mark (below): `sidestick`, `rimshot`, `crossstick`, `rim`, `stickshot`, `open`, `closed`, `halfopen`, `choke`, `damp`, `muffled`, `lv`, `snaresoff`, `snareson` |
 | `C5/h~` | tied to the next note (same pitch); a tie chain sounds once |
 | `r/q` | a rest |
 | `!mf` | a dynamic, from `pppppp` to `ffffff`; a part must start with one |
@@ -147,7 +147,7 @@ Notes may not cross bar lines: tie them.
 
 MusicXML can't carry most unpitched techniques: Dorico's import keeps hits,
 dynamics, accents, marcato, staccato, tenuto, tremolos, trills and the x
-notehead, and drops the rest. So a spec names them as marks (`PERCUSSION` in
+notehead (as a head only, with no technique), and drops the rest. So a spec names them as marks (`PERCUSSION` in
 `scoretest.py`) and the operator adds each in Dorico before playing. The
 generator puts an "add: …" cue above each such note in the MusicXML, and
 writes the list of steps into the expected result and `index.json`. The
@@ -160,9 +160,10 @@ beat, part and the exact Dorico item, for example:
 Use exactly those items. Typing a technique's name into the Shift-P popover
 can make a new user playing technique instead, which plays back as a user
 technique no bridge map knows: in the probe, a ghost note added that way
-sent nothing (results-01.md, finding 4). Rim shot and cross stick are the
-snare's notehead techniques (its notehead set: x is side stick, slashed is
-rim shot, circled is cross stick), so they test whether a notehead-assigned
+sent nothing (results-01.md, finding 4). Side stick, rim shot and cross stick
+are the snare's notehead techniques (its notehead set: x is side stick,
+slashed is rim shot, circled is cross stick), set by hand because the
+import gives an x head no technique on a one-line staff. They test whether a notehead-assigned
 technique reaches the expression map. The cues stay in the score as staff
 text; they don't affect playback. Save the edited project if you want to
 re-run without marking it again, but open it after reapplying the Fiddle
@@ -206,9 +207,10 @@ relative to the start of the score), dynamic, and playing techniques.
   and applies to its note only (Dorico's `playingTechniqueDefinitions.xml`).
   An instrument's natural equivalent (Closed on the hi-hat, Open on the
   triangle, from `instruments.xml`) is never excluded: a plain note may carry it.
-  On the snare the x notehead includes `pt.sideStick` (verified in the probe,
-  on a five-line staff; on the one-line staff the tests use, the import keeps
-  only the x head: `percussion-techniques-20261101-144822`).
+  A notehead from the MusicXML (`xhead`, `ghost`) expects no technique: the
+  probe's five-line snare imported its x head as side stick, but on the
+  one-line staff the tests use the import keeps only the head
+  (`percussion-techniques-20261101-144822`).
 - **Tolerances** (per test, default): onset and duration ±5 ms, level ±0.2.
 
 Expectations about Dorico's own behaviour are hypotheses until a run confirms

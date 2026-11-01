@@ -104,6 +104,11 @@
         <voice>1</voice>
         <type>quarter</type>
       </note>
+      <direction placement="above">
+        <direction-type>
+          <words>add: Side stick notehead</words>
+        </direction-type>
+      </direction>
       <note>
         <unpitched>
           <display-step>C</display-step>
@@ -112,7 +117,6 @@
         <duration>12</duration>
         <voice>1</voice>
         <type>quarter</type>
-        <notehead>x</notehead>
         <notations />
       </note>
       <direction placement="above">

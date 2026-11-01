@@ -48,10 +48,9 @@ INSTRUMENTS = {
     # it ("Hi-hat", not the marching hi-hat that shares metal.hi-hat).
     # "natural" is a technique Dorico calls the instrument's natural
     # equivalent (instruments.xml): a plain note may carry it, so it is
-    # never expected absent. "noteheads" maps a notehead mark to the
-    # technique the instrument's notehead set gives it on import.
+    # never expected absent.
     "snare": dict(name="Snare Drum", sound="drum.snare-drum", dorico="instrument.orchestral.unpitched.snare.drum",
-                  clef=("percussion", 2), program=1, unpitched=("C", 5), noteheads={"xhead": "pt.sideStick"}),
+                  clef=("percussion", 2), program=1, unpitched=("C", 5)),
     "bass-drum": dict(name="Bass Drum", sound="drum.bass-drum", dorico="instrument.orchestral.unpitched.bass.drum",
                       clef=("percussion", 2), program=1, unpitched=("E", 4)),
     "suspended-cymbal": dict(name="Suspended Cymbal", sound="metal.cymbal.suspended",
@@ -97,8 +96,10 @@ ORNAMENTS = {
 # Dorico's import drops these ornaments, so the operator adds them by hand
 # (results-01.md, "MusicXML import").
 ORNAMENT_BY_HAND = {"buzz": "Tremolos panel ▸ Buzz roll, if the import dropped it (z on the stem)"}
-# A notehead's technique depends on the instrument's notehead set
-# (INSTRUMENTS "noteheads"); elsewhere it carries no expectation.
+# Noteheads carry no expectation: on a one-line staff Dorico imports an x
+# head as a notehead-set override with no technique, though the snare's own
+# x head is side stick (percussion-techniques-20261101-144822). A notehead
+# technique is a hand-applied mark (PERCUSSION) instead.
 NOTEHEADS = {"xhead": ("x", {}), "ghost": ("normal", {"parentheses": "yes"})}
 
 # Unpitched techniques MusicXML cannot carry. The operator applies each in
@@ -110,6 +111,7 @@ NOTEHEADS = {"xhead": ("x", {}), "ghost": ("normal", {"parentheses": "yes"})}
 _PANEL = "Playing Techniques panel ▸ Unpitched Percussion ▸ "
 _HEAD = "Option-Shift-Up/Down on the note until its head is "
 PERCUSSION = {
+    "sidestick": dict(pt="pt.sideStick", how=_HEAD + "x (Side stick)"),
     "rimshot": dict(pt="pt.rimShot", how=_HEAD + "slashed (Rim shot)"),
     "crossstick": dict(pt="pt.crossStick", how=_HEAD + "circled (Cross stick)"),
     "rim": dict(pt="pt.rim", how=_PANEL + "On Rim"),
@@ -399,15 +401,13 @@ def sounding_notes(spec):
         if r["part"] in unpitched:
             excludes += sorted(pt for name, (_, pt) in ORNAMENTS.items() if name not in r["articulations"])
             info = INSTRUMENTS[instruments[r["part"]]]
-            heads = info.get("noteheads", {})
             includes += sorted(PERCUSSION[a]["pt"] for a in r["articulations"]
                                if a in PERCUSSION and "group" not in PERCUSSION[a])
             includes += sorted(PERCUSSION[a]["pt"] for a in r["held"])
-            includes += sorted(heads[a] for a in r["articulations"] if a in heads)
             # Every other percussion technique is absent, so a switch that
             # stays on past its note fails the next one; the instrument's
             # natural equivalent may ride on any plain note.
-            possible = {p["pt"] for p in PERCUSSION.values()} | set(heads.values())
+            possible = {p["pt"] for p in PERCUSSION.values()}
             excludes += sorted(possible - set(includes) - {info.get("natural")})
         if not r["slurred"]:
             excludes.append("pt.legato")
