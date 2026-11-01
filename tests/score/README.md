@@ -6,10 +6,9 @@ when, for how long, how loud, and with which playing techniques. Score tests
 check exactly that, at the bridge decoder's output, before any layer or
 library touches the notes.
 
-**Status (2026-10-31): all four phases built; eleven of twelve tests pass in
-Dorico, cymbals-and-triangle not yet run.** The test format and generator,
-twelve tests, Fiddle's recorder and comparison, the Score Tests window, and
-looking up a run by its ID.
+**Status (2026-10-31): all four phases built; all twelve tests pass in
+Dorico.** The test format and generator, twelve tests, Fiddle's recorder and
+comparison, the Score Tests window, and looking up a run by its ID.
 
 | Test | Latest run | Result |
 | --- | --- | --- |
@@ -29,6 +28,7 @@ looking up a run by its ID.
 | snare-drum | `snare-drum-20261031-154157` | Pass: 28 of 28, through Unpitched percussion r2 (port 3 channel 7), bound by the chair's instrument. Every note on the map's one pitch (36). Hits carry their dynamic as velocity (mf 68, ladder ppp 40 … fff 88) with accent, marcato, staccato and tenuto arriving; the whole-note tremolo is one 2.4 s note on the tremolo base (CC102=30, VeryShort bucket) with CC1 56→72 under the hairpin, and the half-note tremolo likewise. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-160247` | Fail: 0 of 16, 5 extra. Dorico's import put the bass drum part into its marching bass drums kit (part name "Bass Drum" matches a drum of that kit), the template could not route the kit, and Dorico loaded nine Fiddle plug-in instances; the cymbal's five notes arrived on the snare chair's channel, nothing else arrived. |
 | cymbals-and-triangle | `cymbals-and-triangle-20261031-165626` | Fail: 0 of 16, 5 extra, with the bass drum part renamed so every part fell to Dorico's Drum Set: the same five cymbal notes on the snare chair's channel. Dorico routes the one-instrument Drum Set wrapper through its snare component; the fix is the one-line staff (above). |
+| cymbals-and-triangle | `cymbals-and-triangle-20261031-171854` | Pass: 16 of 16 on one-line staves: Dorico imported three single instruments (no kit, two plug-in slots) and routed each to its chair (suspended cymbal port 3 channel 8, triangle 9, bass drum 10). The cymbal's whole-note roll under p < f is one 2.4 s note on the tremolo base with CC1 56→72 one value every 150 ms; the bass drum's ff roll one note at CC1 80; hits by velocity (triangle mf 68, cymbal f 72), accents arriving on CC104. Switches 12.5 ms before each note, Off 25 ms before. |
 
 The first two basic-rhythm runs failed every note on `pinned_playback`: the
 Fiddle version in use pinned Strings r4, and reopening a saved test project
