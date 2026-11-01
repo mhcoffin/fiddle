@@ -31,6 +31,9 @@
           <sign>percussion</sign>
           <line>2</line>
         </clef>
+        <staff-details>
+          <staff-lines>1</staff-lines>
+        </staff-details>
       </attributes>
       <direction placement="below">
         <direction-type>

@@ -39,7 +39,8 @@ INSTRUMENTS = {
     "marimba": dict(name="Marimba", sound="pitched-percussion.marimba",
                     dorico="instrument.pitchedpercussion.marimba", clef=("G", 2), program=13),
     # Unpitched instruments: notes are written as x heads ("x/q"), shown at
-    # "unpitched" (display step, octave) on a percussion clef. Dorico sends
+    # "unpitched" (display step, octave) on a one-line percussion staff (five
+    # lines make Dorico import a kit; see the clef writer). Dorico sends
     # the pitch of the unpitched bridge's percussion-map entry it picks, so
     # each expected note's pitch comes from that map (percussion_code); r1
     # puts every entry on one pitch.
@@ -374,11 +375,8 @@ def musicxml(spec):
     for channel, part in enumerate(spec["parts"], start=1):
         info = INSTRUMENTS[part["instrument"]]
         sp = sub(part_list, "score-part", id=part["id"])
-        # A part's "name" renames both names Dorico reads. Dorico's import
-        # wraps each unpitched part in a kit whose component names match the
-        # part name (else its Drum Set, harmless): "Bass Drum" matches its
-        # marching bass drums kit, which no bridge routes, so that spec says
-        # "Gran Cassa". The instrument itself comes from instrument-sound.
+        # A part's "name" renames both names Dorico reads; the instrument
+        # itself comes from instrument-sound.
         sub(sp, "part-name", part.get("name", info["name"]))
         si = sub(sp, "score-instrument", id=f"{part['id']}-I1")
         sub(si, "instrument-name", part.get("name", info["name"]))
@@ -407,6 +405,12 @@ def musicxml(spec):
                     clef = sub(attrs, "clef")
                     sub(clef, "sign", info["clef"][0])
                     sub(clef, "line", info["clef"][1])
+                    if "unpitched" in info:
+                        # One staff line: Dorico imports a five-line percussion
+                        # part as a one-instrument Drum Set kit, which a
+                        # playback template routes through the kit's snare, and
+                        # a one-line part as the single instrument.
+                        sub(sub(attrs, "staff-details"), "staff-lines", 1)
                     if "transpose" in info:
                         transpose = sub(attrs, "transpose")
                         sub(transpose, "diatonic", info["transpose"]["diatonic"])

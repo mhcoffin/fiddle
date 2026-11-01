@@ -27,9 +27,9 @@
       </midi-instrument>
     </score-part>
     <score-part id="bd">
-      <part-name>Gran Cassa</part-name>
+      <part-name>Bass Drum</part-name>
       <score-instrument id="bd-I1">
-        <instrument-name>Gran Cassa</instrument-name>
+        <instrument-name>Bass Drum</instrument-name>
         <instrument-sound>drum.bass-drum</instrument-sound>
       </score-instrument>
       <midi-instrument id="bd-I1">
@@ -53,6 +53,9 @@
           <sign>percussion</sign>
           <line>2</line>
         </clef>
+        <staff-details>
+          <staff-lines>1</staff-lines>
+        </staff-details>
       </attributes>
       <direction placement="below">
         <direction-type>
@@ -236,6 +239,9 @@
           <sign>percussion</sign>
           <line>2</line>
         </clef>
+        <staff-details>
+          <staff-lines>1</staff-lines>
+        </staff-details>
       </attributes>
       <note>
         <rest />
@@ -375,6 +381,9 @@
           <sign>percussion</sign>
           <line>2</line>
         </clef>
+        <staff-details>
+          <staff-lines>1</staff-lines>
+        </staff-details>
       </attributes>
       <direction placement="below">
         <direction-type>

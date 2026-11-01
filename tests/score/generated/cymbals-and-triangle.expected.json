@@ -2,9 +2,9 @@
   "schema_version": 1,
   "id": "cymbals-and-triangle",
   "title": "Cymbals and triangle",
-  "description": "Suspended cymbal, triangle and bass drum, each on its own chair through the unpitched percussion bridge: cymbal rolls under hairpins, triangle and bass-drum hits with accents, and a bass-drum roll. Each part binds to its chair's instrument; rolls take CC1, hits take velocity. The bass drum part is named Gran Cassa: Dorico's MusicXML import wraps each unpitched part in a kit whose component names match the part name, and 'Bass Drum' matches its eight-drum marching bass drums kit, which the template cannot route.",
+  "description": "Suspended cymbal, triangle and bass drum, each on its own chair through the unpitched percussion bridge: cymbal rolls under hairpins, triangle and bass-drum hits with accents, and a bass-drum roll. Each part binds to its chair's instrument; rolls take CC1, hits take velocity.",
   "musicxml": "cymbals-and-triangle.musicxml",
-  "spec_sha256": "c325420f23d3c3921cc403209aa8eb19bd36f0f68c1dbccb945076f7d76c6ebd",
+  "spec_sha256": "ba47dd3d60e4434bd38a38c773a2d36067a30050b57d78772ac355ea55ebc0e5",
   "time": "4/4",
   "tempo_map": [
     {
@@ -28,7 +28,7 @@
     },
     {
       "id": "bd",
-      "name": "Gran Cassa",
+      "name": "Bass Drum",
       "instrument": "instrument.orchestral.unpitched.bass.drum",
       "unpitched": true
     }
