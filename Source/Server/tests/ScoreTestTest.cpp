@@ -2,6 +2,7 @@
 #include "BridgeSections.h"
 #include "NoteStreamTracker.h"
 #include "ScoreTest.h"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
@@ -327,6 +328,27 @@ void bindingsAndExtras() {
   CHECK(int(withExtras["summary"]["extra"]) == 2 && int(withExtras["summary"]["passed"]) == int(expected["notes"].size()));
   const auto &extras = *withExtras["comparison"]["extras"].getArray();
   CHECK(extras[0]["pitch"] == juce::var(90) && extras[1]["duration_ms"].isVoid());
+
+  // A zero-length note at a note's onset (Dorico auditioning the note the
+  // playhead starts on, percussion-techniques-20261101-153952) is the
+  // extra; the note that lasts its written length is the match.
+  {
+    auto doubled = play(expected);
+    const auto first = expected["notes"][0];
+    const auto onset = at(double(first["onset_ms"]));
+    const int pitch = int(first["pitch"]);
+    const auto it = std::find_if(doubled.events.begin(), doubled.events.end(), [&](const auto &item) {
+      return item.first == onset && item.second.has_note_on() && int(item.second.note_on().note_number()) == pitch;
+    });
+    CHECK(it != doubled.events.end());
+    doubled.events.insert(doubled.events.insert(it, {onset, noteOff(ep, onset, pitch)}), {onset, noteOn(ep, onset, pitch, 90)});
+    Rig doubledRig(doubled.project);
+    doubledRig.recorder.arm("basic-rhythm", expected, doubled.instruments);
+    doubledRig.send(doubled);
+    const auto record = runRecord("z", *doubledRig.recorder.finish());
+    CHECK(int(record["summary"]["extra"]) == 1 && noteResult(record, 0)["status"].toString() == "pass");
+    CHECK(double(record["comparison"]["extras"][0]["duration_ms"]) == 0.0);
+  }
 
   // Chair instruments that match no part: a single part takes the only endpoint.
   auto unnamed = *take;

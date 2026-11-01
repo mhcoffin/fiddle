@@ -254,45 +254,57 @@ private:
       offsetMs_ = std::min_element(received_.begin(), received_.end(), [](const auto &a, const auto &b) {
                     return a.onsetMs < b.onsetMs; })->onsetMs;
     // Pass 2: per part, the in-order matching with the most notes, then the
-    // smallest total onset error, among same-pitch pairs within the window.
+    // smallest total onset error, then the smallest total duration error
+    // (so a note auditioned at another's onset, zero length, isn't the
+    // match), among same-pitch pairs within the window.
     std::set<size_t> matched;
     for (const auto &part : parts_) {
       const auto exp = rowsFor(part);
       const auto rec = receivedFor(part);
       const size_t n = exp.size(), m = rec.size();
-      struct Score { int count = 0; double error = 0; };
-      const auto better = [](const Score &a, const Score &b) {
-        return a.count != b.count ? a.count > b.count : a.error < b.error - 1e-9;
+      struct Score { int count = 0; double error = 0, durationError = 0; };
+      const auto same = [](double a, double b) { return std::abs(a - b) < 1e-6; };
+      const auto better = [&same](const Score &a, const Score &b) {
+        if (a.count != b.count) return a.count > b.count;
+        if (!same(a.error, b.error)) return a.error < b.error;
+        return a.durationError < b.durationError - 1e-6;
+      };
+      const auto plus = [](const Score &s, const PairError &e) {
+        return Score{s.count + 1, s.error + e.onset, s.durationError + e.duration};
+      };
+      const auto equal = [&same](const Score &a, const Score &b) {
+        return a.count == b.count && same(a.error, b.error) && same(a.durationError, b.durationError);
       };
       std::vector<std::vector<Score>> best(n + 1, std::vector<Score>(m + 1));
       for (size_t i = n; i-- > 0;)
         for (size_t j = m; j-- > 0;) {
           Score s = better(best[i + 1][j], best[i][j + 1]) ? best[i + 1][j] : best[i][j + 1];
-          if (const auto e = pairError(exp[i], rec[j])) {
-            Score take{best[i + 1][j + 1].count + 1, best[i + 1][j + 1].error + *e};
-            if (better(take, s)) s = take;
-          }
+          if (const auto e = pairError(exp[i], rec[j]))
+            if (const auto take = plus(best[i + 1][j + 1], *e); better(take, s)) s = take;
           best[i][j] = s;
         }
       for (size_t i = 0, j = 0; i < n && j < m;) {
         const auto e = pairError(exp[i], rec[j]);
         const auto &here = best[i][j];
-        if (e && here.count == best[i + 1][j + 1].count + 1
-            && std::abs(here.error - (best[i + 1][j + 1].error + *e)) < 1e-6) {
+        if (e && equal(here, plus(best[i + 1][j + 1], *e))) {
           exp[i]->match = rec[j]; matched.insert(rec[j]); ++i; ++j;
-        } else if (here.count == best[i + 1][j].count && std::abs(here.error - best[i + 1][j].error) < 1e-6) ++i;
+        } else if (equal(here, best[i + 1][j])) ++i;
         else ++j;
       }
     }
     for (size_t i = 0; i < received_.size(); ++i)
       if (!matched.count(i)) extras_.push_back(i);
   }
-  std::optional<double> pairError(const Row *row, size_t r) const {
+  // How far a received note is from a row: onset, then duration (a note
+  // that never ended counts as off by the written length).
+  struct PairError { double onset = 0, duration = 0; };
+  std::optional<PairError> pairError(const Row *row, size_t r) const {
     const auto &note = received_[r];
     if (note.pitch != pitchOf(row)) return std::nullopt;
     const double delta = std::abs(note.onsetMs - offsetMs_ - onsetOf(row));
     if (delta > kMatchWindowMs) return std::nullopt;
-    return delta;
+    const double written = (*row->note)["duration_ms"];
+    return PairError{delta, note.durationMs ? std::abs(*note.durationMs - written) : written};
   }
 
   void checkNote(Row &row) {
