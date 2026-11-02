@@ -22,6 +22,8 @@ struct LibraryPatchRow {
   int pluginUid = 0;
   std::vector<std::uint8_t> pluginState;
   std::string expressionMapId;
+  /// Library percussion map (library_percussion_maps.entity_id), or empty.
+  std::string percussionMapId;
   /// Human-readable preset the guided setup asks the user to load.
   std::string expectedPresetName;
   /// False while a guided-import patch still needs explicit user capture.
@@ -71,6 +73,13 @@ struct LayerRow {
   /// equivalent setup during getStateInformation().
   int sourcePatchRevision = 0;
   bool pluginStateEdited = false;
+  std::string percussionMapId;
+};
+
+// A Fiddle-owned library percussion map; xml is its DrumKitNoteMapDefinition.
+struct PercussionMapRow {
+  std::string entityId, name, xml;
+  int revision = 1;
 };
 
 enum class PatchDeleteResult { deleted, referenced, notFound, error };
@@ -100,6 +109,15 @@ public:
   struct ExpressionMapReference { std::string mapId, label; };
   std::vector<ExpressionMapReference> listExpressionMapReferences() const;
   int patchUsageCount(const std::string &patchId) const;
+
+  std::vector<PercussionMapRow> listPercussionMaps() const;
+  std::optional<PercussionMapRow> getPercussionMap(const std::string &entityId) const;
+  /// Insert or replace; the revision advances when the XML changes.
+  bool upsertPercussionMap(const PercussionMapRow &map);
+  /// Patches ("Library / Patch") and layers ("layer <id>") naming the map.
+  std::vector<std::string> percussionMapReferences(const std::string &entityId) const;
+  /// Refused while referenced.
+  PatchDeleteResult deletePercussionMap(const std::string &entityId);
   /// Count linked layers whose library-owned setup no longer matches the
   /// current catalog patch. Layer-owned mixer controls are ignored.
   int outOfDateLayerCount(const std::string &patchId) const;

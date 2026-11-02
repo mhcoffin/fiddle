@@ -241,6 +241,14 @@ sol::table LuaPlugin::noteToLua(const fiddle::Note &note) {
     case fiddle::MidiInstruction::CHANNEL_PRESSURE:
       entry["type"] = "channel_pressure";
       break;
+    case fiddle::MidiInstruction::NOTE_ON:
+      entry["type"] = "note_on";
+      break;
+    case fiddle::MidiInstruction::NOTE_OFF:
+      entry["type"] = "note_off";
+      break;
+    default:
+      break;
     }
     entry["param1"] = instr.param1();
     entry["param2"] = instr.param2();

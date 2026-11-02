@@ -129,6 +129,10 @@ public:
   /// this proactively schedules a note-off independent of Dorico.
   virtual double scheduledNoteOffMs() const { return -1.0; }
 
+  /// True when the last onNoteStart()/onNoteEnd() withheld the note: it is
+  /// not played, and later annotators never see it.
+  virtual bool noteSuppressed() const { return false; }
+
   /// Reset cached state (match cache, current match, etc.).
   /// Called when the user clears the Note Inspector so subsequent
   /// notes are resolved fresh.

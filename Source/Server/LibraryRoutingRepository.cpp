@@ -104,17 +104,22 @@ bool removeLayersCatalogForeignKey(sqlite3 *database) {
       expression_map_id TEXT NOT NULL DEFAULT '',
       source_patch_revision INTEGER NOT NULL DEFAULT 0,
       plugin_state_edited INTEGER NOT NULL DEFAULT 0,
+      percussion_map_id TEXT NOT NULL DEFAULT '',
       FOREIGN KEY (chair_id) REFERENCES chairs(id) ON DELETE RESTRICT
     )
   )") &&
+      ensureColumn(database, "layers_with_catalog_fk", "percussion_map_id",
+                   "percussion_map_id TEXT NOT NULL DEFAULT ''") &&
       execute(database, R"(
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        active, muted, soloed, gain_db, plugin_uid, plugin_state,
-       expression_map_id, source_patch_revision, plugin_state_edited)
+       expression_map_id, source_patch_revision, plugin_state_edited,
+       percussion_map_id)
     SELECT id, chair_id, patch_id, patch_name, library_id, library_name,
            position, active, muted, soloed, gain_db, plugin_uid, plugin_state,
-           expression_map_id, source_patch_revision, plugin_state_edited
+           expression_map_id, source_patch_revision, plugin_state_edited,
+           percussion_map_id
     FROM layers_with_catalog_fk
   )") &&
       execute(database, "DROP TABLE layers_with_catalog_fk") &&
@@ -168,6 +173,7 @@ LibraryPatchRow readPatch(sqlite3_stmt *statement) {
   patch.expectedPresetName = columnText(statement, 10);
   patch.setupComplete = sqlite3_column_int(statement, 11) != 0;
   patch.revision = sqlite3_column_int(statement, 12);
+  patch.percussionMapId = columnText(statement, 13);
   return patch;
 }
 
@@ -203,20 +209,22 @@ LayerRow readLayer(sqlite3_stmt *statement) {
   layer.expressionMapId = columnText(statement, 13);
   layer.sourcePatchRevision = sqlite3_column_int(statement, 14);
   layer.pluginStateEdited = sqlite3_column_int(statement, 15) != 0;
+  layer.percussionMapId = columnText(statement, 16);
   return layer;
 }
 
 constexpr const char *kPatchColumns =
     "id, library_id, position, name, instrument_entity_id, family, "
     "character, plugin_uid, plugin_state, expression_map_id, "
-    "expected_preset_name, setup_complete, revision";
+    "expected_preset_name, setup_complete, revision, percussion_map_id";
 constexpr const char *kChairColumns =
     "id, instrument_entity_id, name, family, dorico_role, ordinal, "
     "display_order, flat_index";
 constexpr const char *kLayerColumns =
     "id, chair_id, patch_id, patch_name, library_id, library_name, position, "
     "active, muted, soloed, gain_db, plugin_uid, plugin_state, "
-    "expression_map_id, source_patch_revision, plugin_state_edited";
+    "expression_map_id, source_patch_revision, plugin_state_edited, "
+    "percussion_map_id";
 
 } // namespace
 
@@ -319,7 +327,20 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
                     "source_patch_revision INTEGER NOT NULL DEFAULT 0") ||
       !ensureColumn(database, "layers", "plugin_state_edited",
                     "plugin_state_edited INTEGER NOT NULL DEFAULT 0") ||
-      !removeLayersCatalogForeignKey(database))
+      !removeLayersCatalogForeignKey(database) ||
+      !ensureColumn(database, "library_patches", "percussion_map_id",
+                    "percussion_map_id TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "layers", "percussion_map_id",
+                    "percussion_map_id TEXT NOT NULL DEFAULT ''") ||
+      !execute(database, R"(
+    CREATE TABLE IF NOT EXISTS library_percussion_maps (
+      entity_id  TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      xml        TEXT NOT NULL,
+      revision   INTEGER NOT NULL DEFAULT 1,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  )"))
     return false;
 
   // Existing rows predate stable synchronization tracking. Treat their
@@ -368,8 +389,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
        character, plugin_uid, plugin_state, expression_map_id,
-       expected_preset_name, setup_complete, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+       expected_preset_name, setup_complete, percussion_map_id, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -382,7 +403,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
         library_patches.plugin_uid <> excluded.plugin_uid OR
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
-        library_patches.expression_map_id <> excluded.expression_map_id
+        library_patches.expression_map_id <> excluded.expression_map_id OR
+        library_patches.percussion_map_id <> excluded.percussion_map_id
         THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       library_id = excluded.library_id,
@@ -395,7 +417,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
       plugin_state = excluded.plugin_state,
       expression_map_id = excluded.expression_map_id,
       expected_preset_name = excluded.expected_preset_name,
-      setup_complete = excluded.setup_complete
+      setup_complete = excluded.setup_complete,
+      percussion_map_id = excluded.percussion_map_id
   )");
   if (!statement)
     return false;
@@ -411,6 +434,7 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
   bindText(statement.get(), 10, patch.expressionMapId);
   bindText(statement.get(), 11, patch.expectedPresetName);
   sqlite3_bind_int(statement.get(), 12, patch.setupComplete ? 1 : 0);
+  bindText(statement.get(), 13, patch.percussionMapId);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -444,6 +468,93 @@ LibraryRoutingRepository::listPatches(const std::string &libraryId) const {
   while (sqlite3_step(statement.get()) == SQLITE_ROW)
     result.push_back(readPatch(statement.get()));
   return result;
+}
+
+std::vector<PercussionMapRow> LibraryRoutingRepository::listPercussionMaps() const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, "SELECT entity_id, name, xml, revision FROM library_percussion_maps "
+                                 "ORDER BY name COLLATE NOCASE, entity_id");
+  std::vector<PercussionMapRow> result;
+  if (statement)
+    while (sqlite3_step(statement.get()) == SQLITE_ROW)
+      result.push_back({columnText(statement.get(), 0), columnText(statement.get(), 1),
+                        columnText(statement.get(), 2), sqlite3_column_int(statement.get(), 3)});
+  return result;
+}
+
+std::optional<PercussionMapRow>
+LibraryRoutingRepository::getPercussionMap(const std::string &entityId) const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, "SELECT entity_id, name, xml, revision FROM library_percussion_maps "
+                                 "WHERE entity_id = ?");
+  if (!statement)
+    return std::nullopt;
+  bindText(statement.get(), 1, entityId);
+  if (sqlite3_step(statement.get()) != SQLITE_ROW)
+    return std::nullopt;
+  return PercussionMapRow{columnText(statement.get(), 0), columnText(statement.get(), 1),
+                          columnText(statement.get(), 2), sqlite3_column_int(statement.get(), 3)};
+}
+
+bool LibraryRoutingRepository::upsertPercussionMap(const PercussionMapRow &map) {
+  if (map.entityId.empty())
+    return false;
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, R"(
+    INSERT INTO library_percussion_maps (entity_id, name, xml, revision)
+    VALUES (?1, ?2, ?3, MAX(?4, 1))
+    ON CONFLICT(entity_id) DO UPDATE SET
+      revision = CASE WHEN library_percussion_maps.xml <> excluded.xml OR
+                           library_percussion_maps.name <> excluded.name
+                      THEN MAX(library_percussion_maps.revision + 1, excluded.revision)
+                      ELSE library_percussion_maps.revision END,
+      name = excluded.name,
+      xml = excluded.xml,
+      updated_at = unixepoch()
+  )");
+  if (!statement)
+    return false;
+  bindText(statement.get(), 1, map.entityId);
+  bindText(statement.get(), 2, map.name);
+  bindText(statement.get(), 3, map.xml);
+  sqlite3_bind_int(statement.get(), 4, map.revision);
+  return sqlite3_step(statement.get()) == SQLITE_DONE;
+}
+
+std::vector<std::string>
+LibraryRoutingRepository::percussionMapReferences(const std::string &entityId) const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  std::vector<std::string> result;
+  Statement patches(database_, "SELECT COALESCE(l.name, p.library_id), p.name FROM library_patches p "
+                               "LEFT JOIN libraries l ON l.id = p.library_id "
+                               "WHERE p.percussion_map_id = ? ORDER BY p.library_id, p.position");
+  if (patches) {
+    bindText(patches.get(), 1, entityId);
+    while (sqlite3_step(patches.get()) == SQLITE_ROW)
+      result.push_back(columnText(patches.get(), 0) + " / " + columnText(patches.get(), 1));
+  }
+  Statement layers(database_, "SELECT COALESCE(c.name, layer.chair_id), layer.patch_name FROM layers layer "
+                              "LEFT JOIN chairs c ON c.id = layer.chair_id "
+                              "WHERE layer.percussion_map_id = ? ORDER BY c.display_order, layer.position");
+  if (layers) {
+    bindText(layers.get(), 1, entityId);
+    while (sqlite3_step(layers.get()) == SQLITE_ROW)
+      result.push_back("Layer " + columnText(layers.get(), 0) + " / " + columnText(layers.get(), 1));
+  }
+  return result;
+}
+
+PatchDeleteResult LibraryRoutingRepository::deletePercussionMap(const std::string &entityId) {
+  if (!percussionMapReferences(entityId).empty())
+    return PatchDeleteResult::referenced;
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, "DELETE FROM library_percussion_maps WHERE entity_id = ?");
+  if (!statement)
+    return PatchDeleteResult::error;
+  bindText(statement.get(), 1, entityId);
+  if (sqlite3_step(statement.get()) != SQLITE_DONE)
+    return PatchDeleteResult::error;
+  return sqlite3_changes(database_) > 0 ? PatchDeleteResult::deleted : PatchDeleteResult::notFound;
 }
 
 std::vector<LibraryRoutingRepository::ExpressionMapReference>
@@ -485,6 +596,7 @@ int LibraryRoutingRepository::outOfDateLayerCount(
       layer.library_name <> COALESCE(library.name, '') OR
       layer.plugin_uid <> patch.plugin_uid OR
       layer.expression_map_id <> patch.expression_map_id OR
+      layer.percussion_map_id <> patch.percussion_map_id OR
       layer.source_patch_revision <> patch.revision OR
       layer.plugin_state_edited <> 0
     )
@@ -511,6 +623,7 @@ LibraryRoutingRepository::outOfDateLayerIds() const {
       layer.library_name <> COALESCE(library.name, '') OR
       layer.plugin_uid <> patch.plugin_uid OR
       layer.expression_map_id <> patch.expression_map_id OR
+      layer.percussion_map_id <> patch.percussion_map_id OR
       layer.source_patch_revision <> patch.revision OR
       layer.plugin_state_edited <> 0
     ORDER BY layer.id
@@ -534,11 +647,13 @@ LibraryRoutingRepository::updateLayersFromPatch(
   int pluginUid = 0;
   std::vector<std::uint8_t> pluginState;
   std::string expressionMapId;
+  std::string percussionMapId;
   int patchRevision = 0;
   {
     Statement patchStatement(database_, R"(
       SELECT p.name, p.library_id, COALESCE(l.name, ''), p.plugin_uid,
-             p.plugin_state, p.expression_map_id, p.revision
+             p.plugin_state, p.expression_map_id, p.revision,
+             p.percussion_map_id
       FROM library_patches p
       LEFT JOIN libraries l ON l.id = p.library_id
       WHERE p.id = ?
@@ -556,13 +671,14 @@ LibraryRoutingRepository::updateLayersFromPatch(
     pluginState = columnBlob(patchStatement.get(), 4);
     expressionMapId = columnText(patchStatement.get(), 5);
     patchRevision = sqlite3_column_int(patchStatement.get(), 6);
+    percussionMapId = columnText(patchStatement.get(), 7);
   }
 
   Statement update(database_, R"(
     UPDATE layers SET
       patch_name = ?, library_id = ?, library_name = ?, plugin_uid = ?,
       plugin_state = ?, expression_map_id = ?, source_patch_revision = ?,
-      plugin_state_edited = 0
+      plugin_state_edited = 0, percussion_map_id = ?
     WHERE patch_id = ?
   )");
   if (!update)
@@ -574,7 +690,8 @@ LibraryRoutingRepository::updateLayersFromPatch(
   bindBlob(update.get(), 5, pluginState);
   bindText(update.get(), 6, expressionMapId);
   sqlite3_bind_int(update.get(), 7, patchRevision);
-  bindText(update.get(), 8, patchId);
+  bindText(update.get(), 8, percussionMapId);
+  bindText(update.get(), 9, patchId);
   if (sqlite3_step(update.get()) != SQLITE_DONE)
     return std::nullopt;
   return sqlite3_changes(database_);
@@ -586,7 +703,7 @@ bool LibraryRoutingRepository::updateLayerSetups(const std::vector<LayerRow> &la
   Statement update(database_, R"(
     UPDATE layers SET patch_name = ?, library_id = ?, library_name = ?,
       plugin_uid = ?, plugin_state = ?, expression_map_id = ?,
-      source_patch_revision = ?, plugin_state_edited = ?
+      source_patch_revision = ?, plugin_state_edited = ?, percussion_map_id = ?
     WHERE id = ? AND chair_id = ? AND patch_id = ?
   )");
   bool ok = bool(update);
@@ -604,9 +721,10 @@ bool LibraryRoutingRepository::updateLayerSetups(const std::vector<LayerRow> &la
     bindText(update.get(), 6, layer.expressionMapId);
     sqlite3_bind_int(update.get(), 7, layer.sourcePatchRevision);
     sqlite3_bind_int(update.get(), 8, layer.pluginStateEdited ? 1 : 0);
-    bindText(update.get(), 9, layer.id);
-    bindText(update.get(), 10, layer.chairId);
-    bindText(update.get(), 11, layer.patchId);
+    bindText(update.get(), 9, layer.percussionMapId);
+    bindText(update.get(), 10, layer.id);
+    bindText(update.get(), 11, layer.chairId);
+    bindText(update.get(), 12, layer.patchId);
     ok = ok && sqlite3_step(update.get()) == SQLITE_DONE && sqlite3_changes(database_) == 1;
   }
   if (!ok || !execute(database_, "COMMIT")) {
@@ -706,8 +824,8 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
        character, plugin_uid, plugin_state, expression_map_id,
-       expected_preset_name, setup_complete, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12,
+       expected_preset_name, setup_complete, percussion_map_id, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -719,7 +837,8 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
         library_patches.plugin_uid <> excluded.plugin_uid OR
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
-        library_patches.expression_map_id <> excluded.expression_map_id
+        library_patches.expression_map_id <> excluded.expression_map_id OR
+        library_patches.percussion_map_id <> excluded.percussion_map_id
         THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       position = excluded.position,
@@ -731,7 +850,8 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
       plugin_state = excluded.plugin_state,
       expression_map_id = excluded.expression_map_id,
       expected_preset_name = excluded.expected_preset_name,
-      setup_complete = excluded.setup_complete
+      setup_complete = excluded.setup_complete,
+      percussion_map_id = excluded.percussion_map_id
   )");
   Statement remove(database_, "DELETE FROM library_patches WHERE id = ?");
   bool succeeded = upsert && remove;
@@ -753,6 +873,7 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
     bindText(upsert.get(), 10, patch.expressionMapId);
     bindText(upsert.get(), 11, patch.expectedPresetName);
     sqlite3_bind_int(upsert.get(), 12, patch.setupComplete ? 1 : 0);
+    bindText(upsert.get(), 13, patch.percussionMapId);
     succeeded = sqlite3_step(upsert.get()) == SQLITE_DONE;
     if (!succeeded)
       std::cerr << "[LibraryRoutingRepository] Could not save patch '"
@@ -1251,8 +1372,9 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        active, muted, soloed, gain_db, plugin_uid, plugin_state,
-       expression_map_id, source_patch_revision, plugin_state_edited)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       expression_map_id, source_patch_revision, plugin_state_edited,
+       percussion_map_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       chair_id = excluded.chair_id,
       patch_id = excluded.patch_id,
@@ -1268,7 +1390,8 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
       plugin_state = excluded.plugin_state,
       expression_map_id = excluded.expression_map_id,
       source_patch_revision = excluded.source_patch_revision,
-      plugin_state_edited = excluded.plugin_state_edited
+      plugin_state_edited = excluded.plugin_state_edited,
+      percussion_map_id = excluded.percussion_map_id
   )");
   if (!statement)
     return false;
@@ -1288,6 +1411,7 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
   bindText(statement.get(), 14, layer.expressionMapId);
   sqlite3_bind_int(statement.get(), 15, layer.sourcePatchRevision);
   sqlite3_bind_int(statement.get(), 16, layer.pluginStateEdited ? 1 : 0);
+  bindText(statement.get(), 17, layer.percussionMapId);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -1299,9 +1423,10 @@ bool LibraryRoutingRepository::createLayerFromPatch(
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        plugin_uid, plugin_state, expression_map_id, source_patch_revision,
-       plugin_state_edited)
+       plugin_state_edited, percussion_map_id)
     SELECT ?, ?, p.id, p.name, p.library_id, COALESCE(l.name, ''), ?,
-           p.plugin_uid, p.plugin_state, p.expression_map_id, p.revision, 0
+           p.plugin_uid, p.plugin_state, p.expression_map_id, p.revision, 0,
+           p.percussion_map_id
     FROM library_patches p
     LEFT JOIN libraries l ON l.id = p.library_id
     WHERE p.id = ?
@@ -1413,8 +1538,9 @@ bool LibraryRoutingRepository::replaceTopology(
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        active, muted, soloed, gain_db, plugin_uid, plugin_state,
-       expression_map_id, source_patch_revision, plugin_state_edited)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       expression_map_id, source_patch_revision, plugin_state_edited,
+       percussion_map_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )");
   succeeded = succeeded && removeGraveyard && insertChair && insertLayer;
 
@@ -1463,6 +1589,7 @@ bool LibraryRoutingRepository::replaceTopology(
     sqlite3_bind_int(insertLayer.get(), 15, layer.sourcePatchRevision);
     sqlite3_bind_int(insertLayer.get(), 16,
                      layer.pluginStateEdited ? 1 : 0);
+    bindText(insertLayer.get(), 17, layer.percussionMapId);
     succeeded = sqlite3_step(insertLayer.get()) == SQLITE_DONE;
   }
 

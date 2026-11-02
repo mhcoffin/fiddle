@@ -31,6 +31,7 @@ public:
           a.name != b.name || a.instrumentEntityId != b.instrumentEntityId ||
           a.family != b.family || a.character != b.character || a.pluginUid != b.pluginUid ||
           a.pluginState != b.pluginState || a.expressionMapId != b.expressionMapId ||
+          a.percussionMapId != b.percussionMapId ||
           a.expectedPresetName != b.expectedPresetName ||
           a.setupComplete != b.setupComplete) return false;
     }
@@ -50,6 +51,34 @@ private:
   std::optional<LibraryCatalogSnapshot> before_;
   bool success_ = false;
   bool executed_ = false;
+};
+
+// Create, edit, import or delete one library percussion map (nullopt = absent).
+class PercussionMapCatalogAction final : public UndoableAction {
+public:
+  PercussionMapCatalogAction(LibraryRoutingRepository &repository, std::string entityId,
+                             std::optional<PercussionMapRow> target, juce::String description)
+      : repository_(repository), entityId_(std::move(entityId)), after_(std::move(target)),
+        before_(repository.getPercussionMap(entityId_)), description_(std::move(description)) {}
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
+  bool isNoOp() const override {
+    if (before_.has_value() != after_.has_value()) return false;
+    return !after_ || (before_->name == after_->name && before_->xml == after_->xml);
+  }
+  juce::String getDescription() const override { return description_; }
+  const std::string &entityId() const { return entityId_; }
+private:
+  void apply(const std::optional<PercussionMapRow> &row) {
+    success_ = row ? repository_.upsertPercussionMap(*row)
+                   : repository_.deletePercussionMap(entityId_) == PatchDeleteResult::deleted;
+  }
+  LibraryRoutingRepository &repository_;
+  std::string entityId_;
+  std::optional<PercussionMapRow> after_, before_;
+  juce::String description_;
+  bool success_ = false;
 };
 
 } // namespace fiddle

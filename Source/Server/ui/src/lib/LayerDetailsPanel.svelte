@@ -1,11 +1,13 @@
 <script>
     import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+    import PercussionMapPicker from "./PercussionMapPicker.svelte";
 
     let {
         strip,
         pluginName = "",
         plugins = [],
         maps = [],
+        percussionMaps = [],
         luaCatalog = [],
         inspectorOpen = false,
         onClose = () => {},
@@ -15,6 +17,9 @@
         onSelectMap = () => {},
         onClearMap = () => {},
         onLoadMapFile = () => {},
+        onSelectPercussionMap = () => {},
+        onClearPercussionMap = () => {},
+        onLoadPercussionMapFile = () => {},
         onAddLua = () => {},
         onRemoveLua = () => {},
         onInspectMidi = () => {},
@@ -132,6 +137,26 @@
                     onloadfile={onLoadMapFile}
                 />
             </section>
+
+            {#if strip.unpitchedPercussion || strip.percussionMapEntityID}
+                <section>
+                    <div class="section-heading">
+                        <div>
+                            <h3>Percussion map</h3>
+                            <p>Choose the library pitch (and keyswitch) for each stroke. The expression map still handles switches and dynamics.</p>
+                        </div>
+                    </div>
+                    <PercussionMapPicker
+                        maps={percussionMaps}
+                        instrument={strip.instrumentEntityId || ""}
+                        selectedId={strip.percussionMapEntityID || ""}
+                        selectedName={strip.percussionMapName || ""}
+                        onselect={onSelectPercussionMap}
+                        onclear={onClearPercussionMap}
+                        onloadfile={onLoadPercussionMapFile}
+                    />
+                </section>
+            {/if}
 
             <section>
                 <div class="section-heading">
