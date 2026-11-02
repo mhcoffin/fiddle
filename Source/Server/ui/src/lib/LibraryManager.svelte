@@ -756,8 +756,9 @@
           {/if}
           <div class="patch-toolbar">
             <button class="add-patch-btn" onclick={addBlankPatch}>+ Add Patch</button>
-            <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}>Sort Orchestrally</button>
             <span>Creates an empty catalog row. Instrument classification is optional.</span>
+            <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}
+              title="Reorder patches by orchestral family">Sort orchestrally</button>
           </div>
           {#if buildResult}<div class="layer-update-result" class:success={buildResult.startsWith("OK:")} role="status">{buildResult}</div>{/if}
 
@@ -1232,14 +1233,18 @@
     border-bottom: 1px solid #44446c;
   }
   .patch-toolbar span { color: #8584ac; font: 500 .68rem "Inter", sans-serif; }
-  .add-patch-btn, .sort-patches-btn {
+  .add-patch-btn {
     min-height: 36px; padding: 7px 14px; border: 1px solid #7877b8;
     border-radius: 4px; background: #3938a0; color: #f1f0ff;
     font: 700 .72rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
   }
   .add-patch-btn:hover { background: #4a49b8; border-color: #a8b7ff; }
-  .sort-patches-btn { background: #1a194b; border-color: #555480; color: #c4c3e3; }
-  .sort-patches-btn:hover:not(:disabled) { background: #292863; border-color: #95a9ff; color: #f1f0ff; }
+  .sort-patches-btn {
+    margin-left: auto; padding: 5px 8px; border: none; border-radius: 4px;
+    background: none; color: #8584ac;
+    font: 600 .66rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .sort-patches-btn:hover:not(:disabled) { background: #1d1c50; color: #d8d7f5; }
   .sort-patches-btn:disabled { opacity: .4; cursor: default; }
   .inst-table-header {
     display: grid;
