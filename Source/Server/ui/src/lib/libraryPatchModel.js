@@ -81,13 +81,6 @@ export function createBlankLibraryPatch(id, defaults = {}) {
     );
 }
 
-export function updateSelectedPatches(patches, selectedIds, changes) {
-    if (!selectedIds || selectedIds.size === 0) return patches;
-    return patches.map((patch) =>
-        selectedIds.has(patch.id) ? { ...patch, ...changes } : patch,
-    );
-}
-
 export function duplicateLibraryPatch(patch, id) {
     return {
         ...patch,
@@ -135,13 +128,6 @@ export function sortLibraryPatchesOrchestrally(patches, scoreOrder) {
     return next.every((patch, index) => patch.id === patches[index].id)
         ? patches
         : next;
-}
-
-export function togglePatchSelection(selectedIds, patchId, additive = false) {
-    const next = additive ? new Set(selectedIds) : new Set();
-    if (additive && next.has(patchId)) next.delete(patchId);
-    else next.add(patchId);
-    return next;
 }
 
 export function shouldMarkLibraryEditorDirtyForPreviewChange(modalView) {

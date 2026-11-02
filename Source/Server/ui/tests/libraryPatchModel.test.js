@@ -14,8 +14,6 @@ import {
     pluginSetupStatus,
     shouldMarkLibraryEditorDirtyForPreviewChange,
     sortLibraryPatchesOrchestrally,
-    togglePatchSelection,
-    updateSelectedPatches,
 } from "../src/lib/libraryPatchModel.js";
 
 const libraryManagerSource = readFileSync(
@@ -133,33 +131,6 @@ test("a blank patch can be named before optional instrument classification", () 
     assert.equal(patch.family, "");
     assert.equal(patch.character, "");
     assert.equal(patch.vstPlugin, 42);
-});
-
-test("batch changes affect every selected patch and no others", () => {
-    const patches = [
-        { id: "a", vstPlugin: 0, exprMap: "" },
-        { id: "b", vstPlugin: 0, exprMap: "" },
-        { id: "c", vstPlugin: 7, exprMap: "old" },
-    ];
-    const selected = new Set(["a", "b"]);
-    const assigned = updateSelectedPatches(patches, selected, {
-        vstPlugin: 99,
-    });
-
-    assert.deepEqual(assigned.map((patch) => patch.vstPlugin), [99, 99, 7]);
-    assert.equal(assigned[2], patches[2]);
-});
-
-test("selection supports replacement and command-style toggling", () => {
-    assert.deepEqual([...togglePatchSelection(new Set(["a"]), "b")], ["b"]);
-    assert.deepEqual(
-        [...togglePatchSelection(new Set(["a"]), "b", true)].sort(),
-        ["a", "b"],
-    );
-    assert.deepEqual(
-        [...togglePatchSelection(new Set(["a", "b"]), "a", true)],
-        ["b"],
-    );
 });
 
 test("duplicate creates an independent row and retains its catalog defaults", () => {
