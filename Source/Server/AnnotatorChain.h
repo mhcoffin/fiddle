@@ -35,14 +35,14 @@ public:
 
   void onNoteStart(fiddle::Note &note,
                    const AnnotatorContext &ctx) override {
-    for (auto &annotator : chain_)
-      annotator->onNoteStart(note, ctx);
+    run(note, ctx, &Annotator::onNoteStart);
   }
 
   void onNoteEnd(fiddle::Note &note, const AnnotatorContext &ctx) override {
-    for (auto &annotator : chain_)
-      annotator->onNoteEnd(note, ctx);
+    run(note, ctx, &Annotator::onNoteEnd);
   }
+
+  bool noteSuppressed() const override { return suppressedBy_ != nullptr; }
 
   bool onCC(const fiddle::MidiEvent &event,
             const AnnotatorContext &ctx) override {
@@ -77,15 +77,15 @@ public:
     // Sum adjustments from all annotators in the chain so both Lua plugins
     // and the ExpressionMapAnnotator can contribute duration adjustments.
     double total = 0.0;
-    for (const auto &a : chain_)
-      total += a->durationAdjustMs();
+    for (size_t i = 0; i < ran_; ++i)
+      total += chain_[i]->durationAdjustMs();
     return total;
   }
 
   double noteStartOffsetMs() const override {
     double total = 0.0;
-    for (const auto &a : chain_)
-      total += a->noteStartOffsetMs();
+    for (size_t i = 0; i < ran_; ++i)
+      total += chain_[i]->noteStartOffsetMs();
     return total;
   }
 
@@ -119,16 +119,43 @@ public:
   }
 
   const AnnotationRecord *lastAnnotationRecord() const override {
-    // Return the last annotator's record that has one (typically the EM annotator)
-    for (auto it = chain_.rbegin(); it != chain_.rend(); ++it) {
-      if (auto *rec = (*it)->lastAnnotationRecord())
-        return rec;
+    // The last annotator that ran and has a record (typically the EM
+    // annotator), with an earlier percussion-map decision folded in.
+    const AnnotationRecord *last = nullptr, *percussion = nullptr;
+    for (size_t i = 0; i < ran_; ++i) {
+      if (auto *rec = chain_[i]->lastAnnotationRecord()) {
+        last = rec;
+        if (!rec->percussion.mapName.empty())
+          percussion = rec;
+      }
     }
-    return nullptr;
+    if (!percussion || percussion == last)
+      return last;
+    merged_ = *last;
+    merged_.percussion = percussion->percussion;
+    return &merged_;
   }
 
 private:
   std::vector<std::unique_ptr<Annotator>> chain_;
+  size_t ran_ = 0;                        // annotators that saw the last note
+  const Annotator *suppressedBy_ = nullptr;
+  mutable AnnotationRecord merged_;
+
+  // A withheld note goes no further down the chain.
+  void run(fiddle::Note &note, const AnnotatorContext &ctx,
+           void (Annotator::*step)(fiddle::Note &, const AnnotatorContext &)) {
+    suppressedBy_ = nullptr;
+    ran_ = 0;
+    for (auto &annotator : chain_) {
+      ((*annotator).*step)(note, ctx);
+      ++ran_;
+      if (annotator->noteSuppressed()) {
+        suppressedBy_ = annotator.get();
+        break;
+      }
+    }
+  }
 };
 
 } // namespace fiddle

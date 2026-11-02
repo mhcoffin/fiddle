@@ -257,6 +257,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
         strip->expressionMap ? strip->expressionMap->entityID : "";
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
+    sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
     if (!strip->sends.empty())
       sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();
@@ -336,6 +337,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
                          : juce::String());
     obj->setProperty("expressionMapPath", strip->expressionMapPath);
     obj->setProperty("expressionMapSource", strip->expressionMapSourceXml);
+    if (strip->percussionMapSourceXml.isNotEmpty())
+      obj->setProperty("percussionMapSource", strip->percussionMapSourceXml);
     obj->setProperty(
         "audioInserts",
         serializeStripAudioSnapshot(strip->audioEngine().snapshotAll(captureLiveState))
@@ -432,6 +435,7 @@ versioning::FiddleState StateManager::captureCurrentState(
         strip->expressionMap ? strip->expressionMap->entityID : "";
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
+    sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
     sb.directOutputBusId = strip->directOutputBusId.toStdString();
     if (!strip->sends.empty())
       sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();

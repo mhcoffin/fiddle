@@ -177,6 +177,8 @@ message MidiInstruction {
         PROGRAM_CHANGE = 2;  // param1=program#
         PITCH_BEND = 3;      // param1=MSB, param2=LSB (14-bit)
         CHANNEL_PRESSURE = 4;// param1=pressure value
+        NOTE_ON = 5;         // param1=note#, param2=velocity; never latched
+        NOTE_OFF = 6;        // param1=note#, param2=release velocity
     }
     Type type = 1;
     int32 channel = 2;    // 1-based output channel (0 = same as note channel)

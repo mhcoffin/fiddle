@@ -16,6 +16,7 @@ struct LayerLibrarySetup {
   std::shared_ptr<ExpressionMapData> expressionMap;
   juce::String expressionMapPath;
   juce::String expressionMapSourceXml;
+  PercussionMapAssignment percussionMap;
   bool missingPatchReference = false;
 };
 
@@ -62,6 +63,7 @@ private:
       current.expressionMap = map.data;
       current.expressionMapPath = map.sourcePath;
       current.expressionMapSourceXml = map.sourceXml;
+      current.percussionMap = strip.snapshotPercussionMap();
       current.missingPatchReference = strip.missingPatchReference;
       current.row.patchName = strip.layerName.toStdString();
       current.row.libraryName = strip.library.toStdString();
@@ -73,6 +75,7 @@ private:
         current.row.pluginState.assign(bytes, bytes + state.getSize());
       }
       current.row.expressionMapId = current.expressionMap ? current.expressionMap->entityID : "";
+      current.row.percussionMapId = current.percussionMap.map ? current.percussionMap.map->entityId : "";
       captured.push_back(std::move(current));
     }
     // A SQL failure rolls back every row and leaves live state/history intact.
@@ -92,6 +95,7 @@ private:
     strip->setExpressionMapAssignment(
         {target.expressionMap, target.expressionMapPath,
          target.expressionMapSourceXml});
+    strip->setPercussionMapAssignment(target.percussionMap);
     const auto &instrument = target.instrument;
     const auto uid = instrument.description.uniqueId;
     const auto settled = settled_;

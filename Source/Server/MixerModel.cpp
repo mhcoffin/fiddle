@@ -624,6 +624,10 @@ MixerModel::instructionToMidi(const fiddle::MidiInstruction &instr,
                                                  instr.param2());
   case fiddle::MidiInstruction::CHANNEL_PRESSURE:
     return juce::MidiMessage::channelPressureChange(ch, instr.param1());
+  case fiddle::MidiInstruction::NOTE_ON:
+    return juce::MidiMessage::noteOn(ch, instr.param1(), (juce::uint8)instr.param2());
+  case fiddle::MidiInstruction::NOTE_OFF:
+    return juce::MidiMessage::noteOff(ch, instr.param1(), (juce::uint8)instr.param2());
   default:
     return juce::MidiMessage(); // empty
   }
@@ -640,7 +644,12 @@ void MixerModel::captureInstruction(MidiCaptureLog &log, double timeMs,
                instr.param2(), label);
     break;
   case fiddle::MidiInstruction::KEY_SWITCH:
+  case fiddle::MidiInstruction::NOTE_ON:
     log.record(timeMs, ch, CapturedMidiEvent::NoteOn, instr.param1(),
+               instr.param2(), label);
+    break;
+  case fiddle::MidiInstruction::NOTE_OFF:
+    log.record(timeMs, ch, CapturedMidiEvent::NoteOff, instr.param1(),
                instr.param2(), label);
     break;
   case fiddle::MidiInstruction::PROGRAM_CHANGE:
@@ -700,6 +709,8 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
     stripInput.expressionMapAssigned = strip->expressionMap != nullptr;
     strip->pushAnnotation(mergeNoteInspection(
         stripInput, strip->annotator->lastAnnotationRecord()));
+    if (strip->annotator->noteSuppressed())
+      continue; // e.g. no percussion-map entry covers it
 
     // ── Latching keyswitches: release old, latch new ──────────────
     // Collect the new keyswitch notes from pre_note instructions
@@ -804,6 +815,8 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
     ctx.doricoDynamics = doricoDynamics();
     strip->annotator->onNoteEnd(note, ctx);
+    if (strip->annotator->noteSuppressed())
+      continue; // its note-on was withheld
 
     // Update the last annotation record with duration info
     if (!strip->recentAnnotations_.empty()) {

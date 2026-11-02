@@ -3,6 +3,8 @@
 #include "ChairLayerActions.h"
 #include "LayerLibrarySetupAction.h"
 #include "LibraryCatalogAction.h"
+#include "PercussionMap.h"
+#include "UndoActions.h"
 #include "ChairActions.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
@@ -1516,6 +1518,9 @@ void MainComponent::saveAllStripsToDB(bool captureLiveState) {
         }
         layer->expressionMapId =
             strips[i]->expressionMap ? strips[i]->expressionMap->entityID
+                                     : std::string{};
+        layer->percussionMapId =
+            strips[i]->percussionMap ? strips[i]->percussionMap->entityId
                                      : std::string{};
         routingRepository->upsertLayer(*layer);
       }
@@ -3905,11 +3910,14 @@ void MainComponent::setupJsHandlers() {
           juce::var("Catalog history could not be applied. A patch may now be used by a layer. History has been kept."));
         pushLibraryCatalogHistory();
         pushLayerCatalog();
+        refreshLivePercussionMaps();
+        pushPercussionMaps();
         pushMixerState(false);
         pushLibraryLayerStatus();
       });
     });
   }
+  setupPercussionMapHandlers();
   jsRouter_.registerHandler("showAudioSettings", [this](const juce::var &) {
     safeCallAsync([this] { showSettings(); });
   });
@@ -5362,6 +5370,8 @@ void MainComponent::setupJsHandlers() {
           patch.pluginUid = (int)patchObj->getProperty("vstPlugin");
           patch.expressionMapId =
               patchObj->getProperty("exprMap").toString().toStdString();
+          patch.percussionMapId =
+              patchObj->getProperty("percMap").toString().toStdString();
           patch.expectedPresetName = patchObj->getProperty("expectedPresetName")
                                          .toString()
                                          .toStdString();
@@ -5546,6 +5556,8 @@ void MainComponent::setupJsHandlers() {
           patchObj->setProperty("vstPlugin", patch.pluginUid);
           patchObj->setProperty("exprMap",
                                 juce::String(patch.expressionMapId));
+          patchObj->setProperty("percMap",
+                                juce::String(patch.percussionMapId));
           patchObj->setProperty("expectedPresetName",
                                 juce::String(patch.expectedPresetName));
           patchObj->setProperty("setupComplete", patch.setupComplete);
@@ -6356,6 +6368,8 @@ void MainComponent::pushLayerCatalog() {
     obj->setProperty("pluginUid", patch.pluginUid);
     obj->setProperty("expressionMapId",
                      juce::String(patch.expressionMapId));
+    obj->setProperty("percussionMapId",
+                     juce::String(patch.percussionMapId));
     result.add(juce::var(obj));
   }
   broadcastMessage("setLayerCatalog", juce::var(result));
@@ -6374,6 +6388,8 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
   setup.row.pluginUid = patch.pluginUid;
   setup.row.pluginState = patch.pluginState;
   setup.row.expressionMapId = patch.expressionMapId;
+  setup.row.percussionMapId = patch.percussionMapId;
+  setup.percussionMap = loadPercussionMap(patch.percussionMapId);
   setup.row.sourcePatchRevision = patch.revision;
   // Keep a missing player's identity/state even if it isn't in today's scan.
   setup.instrument.description.uniqueId = patch.pluginUid;
@@ -6459,6 +6475,12 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
   strip->setMuted(layer.muted);
   strip->setSoloed(layer.soloed);
   strip->setGainDb(layer.gainDb);
+  strip->setInstrumentEntityId(juce::String(chair.instrumentEntityId));
+
+  const auto currentPercussionMapId =
+      strip->percussionMap ? strip->percussionMap->entityId : std::string{};
+  if (currentPercussionMapId != layer.percussionMapId)
+    strip->setPercussionMapAssignment(loadPercussionMap(layer.percussionMapId));
 
   const auto currentMapId =
       strip->expressionMap ? strip->expressionMap->entityID : std::string{};
@@ -6686,6 +6708,327 @@ void MainComponent::broadcastTemplateDirty() {
   juce::String current = computeChairFingerprint();
   bool dirty = current != lastInstalledFingerprint_;
   broadcastMessage("setTemplateDirty", juce::var(dirty));
+}
+
+// ── Library percussion maps (docs/library-percussion-maps.md) ────────────────
+
+PercussionMapAssignment MainComponent::loadPercussionMap(const std::string &entityId) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (entityId.empty() || !repository)
+    return {};
+  const auto row = repository->getPercussionMap(entityId);
+  if (!row)
+    return {};
+  const auto xml = juce::String::fromUTF8(row->xml.c_str());
+  return {compilePercussionMap(xml), xml};
+}
+
+void MainComponent::refreshLivePercussionMaps() {
+  for (auto *strip : mixer_.getAllStrips()) {
+    const auto current = strip->snapshotPercussionMap();
+    if (!current.map)
+      continue;
+    auto latest = loadPercussionMap(current.map->entityId);
+    if (latest.map && latest.sourceXml != current.sourceXml)
+      strip->setPercussionMapAssignment(std::move(latest));
+  }
+}
+
+void MainComponent::pushPercussionMaps() {
+  juce::Array<juce::var> result;
+  if (auto *repository = db_.getLibraryRoutingRepository()) {
+    for (const auto &row : repository->listPercussionMaps()) {
+      const auto map = compilePercussionMap(juce::String::fromUTF8(row.xml.c_str()));
+      auto *obj = new juce::DynamicObject();
+      obj->setProperty("entityId", juce::String(row.entityId));
+      obj->setProperty("name", juce::String(row.name));
+      obj->setProperty("revision", row.revision);
+      juce::Array<juce::var> instruments, references;
+      if (map)
+        for (const auto &id : map->instruments())
+          instruments.add(juce::String(id));
+      for (const auto &label : repository->percussionMapReferences(row.entityId))
+        references.add(juce::String(label));
+      obj->setProperty("instruments", instruments);
+      obj->setProperty("references", references);
+      obj->setProperty("entryCount", map ? int(map->entries.size()) : 0);
+      obj->setProperty("map", map ? map->toJson() : juce::var());
+      result.add(juce::var(obj));
+    }
+  }
+  broadcastMessage("setPercussionMaps", juce::var(result));
+}
+
+void MainComponent::percussionMapResult(const juce::String &action, bool success,
+                                        const juce::String &message, const juce::String &entityId) {
+  auto *obj = new juce::DynamicObject();
+  obj->setProperty("action", action);
+  obj->setProperty("success", success);
+  obj->setProperty("message", message);
+  obj->setProperty("entityId", entityId);
+  broadcastMessage("percussionMapResult", juce::var(obj));
+}
+
+bool MainComponent::performPercussionMapEdit(const std::string &entityId, std::optional<PercussionMapRow> target,
+                                             const juce::String &description) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return false;
+  auto action = std::make_unique<PercussionMapCatalogAction>(*repository, entityId, std::move(target), description);
+  const bool success = action->isNoOp() || libraryUndoManager_.perform(std::move(action));
+  if (success) {
+    refreshLivePercussionMaps();
+    pushLibraryCatalogHistory();
+    pushMixerState(false);
+    scheduleStateRebuild();
+  }
+  pushPercussionMaps();
+  return success;
+}
+
+void MainComponent::offerPercussionMapImport(const juce::Array<juce::File> &sources, const juce::String &origin) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  juce::Array<juce::File> files;
+  for (const auto &source : sources) {
+    if (source.isDirectory())
+      files.addArray(source.findChildFiles(juce::File::findFiles, true, "*.doricolib"));
+    else
+      files.add(source);
+  }
+  juce::Array<juce::var> candidates, errors;
+  std::set<std::string> seen;
+  for (const auto &file : files) {
+    // Fiddle's own bridge libraries carry the bridge's percussion map, which
+    // is Dorico-side plumbing, not a sample library's map.
+    if (origin == "dorico" && file.getFileName().startsWith("Fiddle-"))
+      continue;
+    const auto text = file.loadFileAsString();
+    if (!text.contains("DrumKitNoteMapDefinition")) {
+      if (origin != "dorico")
+        errors.add(file.getFileName() + ": no percussion maps");
+      continue;
+    }
+    juce::String error;
+    const auto maps = PercussionMap::parseLibrary(text, error);
+    if (maps.empty()) {
+      errors.add(file.getFileName() + ": " + error);
+      continue;
+    }
+    for (const auto &map : maps) {
+      if (!seen.insert(map.entityId).second)
+        continue;
+      juce::String status = "new";
+      int existingVersion = 0;
+      if (const auto row = repository ? repository->getPercussionMap(map.entityId) : std::nullopt) {
+        const auto existing = compilePercussionMap(juce::String::fromUTF8(row->xml.c_str()));
+        existingVersion = existing ? existing->version : 0;
+        status = existing && existing->toDefinitionXml() == map.toDefinitionXml() ? "same"
+                 : map.version > existingVersion                                 ? "newer"
+                                                                                  : "changed";
+      }
+      auto *candidate = new juce::DynamicObject();
+      candidate->setProperty("map", map.toJson());
+      candidate->setProperty("file", file.getFullPathName());
+      candidate->setProperty("status", status);
+      candidate->setProperty("existingVersion", existingVersion);
+      candidates.add(juce::var(candidate));
+    }
+  }
+  auto *result = new juce::DynamicObject();
+  result->setProperty("origin", origin);
+  result->setProperty("maps", candidates);
+  result->setProperty("errors", errors);
+  broadcastMessage("percussionMapImportCandidates", juce::var(result));
+}
+
+void MainComponent::assignPercussionMap(const juce::String &stripId, PercussionMapAssignment assignment) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (!strip)
+    return;
+  auto before = strip->snapshotPercussionMap();
+  if ((before.map ? before.map->entityId : "") == (assignment.map ? assignment.map->entityId : "") &&
+      before.sourceXml == assignment.sourceXml)
+    return;
+  if (undoManager_.perform(std::make_unique<SetPercussionMapAction>(mixer_, stripId, std::move(before),
+                                                                    std::move(assignment)))) {
+    saveAllStripsToDB(false);
+    pushMixerState();
+    pushLibraryLayerStatus();
+    scheduleStateRebuild();
+  }
+}
+
+void MainComponent::setupPercussionMapHandlers() {
+  const auto arg = [](const juce::var &payload, int index) {
+    return payload.isArray() && index < payload.size() ? payload[index] : juce::var();
+  };
+  jsRouter_.registerHandler("requestPercussionMaps", [this](const juce::var &) {
+    safeCallAsync([this] { pushPercussionMaps(); });
+  });
+  jsRouter_.registerHandler("savePercussionMap", [this, arg](const juce::var &payload) {
+    const auto json = arg(payload, 0);
+    safeCallAsync([this, json] {
+      PercussionMap map;
+      juce::String error;
+      if (!PercussionMap::fromJson(json, map, error)) {
+        percussionMapResult("save", false, error, json["entityId"].toString());
+        return;
+      }
+      auto *repository = db_.getLibraryRoutingRepository();
+      const bool exists = repository && repository->getPercussionMap(map.entityId).has_value();
+      const auto id = juce::String(map.entityId);
+      const bool success = performPercussionMapEdit(
+          map.entityId, PercussionMapRow{map.entityId, map.name, map.toDefinitionXml().toStdString(), 1},
+          (exists ? "Edit percussion map: " : "Create percussion map: ") + juce::String(map.name));
+      percussionMapResult("save", success, success ? "Percussion map saved" : "Could not save the percussion map", id);
+    });
+  });
+  jsRouter_.registerHandler("deletePercussionMap", [this, arg](const juce::var &payload) {
+    const auto entityId = arg(payload, 0).toString().toStdString();
+    safeCallAsync([this, entityId] {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository)
+        return;
+      const auto references = repository->percussionMapReferences(entityId);
+      if (!references.empty()) {
+        juce::StringArray labels;
+        for (const auto &label : references)
+          labels.add(juce::String(label));
+        percussionMapResult("delete", false, "In use by " + labels.joinIntoString(", "), juce::String(entityId));
+        return;
+      }
+      const auto row = repository->getPercussionMap(entityId);
+      const bool success = row && performPercussionMapEdit(entityId, std::nullopt,
+                                                           "Delete percussion map: " + juce::String(row->name));
+      percussionMapResult("delete", success, success ? "Percussion map deleted" : "Could not delete the percussion map",
+                          juce::String(entityId));
+    });
+  });
+  jsRouter_.registerHandler("choosePercussionMapFiles", [this](const juce::var &) {
+    auto chooser = std::make_shared<juce::FileChooser>("Import percussion maps (.doricolib file or folder)",
+                                                       juce::File{}, "*.doricolib");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles |
+                             juce::FileBrowserComponent::canSelectDirectories |
+                             juce::FileBrowserComponent::canSelectMultipleItems,
+                         [safeThis, chooser](const juce::FileChooser &fc) {
+                           if (safeThis && !fc.getResults().isEmpty())
+                             safeThis->offerPercussionMapImport(fc.getResults(), "file");
+                         });
+  });
+  jsRouter_.registerHandler("scanDoricoPercussionMaps", [this](const juce::var &) {
+    safeCallAsync([this] {
+      const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
+      juce::Array<juce::File> dirs;
+      for (int version = 5; version <= 6; ++version) {
+        const auto dir = home.getChildFile("Library/Application Support/Steinberg/Dorico " + juce::String(version) +
+                                           "/DefaultLibraryAdditions");
+        if (dir.isDirectory())
+          dirs.add(dir);
+      }
+      offerPercussionMapImport(dirs, "dorico");
+    });
+  });
+  jsRouter_.registerHandler("importPercussionMaps", [this, arg](const juce::var &payload) {
+    const auto list = arg(payload, 0);
+    safeCallAsync([this, list] {
+      int imported = 0;
+      juce::StringArray failures;
+      if (const auto *maps = list.getArray()) {
+        for (const auto &json : *maps) {
+          PercussionMap map;
+          juce::String error;
+          if (!PercussionMap::fromJson(json, map, error)) {
+            failures.add(json["name"].toString() + ": " + error);
+            continue;
+          }
+          if (performPercussionMapEdit(map.entityId,
+                                       PercussionMapRow{map.entityId, map.name,
+                                                        map.toDefinitionXml().toStdString(), 1},
+                                       "Import percussion map: " + juce::String(map.name)))
+            ++imported;
+          else
+            failures.add(juce::String(map.name));
+        }
+      }
+      percussionMapResult("import", failures.isEmpty(),
+                          "Imported " + juce::String(imported) + " percussion map" + (imported == 1 ? "" : "s") +
+                              (failures.isEmpty() ? juce::String() : ". Failed: " + failures.joinIntoString("; ")),
+                          {});
+    });
+  });
+  jsRouter_.registerHandler("exportPercussionMap", [this, arg](const juce::var &payload) {
+    const auto entityId = arg(payload, 0).toString().toStdString();
+    const auto assignment = loadPercussionMap(entityId);
+    if (!assignment.map)
+      return;
+    const auto text = assignment.map->toLibraryXml();
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export percussion map",
+        juce::File::getSpecialLocation(juce::File::userDocumentsDirectory)
+            .getChildFile(juce::File::createLegalFileName(juce::String(assignment.map->name) + " (PM).doricolib")),
+        "*.doricolib");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
+                             juce::FileBrowserComponent::warnAboutOverwriting,
+                         [safeThis, chooser, text, id = juce::String(entityId)](const juce::FileChooser &fc) {
+                           if (!safeThis || fc.getResult() == juce::File{})
+                             return;
+                           const auto file = fc.getResult().withFileExtension("doricolib");
+                           const bool success = file.replaceWithText(text);
+                           safeThis->percussionMapResult("export", success,
+                                                         success ? "Exported " + file.getFullPathName()
+                                                                 : "Could not write " + file.getFullPathName(),
+                                                         id);
+                         });
+  });
+  jsRouter_.registerHandler("loadPercussionMap", [this, arg](const juce::var &payload) {
+    const auto stripId = arg(payload, 0).toString();
+    const auto entityId = arg(payload, 1).toString().toStdString();
+    safeCallAsync([this, stripId, entityId] {
+      if (auto assignment = loadPercussionMap(entityId); assignment.map)
+        assignPercussionMap(stripId, std::move(assignment));
+    });
+  });
+  jsRouter_.registerHandler("clearPercussionMap", [this, arg](const juce::var &payload) {
+    const auto stripId = arg(payload, 0).toString();
+    safeCallAsync([this, stripId] { assignPercussionMap(stripId, {}); });
+  });
+  jsRouter_.registerHandler("loadPercussionMapFromFile", [this, arg](const juce::var &payload) {
+    const auto stripId = arg(payload, 0).toString();
+    auto chooser = std::make_shared<juce::FileChooser>("Load percussion map", juce::File{}, "*.doricolib");
+    juce::Component::SafePointer<MainComponent> safeThis(this);
+    chooser->launchAsync(
+        juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis, chooser, stripId](const juce::FileChooser &fc) {
+          if (!safeThis || fc.getResult() == juce::File{})
+            return;
+          juce::String error;
+          const auto maps = PercussionMap::parseLibrary(fc.getResult().loadFileAsString(), error);
+          auto *strip = safeThis->mixer_.getStrip(stripId);
+          if (maps.empty() || !strip) {
+            safeThis->percussionMapResult("load", false, maps.empty() ? error : "The layer no longer exists", {});
+            return;
+          }
+          // The map covering this layer's instrument, else the file's first.
+          const auto instrument = strip->instrumentEntityId.toStdString();
+          const auto *chosen = &maps.front();
+          for (const auto &map : maps)
+            if (map.instruments().count(instrument)) {
+              chosen = &map;
+              break;
+            }
+          // The file joins the library so the layer can reference it.
+          auto *repository = safeThis->db_.getLibraryRoutingRepository();
+          const auto existing = repository ? repository->getPercussionMap(chosen->entityId) : std::nullopt;
+          if (!existing || chosen->toDefinitionXml().toStdString() != existing->xml)
+            safeThis->performPercussionMapEdit(chosen->entityId,
+                                               PercussionMapRow{chosen->entityId, chosen->name,
+                                                                chosen->toDefinitionXml().toStdString(), 1},
+                                               "Import percussion map: " + juce::String(chosen->name));
+          safeThis->assignPercussionMap(stripId, safeThis->loadPercussionMap(chosen->entityId));
+        });
+  });
 }
 
 } // namespace fiddle

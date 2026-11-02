@@ -650,6 +650,54 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 
 } // namespace
 
+void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  fiddle::PercussionMapRow map{"drumkitmap.user.snare", "Snare", "<DrumKitNoteMapDefinition/>", 1};
+  CHECK(repository.upsertPercussionMap(map));
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
+  CHECK(repository.upsertPercussionMap(map)); // unchanged: same revision
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
+  map.xml = "<DrumKitNoteMapDefinition><name>Snare</name></DrumKitNoteMapDefinition>";
+  CHECK(repository.upsertPercussionMap(map));
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 2);
+  CHECK(repository.listPercussionMaps().size() == 1);
+
+  auto patch = soloViolinPatch();
+  patch.instrumentEntityId = "instrument.orchestral.unpitched.snare.drum";
+  patch.percussionMapId = map.entityId;
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->percussionMapId == map.entityId);
+  auto chair = makeChair("snare-1", fiddle::DoricoRole::solo, 1, 1);
+  chair.instrumentEntityId = patch.instrumentEntityId;
+  CHECK(repository.upsertChair(chair));
+  CHECK(repository.createLayerFromPatch("snare-layer", chair.id, patch.id, 0));
+  CHECK(repository.getLayer("snare-layer")->percussionMapId == map.entityId);
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  // Referenced maps cannot be deleted.
+  CHECK(repository.percussionMapReferences(map.entityId).size() == 2);
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::referenced);
+
+  // A layer override differs from its patch until refreshed.
+  auto layer = *repository.getLayer("snare-layer");
+  layer.percussionMapId.clear();
+  CHECK(repository.updateLayerSetups({layer}));
+  CHECK(repository.getLayer("snare-layer")->percussionMapId.empty());
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+  CHECK(repository.updateLayersFromPatch(patch.id) == 1);
+  CHECK(repository.getLayer("snare-layer")->percussionMapId == map.entityId);
+
+  // Changing the patch's map is a library change.
+  const int revision = repository.getPatch(patch.id)->revision;
+  patch.percussionMapId.clear();
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->revision == revision + 1);
+  CHECK(repository.deleteLayer("snare-layer"));
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::deleted);
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::notFound);
+}
+
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
   testExpressionMapReferencesAreReadOnlyMetadata();
@@ -667,6 +715,7 @@ int main() {
   testChairRoleCanChangeWithoutChangingItsMidiDestination();
   testHistoricalTopologyRestoresMissingCatalogReference();
   testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
+  testPercussionMapsAreStoredReferencedAndCopiedToLayers();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

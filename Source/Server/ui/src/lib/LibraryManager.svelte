@@ -3,6 +3,9 @@
   import { onMount } from "svelte";
   import { onFromCpp, dispatchCpp } from "./ipc.js";
   import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+  import PercussionMapPicker from "./PercussionMapPicker.svelte";
+  import PercussionMaps from "./PercussionMaps.svelte";
+  import { isUnpitchedInstrument } from "./percussionMaps.js";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
@@ -19,6 +22,8 @@
   onFromCpp("setExpressionMaps", (data) => {
     try { availableXmaps = data; } catch (e) { /* ignore */ }
   });
+  let percussionMaps = $state([]);
+  onFromCpp("setPercussionMaps", (data) => { percussionMaps = Array.isArray(data) ? data : []; });
 
   // ── Saved libraries from C++ ────────────────────────
   /** @type {{ id: string, name: string, vendor: string, variant: string }[]} */
@@ -54,6 +59,7 @@
         character: patch.character || "",
         vstPlugin: Number(patch.vstPlugin) || patch.pluginUid || 0,
         exprMap:   patch.exprMap || "",
+        percMap:   patch.percMap || "",
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
         pluginStatePending: false,
@@ -439,6 +445,11 @@
     recordEdit("Set expression map");
   };
 
+  const setPatchPercussionMap = (/** @type {string} */ rowId, /** @type {string} */ entityId) => {
+    patches = patches.map((patch) => patch.id === rowId ? { ...patch, percMap: entityId } : patch);
+    recordEdit("Set percussion map");
+  };
+
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
     patches = [...patches, ...ens.instruments.map(inst =>
       createLibraryPatch(inst, inst.type || "", crypto.randomUUID(), { vstPlugin: batchPluginUid }))];
@@ -615,6 +626,7 @@
         character:   patch.character,
         vstPlugin:   patch.vstPlugin,
         exprMap:     patch.exprMap,
+        percMap:     patch.percMap || "",
         hasPluginState: patch.hasPluginState,
         expectedPresetName: patch.expectedPresetName || "",
         setupComplete: patch.id === guidedCompletionId
@@ -690,6 +702,7 @@
         </div>
       {/if}
     </div>
+    <PercussionMaps instruments={allDoricoInstruments} />
   </div>
 </div>
 
@@ -962,6 +975,19 @@
                     onclear={() => setInstrumentExpressionMap(row.id, "")}
                     canLoadFromFile={false}
                   />
+                  {#if isUnpitchedInstrument(row.entityID) || row.percMap}
+                    <div class="ir-percussion">
+                      <span>Percussion map</span>
+                      <PercussionMapPicker
+                        maps={percussionMaps}
+                        instrument={row.entityID}
+                        selectedId={row.percMap || ""}
+                        canLoadFromFile={false}
+                        onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
+                        onclear={() => setPatchPercussionMap(row.id, "")}
+                      />
+                    </div>
+                  {/if}
                 </div>
                 <div class="ir-actions">
                   <button
@@ -1470,6 +1496,9 @@
     position: relative; width: 30px; height: 30px; flex: 0 0 30px;
   }
   .ir-expr { margin-top: -1px; }
+  .ir-percussion { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .ir-percussion > span { color: #a8a7d5; font-size: .66rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  :global(.ir-percussion select) { height: 30px; background: #131342; border: 1px solid #44446c; border-radius: 4px; color: #e5e3ff; font-size: .78rem; }
   :global(.ir-expr .xmap-control) { margin-bottom: 0; }
   :global(.ir-expr .xmap-trigger) {
     height: 30px; min-height: 30px; box-sizing: border-box;
