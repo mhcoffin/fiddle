@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { filterLayerCatalog } from "../src/lib/layerCatalog.js";
 
 const patches = [
-    { id: "b", name: "Solo Violin", libraryId: "vsl", libraryName: "Vienna", character: "solo", family: "Strings" },
-    { id: "a", name: "Violin I", libraryId: "vsl", libraryName: "Vienna", character: "section", family: "Strings" },
-    { id: "c", name: "French Horn", libraryId: "ew", libraryName: "Hollywood", character: "section", family: "Brass" },
+    { id: "b", name: "Solo Violin", libraryId: "vsl", libraryName: "Vienna", family: "Strings" },
+    { id: "a", name: "Violin I", libraryId: "vsl", libraryName: "Vienna", family: "Strings" },
+    { id: "c", name: "French Horn", libraryId: "ew", libraryName: "Hollywood", family: "Brass" },
 ];
 
 test("layer catalog is grouped by library with patches sorted by name", () => {
@@ -14,7 +14,7 @@ test("layer catalog is grouped by library with patches sorted by name", () => {
     assert.deepEqual(groups[1].patches.map((patch) => patch.id), ["b", "a"]);
 });
 test("layer search matches all terms across patch metadata", () => {
-    const groups = filterLayerCatalog(patches, "vienna section");
+    const groups = filterLayerCatalog(patches, "vienna solo");
     assert.equal(groups.length, 1);
-    assert.deepEqual(groups[0].patches.map((patch) => patch.id), ["a"]);
+    assert.deepEqual(groups[0].patches.map((patch) => patch.id), ["b"]);
 });

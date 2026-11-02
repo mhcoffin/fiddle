@@ -8,6 +8,7 @@
         instrument = "",
         selectedId = "",
         selectedName = "",
+        noneLabel = "No percussion map (pitch 36 passes through)",
         canLoadFromFile = true,
         onselect = () => {},
         onclear = () => {},
@@ -30,13 +31,13 @@
             else onclear();
         }}
     >
-        <option value="">No percussion map (pitch 36 passes through)</option>
+        <option value="">{noneLabel}</option>
         {#if selectedId && !selectedKnown}
             <option value={selectedId}>{selectedName || selectedId} (not in library)</option>
         {/if}
         {#each ordered as map}
             <option value={map.entityId}>
-                {map.name}{covers(map) ? "" : (map.instruments || []).length === 1 ? " (other instrument)" : " (does not cover this instrument)"}
+                {map.name}{!instrument || covers(map) ? "" : (map.instruments || []).length === 1 ? " (other instrument)" : " (does not cover this instrument)"}
             </option>
         {/each}
     </select>

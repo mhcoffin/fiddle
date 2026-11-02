@@ -5,7 +5,6 @@
   import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
   import PercussionMapPicker from "./PercussionMapPicker.svelte";
   import PercussionMaps from "./PercussionMaps.svelte";
-  import { isUnpitchedInstrument } from "./percussionMaps.js";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
   import { addStripRange } from "./mixerSelection.js";
@@ -869,9 +868,9 @@
           <div class="inst-table-header">
             <span class="th-order">ORDER</span>
             <span class="th-name">PATCH</span>
-            <span class="th-character">CHARACTER</span>
             <span class="th-vst">PLAYER</span>
             <span class="th-expr">EXPRESSION MAP</span>
+            <span class="th-perc">PERCUSSION MAP</span>
             <span class="th-actions">ACTIONS</span>
           </div>
 
@@ -927,20 +926,6 @@
                     </button>
                   </div>
                 </div>
-                <div class="ir-character">
-                  <select class="ir-select" value={row.character}
-                    onchange={(event) => {
-                      const character = event.currentTarget.value;
-                      patches = patches.map((patch) => patch.id === row.id ? { ...patch, character } : patch);
-                      recordEdit("Set patch character");
-                    }}>
-                    <option value="">Unspecified</option>
-                    <option value="solo">Solo</option>
-                    <option value="section">Section</option>
-                    <option value="ensemble">Ensemble</option>
-                    <option value="overlay">Overlay</option>
-                  </select>
-                </div>
                 <div class="ir-vst">
                   <select class="ir-select" value={row.vstPlugin}
                     onchange={(e) => {
@@ -975,19 +960,17 @@
                     onclear={() => setInstrumentExpressionMap(row.id, "")}
                     canLoadFromFile={false}
                   />
-                  {#if isUnpitchedInstrument(row.entityID) || row.percMap}
-                    <div class="ir-percussion">
-                      <span>Percussion map</span>
-                      <PercussionMapPicker
-                        maps={percussionMaps}
-                        instrument={row.entityID}
-                        selectedId={row.percMap || ""}
-                        canLoadFromFile={false}
-                        onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
-                        onclear={() => setPatchPercussionMap(row.id, "")}
-                      />
-                    </div>
-                  {/if}
+                </div>
+                <div class="ir-percussion">
+                  <PercussionMapPicker
+                    maps={percussionMaps}
+                    instrument={row.entityID}
+                    selectedId={row.percMap || ""}
+                    noneLabel="None"
+                    canLoadFromFile={false}
+                    onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
+                    onclear={() => setPatchPercussionMap(row.id, "")}
+                  />
                 </div>
                 <div class="ir-actions">
                   <button
@@ -1401,7 +1384,7 @@
   .batch-xmap { min-width: 210px; }
   .inst-table-header {
     display: grid;
-    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
+    grid-template-columns: 64px minmax(190px, 1.5fr) minmax(170px, 1.1fr) minmax(190px, 1.2fr) minmax(170px, 1fr) 240px;
     gap: 8px; padding: 10px 20px;
     background: #0e0d38; border-bottom: 1px solid #2a2a5a;
   }
@@ -1414,7 +1397,7 @@
   .inst-table-body { flex: 1; overflow-y: auto; padding-bottom: 12px; }
   .inst-row {
     display: grid;
-    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
+    grid-template-columns: 64px minmax(190px, 1.5fr) minmax(170px, 1.1fr) minmax(190px, 1.2fr) minmax(170px, 1fr) 240px;
     gap: 8px; align-items: start;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
@@ -1496,8 +1479,7 @@
     position: relative; width: 30px; height: 30px; flex: 0 0 30px;
   }
   .ir-expr { margin-top: -1px; }
-  .ir-percussion { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-  .ir-percussion > span { color: #a8a7d5; font-size: .66rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .ir-percussion { min-width: 0; }
   :global(.ir-percussion select) { height: 30px; background: #131342; border: 1px solid #44446c; border-radius: 4px; color: #e5e3ff; font-size: .78rem; }
   :global(.ir-expr .xmap-control) { margin-bottom: 0; }
   :global(.ir-expr .xmap-trigger) {
