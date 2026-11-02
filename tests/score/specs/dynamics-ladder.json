@@ -1,0 +1,13 @@
+{
+  "id": "dynamics-ladder",
+  "title": "Dynamics ladder",
+  "description": "Every dynamic from ppp to fff on a long note and two short notes: each note's dynamic level, whether it arrives on CC1 or velocity.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!ppp C5/h D5/q E5/q | !pp C5/h D5/q E5/q | !p C5/h D5/q E5/q | !mp C5/h D5/q E5/q | !mf C5/h D5/q E5/q | !f C5/h D5/q E5/q | !ff C5/h D5/q E5/q | !fff C5/h D5/q E5/q"
+    }
+  ]
+}

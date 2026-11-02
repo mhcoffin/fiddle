@@ -1,0 +1,18 @@
+{
+  "id": "two-instruments",
+  "title": "Two instruments",
+  "description": "Violin and flute play different rhythms and dynamics at once; each part's notes arrive on its own instrument.",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf C5/h E5/h | G5/w | !f C6/q B5/q A5/q G5/q | C5/w"
+    },
+    {
+      "id": "fl",
+      "instrument": "flute",
+      "music": "!p E5/q F5/q G5/q A5/q | B5/h A5/h | !mf G5/w | C6/w"
+    }
+  ]
+}

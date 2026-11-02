@@ -142,6 +142,12 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
       getChildBool(mapDef, "autoMutualExclusion", true);
   result.pitchBendRange = getChildInt(mapDef, "pitchBendRange", 2);
 
+  // Initialization actions, sent to the instrument at playback start
+  result.initActions.clear();
+  if (auto *init = mapDef->getChildByName("initSwitchData");
+      init && getChildBool(init, "enabled"))
+    result.initActions = parseActions(init->getChildByName("initActions"));
+
   // Parse playingTechniqueCombinations
   auto *combosEl = mapDef->getChildByName("playingTechniqueCombinations");
   if (!combosEl)
@@ -183,6 +189,10 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
 
     tc.ticksBefore = getChildInt(combo, "ticksBefore");
     tc.millisecondsBefore = getChildInt(combo, "millisecondsBefore");
+    tc.applyMillisecondsBeforeToEndOffsets =
+        getChildBool(combo, "applyMillisecondsBeforeToEndOffsets");
+    tc.applyMillisecondsBeforeToControllers =
+        getChildBool(combo, "applyMillisecondsBeforeToControllers");
 
     tc.conditionString = getChildText(combo, "conditionString");
     tc.condition = parseConditionString(tc.conditionString);
@@ -215,6 +225,7 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     // Parse volumeType2: secondary dynamics (e.g., CC1 for sustain)
     auto *volType2 = combo->getChildByName("volumeType2");
     if (volType2) {
+      tc.hasVolumeType2 = true;
       auto vt2Type = getChildText(volType2, "type");
       if (vt2Type == "kCC") {
         tc.volumeType2 = VolumeType::kCC;
@@ -240,6 +251,10 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
           parseActions(addOn->getChildByName("switchOffActions"));
       tc.ticksBefore = getChildInt(addOn, "ticksBefore");
       tc.millisecondsBefore = getChildInt(addOn, "millisecondsBefore");
+      tc.applyMillisecondsBeforeToEndOffsets =
+          getChildBool(addOn, "applyMillisecondsBeforeToEndOffsets");
+      tc.applyMillisecondsBeforeToControllers =
+          getChildBool(addOn, "applyMillisecondsBeforeToControllers");
       tc.velocityFactor = getChildFloat(addOn, "velocityFactor", 1.0f);
       tc.lengthFactor = getChildFloat(addOn, "lengthFactor", 1.0f);
       tc.transpose = getChildInt(addOn, "transpose");
@@ -249,38 +264,51 @@ static bool parseDefinition(const juce::XmlElement *mapDef,
     }
   }
 
-  // Parse playbackOptionsOverrides (category-level timing percentages)
+  // Parse playbackOptionsOverrides (category-level timing percentages).
+  // Dorico writes <optionsOverride> rows; any row with option/value is read.
   auto *overridesEl = mapDef->getChildByName("playbackOptionsOverrides");
   if (overridesEl) {
     for (auto *ovr : overridesEl->getChildIterator()) {
       auto option = getChildText(ovr, "option");
       auto valueStr = getChildText(ovr, "value");
-      // Values are formatted as "int: 85"
-      int val = 0;
+      // Values are formatted as "int: 85", "double: 0.6", "bool: false" or
+      // "string: \"0.5,1.75,1.75\"".
       auto colonPos = valueStr.find(':');
-      if (colonPos != std::string::npos) {
-        auto numStr = valueStr.substr(colonPos + 1);
-        auto start = numStr.find_first_not_of(" \t");
-        if (start != std::string::npos) {
-          try {
-            val = std::stoi(numStr.substr(start));
-          } catch (...) {
-            continue;
-          }
-        }
+      if (colonPos == std::string::npos)
+        continue;
+      auto text = valueStr.substr(colonPos + 1);
+      text.erase(std::remove(text.begin(), text.end(), '"'), text.end());
+      if (option == kDynamicCurveOption) {
+        // "midpoint,lowerPower,upperPower"
+        std::istringstream fields(text);
+        std::array<double, 3> curve{};
+        char comma = 0;
+        if (fields >> curve[0] >> comma >> curve[1] >> comma >> curve[2] &&
+            curve[0] > 0 && curve[0] < 1 && curve[1] > 0 && curve[2] > 0)
+          result.dynamicsOverrides.curve = curve;
+        continue;
       }
-      if (option == "timingOptions.noteDurationPercent")
-        result.timingOptions.noteDurationPercent = val;
-      else if (option == "timingOptions.staccatoDurationPercent")
-        result.timingOptions.staccatoDurationPercent = val;
-      else if (option == "timingOptions.staccatissimoDurationPercent")
-        result.timingOptions.staccatissimoDurationPercent = val;
-      else if (option == "timingOptions.legatoDurationPercent")
-        result.timingOptions.legatoDurationPercent = val;
-      else if (option == "timingOptions.tenutoDurationPercent")
-        result.timingOptions.tenutoDurationPercent = val;
-      else if (option == "timingOptions.marcatoDurationPercent")
-        result.timingOptions.marcatoDurationPercent = val;
+      double number = 0;
+      try {
+        number = std::stod(text);
+      } catch (...) {
+        continue;
+      }
+      auto &dynamics = result.dynamicsOverrides;
+      if (option == kMinDynamicLevelOption) dynamics.minLevel = static_cast<int>(number);
+      else if (option == kMaxDynamicLevelOption) dynamics.maxLevel = static_cast<int>(number);
+      else if (option == kAccentDeltaOption) dynamics.accent = number;
+      else if (option == kMarcatoDeltaOption) dynamics.marcato = number;
+      else if (option == kTenutoDeltaOption) dynamics.tenuto = number;
+      else if (option == kGhostDeltaOption) dynamics.ghost = number;
+      const int val = static_cast<int>(number);
+      if (option == kSwitchLeadOption)
+        result.timingOptions.switchLeadTicks = std::clamp(val, 0, kMaxSwitchLeadTicks);
+      const auto &names = durationOptionNames();
+      for (size_t i = 0; i < names.size(); ++i)
+        if (option == names[i])
+          result.timingOptions.overrides[i] =
+              std::clamp(val, kMinDurationPercent, kMaxDurationPercent);
     }
   }
 

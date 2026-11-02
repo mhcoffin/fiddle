@@ -414,6 +414,7 @@ void MainComponent::initMidiServer() {
                           juce::String((juce::int64)n.id()) + " (Ch " +
                           juce::String((int)n.channel()) + ")");
            subnoteGenerator.onNoteStarted(n);
+           scoreTestRecorder_.noteStarted(n);
 
            double triggerTimeMs = getDelayedTriggerTimeMs();
            // Route through annotator-aware path.
@@ -426,13 +427,10 @@ void MainComponent::initMidiServer() {
                (int)n.note_number(), true, (int)n.start_velocity(),
                juce::Time::getMillisecondCounterHiRes());
 
-           int notePort = (int)n.port();
-           // std::cerr << "[MainComponent] Routing Note ON (port=" << notePort
-           //           << ", ch=" << (int)n.channel() - 1 << ")" << std::endl;
-           // Mutable copy so annotators can populate pre_note/post_note
-           fiddle::Note mutableNote(n);
-           mixer_.routeAnnotatedNoteOn(notePort, (int)n.channel() - 1,
-                                       mutableNote, triggerTimeMs);
+           // Routed now, or after the dynamic Dorico sends just after it
+           // (pinned bridges); either way at this trigger time.
+           noteStartSettler_.noteStarted(n, triggerTimeMs,
+                                         juce::Time::getMillisecondCounterHiRes());
 
            juce::var noteVar = juce::JSON::fromString(noteToJson(n));
            juce::DynamicObject::Ptr obj = new juce::DynamicObject();
@@ -444,6 +442,7 @@ void MainComponent::initMidiServer() {
            pushLogMessage("<b>[Tracker]</b> Note OFF: " +
                           juce::String((juce::int64)n.id()));
            subnoteGenerator.onNoteEnded(n);
+           scoreTestRecorder_.noteEnded(n);
 
            double triggerTimeMs = getDelayedTriggerTimeMs();
            // Route through annotator-aware path.
@@ -460,6 +459,7 @@ void MainComponent::initMidiServer() {
            // immediately. The transport-stop panic (allNotesOff) handles
            // the started→stopped transition separately.
            {
+             noteStartSettler_.noteEnding(n.id());
              fiddle::Note mutableNote(n);
              mixer_.routeAnnotatedNoteOff(noteOffPort, (int)n.channel() - 1,
                                           mutableNote, triggerTimeMs);
@@ -480,12 +480,15 @@ void MainComponent::initMidiServer() {
          },
          [this, midiEventToJson](const fiddle::MidiEvent &event,
                                  uint64_t absoluteSamples, int oldCCVal) {
+           noteStartSettler_.observe(event, absoluteSamples);
+           scoreTestRecorder_.midiEvent(event, absoluteSamples, false);
            if (event.has_transport()) {
              if (event.transport().type() ==
                  fiddle::MidiEvent_TransportEvent_Type_STOP) {
                // Treat transport stop as a hard synchronization point. Reset
                // every hosted instrument independently of the tracker's note
                // set; missing Dorico NoteOffs must never leave voices sounding.
+               noteStartSettler_.releaseAll();
                mixer_.allNotesOff();
                harmonicService_.onTransportStop();
              }
@@ -524,6 +527,7 @@ void MainComponent::initMidiServer() {
     // Bridge commands never reach instruments, but stay visible to debugging.
     trackerCallbacks.onBridgeCommand = [this, midiEventToJson](const fiddle::MidiEvent &event,
                                                                uint64_t absoluteSamples) {
+      scoreTestRecorder_.midiEvent(event, absoluteSamples, true);
       juce::var eventVar = juce::JSON::fromString(midiEventToJson(event, absoluteSamples, -1));
       if (auto *object = eventVar.getDynamicObject()) object->setProperty("bridgeCommand", true);
       debugUiFeed_.push("pushMidiEvent", eventVar);
@@ -560,6 +564,8 @@ void MainComponent::initMidiServer() {
       if (event.has_audio_diagnostics()) {
         const auto receivedMs = juce::Time::getMillisecondCounterHiRes();
         noteTracker.setHostSampleRate(event.audio_diagnostics().sample_rate());
+        noteStartSettler_.setHostSampleRate(event.audio_diagnostics().sample_rate());
+        scoreTestRecorder_.setSampleRate(event.audio_diagnostics().sample_rate());
         safeCallAsync([this, data = event.audio_diagnostics(), receivedMs] {
           returnDiagnostics_ = data;
           returnDiagnosticsReceivedMs_ = receivedMs;
@@ -585,6 +591,7 @@ void MainComponent::initMidiServer() {
           if (auto *renderAhead =
                   renderAheadForMidi_.load(std::memory_order_acquire))
             renderAhead->setTransportActive(true);
+          mixer_.transportStarted(getDelayedTriggerTimeMs());
           const auto printStartMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStartMs] {
             if (renderAhead_ && renderAhead_->beginMixPrintAt(printStartMs))
@@ -893,6 +900,7 @@ void MainComponent::initMidiServer() {
             renderAhead_->setTransportActive(false);
             renderAhead_->setAuditionNotesActive(false);
           }
+          noteStartSettler_.releaseAll();
           noteTracker.resetForTransportStop();
           mixer_.allNotesOff();
           harmonicService_.onTransportStop();
@@ -963,6 +971,13 @@ void MainComponent::initAudioDevice() {
         [this] { return canChangeRenderWorkerCount(); };
     settingsControls.setRenderWorkers =
         [this](int count) { changeRenderWorkerCount(count); };
+    settingsControls.getDoricoPlayback = [this] {
+      const auto settings = mixer_.projectSettings();
+      return DoricoPlaybackSettings{settings.doricoDurationPercents, settings.doricoSwitchLeadTicks,
+                                    settings.doricoDynamics};
+    };
+    settingsControls.setDoricoPlayback =
+        [this](const DoricoPlaybackSettings &dorico) { changeDoricoPlayback(dorico); };
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
         deviceManager,
         FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"),
@@ -2991,7 +3006,7 @@ void MainComponent::showView(const juce::String &viewId) {
   static const std::map<juce::String, juce::String> tools{
       {"print", "Print Audio"}, {"chairs", "Chairs"},
       {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"},
-      {"technique-catalog", "Technique Catalog"}};
+      {"technique-catalog", "Technique Catalog"}, {"score-tests", "Score Tests"}};
   if (const auto spec = tools.find(viewId); spec != tools.end()) {
     auto &window = toolWindows_[viewId];
     if (!window) {
@@ -3072,6 +3087,7 @@ void MainComponent::refreshToolWindow(const juce::String &id) {
     pushTechniqueCatalogState(true);
   }
   else if (id == "audio-performance") pushAudioDiagnostics();
+  else if (id == "score-tests") pushScoreTestState();
   else if (id == "chairs") {
     pushChairState();
     pushUndoState();
@@ -3400,6 +3416,8 @@ juce::Rectangle<int> MainComponent::restoreMainWindowGeometry() {
 
 void MainComponent::timerCallback() {
   pushDebugUiBatch();
+  // Notes still waiting for their dynamic when no later event has arrived.
+  noteStartSettler_.releaseOlderThan(juce::Time::getMillisecondCounterHiRes());
   if (renderAhead_)
     renderAhead_->setAuditionNotesActive(noteTracker.hasActiveNotes());
 
@@ -3613,6 +3631,23 @@ void MainComponent::changeRenderWorkerCount(int count) {
   pushAudioDiagnostics();
 }
 
+void MainComponent::changeDoricoPlayback(const DoricoPlaybackSettings &dorico) {
+  auto settings = mixer_.projectSettings();
+  for (size_t i = 0; i < kDurationCategoryCount; ++i)
+    settings.doricoDurationPercents[i] =
+        std::clamp(dorico.durations[i], kMinDurationPercent, kMaxDurationPercent);
+  settings.doricoSwitchLeadTicks = std::clamp(dorico.switchLeadTicks, 0, kMaxSwitchLeadTicks);
+  settings.doricoDynamics = dorico.dynamics;
+  if (settings.doricoDynamics.minLevel >= settings.doricoDynamics.maxLevel)
+    return;
+  if (!undoManager_.perform(std::make_unique<SetProjectSettingsAction>(
+          mixer_, settings, "Change Dorico playback options", "dorico-playback")))
+    return;
+  saveAllStripsToDB(false);
+  pushMixerState();
+  scheduleStateRebuild();
+}
+
 void MainComponent::changePlaybackDelay(int milliseconds) {
   auto settings = mixer_.projectSettings();
   settings.playbackDelayMs = std::clamp(milliseconds, 0, 5000);
@@ -3763,7 +3798,8 @@ void MainComponent::broadcastMessage(const juce::String &type,
   for (auto &[id, window] : toolWindows_)
     if ((id == "chairs" && chairTopics.contains(type)) ||
         (id == "bus-manager" && busTopics.contains(type)) ||
-        (id == "technique-catalog" && catalogTopics.contains(type)))
+        (id == "technique-catalog" && catalogTopics.contains(type)) ||
+        (id == "score-tests" && type == "scoreTestState"))
       window->sendMessage(type, data);
   auto *envelope = new juce::DynamicObject();
   envelope->setProperty("type", type);
@@ -3800,6 +3836,7 @@ void MainComponent::pushLibraryCatalogHistory() {
 
 void MainComponent::setupJsHandlers() {
   setupBridgeMapHandlers();
+  setupScoreTestHandlers();
   jsRouter_.registerHandler("requestTechniqueCatalogState", [this](const juce::var &) { pushTechniqueCatalogState(); });
   jsRouter_.registerHandler("scanTechniqueCatalog", [this](const juce::var &payload) {
     if (payload.isArray() && payload.size() == 1 && payload[0].isBool()) scanTechniqueCatalog(bool(payload[0]));

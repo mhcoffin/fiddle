@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "tests": [
+    {
+      "id": "articulations",
+      "title": "Articulations",
+      "description": "Staccato, staccatissimo, tenuto, accent and marcato, alone and combined: their playing techniques arrive, other articulations don't, and lengths stay as written (the bridge pins Dorico's note durations to 100%).",
+      "musicxml": "articulations.musicxml",
+      "expected": "articulations.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 11,
+      "length_ms": 9600.0
+    },
+    {
+      "id": "basic-rhythm",
+      "title": "Basic rhythm",
+      "description": "Onsets and durations of plain notes: whole to eighth, a dotted quarter, rests and a tie.",
+      "musicxml": "basic-rhythm.musicxml",
+      "expected": "basic-rhythm.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 18,
+      "length_ms": 19200.0
+    },
+    {
+      "id": "cymbals-and-triangle",
+      "title": "Cymbals and triangle",
+      "description": "Suspended cymbal, triangle and bass drum, each on its own chair through the unpitched percussion bridge: cymbal rolls under hairpins, triangle and bass-drum hits with accents, and a bass-drum roll. Each part binds to its chair's instrument; rolls take CC1, hits take velocity.",
+      "musicxml": "cymbals-and-triangle.musicxml",
+      "expected": "cymbals-and-triangle.expected.json",
+      "instruments": [
+        "instrument.orchestral.unpitched.bass.drum",
+        "instrument.orchestral.unpitched.suspended.cymbal",
+        "instrument.orchestral.unpitched.triangle"
+      ],
+      "notes": 16,
+      "length_ms": 12000.0
+    },
+    {
+      "id": "dynamics-ladder",
+      "title": "Dynamics ladder",
+      "description": "Every dynamic from ppp to fff on a long note and two short notes: each note's dynamic level, whether it arrives on CC1 or velocity.",
+      "musicxml": "dynamics-ladder.musicxml",
+      "expected": "dynamics-ladder.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 24,
+      "length_ms": 19200.0
+    },
+    {
+      "id": "hairpins",
+      "title": "Hairpins",
+      "description": "A crescendo over a held note, a crescendo over repeated quarters and a diminuendo: levels inside a hairpin lie between its ends and move one way.",
+      "musicxml": "hairpins.musicxml",
+      "expected": "hairpins.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 13,
+      "length_ms": 16800.0
+    },
+    {
+      "id": "horn",
+      "title": "Horn",
+      "description": "Horn in F through the brass bridge map: written a fifth above sounding, with articulations, a slur, dynamics and hairpins. Notes arrive at sounding pitch with their techniques and levels.",
+      "musicxml": "horn.musicxml",
+      "expected": "horn.expected.json",
+      "instruments": [
+        "instrument.brass.horn.f"
+      ],
+      "notes": 18,
+      "length_ms": 14400.0
+    },
+    {
+      "id": "percussion-techniques",
+      "title": "Percussion techniques",
+      "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine roll; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
+      "musicxml": "percussion-techniques.musicxml",
+      "expected": "percussion-techniques.expected.json",
+      "instruments": [
+        "instrument.latin.unpitched.conga.high",
+        "instrument.orchestral.unpitched.hihat",
+        "instrument.orchestral.unpitched.snare.drum",
+        "instrument.orchestral.unpitched.suspended.cymbal",
+        "instrument.percussion.other.tambourine"
+      ],
+      "notes": 38,
+      "length_ms": 26400.0,
+      "by_hand": [
+        "Bar 1 beat 2, Snare Drum: Option-Shift-Up/Down on the note until its head is x (Side stick)",
+        "Bar 1 beat 3, Snare Drum: Option-Shift-Up/Down on the note until its head is slashed (Rim shot)",
+        "Bar 1 beat 4, Snare Drum: Option-Shift-Up/Down on the note until its head is circled (Cross stick)",
+        "Bar 2 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 On Rim",
+        "Bar 2 beat 3, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Stick Shot",
+        "Bar 2 beat 4, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 On Rim",
+        "Bar 3 beat 1, Snare Drum: Tremolos panel \u25b8 Buzz roll, if the import dropped it (z on the stem)",
+        "Bar 4 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Snares Off",
+        "Bar 5 beat 1, Snare Drum: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Snares On",
+        "Bar 6 beat 2, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 6 beat 3, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Closed / Rim Shot (+)",
+        "Bar 7 beat 1, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Half-open",
+        "Bar 7 beat 3, Hi-hat: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 8 beat 1, Suspended Cymbal: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Choke (Weinberg)",
+        "Bar 8 beat 3, Suspended Cymbal: Playing Techniques panel \u25b8 Common \u25b8 Laissez Vibrer (l.v.)",
+        "Bar 9 beat 1, Suspended Cymbal: Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Damp",
+        "Bar 11 beat 2, Conga (Quinto): Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Open (o)",
+        "Bar 11 beat 3, Conga (Quinto): Playing Techniques panel \u25b8 Unpitched Percussion \u25b8 Muffled"
+      ]
+    },
+    {
+      "id": "pitched-percussion",
+      "title": "Pitched percussion",
+      "description": "Timpani and marimba through the pitched percussion bridge map: accents, marcato and staccato, a crescendo over repeated timpani eighths, and a slurred marimba line. Each part arrives on its own instrument with its techniques and levels.",
+      "musicxml": "pitched-percussion.musicxml",
+      "expected": "pitched-percussion.expected.json",
+      "instruments": [
+        "instrument.pitchedpercussion.marimba",
+        "instrument.pitchedpercussion.timpani"
+      ],
+      "notes": 33,
+      "length_ms": 9600.0
+    },
+    {
+      "id": "repeated-notes",
+      "title": "Repeated notes",
+      "description": "The same pitch repeated at quarter and eighth speed, and tied into a repeat: each attack is a separate note with its written length.",
+      "musicxml": "repeated-notes.musicxml",
+      "expected": "repeated-notes.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 12,
+      "length_ms": 9600.0
+    },
+    {
+      "id": "slurs",
+      "title": "Slurs",
+      "description": "Notes under a slur carry legato (the last note of a slur is not checked); notes outside slurs don't.",
+      "musicxml": "slurs.musicxml",
+      "expected": "slurs.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 16,
+      "length_ms": 12000.0
+    },
+    {
+      "id": "snare-drum",
+      "title": "Snare drum",
+      "description": "One snare drum through the unpitched percussion bridge: a dynamics ladder of hits (velocity on the pinned curve), accent, marcato, staccato and tenuto, eighths at one level, and tremolo rolls under a crescendo and at a fixed level (CC1 on the roll base). Every note arrives at the Natural or Tremolo code.",
+      "musicxml": "snare-drum.musicxml",
+      "expected": "snare-drum.expected.json",
+      "instruments": [
+        "instrument.orchestral.unpitched.snare.drum"
+      ],
+      "notes": 28,
+      "length_ms": 16800.0
+    },
+    {
+      "id": "tempo-changes",
+      "title": "Tempo changes",
+      "description": "Onsets and durations across tempo changes: 60, 120 and 90 quarter notes per minute.",
+      "musicxml": "tempo-changes.musicxml",
+      "expected": "tempo-changes.expected.json",
+      "instruments": [
+        "instrument.strings.violin"
+      ],
+      "notes": 11,
+      "length_ms": 11333.333
+    },
+    {
+      "id": "two-instruments",
+      "title": "Two instruments",
+      "description": "Violin and flute play different rhythms and dynamics at once; each part's notes arrive on its own instrument.",
+      "musicxml": "two-instruments.musicxml",
+      "expected": "two-instruments.expected.json",
+      "instruments": [
+        "instrument.strings.violin",
+        "instrument.wind.flute"
+      ],
+      "notes": 16,
+      "length_ms": 9600.0
+    }
+  ]
+}

@@ -1,4 +1,8 @@
-# Orchestral pitched percussion bridge — r1 (wire schema 2)
+# Orchestral pitched percussion bridge — r2 current (wire schema 2)
+
+**Current (2026-10-20): [r2](pitched-percussion-r2/README.md)** is r1 with
+Dorico's note-duration playback options pinned to 100% (written lengths;
+Fiddle applies the percentages). r1, described below, stays frozen.
 
 Created 2026-10-19 as the fourth section profile in the
 [section-profile plan](../../docs/orchestral-bridge-maps.md).

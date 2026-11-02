@@ -6,10 +6,13 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Expression-map foundation — current focus
 
-- **Four orchestral bridge maps — current plan (2026-09-24).** Follow
+- **Orchestral bridge maps — current plan (2026-09-24).** Follow
   [Orchestral bridge maps](orchestral-bridge-maps.md), the authoritative decision
-  record. Woodwinds, brass, bowed orchestral strings, and pitched percussion;
-  other instruments and unpitched percussion are deferred. Start with the
+  record. Woodwinds, brass, bowed orchestral strings, pitched percussion, and
+  (2026-10-31) unpitched percussion r2 — single instruments, with a one-pitch
+  percussion map so the expression map carries everything; drum-set kits, the
+  entry keyswitch as a conduit, and library-side percussion maps are later
+  work. Other instruments are deferred. Start with the
   hand-built map's 25 bases, then built-in PT add-ons with meaningful mutex
   groups and one CC/KS conduit per dimension. All layers of a chair share its
   section profile. **Supersedes universal-map and chair-specific base-only
@@ -97,12 +100,33 @@ documented elsewhere; this list records the remaining work and intended order.
 - Optional stereo-width/dual-pan utilities and more detailed phase/correlation
   diagnostics.
 
+## Before the first release to other users
+
+- **Dorico's maximum staccato duration (decided 2026-10-29: live with it).**
+  Playback Options ▸ **Maximum duration for staccato playback technique** (on by
+  default at a quarter note, apparently exclusive) can't be overridden in an
+  expression map. With it on, longer staccato notes reach Fiddle as Natural and,
+  with the bridge maps' staccato length at 100%, play full length. Turning it off
+  is project-wide, so in a mixed playback template (Fiddle first, another
+  library as default) the other library gets Staccato on long notes. For now the
+  bridge maps stay as they are and Fiddle projects turn the option off. A Dorico
+  feature request for an expression-map override is filed. Before a release:
+  check whether Dorico added the override; otherwise choose between leaving the
+  bridge maps' staccato length to the project (long staccatos then arrive
+  shortened, as Dorico plays them) and documenting the limitation. Also decide
+  whether Fiddle applies the maximum per layer (a project setting).
+
 ## Deferred scope
 
 - Mix automation. Existing score dynamics and CC1/7/11 cover the immediate
   musical needs. Revisit effect/send/parameter automation when a concrete use
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
+- Unpitched percussion r2: drum-set kits (`instrument.kit.*`, one pitch per
+  kit component in the percussion map), the percussion-map entry keyswitch as
+  a conduit (Dorico sends it with the hit, velocity 127, same length), and
+  library-side percussion maps for driving instruments. Not needed after the
+  one-pitch design: stroke × roll combination codes.
 - Surround or immersive output.
 - Multi-output instruments.
 - External audio tracks, recording, comping, and waveform editing.

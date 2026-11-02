@@ -1,0 +1,13 @@
+{
+  "id": "articulations",
+  "title": "Articulations",
+  "description": "Staccato, staccatissimo, tenuto, accent and marcato, alone and combined: their playing techniques arrive, other articulations don't, and lengths stay as written (the bridge pins Dorico's note durations to 100%).",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "vln",
+      "instrument": "violin",
+      "music": "!mf C5/q D5/q+stacc E5/q+staccmo F5/q+ten | G5/q+acc A5/q+marc G5/q+stacc+acc F5/q+ten+stacc | E5/h D5/h+ten | C5/w"
+    }
+  ]
+}

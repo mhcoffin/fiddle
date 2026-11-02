@@ -14,7 +14,7 @@ juce::String text(const juce::XmlElement &node, const char *tag) {
   return child ? child->getAllSubText().trim() : juce::String{};
 }
 void attributes(const juce::XmlElement &node) {
-  const juce::StringArray arrays{"entities", "initActions", "playingTechniqueCombinations", "techniqueAddOns", "mutualExclusionGroups", "switchOnActions", "switchOffActions", "playbackOptionsOverrides", "pluginNames"};
+  const juce::StringArray arrays{"entities", "initActions", "playingTechniqueCombinations", "techniqueAddOns", "mutualExclusionGroups", "switchOnActions", "switchOffActions", "playbackOptionsOverrides", "pluginNames", "entries"};
   for (int i = 0; i < node.getNumAttributes(); ++i)
     require(node.getAttributeName(i) == "array" && node.getAttributeValue(i) == "true" && arrays.contains(node.getTagName()),
             "Unsupported XML attribute on " + node.getTagName());
@@ -79,6 +79,63 @@ juce::XmlElement *beaconAction(juce::XmlElement &actions, int pitch) {
     if (text(*row, "type") == "kKeySwitch" && text(*row, "param1") == juce::String(pitch)) return row;
   return nullptr;
 }
+// Dorico's percussion map: instrument + technique set -> pitch. Dorico plays
+// the pitch of the entry it picks (Natural when nothing matches) and sustains
+// a roll only when that entry carries the roll; every technique reaches the
+// expression map regardless. So the bridge's map is the same small table for
+// every instrument (Natural and the roll kinds, normally on one pitch), and
+// the chair, not the pitch, names the instrument.
+struct Percussion {
+  using Table = std::map<std::set<std::string>, int>; // technique set -> pitch
+  juce::String id, name;
+  bool single = false;
+  Table entries;
+  std::set<juce::String> instruments;
+  juce::XmlElement *definition = nullptr;
+};
+Percussion percussionMap(juce::XmlElement &defs, int low, int high, int revision, const juce::String &expressionMapId) {
+  fields(defs, "entities");
+  auto *entities = defs.getChildByName("entities");
+  require(entities && entities->getNumChildElements() == 1, "Import one percussion map at a time");
+  auto *map = entities->getFirstChildElement();
+  require(map->hasTagName("DrumKitNoteMapDefinition"), "Expected a percussion-map definition");
+  fields(*map, "name entityID parentEntityID inheritanceMask version forSingleInstrument applyStageTemplateSettings entries");
+  Percussion p;
+  p.definition = map; p.id = text(*map, "entityID"); p.name = text(*map, "name");
+  require(p.id.isNotEmpty() && p.name.isNotEmpty(), "Missing percussion map identity or name");
+  require(p.id != expressionMapId, "The percussion map needs its own entity ID");
+  require(text(*map, "parentEntityID").isEmpty() && text(*map, "inheritanceMask") == "0", "Inherited percussion maps must be flattened before import");
+  require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the percussion map");
+  require(integer(text(*map, "version"), 1, 1000000) == revision, "Percussion map version must equal the expression map's");
+  const auto single = text(*map, "forSingleInstrument");
+  require(single == "true" || single == "false", "forSingleInstrument must be true or false");
+  p.single = single == "true";
+  const auto *entries = map->getChildByName("entries");
+  require(entries && entries->getNumChildElements() > 0, "Missing percussion entries");
+  std::map<juce::String, Percussion::Table> tables;
+  for (const auto *row : entries->getChildIterator()) {
+    require(row->hasTagName("entry"), "Invalid percussion entry");
+    // An entry's own keyswitch is a note Dorico sends with the hit (results-01);
+    // a conduit for a later schema, not this one.
+    for (const auto *field : row->getChildIterator())
+      require(!field->hasTagName("keyswitches") && !field->hasTagName("variant"),
+              "Unsupported percussion entry field: " + field->getTagName());
+    fields(*row, "instrumentEntityID techniqueIDs pitch name");
+    const auto instrument = text(*row, "instrumentEntityID");
+    require(instrument.startsWith("instrument."), "Expected a Dorico instrument entity ID");
+    const int pitch = integer(text(*row, "pitch"), 0, 127);
+    require(pitch >= low && pitch <= high, "Percussion entry pitch outside the musical range");
+    require(tables[instrument].emplace(techniques(text(*row, "techniqueIDs")), pitch).second,
+            "Duplicate percussion technique set for an instrument");
+  }
+  p.entries = tables.begin()->second;
+  for (const auto &[instrument, table] : tables) {
+    require(table == p.entries, "Percussion map entries must be identical for every instrument");
+    p.instruments.insert(instrument);
+  }
+  require(p.entries.count({"pt.natural"}), "Percussion map needs a Natural entry");
+  return p;
+}
 void normalize(juce::XmlElement &node) {
   // Format-only whitespace is insignificant; all fields, order, and attributes
   // remain in the fingerprint. Unknown behavior is rejected, never discarded.
@@ -102,7 +159,7 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     auto root = juce::parseXML(xml);
     require(root && root->hasTagName("kScoreLibrary"), "Expected a Dorico library");
     attributes(*root);
-    fields(*root, "fileVersion expressionMapDefinitions");
+    fields(*root, "fileVersion expressionMapDefinitions drumKitNoteMapDefinitions");
     auto *defs = root->getChildByName("expressionMapDefinitions");
     require(defs != nullptr, "Missing expression maps");
     fields(*defs, "entities");
@@ -115,8 +172,38 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     require(text(*map, "autoMutualExclusion") == "false", "Bridge maps require explicit mutex groups (Auto off)");
     require(text(*map, "applyStageTemplateSettings") == "false", "Disable Stage Template settings in the bridge map");
     require(text(*map, "microtonalPlaybackMethod") == "kAuto" && text(*map, "pitchBendRange") == "2", "Unsupported bridge pitch/microtonality configuration");
+    // The one supported override policy makes Dorico send playback Fiddle can
+    // undo exactly: written lengths (all six note-duration options at 100%,
+    // no same-pitch truncation), switches at Dorico's default lead, and a
+    // linear dynamic curve without articulation deltas. Each layer then
+    // applies its own durations, switch lead and dynamics.
     const auto *overrides = map->getChildByName("playbackOptionsOverrides");
-    require(!overrides || overrides->getNumChildElements() == 0, "Playback overrides need an explicit supported policy");
+    const bool pinnedPlayback = overrides && overrides->getNumChildElements() > 0;
+    if (pinnedPlayback) {
+      std::map<juce::String, juce::String> required;
+      for (const auto *name : durationOptionNames()) required[name] = "int:100";
+      required[kTruncateSamePitchOption] = "bool:false";
+      required[kSwitchLeadOption] = "int:" + juce::String(kDoricoDefaultSwitchLeadTicks);
+      required[kDynamicCurveOption] = "string:\"0.500000,1.000000,1.000000\"";
+      required[kMinDynamicLevelOption] = "int:" + juce::String(kBridgeDynamicsMinLevel);
+      required[kMaxDynamicLevelOption] = "int:" + juce::String(kBridgeDynamicsMaxLevel);
+      for (const auto *delta : {kAccentDeltaOption, kMarcatoDeltaOption, kTenutoDeltaOption, kGhostDeltaOption})
+        required[delta] = "double:0";
+      std::set<juce::String> pinned;
+      for (const auto *row : overrides->getChildIterator()) {
+        require(row->hasTagName("optionsOverride"), "Invalid playback override");
+        fields(*row, "option value");
+        const auto option = text(*row, "option");
+        const auto expected = required.find(option);
+        require(expected != required.end(), "Unsupported bridge playback override: " + option);
+        require(text(*row, "value").removeCharacters(" ") == expected->second,
+                "Bridge playback override " + option + " must be " + expected->second);
+        require(pinned.insert(option).second, "Duplicate playback override: " + option);
+      }
+      require(pinned.size() == required.size(),
+              "Pin all six note-duration options to 100%, same-pitch truncation off, "
+              "switch lead to 10 ticks and linear dynamics, or none");
+    }
     auto result = std::make_shared<BridgeMapDocument>();
     result->sourceXml = xml; result->entityId = text(*map, "entityID"); result->name = text(*map, "name");
     result->revision = integer(text(*map, "version"), 1, 1000000);
@@ -154,6 +241,8 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     semantic.add("schema=" + juce::String(compiled->schema) + " range=" + juce::String(low) + "-" + juce::String(high)
                  + " id=" + result->entityId + " version=" + juce::String(result->revision)
                  + " multi=" + text(*map, "allowMultipleNotesAtSamePitch"));
+    compiled->pinnedPlayback = pinnedPlayback;
+    if (pinnedPlayback) semantic.add("playback=pinned");
     CompiledBridgeMap::Dimension base; base.number = 102;
     std::set<std::string> vocabulary;
     std::set<juce::String> switchIds;
@@ -268,9 +357,25 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     }
     require(initialized.size() == compiled->dimensions.size(), "Initialization must cover every conduit");
     require(compiled->dimensions.size() <= 52, "Bridge exceeds protocol budget");
+    juce::String percussionCanonical;
+    if (auto *drums = root->getChildByName("drumKitNoteMapDefinitions")) {
+      auto perc = percussionMap(*drums, low, high, result->revision, result->entityId);
+      result->percussionMapId = perc.id; result->percussionMapName = perc.name;
+      result->percussionInstruments = perc.instruments;
+      compiled->hasPercussionMap = true;
+      semantic.add("perc=" + perc.id + " single=" + (perc.single ? "true" : "false"));
+      for (const auto &[ids, pitch] : perc.entries) {
+        compiled->percussionPitches.insert(pitch);
+        semantic.add("perc|" + juce::String(pitch) + "|" + sortedIds(ids));
+      }
+      for (const auto &instrument : perc.instruments) semantic.add("perc-instrument|" + instrument);
+      normalize(*perc.definition);
+      percussionCanonical = "\n" + perc.definition->toString(juce::XmlElement::TextFormat().singleLine());
+    }
     normalize(*map);
-    // Keep schema 1's exact canonical form: persisted projects key on it.
-    const auto canonical = map->toString(juce::XmlElement::TextFormat().singleLine()) + "\nbridge-schema-"
+    // Keep schema 1's exact canonical form: persisted projects key on it. The
+    // percussion map joins the fingerprint only when present.
+    const auto canonical = map->toString(juce::XmlElement::TextFormat().singleLine()) + percussionCanonical + "\nbridge-schema-"
         + juce::String(compiled->schema) + ":" + juce::String(low) + ":" + juce::String(high);
     result->contentHash = juce::SHA256(canonical.toRawUTF8(), canonical.getNumBytesAsUTF8()).toHexString();
     semantic.sort(false);
@@ -344,6 +449,7 @@ bool BridgeMapProject::parse(const juce::String &json, BridgeMapProject &out, ju
       auto doc = BridgeMapDocument::compile(d["sourceXml"].toString(), error, int(d["musicalLow"]), int(d["musicalHigh"]));
       require(doc && doc->contentHash == d["contentHash"].toString() && doc->schema == int(d["schema"]), "Bridge source/fingerprint mismatch: " + error);
       require(entityIds.insert(doc->entityId).second, "Conflicting Dorico map IDs in bridge project");
+      require(doc->percussionMapId.isEmpty() || entityIds.insert(doc->percussionMapId).second, "Conflicting Dorico map IDs in bridge project");
       require(result.documents.emplace(doc->contentHash, doc).second, "Duplicate bridge revision");
     }
     for (const auto &a : *routes) {

@@ -219,6 +219,10 @@ public:
   /// Release all latched keyswitches on every strip (called on transport stop).
   void releaseAllKeyswitches(double triggerTimeMs);
 
+  /// Dorico's transport started: send each layer's expression-map init
+  /// actions and forget the switch state left by previous playback.
+  void transportStarted(double triggerTimeMs);
+
   /// Gracefully stop all sounding notes on transport stop.
   ///
   /// 1. Clears pending delayed messages (prevents stale note-ons from firing).
@@ -290,20 +294,48 @@ private:
   std::set<std::string> lockedChairIds_; // message-thread project metadata
   std::map<std::string, ChairLevelState> chairLevels_;
   std::string bridgeMapsJson_;
+  // Read by the MIDI thread, written by the message thread.
+  std::array<std::atomic<int>, kDurationCategoryCount> doricoDurationPercents_{
+      kDoricoDefaultDurationPercents[0], kDoricoDefaultDurationPercents[1],
+      kDoricoDefaultDurationPercents[2], kDoricoDefaultDurationPercents[3],
+      kDoricoDefaultDurationPercents[4], kDoricoDefaultDurationPercents[5]};
+  std::atomic<int> doricoSwitchLeadTicks_{kDoricoDefaultSwitchLeadTicks};
+  mutable std::mutex doricoDynamicsMutex_; // message thread writes, MIDI thread reads
+  DoricoDynamics doricoDynamics_;
 
   // Harmonic analysis service (optional). Owned by MainComponent.
   HarmonicAnalysisService *harmonicService_ = nullptr;
+  double tempoBpm() const; // live Dorico tempo (120 without the service)
+  DoricoDynamics doricoDynamics() const {
+    std::lock_guard<std::mutex> lock(doricoDynamicsMutex_);
+    return doricoDynamics_;
+  }
+  DurationPercents doricoDurationPercents() const {
+    DurationPercents result{};
+    for (size_t i = 0; i < kDurationCategoryCount; ++i)
+      result[i] = doricoDurationPercents_[i].load(std::memory_order_relaxed);
+    return result;
+  }
 
 public:
   int getPlaybackDelayMs() const;
   ProjectSettings projectSettings() const {
-    return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_, bridgeMapsJson_};
+    return {getPlaybackDelayMs(), lockedChairIds_, chairLevels_, bridgeMapsJson_,
+            doricoDurationPercents(), doricoSwitchLeadTicks_.load(std::memory_order_relaxed),
+            doricoDynamics()};
   }
   std::function<void(const std::string &)> onBridgeMapsChanged;
   void setProjectSettings(const ProjectSettings &settings) {
     const bool bridgeChanged = bridgeMapsJson_ != settings.bridgeMapsJson;
     bridgeMapsJson_ = settings.bridgeMapsJson;
     lockedChairIds_ = settings.lockedChairIds;
+    for (size_t i = 0; i < kDurationCategoryCount; ++i)
+      doricoDurationPercents_[i].store(settings.doricoDurationPercents[i], std::memory_order_relaxed);
+    doricoSwitchLeadTicks_.store(settings.doricoSwitchLeadTicks, std::memory_order_relaxed);
+    {
+      std::lock_guard<std::mutex> lock(doricoDynamicsMutex_);
+      doricoDynamics_ = settings.doricoDynamics;
+    }
     chairLevels_ = settings.chairLevels;
     setPlaybackDelayMs(settings.playbackDelayMs);
     if (bridgeChanged && onBridgeMapsChanged) onBridgeMapsChanged(bridgeMapsJson_);

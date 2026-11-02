@@ -1,0 +1,110 @@
+<?xml version='1.0' encoding='utf-8'?>
+<kScoreLibrary>
+  <fileVersion>1.1438</fileVersion>
+  <expressionMapDefinitions>
+    <entities array="true">
+      <ExpressionMapDefinition>
+        <name>Fiddle Dynamics Probe - CC1</name>
+        <entityID>xmap.user.Fiddle.DynamicsProbe.CC1</entityID>
+        <parentEntityID />
+        <inheritanceMask>0</inheritanceMask>
+        <creator>Fiddle</creator>
+        <description>Fiddle dynamics measurement: Natural only, no switches. Capture only.</description>
+        <version>1</version>
+        <pluginNames />
+        <autoMutualExclusion>false</autoMutualExclusion>
+        <allowMultipleNotesAtSamePitch>true</allowMultipleNotesAtSamePitch>
+        <applyStageTemplateSettings>false</applyStageTemplateSettings>
+        <pitchBendRange>2</pitchBendRange>
+        <microtonalPlaybackMethod>kAuto</microtonalPlaybackMethod>
+        <initSwitchData>
+          <enabled>false</enabled>
+          <initActions array="true" />
+        </initSwitchData>
+        <playingTechniqueCombinations array="true">
+          <playingTechniqueCombination>
+            <baseSwitchID>1</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString />
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>false</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>false</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kCC</type>
+              <param1>1</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true" />
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+        </playingTechniqueCombinations>
+        <techniqueAddOns array="true" />
+        <mutualExclusionGroups array="true" />
+        <playbackOptionsOverrides array="true" />
+      </ExpressionMapDefinition>
+      <ExpressionMapDefinition>
+        <name>Fiddle Dynamics Probe - velocity</name>
+        <entityID>xmap.user.Fiddle.DynamicsProbe.Velocity</entityID>
+        <parentEntityID />
+        <inheritanceMask>0</inheritanceMask>
+        <creator>Fiddle</creator>
+        <description>Fiddle dynamics measurement: Natural only, no switches. Capture only.</description>
+        <version>1</version>
+        <pluginNames />
+        <autoMutualExclusion>false</autoMutualExclusion>
+        <allowMultipleNotesAtSamePitch>true</allowMultipleNotesAtSamePitch>
+        <applyStageTemplateSettings>false</applyStageTemplateSettings>
+        <pitchBendRange>2</pitchBendRange>
+        <microtonalPlaybackMethod>kAuto</microtonalPlaybackMethod>
+        <initSwitchData>
+          <enabled>false</enabled>
+          <initActions array="true" />
+        </initSwitchData>
+        <playingTechniqueCombinations array="true">
+          <playingTechniqueCombination>
+            <baseSwitchID>1</baseSwitchID>
+            <techniqueIDs>pt.natural</techniqueIDs>
+            <enabled>true</enabled>
+            <flags>0</flags>
+            <conditionString />
+            <velocityRange>1,127</velocityRange>
+            <pitchRange>0,127</pitchRange>
+            <transpose>0</transpose>
+            <ticksBefore>0</ticksBefore>
+            <millisecondsBefore>0</millisecondsBefore>
+            <velocityFactor>1.000000</velocityFactor>
+            <lengthFactor>1.000000</lengthFactor>
+            <monophonic>false</monophonic>
+            <applyMillisecondsBeforeToEndOffsets>false</applyMillisecondsBeforeToEndOffsets>
+            <applyMillisecondsBeforeToControllers>false</applyMillisecondsBeforeToControllers>
+            <volumeType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </volumeType>
+            <attackType>
+              <type>kNoteVelocity</type>
+              <param1>0</param1>
+            </attackType>
+            <switchOnActions array="true" />
+            <switchOffActions array="true" />
+          </playingTechniqueCombination>
+        </playingTechniqueCombinations>
+        <techniqueAddOns array="true" />
+        <mutualExclusionGroups array="true" />
+        <playbackOptionsOverrides array="true" />
+      </ExpressionMapDefinition>
+    </entities>
+  </expressionMapDefinitions>
+</kScoreLibrary>

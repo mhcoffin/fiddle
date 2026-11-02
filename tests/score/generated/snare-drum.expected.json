@@ -1,0 +1,1190 @@
+{
+  "schema_version": 1,
+  "id": "snare-drum",
+  "title": "Snare drum",
+  "description": "One snare drum through the unpitched percussion bridge: a dynamics ladder of hits (velocity on the pinned curve), accent, marcato, staccato and tenuto, eighths at one level, and tremolo rolls under a crescendo and at a fixed level (CC1 on the roll base). Every note arrives at the Natural or Tremolo code.",
+  "musicxml": "snare-drum.musicxml",
+  "spec_sha256": "a20f790a66013e010cb41cdf29c514d4f992d13c8062e747c287128de08cb97f",
+  "time": "4/4",
+  "tempo_map": [
+    {
+      "quarter": 0.0,
+      "bpm": 100
+    }
+  ],
+  "length_ms": 16800.0,
+  "parts": [
+    {
+      "id": "sn",
+      "name": "Snare Drum",
+      "instrument": "instrument.orchestral.unpitched.snare.drum",
+      "unpitched": true
+    }
+  ],
+  "tolerances": {
+    "onset_ms": 5.0,
+    "duration_ms": 5.0,
+    "level": 0.2
+  },
+  "notes": [
+    {
+      "part": "sn",
+      "index": 0,
+      "pitch": 36,
+      "bar": 1,
+      "beat": 1.0,
+      "onset_ms": 0.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 1,
+      "pitch": 36,
+      "bar": 1,
+      "beat": 2.0,
+      "onset_ms": 600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 2,
+      "pitch": 36,
+      "bar": 1,
+      "beat": 3.0,
+      "onset_ms": 1200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [
+          "pt.accent"
+        ],
+        "excludes": [
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q+acc"
+    },
+    {
+      "part": "sn",
+      "index": 3,
+      "pitch": 36,
+      "bar": 1,
+      "beat": 4.0,
+      "onset_ms": 1800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 4,
+      "pitch": 36,
+      "bar": 2,
+      "beat": 1.0,
+      "onset_ms": 2400.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 5,
+      "pitch": 36,
+      "bar": 2,
+      "beat": 2.0,
+      "onset_ms": 3000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [
+          "pt.marcato"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q+marc"
+    },
+    {
+      "part": "sn",
+      "index": 6,
+      "pitch": 36,
+      "bar": 2,
+      "beat": 3.0,
+      "onset_ms": 3600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [
+          "pt.staccato"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q+stacc"
+    },
+    {
+      "part": "sn",
+      "index": 7,
+      "pitch": 36,
+      "bar": 2,
+      "beat": 4.0,
+      "onset_ms": 4200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [
+          "pt.tenuto"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q+ten"
+    },
+    {
+      "part": "sn",
+      "index": 8,
+      "pitch": 36,
+      "bar": 3,
+      "beat": 1.0,
+      "onset_ms": 4800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -3
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 9,
+      "pitch": 36,
+      "bar": 3,
+      "beat": 2.0,
+      "onset_ms": 5400.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -2
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 10,
+      "pitch": 36,
+      "bar": 3,
+      "beat": 3.0,
+      "onset_ms": 6000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 11,
+      "pitch": 36,
+      "bar": 3,
+      "beat": 4.0,
+      "onset_ms": 6600.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": -0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 12,
+      "pitch": 36,
+      "bar": 4,
+      "beat": 1.0,
+      "onset_ms": 7200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 13,
+      "pitch": 36,
+      "bar": 4,
+      "beat": 2.0,
+      "onset_ms": 7800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 14,
+      "pitch": 36,
+      "bar": 4,
+      "beat": 3.0,
+      "onset_ms": 8400.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 2
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 15,
+      "pitch": 36,
+      "bar": 4,
+      "beat": 4.0,
+      "onset_ms": 9000.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 3
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 16,
+      "pitch": 36,
+      "bar": 5,
+      "beat": 1.0,
+      "onset_ms": 9600.0,
+      "duration_ms": 2400.0,
+      "dynamic": {
+        "level": -1,
+        "during": {
+          "direction": "up",
+          "to": 1,
+          "end_level": 1.0
+        }
+      },
+      "techniques": {
+        "includes": [
+          "pt.tremolo"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.trill"
+        ]
+      },
+      "source": "x/w+trem"
+    },
+    {
+      "part": "sn",
+      "index": 17,
+      "pitch": 36,
+      "bar": 6,
+      "beat": 1.0,
+      "onset_ms": 12000.0,
+      "duration_ms": 1200.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [
+          "pt.tremolo"
+        ],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.trill"
+        ]
+      },
+      "source": "x/h+trem"
+    },
+    {
+      "part": "sn",
+      "index": 18,
+      "pitch": 36,
+      "bar": 6,
+      "beat": 3.0,
+      "onset_ms": 13200.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 19,
+      "pitch": 36,
+      "bar": 6,
+      "beat": 4.0,
+      "onset_ms": 13800.0,
+      "duration_ms": 600.0,
+      "dynamic": {
+        "level": 1
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/q"
+    },
+    {
+      "part": "sn",
+      "index": 20,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 1.0,
+      "onset_ms": 14400.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 21,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 1.5,
+      "onset_ms": 14700.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 22,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 2.0,
+      "onset_ms": 15000.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 23,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 2.5,
+      "onset_ms": 15300.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 24,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 3.0,
+      "onset_ms": 15600.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 25,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 3.5,
+      "onset_ms": 15900.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 26,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 4.0,
+      "onset_ms": 16200.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    },
+    {
+      "part": "sn",
+      "index": 27,
+      "pitch": 36,
+      "bar": 7,
+      "beat": 4.5,
+      "onset_ms": 16500.0,
+      "duration_ms": 300.0,
+      "dynamic": {
+        "level": 0.5
+      },
+      "techniques": {
+        "includes": [],
+        "excludes": [
+          "pt.accent",
+          "pt.buzzRoll",
+          "pt.choke",
+          "pt.closed",
+          "pt.crossStick",
+          "pt.damp",
+          "pt.halfOpen",
+          "pt.laissezVibrer",
+          "pt.legato",
+          "pt.marcato",
+          "pt.muffledDamped",
+          "pt.open2",
+          "pt.rim",
+          "pt.rimShot",
+          "pt.sideStick",
+          "pt.snareOff",
+          "pt.snareOn",
+          "pt.staccatissimo",
+          "pt.staccato",
+          "pt.stickShot",
+          "pt.tenuto",
+          "pt.tremolo",
+          "pt.trill"
+        ]
+      },
+      "source": "x/e"
+    }
+  ]
+}

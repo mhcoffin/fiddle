@@ -1,15 +1,22 @@
 # Bridge maps: section profiles, installation and project history
 
-**Workflow (2026-10-19).** Fiddle has one bridge map per orchestral section:
-strings r4, woodwinds r2, brass r2 and pitched percussion r1 (all wire schema 2).
+**Workflow (2026-10-20).** Fiddle has one bridge map per orchestral section:
+strings r5, woodwinds r3, brass r3 and pitched percussion r2 (all wire schema 2,
+with Dorico's note durations pinned to written length; see
+[What reaches instruments](#what-reaches-instruments)).
 **Chairs → Install Playback Template** chooses the map for every chair from its
 Dorico instrument (`BridgeSections.h`), writes the maps into the Fiddle playback
 template, and pins the four revisions with the project's branch/version. Every
 other chair keeps the universal Fiddle map. Users do not assign ports, channels
 or maps. A branch keeps the revisions it pinned even when the app ships newer
-built-ins; changing a map is future editor work.
-**View → Windows → Technique Catalog → Bridge maps** is read-only. It shows the
-four section maps (with Dorico export) and each routed channel's live status.
+built-ins; editing a map is future editor work.
+**View → Windows → Technique Catalog → Bridge maps** shows the four section
+maps (with Dorico export) and each routed channel's live status. When a
+section's pinned map differs from the app's built-in one, it shows both and
+offers **Use built-in revision N** (or **Use all built-in maps**): one undoable
+change that repins the section and moves every channel that used the old map.
+Then reinstall the playback template with Dorico closed and reapply it in open
+projects; until then the beacon mismatches and those notes are withheld.
 The compiler/decoder exists; production Dorico acceptance is still pending.
 
 The manual workspace described below (starting-map buttons, per-port
@@ -122,6 +129,29 @@ following is the first host smoke test, not a claim that it has already passed.
 No acceptance evidence is implied by the automated installer tests: Dorico's
 initialization, export normalization and playback behavior remain to be observed.
 
+## Playback options an expression map can override
+
+Dorico 6's expression-map editor offers these overrides (checked 2026-10-29);
+anything else in Playback Options, such as **Maximum duration for staccato
+playback technique** (default a quarter note, stored as `8`), applies from the
+project and can't be pinned:
+
+| Group | Overrides |
+| --- | --- |
+| Durations | default, staccato, staccatissimo, tenuto, marcato and legato note durations *(pinned at 100%)* |
+| Repeated notes | shorten note if followed by abutting note of same pitch *(pinned off)*; additionally enforce a gap between repeated notes, minimum and maximum gap |
+| Switches | expression map switches before notes *(pinned at 10 ticks)* |
+| Timing | humanize start positions; humanize end positions; default unmeasured tremolo length; consider tempo changes in tremolos; in trills |
+| Dynamic curve | curve power, minimum and maximum level *(pinned linear, −8..8)* |
+| Humanize and stress | humanize written dynamic (pitched, unpitched); reset level for short consecutive gradual dynamics of the same direction; first-beat and other-beat increases (pitched, unpitched) |
+| Articulation dynamics | accents, marcato, tenuto, ghost notes *(pinned at 0)* |
+| Pitch contour | use pitch contour emphasis; scale of its effect; maximum effect on dynamics |
+| Voice balancing | use polyphonic instrument voice balancing; percentage of its effect |
+
+The bridge maps pin only the rows marked; humanization, beat stress, contour
+and voice balancing are left to the project (they act on the level, which
+Fiddle carries through).
+
 ## Supported compiler schemas 1 and 2
 
 The compiler accepts one flattened map with independent CC102–119 and positive
@@ -131,7 +161,15 @@ one conduit each, with consistent reset values. Init must set Natural and clear
 every add-on conduit. Ambiguous codes, duplicate switch IDs, conflicting map
 identities, unsupported fields/actions, inheritance, pitch/velocity filters,
 non-neutral timing/length/velocity modifiers, monophonic behavior and playback
-overrides are rejected. CC1 or velocity dynamics and note-velocity attack are
+overrides are rejected, except one override policy: all six note-duration
+options (`timingOptions.note/staccato/staccatissimo/legato/tenuto/marcatoDurationPercent`)
+at `int: 100`, `timingOptions.alwaysTruncateAbuttingNotesOfSamePitch` at
+`bool: false`, `timingOptions.numTicksBeforeForSwitches` at `int: 10`
+(Dorico's default), and linear dynamics (`dynamicsOptions.dynamicCurveParams` at
+`string: "0.500000,1.000000,1.000000"`, `min/maxProfileLevelForPlayback` at
+`int: -8`/`int: 8`, and the accent, marcato, tenuto and ghost-note deltas at
+`double: 0`), or none. That policy marks the map's notes `dorico_pinned_playback`
+and is part of the semantic fingerprint. CC1 or velocity dynamics and note-velocity attack are
 supported. The observed base flags 0/1 are preserved as Dorico selection metadata.
 Rejection leaves the existing published project unchanged.
 
@@ -154,6 +192,40 @@ techniques and actions, mutex groups and Init. It ignores display text,
 formatting and row order, and is what **Verify assigned map** compares. Neither
 proves audible playback; the beacon is the live check.
 
+## Percussion maps (unpitched sections)
+
+Dorico plays an unpitched instrument only through a **percussion map**
+(`DrumKitNoteMapDefinition`: instrument + technique set → pitch) paired with
+the expression map on the endpoint. The unpitched section's `.doricolib`
+therefore holds both entities, and one document compiles both: the content
+fingerprint appends the percussion map (existing pitched fingerprints are
+unchanged), the semantic fingerprint adds the map's identity, entries and
+instruments, and the installer writes the map's `drumkitNoteMapID` into the
+endpoint configuration and a `<DrumKitNoteMap>` beside each `<ExpressionMap>`
+in the template presets. Publishing renames and reversions the percussion
+entity in lockstep with the expression map.
+
+The percussion map carries no technique the expression map does not. The
+host run in [`experiments/unpitched-percussion-bridge/results-01.md`](../experiments/unpitched-percussion-bridge/results-01.md)
+showed that Dorico gives the expression map every technique regardless of
+the percussion map, falls back to the Natural entry for a technique the map
+lacks, and sustains a roll only when the entry it picked carries the roll.
+So every instrument gets the same small table, Natural and the roll kinds,
+all on one pitch (36 in r2): the pitch names nothing, the chair names the
+instrument, and strokes, surfaces, rolls, modifiers and dynamics arrive
+through the bridge's dimensions exactly as for a pitched section. The
+decoder withholds a note on a pitch the map never sends (`UnmappedPitch`).
+
+The compiler requires: exactly one percussion map in the library, with its
+own entity ID, no parent (`inheritanceMask` 0), `applyStageTemplateSettings`
+false and the expression map's version; entries with only
+`instrumentEntityID`, `techniqueIDs`, `pitch` and `name` (an entry's own
+`keyswitches` and `variant` are rejected); pitches inside the musical range;
+no instrument with the same technique set twice; the same table for every
+instrument; and an entry that is exactly `pt.natural`. Several entries may
+share a pitch. The r2 generator (`profiles.py`, `PERCUSSION`) produces this
+shape from `PITCH` and `ENTRIES`.
+
 ## What reaches instruments
 
 Besides notes and bridge commands, the plug-in maps every CC 0–119 plus channel
@@ -165,6 +237,93 @@ take the annotator path: a layer map whose `pitchBendRange` differs from the
 bridge's ±2 semitones gets bend rescaled. Live CC1 dynamics are re-expressed on
 the controller(s) the current base switch's `volumeType` names, while notes
 sound, when that base uses CC dynamics.
+
+Each layer then plays its own (library) expression map the way Dorico would
+play that map directly:
+
+- **Switch choice.** Dorico's resolution order (exact base, base + add-ons,
+  two of three, technique priority, fallback, Natural) runs on the decoded
+  techniques. A base switch only applies to notes inside its `velocityRange` and
+  `pitchRange`, judged on Dorico's velocity and pitch before the switch's
+  velocity factor or transpose. The priority tier knows Dorico's canonical
+  harmonic, pizzicato and mute IDs (`pt.naturalHarmonic1`, `pt.cupMute`,
+  `pt.harmonMuteStemIn`, …) as well as the older lowercase spellings.
+- **On and Off actions.** A switch's On actions are sent when the selected
+  switch (base or add-on set) changes, not for repeated notes. Its Off actions
+  are sent at that change, before the new switch's On actions, for each base or
+  add-on that is no longer selected. A note ending never sends Off actions, so an
+  overlapped note ending cannot undo its successor's switch. Keyswitches go at
+  the note's time, ahead of it in send order; there is no extra fixed lead.
+- **Channel switches.** A `kChannelSwitch` action sends no message of its own.
+  It moves the note, the switch's other actions, its dynamics and live
+  controllers to that channel; the note-off follows its note-on there. Fiddle
+  reads `param1` as an absolute 1-based MIDI channel. A switch without a channel
+  action plays on the layer's input channel.
+- **Timing.** `millisecondsBefore` plays the note and its switch actions that
+  much earlier; with several switches selected the largest lead wins. The
+  note-off moves too only with `applyMillisecondsBeforeToEndOffsets`, and live
+  controllers only with `applyMillisecondsBeforeToControllers`. Switch actions
+  also go ahead of their note by Dorico's **Expression map switches before
+  notes**: the bridge maps pin Dorico's to its default 10 ticks, so the
+  decoder always sees the same timing, and each layer applies its map's own
+  `timingOptions.numTicksBeforeForSwitches` override, else the project value
+  in the **Settings…** window's **Dorico playback options** group (default 10).
+  A switch's own `ticksBefore`, when set, replaces both (an assumption; the
+  precedence is unverified). Ticks convert at the live tempo assuming 480 per
+  quarter note. Fiddle's playback delay supplies the lookahead.
+- **Durations.** The section bridge maps override Dorico's six note-duration
+  playback options (note, staccato, staccatissimo, legato, tenuto, marcato) to
+  100%, so Dorico sends written lengths and the decoder marks each note
+  `dorico_pinned_playback`. Each layer then applies, per category, its own
+  expression map's override if it has one, else the project's Dorico options,
+  which Fiddle cannot read: copy them from Dorico's **Library ▸ Playback
+  Options ▸ Timing** into the **Settings…** window's **Dorico playback options** group (saved with the project,
+  undoable; defaults 90, 50, 25, 105, 100 and 75%). Layers without an
+  expression map apply the project values too. The switch's `lengthFactor`
+  then applies as usual. Older bridge revisions and the universal map send
+  durations Dorico already scaled with the project's options; there only a
+  layer override changes a duration, by override ÷ the project value.
+- **Repeated pitches.** The bridge maps also turn off Dorico's **Shorten note
+  if followed by abutting note of same pitch**, so Dorico sends each note's
+  full written length. Each layer then makes sure a note never overlaps the
+  next note of the same channel and pitch: the earlier note ends 1 ms before
+  the later one starts, whichever arrives first. Hosted instruments get no
+  note IDs, so without this a lengthened note's note-off (legato 105%, or a
+  later note's `millisecondsBefore`) would silence the following note. This
+  covers what the Dorico option does; the keyboard-only repeated-note gap
+  options are left to Dorico.
+- **Dynamics.** Measured in [experiments/dynamics-curve](../experiments/dynamics-curve/results-01.md):
+  Dorico gives each dynamic a level (p −1, pp −2 …, mp −0.5, mf +0.5, f 1 …),
+  bends it with an S-curve between the minimum and maximum level, and sends
+  `round(1 + 126 × curve)` on CC1 or velocity; accent, marcato and tenuto add
+  to the note's level, ghost notes subtract. The bridge maps pin a linear curve
+  over −8..8 with no articulation deltas, so Fiddle reads each note's level back
+  from CC1 or velocity. Each layer then re-expresses it with its expression
+  map's own dynamics overrides, else the project's values (curve power, minimum
+  and maximum level, and the four adjustments in the **Dorico playback
+  timing** group; defaults 2.5, −6, 6, 0.5, 0.8, 0 and 2.5), on the switch's
+  `volumeType` controller(s) and/or velocity. A switch that takes dynamics only
+  on controllers gets velocity 100, as Dorico sends. Live CC1 changes are
+  re-expressed the same way; layers without an expression map use the project
+  curve on CC1 and velocity. One bridge step is about 0.13 level, so a value can
+  land one MIDI step from what Dorico would send where the layer's curve is
+  steep. Dorico sends a new dynamic's CC1 up to 7 ms after its note-on, so a
+  pinned note with CC1 dynamics is held (up to 10 ms of Dorico's time, at its
+  original trigger time) until that CC1 arrives. Beat stress, humanisation,
+  pitch contour and voice balancing stay in Dorico; they act on the level, so
+  they survive the re-expression.
+  Dorico's other timing options (humanisation, repeated-note truncation,
+  maximum staccato duration) still apply in Dorico and are not emulated.
+  Confirmed in Dorico by score test `basic-rhythm-20261029-180214` (Strings
+  r5): written lengths arrive within 1 ms, and an mf note's CC1 is 68
+  (level 0.5 on the pinned linear −8..8 curve) on every note.
+- **Initialization.** When Dorico's transport starts, each layer sends its
+  map's enabled `initSwitchData` actions on its input channel and forgets the
+  switch state left from the previous playback, so the first note sends its
+  switch again.
+- **Not emulated.** `monophonic` (Dorico's monophonic legato) is parsed and
+  shown but not applied: overlapping notes reach the instrument exactly as
+  Dorico sent them through the bridge.
 
 ## Persistence and portability
 

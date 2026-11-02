@@ -4,7 +4,7 @@
 No installation or runtime integration. --check is strictly read-only.
 The repository's 298-ID inventory is the portable input; --dorico-catalog
 additionally checks it against a locally installed Dorico catalog.
-The CLI defaults to curated r3 in r3/; --revision 2 reproduces frozen r2 files.
+The CLI defaults to the current r5 in r5/; --revision 2-4 reproduce frozen files.
 """
 import argparse
 import copy
@@ -30,6 +30,38 @@ MAP_FILE = f"Fiddle-Orchestral-Strings-r{REVISION}.doricolib"
 TYPED_OFF = 64
 BEACON_PITCHES = (126, 127)
 BEACON_MODULUS = 127 * 127
+MUSICAL_RANGE = (21, 114)  # notes; keyswitch conduits lie outside it
+# Base-row dynamics policies (volumeType): Dorico puts the level on CC1 just
+# after the note-on, or in the note-on's velocity.
+VOLUME_TYPES = {"cc1": ("kCC", 1), "velocity": ("kNoteVelocity", 0)}
+LENGTH_CONDITIONS = ("NoteLength == kVeryShort", "NoteLength == kShort", "NoteLength == kMedium",
+                     "NoteLength == kLong", "NoteLength > kLong")
+
+# Playback-option overrides that pin every note-duration category to 100%, so
+# Dorico sends written lengths and Fiddle applies the duration percentages
+# (the layer map's overrides, else its copy of the project's options). Dorico
+# must not shorten same-pitch notes either: Fiddle ends each one before its
+# same-pitch successor itself, after scaling. Switch commands keep Dorico's
+# default lead, so the decoder always sees the same timing; Fiddle applies
+# the project's lead to each layer's own switches.
+DURATION_OPTIONS = tuple(f"timingOptions.{name}DurationPercent" for name in
+                         ("note", "staccato", "staccatissimo", "legato", "tenuto", "marcato"))
+PINNED_OPTIONS = tuple((option, "int: 100") for option in DURATION_OPTIONS) + (
+    ("timingOptions.alwaysTruncateAbuttingNotesOfSamePitch", "bool: false"),
+    ("timingOptions.numTicksBeforeForSwitches", "int: 10"),
+    # Linear dynamics over a known range, no articulation deltas: Fiddle reads
+    # each note's level back and applies the layer's curve (dynamics-curve/).
+    ("dynamicsOptions.dynamicCurveParams", 'string: "0.500000,1.000000,1.000000"'),
+    ("dynamicsOptions.minProfileLevelForPlayback", "int: -8"),
+    ("dynamicsOptions.maxProfileLevelForPlayback", "int: 8"),
+    ("dynamicsOptions.accentDynamicDelta", "double: 0"),
+    ("dynamicsOptions.marcatoDynamicDelta", "double: 0"),
+    ("dynamicsOptions.tenutoDynamicDelta", "double: 0"),
+    ("dynamicsOptions.ghostNoteDynamicDelta", "double: 0"))
+
+
+def written_durations(spec):
+    return getattr(spec, "WRITTEN_DURATIONS", False)
 
 
 def wire_schema(spec):
@@ -92,7 +124,26 @@ def dimensions(spec=legacy_profile):
     return result
 
 
+def percussion_maps(spec):
+    """The spec's percussion maps (unpitched sections), each a namespace with
+    ENTITY_ID, NAME, INSTRUMENTS, CODES [(pitch, "pt.a[+pt.b]"[, keyswitch])]
+    and FOR_SINGLE_INSTRUMENT. One map per section in practice; the probe
+    carries two."""
+    maps = getattr(spec, "PERCUSSION", None)
+    return [] if maps is None else list(maps) if isinstance(maps, (list, tuple)) else [maps]
+
+
+def pitch_codes(spec):
+    """Every technique ID that some percussion-map entry carries."""
+    return {pt for m in percussion_maps(spec) for code in m.CODES for pt in code[1].split("+")}
+
+
 def disposition(pt, row, owners, spec=legacy_profile):
+    codes = pitch_codes(spec)
+    if pt in codes:
+        kinds = ["Percussion entry"] + (["Base"] if pt in spec.BASE_IDS else []) + (["Add-on"] if pt in owners else [])
+        return " + ".join(kinds), "Percussion map entry" + ("; CC102 base" if pt in spec.BASE_IDS else "") \
+            + (f"; add-on {owners[pt]}" if pt in owners else "")
     if pt in spec.BASE_IDS:
         return "Base", "CC102; original articulation/length encoding"
     if pt in owners:
@@ -134,7 +185,34 @@ def validate(dims, catalog, spec=legacy_profile):
     for key, pts in getattr(spec, "EXTRA_MUTEX_GROUPS", []):
         if len(pts) < 2 or len(set(pts)) != len(pts) or any(pt not in owners and pt not in spec.BASE_IDS for pt in pts):
             raise ValueError(f"Invalid extra mutex group: {key}")
+    validate_percussion(spec, catalog)
     return owners
+
+
+def validate_percussion(spec, catalog):
+    """Percussion-map entries: musical pitches only (never a keyswitch conduit
+    or the beacon; several entries may share a pitch, as Dorico's own maps
+    do for roll and tremolo), each a distinct non-empty set of catalog IDs,
+    and one entry that is exactly Natural so Dorico's fallback has somewhere
+    to land."""
+    low, high = MUSICAL_RANGE
+    ids = set()
+    for m in percussion_maps(spec):
+        if m.ENTITY_ID in ids or not m.INSTRUMENTS or not m.CODES:
+            raise ValueError(f"Percussion map needs a unique ID, instruments and codes: {m.ENTITY_ID}")
+        ids.add(m.ENTITY_ID)
+        sets = set()
+        for code in m.CODES:
+            pitch, pts = code[0], code[1].split("+")
+            if not low <= pitch <= high:
+                raise ValueError(f"Percussion entry pitch must be musical: {pitch}")
+            if len(set(pts)) != len(pts) or any(pt not in catalog for pt in pts) or frozenset(pts) in sets:
+                raise ValueError(f"Invalid or duplicate percussion entry techniques: {code[1]}")
+            if len(code) > 2 and not (0 <= code[2] <= 127 and not low <= code[2] <= high):
+                raise ValueError(f"Percussion entry keyswitch must lie outside the musical range: {code[2]}")
+            sets.add(frozenset(pts))
+        if frozenset(["pt.natural"]) not in sets:
+            raise ValueError(f"Percussion map needs a Natural code: {m.ENTITY_ID}")
 
 
 def sub(parent, tag, value=None, **attrs):
@@ -152,6 +230,76 @@ def action(parent, phase, kind, number, value):
     sub(node, "param2", value)
 
 
+def base_rows(spec, source_bases):
+    """The base rows, each with its CC102 code. Without spec.BASES they are
+    the universal map's 25 rows as they are. With BASES [(technique IDs,
+    "cc1" | "velocity")], each entry becomes five rows (one per note-length
+    bucket, codes 5i..5i+4): the universal rows for those techniques when
+    it has them (their Dorico flags kept), else copies of the Natural rows
+    with the techniques replaced; the dynamics policy is set either way."""
+    bases = getattr(spec, "BASES", None)
+    if bases is None:
+        return [(int(row.findtext("baseSwitchID")), copy.deepcopy(row)) for row in source_bases]
+    by_ids = {}
+    for row in source_bases:
+        by_ids.setdefault(row.findtext("techniqueIDs"), []).append(row)
+    result = []
+    for i, (ids, volume) in enumerate(bases):
+        if volume not in VOLUME_TYPES:
+            raise ValueError(f"Unknown dynamics policy for base {ids}: {volume}")
+        rows = by_ids.get(ids)
+        if rows is None:
+            if any(set(k.split("+")) == set(ids.split("+")) for k in by_ids):
+                raise ValueError(f"Spell the universal base as the universal map does: {ids}")
+            rows = by_ids["pt.natural"]
+        if [r.findtext("conditionString") for r in rows] != list(LENGTH_CONDITIONS):
+            raise ValueError("Hand-built base rows are not the five length buckets in order")
+        for bucket, original in enumerate(rows):
+            row = copy.deepcopy(original)
+            row.find("baseSwitchID").text = str(5 * i + bucket)
+            row.find("techniqueIDs").text = ids
+            kind, param = VOLUME_TYPES[volume]
+            row.find("volumeType/type").text = kind
+            row.find("volumeType/param1").text = str(param)
+            result.append((5 * i + bucket, row))
+    return result
+
+
+def percussion_definitions(root, spec, catalog):
+    """Append one DrumKitNoteMapDefinition per percussion map: every covered
+    instrument gets every code, so a pitch means the same stroke on each."""
+    table = []
+    if not percussion_maps(spec):
+        return table
+    entities = sub(sub(root, "drumKitNoteMapDefinitions"), "entities", array="true")
+    for m in percussion_maps(spec):
+        definition = sub(entities, "DrumKitNoteMapDefinition")
+        for tag, value in [("name", m.NAME), ("entityID", m.ENTITY_ID), ("parentEntityID", ""),
+                           ("inheritanceMask", 0), ("version", spec.REVISION),
+                           ("forSingleInstrument", "true" if m.FOR_SINGLE_INSTRUMENT else "false"),
+                           ("applyStageTemplateSettings", "false")]:
+            sub(definition, tag, value)
+        entries = sub(definition, "entries", array="true")
+        codes = []
+        for code in m.CODES:
+            pitch, ids = code[0], code[1]
+            name = " + ".join(catalog[pt]["label"] for pt in ids.split("+"))
+            codes.append(dict(pitch=pitch, techniques=ids.split("+"), name=name,
+                              **({"keyswitch": code[2]} if len(code) > 2 else {})))
+            for instrument in m.INSTRUMENTS:
+                entry = sub(entries, "entry")
+                sub(entry, "instrumentEntityID", instrument)
+                sub(entry, "techniqueIDs", ids)
+                sub(entry, "pitch", pitch)
+                if len(code) > 2:
+                    sub(entry, "keyswitches", code[2])
+                sub(entry, "name", name)
+        table.append(dict(entity_id=m.ENTITY_ID, name=m.NAME, for_single_instrument=bool(m.FOR_SINGLE_INSTRUMENT),
+                          instruments=list(m.INSTRUMENTS), codes=codes,
+                          entry_count=len(m.INSTRUMENTS) * len(m.CODES)))
+    return table
+
+
 def build(spec=legacy_profile):
     # The default Python API remains r2 for historical score generators/tests.
     # The CLI explicitly chooses the current revision and its output directory.
@@ -166,6 +314,13 @@ def build(spec=legacy_profile):
         raise ValueError("Hand-built base set changed; review before regenerating")
     fingerprint_data = dict(dimensions=dims, aliases=spec.ALIASES,
                             base_source_sha256=hashlib.sha256(BASE_SOURCE.read_bytes()).hexdigest())
+    if hasattr(spec, "BASES"):
+        fingerprint_data.update(bases=[list(b) for b in spec.BASES])
+    if percussion_maps(spec):
+        fingerprint_data.update(percussion=[dict(entity_id=m.ENTITY_ID, instruments=list(m.INSTRUMENTS),
+                                                 codes=[list(c) for c in m.CODES],
+                                                 for_single_instrument=bool(m.FOR_SINGLE_INSTRUMENT))
+                                            for m in percussion_maps(spec)])
     if hasattr(spec, "INSTRUMENTS"):
         fingerprint_data.update(section=section, instruments=list(spec.INSTRUMENTS),
                                 extra_mutex_groups=spec.EXTRA_MUTEX_GROUPS,
@@ -173,10 +328,14 @@ def build(spec=legacy_profile):
     schema = wire_schema(spec)
     if schema >= 2:
         fingerprint_data.update(wire_schema=schema, typed_off=TYPED_OFF, beacon_pitches=list(BEACON_PITCHES))
+    if written_durations(spec):
+        fingerprint_data.update(playback_overrides=dict(PINNED_OPTIONS))
     fingerprint = hashlib.sha256(json.dumps(fingerprint_data, sort_keys=True).encode()).hexdigest()
     if schema >= 2:
         description = (f"Fiddle bridge wire schema 2: typed Off (On+{TYPED_OFF}) and revision beacon on "
-                       f"KS{BEACON_PITCHES[0]}/KS{BEACON_PITCHES[1]}. Pending Dorico host acceptance. "
+                       f"KS{BEACON_PITCHES[0]}/KS{BEACON_PITCHES[1]}. "
+                       + ("Note durations pinned to 100% (written lengths). " if written_durations(spec) else "")
+                       + "Pending Dorico host acceptance. "
                        f"{label}: {1 + len(dims)} conduits, {len(source_bases)} bases, "
                        f"{len(owners)} add-ons. Specification SHA256: " + fingerprint)
     else:
@@ -208,16 +367,16 @@ def build(spec=legacy_profile):
             action(init_actions, "init", "KS", pitch, velocity)
     bases = sub(definition, "playingTechniqueCombinations", array="true")
     base_table = []
-    for original in source_bases:
-        base = copy.deepcopy(original)
-        value = int(base.findtext("baseSwitchID"))
+    for value, base in base_rows(spec, source_bases):
         on = base.find("switchOnActions")
         on.clear()
         on.set("array", "true")
         action(on, "switchOn", "CC", 102, value)
         bases.append(base)
         base_table.append(dict(value=value, techniques=base.findtext("techniqueIDs").split("+"),
-                               condition=base.findtext("conditionString")))
+                               condition=base.findtext("conditionString"),
+                               **({"dynamics": "cc1" if base.findtext("volumeType/type") == "kCC" else "velocity"}
+                                  if hasattr(spec, "BASES") else {})))
     addons = sub(definition, "techniqueAddOns", array="true")
     index = 0
     for d in dims:
@@ -232,7 +391,9 @@ def build(spec=legacy_profile):
                    d["kind"], d["number"], value + TYPED_OFF if schema >= 2 else d["unspecified"])
             index += 1
     groups = sub(definition, "mutualExclusionGroups", array="true")
-    group_specs = [("shortening", ["pt.staccatissimo", "pt.staccato"])]
+    # The two shortening articulations exclude each other wherever both are bases.
+    group_specs = [("shortening", ["pt.staccatissimo", "pt.staccato"])] \
+        if {"pt.staccatissimo", "pt.staccato"} <= set(spec.BASE_IDS) else []
     for d in dims:
         pts = list(d["values"])
         if d["natural_cancels"]:
@@ -245,7 +406,13 @@ def build(spec=legacy_profile):
         sub(group, "groupID", f"ptmg.user.Fiddle.Orchestral{section}.r{spec.REVISION}.{key}")
         sub(group, "name", section + ": " + key.replace("_", " "))
         sub(group, "techniqueIDs", ", ".join(pts))
-    sub(definition, "playbackOptionsOverrides", array="true")
+    overrides = sub(definition, "playbackOptionsOverrides", array="true")
+    if written_durations(spec):
+        for option, value in PINNED_OPTIONS:
+            row = sub(overrides, "optionsOverride")
+            sub(row, "option", option)
+            sub(row, "value", value)
+    percussion = percussion_definitions(root, spec, catalog)
     ET.indent(root, space="  ")
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True) + b"\n"
     counts = dict(base_switches=len(base_table), add_on_switches=index,
@@ -258,6 +425,7 @@ def build(spec=legacy_profile):
     budget = len(conduit_pool(spec)) + 1
     manifest = dict(schema_version=1, revision=spec.REVISION, name=spec.NAME, entity_id=spec.ENTITY_ID,
                     runtime_compatible=schema >= 2, dorico_import_verified=False,
+                    **({"written_durations": True} if written_durations(spec) else {}),
                     musical_midi_range=[21, 114], counts=counts,
                     specification_sha256=fingerprint, map_sha256=hashlib.sha256(xml).hexdigest(),
                     base_cc=102, bases=base_table, dimensions=dims, aliases=spec.ALIASES)
@@ -268,6 +436,9 @@ def build(spec=legacy_profile):
         manifest.update(section=section, instruments=list(spec.INSTRUMENTS),
                         supported_routing="one Dorico voice per endpoint/port/channel",
                         title=title)
+    if percussion:
+        counts["percussion_entry_ids"] = len(pitch_codes(spec))
+        manifest.update(percussion=percussion)
     return {f"Fiddle-Orchestral-{section}-r{spec.REVISION}.doricolib": xml,
             "allocation.json": (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode(),
             "allocation.md": allocation_markdown(manifest, catalog).encode(),
@@ -285,8 +456,9 @@ def allocation_markdown(m, catalog):
              f"{c['spare_conduits']} spare.** {c['base_switches']} bases + {c['add_on_switches']} add-ons = "
              f"{c['switch_rows']} switch rows, plus one Init switch ({c['conduits'] + (2 if typed else 0)} actions"
              + (", including the two beacon keyswitches). " if typed else "). ") +
-             f"{c['explicit_pt_ids']} distinct encoded IDs + {c['aliases']} built-in alias; "
-             f"{c['mutex_groups']} explicit mutex groups.", "",
+             f"{c['explicit_pt_ids']} distinct encoded IDs + {c['aliases']} built-in alias"
+             + (f" + {c['percussion_entry_ids']} IDs with percussion-map entries" if "percussion_entry_ids" in c else "")
+             + f"; {c['mutex_groups']} explicit mutex groups.", "",
              "All pitch numbers are MIDI integers, not octave labels. CC value 0 means unspecified "
              "except CC102 (base code 0); KS velocity 1 means unspecified. Physical KS releases "
              "are not dimension resets. " + (
@@ -296,10 +468,28 @@ def allocation_markdown(m, catalog):
                  f"{m['beacon']['velocities'][0]} and KS{m['beacon']['pitches'][1]} velocity "
                  f"{m['beacon']['velocities'][1]}; those pitches are reserved and carry no technique."
                  if typed else "Every add-on Off writes its own unspecified value."), "",
-             "## Base (CC102)", "", "Copied articulation/length codes; the old CC103 reset is removed.", "",
-             "| Value | PTs | Condition |", "| --- | --- | --- |"]
+             "## Base (CC102)", "", "Copied articulation/length codes; the old CC103 reset is removed."]
+    dynamics = any("dynamics" in b for b in m["bases"])
+    if dynamics:
+        lines += ["Dynamics: cc1 = the level arrives on CC1 just after the note-on; velocity = in the note-on.", "",
+                  "| Value | PTs | Condition | Dynamics |", "| --- | --- | --- | --- |"]
+    else:
+        lines += ["", "| Value | PTs | Condition |", "| --- | --- | --- |"]
     for b in m["bases"]:
-        lines.append(f"| {b['value']} | {' + '.join(b['techniques'])} | `{b['condition']}` |")
+        lines.append(f"| {b['value']} | {' + '.join(b['techniques'])} | `{b['condition']}` |"
+                     + (f" {b['dynamics']} |" if dynamics else ""))
+    for p in m.get("percussion", []):
+        lines += ["", f"## Percussion map `{p['entity_id']}`", "",
+                  f"{p['name']}: {len(p['codes'])} entries × {len(p['instruments'])} instruments = "
+                  f"{p['entry_count']} entries; forSingleInstrument {str(p['for_single_instrument']).lower()}. "
+                  "Dorico plays the pitch of the entry matching a note's techniques (an unmatched technique "
+                  "falls back to Natural and still reaches the expression map), and sustains a roll only when "
+                  "that entry carries the roll. Every instrument has the same table.", "",
+                  "| Pitch | PTs | Keyswitch |", "| --- | --- | --- |"]
+        for c in p["codes"]:
+            labels = " + ".join(f"{catalog[pt]['label']} (`{pt}`)" for pt in c["techniques"])
+            lines.append(f"| {c['pitch']} | {labels} | {c.get('keyswitch', '—')} |")
+        lines += ["", "Instruments: " + ", ".join(f"`{i}`" for i in p["instruments"])]
     lines += ["", "## Add-on dimensions", "",
               "Each multi-value row is one mutex group. Singletons are independent; "
               "those marked nat. also have a two-member cancellation group with Natural. "
@@ -351,12 +541,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--dorico-catalog", type=Path)
-    parser.add_argument("--revision", type=int, choices=(2, 3, 4), default=4,
-                        help="Default: current r4; r2/r3 reproduce frozen artifacts")
+    parser.add_argument("--revision", type=int, choices=(2, 3, 4, 5), default=5,
+                        help="Default: current r5; r2-r4 reproduce frozen artifacts")
     args = parser.parse_args()
     if args.dorico_catalog:
         check_dorico(args.dorico_catalog)
-    if args.revision == 4:
+    if args.revision == 5:
+        import profile_r5 as spec
+        destination = HERE / "r5"
+    elif args.revision == 4:
         import profile_r4 as spec
         destination = HERE / "r4"
     elif args.revision == 3:

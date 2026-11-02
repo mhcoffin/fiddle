@@ -1,0 +1,532 @@
+{
+  "schema_version": 1,
+  "tempo": 120,
+  "ladder": [
+    "pppppp",
+    "ppppp",
+    "pppp",
+    "ppp",
+    "pp",
+    "p",
+    "mp",
+    "mf",
+    "f",
+    "ff",
+    "fff",
+    "ffff",
+    "fffff",
+    "ffffff"
+  ],
+  "passes": [
+    {
+      "name": "A",
+      "curve_power": 2.5,
+      "min_level": -6,
+      "max_level": 6,
+      "accent": 0.5,
+      "marcato": 0.8,
+      "tenuto": 0.0
+    },
+    {
+      "name": "B",
+      "curve_power": 1.0,
+      "min_level": -6,
+      "max_level": 6,
+      "accent": 0.5,
+      "marcato": 0.8,
+      "tenuto": 0.0
+    },
+    {
+      "name": "C",
+      "curve_power": 1.0,
+      "min_level": -3,
+      "max_level": 3,
+      "accent": 0.5,
+      "marcato": 0.8,
+      "tenuto": 0.0
+    },
+    {
+      "name": "D",
+      "curve_power": 2.5,
+      "min_level": -6,
+      "max_level": 6,
+      "accent": 1.0,
+      "marcato": 2.0,
+      "tenuto": 1.5
+    }
+  ],
+  "channels": {
+    "1": "Fiddle Dynamics Probe - CC1",
+    "2": "Fiddle Dynamics Probe - velocity"
+  },
+  "notes": [
+    {
+      "index": 0,
+      "bar": 1,
+      "quarter": 0.0,
+      "pitch": 72,
+      "dynamic": "pppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 1,
+      "bar": 1,
+      "quarter": 2.0,
+      "pitch": 74,
+      "dynamic": "pppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 2,
+      "bar": 1,
+      "quarter": 3.0,
+      "pitch": 76,
+      "dynamic": "pppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 3,
+      "bar": 2,
+      "quarter": 4.0,
+      "pitch": 72,
+      "dynamic": "ppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 4,
+      "bar": 2,
+      "quarter": 6.0,
+      "pitch": 74,
+      "dynamic": "ppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 5,
+      "bar": 2,
+      "quarter": 7.0,
+      "pitch": 76,
+      "dynamic": "ppppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 6,
+      "bar": 3,
+      "quarter": 8.0,
+      "pitch": 72,
+      "dynamic": "pppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 7,
+      "bar": 3,
+      "quarter": 10.0,
+      "pitch": 74,
+      "dynamic": "pppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 8,
+      "bar": 3,
+      "quarter": 11.0,
+      "pitch": 76,
+      "dynamic": "pppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 9,
+      "bar": 4,
+      "quarter": 12.0,
+      "pitch": 72,
+      "dynamic": "ppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 10,
+      "bar": 4,
+      "quarter": 14.0,
+      "pitch": 74,
+      "dynamic": "ppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 11,
+      "bar": 4,
+      "quarter": 15.0,
+      "pitch": 76,
+      "dynamic": "ppp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 12,
+      "bar": 5,
+      "quarter": 16.0,
+      "pitch": 72,
+      "dynamic": "pp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 13,
+      "bar": 5,
+      "quarter": 18.0,
+      "pitch": 74,
+      "dynamic": "pp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 14,
+      "bar": 5,
+      "quarter": 19.0,
+      "pitch": 76,
+      "dynamic": "pp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 15,
+      "bar": 6,
+      "quarter": 20.0,
+      "pitch": 72,
+      "dynamic": "p",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 16,
+      "bar": 6,
+      "quarter": 22.0,
+      "pitch": 74,
+      "dynamic": "p",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 17,
+      "bar": 6,
+      "quarter": 23.0,
+      "pitch": 76,
+      "dynamic": "p",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 18,
+      "bar": 7,
+      "quarter": 24.0,
+      "pitch": 72,
+      "dynamic": "mp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 19,
+      "bar": 7,
+      "quarter": 26.0,
+      "pitch": 74,
+      "dynamic": "mp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 20,
+      "bar": 7,
+      "quarter": 27.0,
+      "pitch": 76,
+      "dynamic": "mp",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 21,
+      "bar": 8,
+      "quarter": 28.0,
+      "pitch": 72,
+      "dynamic": "mf",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 22,
+      "bar": 8,
+      "quarter": 30.0,
+      "pitch": 74,
+      "dynamic": "mf",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 23,
+      "bar": 8,
+      "quarter": 31.0,
+      "pitch": 76,
+      "dynamic": "mf",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 24,
+      "bar": 9,
+      "quarter": 32.0,
+      "pitch": 72,
+      "dynamic": "f",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 25,
+      "bar": 9,
+      "quarter": 34.0,
+      "pitch": 74,
+      "dynamic": "f",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 26,
+      "bar": 9,
+      "quarter": 35.0,
+      "pitch": 76,
+      "dynamic": "f",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 27,
+      "bar": 10,
+      "quarter": 36.0,
+      "pitch": 72,
+      "dynamic": "ff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 28,
+      "bar": 10,
+      "quarter": 38.0,
+      "pitch": 74,
+      "dynamic": "ff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 29,
+      "bar": 10,
+      "quarter": 39.0,
+      "pitch": 76,
+      "dynamic": "ff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 30,
+      "bar": 11,
+      "quarter": 40.0,
+      "pitch": 72,
+      "dynamic": "fff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 31,
+      "bar": 11,
+      "quarter": 42.0,
+      "pitch": 74,
+      "dynamic": "fff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 32,
+      "bar": 11,
+      "quarter": 43.0,
+      "pitch": 76,
+      "dynamic": "fff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 33,
+      "bar": 12,
+      "quarter": 44.0,
+      "pitch": 72,
+      "dynamic": "ffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 34,
+      "bar": 12,
+      "quarter": 46.0,
+      "pitch": 74,
+      "dynamic": "ffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 35,
+      "bar": 12,
+      "quarter": 47.0,
+      "pitch": 76,
+      "dynamic": "ffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 36,
+      "bar": 13,
+      "quarter": 48.0,
+      "pitch": 72,
+      "dynamic": "fffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 37,
+      "bar": 13,
+      "quarter": 50.0,
+      "pitch": 74,
+      "dynamic": "fffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 38,
+      "bar": 13,
+      "quarter": 51.0,
+      "pitch": 76,
+      "dynamic": "fffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 39,
+      "bar": 14,
+      "quarter": 52.0,
+      "pitch": 72,
+      "dynamic": "ffffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 40,
+      "bar": 14,
+      "quarter": 54.0,
+      "pitch": 74,
+      "dynamic": "ffffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 41,
+      "bar": 14,
+      "quarter": 55.0,
+      "pitch": 76,
+      "dynamic": "ffffff",
+      "kind": "ladder",
+      "articulation": null
+    },
+    {
+      "index": 42,
+      "bar": 15,
+      "quarter": 56.0,
+      "pitch": 79,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": null
+    },
+    {
+      "index": 43,
+      "bar": 15,
+      "quarter": 57.0,
+      "pitch": 79,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": "accent"
+    },
+    {
+      "index": 44,
+      "bar": 15,
+      "quarter": 58.0,
+      "pitch": 81,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": null
+    },
+    {
+      "index": 45,
+      "bar": 15,
+      "quarter": 59.0,
+      "pitch": 81,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": "marcato"
+    },
+    {
+      "index": 46,
+      "bar": 16,
+      "quarter": 60.0,
+      "pitch": 83,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": null
+    },
+    {
+      "index": 47,
+      "bar": 16,
+      "quarter": 61.0,
+      "pitch": 83,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": "tenuto"
+    },
+    {
+      "index": 48,
+      "bar": 16,
+      "quarter": 62.0,
+      "pitch": 84,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": null
+    },
+    {
+      "index": 49,
+      "bar": 16,
+      "quarter": 63.0,
+      "pitch": 84,
+      "dynamic": "mf",
+      "kind": "articulation",
+      "articulation": null
+    },
+    {
+      "index": 50,
+      "bar": 17,
+      "quarter": 64.0,
+      "pitch": 77,
+      "dynamic": "p",
+      "kind": "hairpin",
+      "articulation": null
+    },
+    {
+      "index": 51,
+      "bar": 19,
+      "quarter": 72.0,
+      "pitch": 77,
+      "dynamic": "f",
+      "kind": "hairpin-end",
+      "articulation": null
+    }
+  ]
+}

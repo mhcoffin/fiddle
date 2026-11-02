@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary>
+	<fileVersion>1.1454</fileVersion>
+	<expressionMapDefinitions>
+		<entities array="true">
+			<ExpressionMapDefinition>
+				<name>Fiddle Dynamics Probe - CC1 dup</name>
+				<entityID>xmap.user.fiddle_dynamics_probe_cc1_dup</entityID>
+				<parentEntityID/>
+				<inheritanceMask>0</inheritanceMask>
+				<creator>Fiddle</creator>
+				<description>Fiddle dynamics measurement: Natural only, no switches. Capture only.</description>
+				<version>1</version>
+				<pluginNames/>
+				<autoMutualExclusion>false</autoMutualExclusion>
+				<allowMultipleNotesAtSamePitch>true</allowMultipleNotesAtSamePitch>
+				<applyStageTemplateSettings>false</applyStageTemplateSettings>
+				<pitchBendRange>2</pitchBendRange>
+				<microtonalPlaybackMethod>kAuto</microtonalPlaybackMethod>
+				<initSwitchData>
+					<enabled>false</enabled>
+					<initActions array="true"/>
+				</initSwitchData>
+				<playingTechniqueCombinations array="true">
+					<playingTechniqueCombination>
+						<baseSwitchID>1</baseSwitchID>
+						<techniqueIDs>pt.natural</techniqueIDs>
+						<enabled>true</enabled>
+						<flags>0</flags>
+						<conditionString/>
+						<velocityRange>1,127</velocityRange>
+						<pitchRange>0,127</pitchRange>
+						<transpose>0</transpose>
+						<ticksBefore>0</ticksBefore>
+						<millisecondsBefore>0</millisecondsBefore>
+						<velocityFactor>1.000000</velocityFactor>
+						<lengthFactor>1.000000</lengthFactor>
+						<monophonic>false</monophonic>
+						<applyMillisecondsBeforeToEndOffsets>false</applyMillisecondsBeforeToEndOffsets>
+						<applyMillisecondsBeforeToControllers>false</applyMillisecondsBeforeToControllers>
+						<volumeType>
+							<type>kCC</type>
+							<param1>1</param1>
+						</volumeType>
+						<attackType>
+							<type>kNoteVelocity</type>
+							<param1>0</param1>
+						</attackType>
+						<switchOnActions array="true"/>
+						<switchOffActions array="true"/>
+					</playingTechniqueCombination>
+				</playingTechniqueCombinations>
+				<techniqueAddOns array="true"/>
+				<mutualExclusionGroups array="true"/>
+				<playbackOptionsOverrides array="true">
+					<optionsOverride>
+						<option>dynamicsOptions.dynamicCurveParams</option>
+						<value>string: &quot;0.500000,1.750000,1.750000&quot;</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.minProfileLevelForPlayback</option>
+						<value>int: -5</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.maxProfileLevelForPlayback</option>
+						<value>int: 5</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.accentDynamicDelta</option>
+						<value>double: 0.6</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.marcatoDynamicDelta</option>
+						<value>double: 0.9</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.tenutoDynamicDelta</option>
+						<value>double: 0.3</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.ghostNoteDynamicDelta</option>
+						<value>double: 2.25</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.dynamicHumanisePercent</option>
+						<value>int: 7</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.primaryBeatStressDelta</option>
+						<value>double: 0.35</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>dynamicsOptions.beatStressDelta</option>
+						<value>double: 0.15</value>
+					</optionsOverride>
+					<optionsOverride>
+						<option>noteExpressionOptions.enableNoteExpression</option>
+						<value>bool: false</value>
+					</optionsOverride>
+				</playbackOptionsOverrides>
+			</ExpressionMapDefinition>
+		</entities>
+	</expressionMapDefinitions>
+</kScoreLibrary>

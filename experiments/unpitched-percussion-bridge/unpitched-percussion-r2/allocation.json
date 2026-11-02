@@ -1,0 +1,1164 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "name": "Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
+  "entity_id": "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
+  "runtime_compatible": true,
+  "dorico_import_verified": false,
+  "written_durations": true,
+  "musical_midi_range": [
+    21,
+    114
+  ],
+  "counts": {
+    "base_switches": 75,
+    "add_on_switches": 76,
+    "switch_rows": 151,
+    "init_switches": 1,
+    "explicit_pt_ids": 90,
+    "aliases": 0,
+    "addon_dimensions": 19,
+    "conduits": 20,
+    "cc_conduits": 11,
+    "ks_conduits": 9,
+    "spare_conduits": 30,
+    "mutex_groups": 10,
+    "percussion_entry_ids": 11
+  },
+  "specification_sha256": "ea239edbb24f709058ff7d917836136d32b2f911b19e57ec11aeb270ee3b28b4",
+  "map_sha256": "077a33f7b7fa78098609146fa34689416d9faa9655202234ff0aadfd7d78c383",
+  "base_cc": 102,
+  "bases": [
+    {
+      "value": 0,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 1,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 2,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 3,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 4,
+      "techniques": [
+        "pt.natural"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 5,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 6,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 7,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 8,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 9,
+      "techniques": [
+        "pt.staccatissimo"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 10,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 11,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 12,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 13,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 14,
+      "techniques": [
+        "pt.staccato"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 15,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 16,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 17,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 18,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 19,
+      "techniques": [
+        "pt.staccato",
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 20,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 21,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 22,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 23,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 24,
+      "techniques": [
+        "pt.tenuto"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "velocity"
+    },
+    {
+      "value": 25,
+      "techniques": [
+        "pt.roll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 26,
+      "techniques": [
+        "pt.roll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 27,
+      "techniques": [
+        "pt.roll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 28,
+      "techniques": [
+        "pt.roll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 29,
+      "techniques": [
+        "pt.roll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 30,
+      "techniques": [
+        "pt.tremolo"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 31,
+      "techniques": [
+        "pt.tremolo"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 32,
+      "techniques": [
+        "pt.tremolo"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 33,
+      "techniques": [
+        "pt.tremolo"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 34,
+      "techniques": [
+        "pt.tremolo"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 35,
+      "techniques": [
+        "pt.buzzRoll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 36,
+      "techniques": [
+        "pt.buzzRoll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 37,
+      "techniques": [
+        "pt.buzzRoll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 38,
+      "techniques": [
+        "pt.buzzRoll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 39,
+      "techniques": [
+        "pt.buzzRoll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 40,
+      "techniques": [
+        "pt.pressRoll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 41,
+      "techniques": [
+        "pt.pressRoll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 42,
+      "techniques": [
+        "pt.pressRoll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 43,
+      "techniques": [
+        "pt.pressRoll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 44,
+      "techniques": [
+        "pt.pressRoll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 45,
+      "techniques": [
+        "pt.flatRoll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 46,
+      "techniques": [
+        "pt.flatRoll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 47,
+      "techniques": [
+        "pt.flatRoll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 48,
+      "techniques": [
+        "pt.flatRoll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 49,
+      "techniques": [
+        "pt.flatRoll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 50,
+      "techniques": [
+        "pt.circularRoll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 51,
+      "techniques": [
+        "pt.circularRoll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 52,
+      "techniques": [
+        "pt.circularRoll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 53,
+      "techniques": [
+        "pt.circularRoll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 54,
+      "techniques": [
+        "pt.circularRoll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 55,
+      "techniques": [
+        "pt.swooshRoll"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 56,
+      "techniques": [
+        "pt.swooshRoll"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 57,
+      "techniques": [
+        "pt.swooshRoll"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 58,
+      "techniques": [
+        "pt.swooshRoll"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 59,
+      "techniques": [
+        "pt.swooshRoll"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 60,
+      "techniques": [
+        "pt.trill"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 61,
+      "techniques": [
+        "pt.trill"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 62,
+      "techniques": [
+        "pt.trill"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 63,
+      "techniques": [
+        "pt.trill"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 64,
+      "techniques": [
+        "pt.trill"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 65,
+      "techniques": [
+        "pt.trill.half"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 66,
+      "techniques": [
+        "pt.trill.half"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 67,
+      "techniques": [
+        "pt.trill.half"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 68,
+      "techniques": [
+        "pt.trill.half"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 69,
+      "techniques": [
+        "pt.trill.half"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 70,
+      "techniques": [
+        "pt.trill.whole"
+      ],
+      "condition": "NoteLength == kVeryShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 71,
+      "techniques": [
+        "pt.trill.whole"
+      ],
+      "condition": "NoteLength == kShort",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 72,
+      "techniques": [
+        "pt.trill.whole"
+      ],
+      "condition": "NoteLength == kMedium",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 73,
+      "techniques": [
+        "pt.trill.whole"
+      ],
+      "condition": "NoteLength == kLong",
+      "dynamics": "cc1"
+    },
+    {
+      "value": 74,
+      "techniques": [
+        "pt.trill.whole"
+      ],
+      "condition": "NoteLength > kLong",
+      "dynamics": "cc1"
+    }
+  ],
+  "dimensions": [
+    {
+      "id": "accent",
+      "kind": "CC",
+      "number": 104,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Accent strengths; keep separate from staccato and tenuto bases.",
+      "values": {
+        "pt.accent": 1,
+        "pt.marcato": 2
+      }
+    },
+    {
+      "id": "dynamic_level",
+      "kind": "CC",
+      "number": 118,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Steady named levels; not a replacement for continuous CC1/7/11.",
+      "values": {
+        "pt.ppp": 1,
+        "pt.pp": 2,
+        "pt.p": 3,
+        "pt.mp": 4,
+        "pt.mf": 5,
+        "pt.f": 6,
+        "pt.ff": 7,
+        "pt.fff": 8
+      }
+    },
+    {
+      "id": "dynamic_attack",
+      "kind": "CC",
+      "number": 119,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Alternative named compound/attack dynamics, separate from steady level.",
+      "values": {
+        "pt.ffp": 1,
+        "pt.fp": 2,
+        "pt.pf": 3,
+        "pt.sf": 4,
+        "pt.sfp": 5,
+        "pt.sfz": 6
+      }
+    },
+    {
+      "id": "dynamic_shape",
+      "kind": "KS",
+      "number": 0,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Alternative complete envelopes; not a quantized loudness curve.",
+      "values": {
+        "pt.crescendo": 2,
+        "pt.diminuendo": 3,
+        "pt.crescendoDiminuendo": 4,
+        "pt.diminuendoCrescendo": 5,
+        "pt.volumeSwell": 6
+      }
+    },
+    {
+      "id": "fade_in",
+      "kind": "KS",
+      "number": 1,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent onset fade; may coexist with fade out.",
+      "values": {
+        "pt.fadeIn": 2
+      }
+    },
+    {
+      "id": "fade_out",
+      "kind": "KS",
+      "number": 2,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent release fade.",
+      "values": {
+        "pt.fadeOut": 2
+      }
+    },
+    {
+      "id": "soft",
+      "kind": "KS",
+      "number": 3,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent soft colour; not equated with a written dynamic level.",
+      "values": {
+        "pt.soft": 2
+      }
+    },
+    {
+      "id": "ghost_note",
+      "kind": "KS",
+      "number": 4,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent ghosting.",
+      "values": {
+        "pt.ghostNote": 2
+      }
+    },
+    {
+      "id": "damp",
+      "kind": "KS",
+      "number": 12,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent damping request for ringing strings.",
+      "values": {
+        "pt.damp": 2
+      }
+    },
+    {
+      "id": "laissez_vibrer",
+      "kind": "KS",
+      "number": 13,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Independent ringing request; no guessed relationship to note length.",
+      "values": {
+        "pt.laissezVibrer": 2
+      }
+    },
+    {
+      "id": "simile",
+      "kind": "KS",
+      "number": 14,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Transmit the explicit PT if emitted; does not itself encode previous state or restore a stack.",
+      "values": {
+        "pt.simile": 2
+      }
+    },
+    {
+      "id": "beater",
+      "kind": "CC",
+      "number": 105,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Beater/mallet choice for one stroke. Built-in beater alternatives plus generic Sticks; ord. does not change mallets, so Natural does not cancel this group.",
+      "values": {
+        "pt.beaterFelt": 1,
+        "pt.beaterRods": 2,
+        "pt.beaterPuffy": 3,
+        "pt.beaterDreads": 4,
+        "pt.sticks": 5
+      }
+    },
+    {
+      "id": "dead_stroke",
+      "kind": "CC",
+      "number": 108,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Stroke that is stopped immediately, independent of later damping or l.v.",
+      "values": {
+        "pt.deadStroke": 1
+      }
+    },
+    {
+      "id": "muffled",
+      "kind": "CC",
+      "number": 109,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Muffled/damped resonance (e.g. covered timpani), kept separate from the Damp action.",
+      "values": {
+        "pt.muffledDamped": 1
+      }
+    },
+    {
+      "id": "strike_location",
+      "kind": "CC",
+      "number": 106,
+      "unspecified": 0,
+      "natural_cancels": true,
+      "rationale": "Where, or with what, the instrument is struck: the pitched map's centre/edge/rim on the same conduit and values, then every other built-in stroke and surface. Natural returns to the normal spot.",
+      "values": {
+        "pt.centre": 1,
+        "pt.edgeDrums": 2,
+        "pt.rim": 3,
+        "pt.edgeCymbals": 4,
+        "pt.rimShot": 5,
+        "pt.rimKnock": 6,
+        "pt.crossStick": 7,
+        "pt.sideStick": 8,
+        "pt.shell": 9,
+        "pt.bell": 10,
+        "pt.frame": 11,
+        "pt.skin": 12,
+        "pt.hiHat": 13,
+        "pt.stickShot": 14,
+        "pt.stickClick": 15,
+        "pt.stickSnap": 16,
+        "pt.backstick": 17,
+        "pt.standClick": 18,
+        "pt.tap": 19,
+        "pt.click": 20,
+        "pt.ping": 21,
+        "pt.ding": 22,
+        "pt.foot": 23,
+        "pt.scrape": 24,
+        "pt.swish": 25,
+        "pt.slap": 26,
+        "pt.slapCongas": 27,
+        "pt.bassTone": 28,
+        "pt.shake": 29,
+        "pt.crush": 30,
+        "pt.sizzle": 31,
+        "pt.zing": 32
+      }
+    },
+    {
+      "id": "snares",
+      "kind": "CC",
+      "number": 112,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Snare mechanism, a direction that holds until changed. An explicit Off is not the unspecified state.",
+      "values": {
+        "pt.snareOn": 1,
+        "pt.snareOff": 2
+      }
+    },
+    {
+      "id": "throwoff",
+      "kind": "CC",
+      "number": 113,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Throw-off lever, kept apart from the snare state: verify what notation emits it before merging.",
+      "values": {
+        "pt.throwoffOn": 1,
+        "pt.throwoffOff": 2
+      }
+    },
+    {
+      "id": "choke",
+      "kind": "CC",
+      "number": 114,
+      "unspecified": 0,
+      "natural_cancels": false,
+      "rationale": "Cymbal choke: a damping action on one stroke, independent of dead stroke and muffling.",
+      "values": {
+        "pt.choke": 1
+      }
+    },
+    {
+      "id": "openness",
+      "kind": "KS",
+      "number": 5,
+      "unspecified": 1,
+      "natural_cancels": false,
+      "rationale": "Hi-hat openness and the pedal stroke, a direction that holds until changed.",
+      "values": {
+        "pt.closed": 2,
+        "pt.halfOpen": 3,
+        "pt.open2": 4,
+        "pt.pedal": 5
+      }
+    }
+  ],
+  "aliases": {},
+  "wire_schema": 2,
+  "conduit_budget": 50,
+  "typed_off": 64,
+  "beacon": {
+    "pitches": [
+      126,
+      127
+    ],
+    "velocities": [
+      95,
+      103
+    ]
+  },
+  "section": "UnpitchedPercussion",
+  "instruments": [
+    "instrument.band.unpitched.floortom.high",
+    "instrument.band.unpitched.floortom.low",
+    "instrument.band.unpitched.roto.tom.high",
+    "instrument.band.unpitched.roto.tom.low",
+    "instrument.band.unpitched.roto.tom.medium",
+    "instrument.band.unpitched.roto.tom.medium-high",
+    "instrument.band.unpitched.roto.tom.medium-low",
+    "instrument.band.unpitched.tomtom.high",
+    "instrument.band.unpitched.tomtom.high.alias.tom-high",
+    "instrument.band.unpitched.tomtom.low",
+    "instrument.band.unpitched.tomtom.low.alias.tom-low",
+    "instrument.band.unpitched.tomtom.medium",
+    "instrument.band.unpitched.tomtom.medium.alias.tom-medium",
+    "instrument.band.unpitched.tomtom.medium-high",
+    "instrument.band.unpitched.tomtom.medium-high.alias.tom-medium-high",
+    "instrument.band.unpitched.tomtom.medium-low",
+    "instrument.band.unpitched.tomtom.medium-low.alias.tom-medium-low",
+    "instrument.latin.unpitched.bongo.bell.high",
+    "instrument.latin.unpitched.bongo.bell.low",
+    "instrument.latin.unpitched.bongo.high",
+    "instrument.latin.unpitched.bongo.low",
+    "instrument.latin.unpitched.conga.high",
+    "instrument.latin.unpitched.conga.low",
+    "instrument.latin.unpitched.conga.medium",
+    "instrument.latin.unpitched.conga.very.high",
+    "instrument.latin.unpitched.conga.very.low",
+    "instrument.orchestral.unpitched.anvil",
+    "instrument.orchestral.unpitched.bass.drum",
+    "instrument.orchestral.unpitched.belltree",
+    "instrument.orchestral.unpitched.clash.cymbals",
+    "instrument.orchestral.unpitched.crash.cymbal.high",
+    "instrument.orchestral.unpitched.crash.cymbal.low",
+    "instrument.orchestral.unpitched.hihat",
+    "instrument.orchestral.unpitched.hihat.pedal",
+    "instrument.orchestral.unpitched.large.gong",
+    "instrument.orchestral.unpitched.opera.gong",
+    "instrument.orchestral.unpitched.ratchet",
+    "instrument.orchestral.unpitched.ride.cymbal.high",
+    "instrument.orchestral.unpitched.ride.cymbal.low",
+    "instrument.orchestral.unpitched.side.drum",
+    "instrument.orchestral.unpitched.sizzle.cymbal",
+    "instrument.orchestral.unpitched.sleigh.bells",
+    "instrument.orchestral.unpitched.small.gong",
+    "instrument.orchestral.unpitched.snare.drum",
+    "instrument.orchestral.unpitched.suspended.cymbal",
+    "instrument.orchestral.unpitched.tamtam",
+    "instrument.orchestral.unpitched.temple.high",
+    "instrument.orchestral.unpitched.temple.low",
+    "instrument.orchestral.unpitched.temple.medium",
+    "instrument.orchestral.unpitched.temple.medium.high",
+    "instrument.orchestral.unpitched.temple.medium.low",
+    "instrument.orchestral.unpitched.tenor.drum",
+    "instrument.orchestral.unpitched.tenor.drum.high",
+    "instrument.orchestral.unpitched.tenor.drum.medium",
+    "instrument.orchestral.unpitched.tenor.drum.medium.high",
+    "instrument.orchestral.unpitched.tenor.drum.medium.low",
+    "instrument.orchestral.unpitched.thundersheet",
+    "instrument.orchestral.unpitched.triangle",
+    "instrument.orchestral.unpitched.whip",
+    "instrument.orchestral.unpitched.whistle",
+    "instrument.orchestral.unpitched.wind.gong",
+    "instrument.percussion.other.cowbell.high",
+    "instrument.percussion.other.cowbell.low",
+    "instrument.percussion.other.tambourine",
+    "instrument.percussion.other.wood.block.high",
+    "instrument.percussion.other.wood.block.low",
+    "instrument.percussion.other.wood.block.medium",
+    "instrument.percussion.other.wood.block.medium.high",
+    "instrument.percussion.other.wood.block.medium.low",
+    "instrument.unpitched.china.cymbal",
+    "instrument.unpitched.flexatone",
+    "instrument.unpitched.kick.drum.low",
+    "instrument.unpitched.kick.drum.very.low",
+    "instrument.unpitched.ribboncrasher",
+    "instrument.unpitched.splash.cymbal"
+  ],
+  "supported_routing": "one Dorico voice per endpoint/port/channel",
+  "title": "Orchestral unpitched percussion",
+  "percussion": [
+    {
+      "entity_id": "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2",
+      "name": "Fiddle Bridge - Orchestral Unpitched Percussion r2 (host test)",
+      "for_single_instrument": true,
+      "instruments": [
+        "instrument.band.unpitched.floortom.high",
+        "instrument.band.unpitched.floortom.low",
+        "instrument.band.unpitched.roto.tom.high",
+        "instrument.band.unpitched.roto.tom.low",
+        "instrument.band.unpitched.roto.tom.medium",
+        "instrument.band.unpitched.roto.tom.medium-high",
+        "instrument.band.unpitched.roto.tom.medium-low",
+        "instrument.band.unpitched.tomtom.high",
+        "instrument.band.unpitched.tomtom.high.alias.tom-high",
+        "instrument.band.unpitched.tomtom.low",
+        "instrument.band.unpitched.tomtom.low.alias.tom-low",
+        "instrument.band.unpitched.tomtom.medium",
+        "instrument.band.unpitched.tomtom.medium.alias.tom-medium",
+        "instrument.band.unpitched.tomtom.medium-high",
+        "instrument.band.unpitched.tomtom.medium-high.alias.tom-medium-high",
+        "instrument.band.unpitched.tomtom.medium-low",
+        "instrument.band.unpitched.tomtom.medium-low.alias.tom-medium-low",
+        "instrument.latin.unpitched.bongo.bell.high",
+        "instrument.latin.unpitched.bongo.bell.low",
+        "instrument.latin.unpitched.bongo.high",
+        "instrument.latin.unpitched.bongo.low",
+        "instrument.latin.unpitched.conga.high",
+        "instrument.latin.unpitched.conga.low",
+        "instrument.latin.unpitched.conga.medium",
+        "instrument.latin.unpitched.conga.very.high",
+        "instrument.latin.unpitched.conga.very.low",
+        "instrument.orchestral.unpitched.anvil",
+        "instrument.orchestral.unpitched.bass.drum",
+        "instrument.orchestral.unpitched.belltree",
+        "instrument.orchestral.unpitched.clash.cymbals",
+        "instrument.orchestral.unpitched.crash.cymbal.high",
+        "instrument.orchestral.unpitched.crash.cymbal.low",
+        "instrument.orchestral.unpitched.hihat",
+        "instrument.orchestral.unpitched.hihat.pedal",
+        "instrument.orchestral.unpitched.large.gong",
+        "instrument.orchestral.unpitched.opera.gong",
+        "instrument.orchestral.unpitched.ratchet",
+        "instrument.orchestral.unpitched.ride.cymbal.high",
+        "instrument.orchestral.unpitched.ride.cymbal.low",
+        "instrument.orchestral.unpitched.side.drum",
+        "instrument.orchestral.unpitched.sizzle.cymbal",
+        "instrument.orchestral.unpitched.sleigh.bells",
+        "instrument.orchestral.unpitched.small.gong",
+        "instrument.orchestral.unpitched.snare.drum",
+        "instrument.orchestral.unpitched.suspended.cymbal",
+        "instrument.orchestral.unpitched.tamtam",
+        "instrument.orchestral.unpitched.temple.high",
+        "instrument.orchestral.unpitched.temple.low",
+        "instrument.orchestral.unpitched.temple.medium",
+        "instrument.orchestral.unpitched.temple.medium.high",
+        "instrument.orchestral.unpitched.temple.medium.low",
+        "instrument.orchestral.unpitched.tenor.drum",
+        "instrument.orchestral.unpitched.tenor.drum.high",
+        "instrument.orchestral.unpitched.tenor.drum.medium",
+        "instrument.orchestral.unpitched.tenor.drum.medium.high",
+        "instrument.orchestral.unpitched.tenor.drum.medium.low",
+        "instrument.orchestral.unpitched.thundersheet",
+        "instrument.orchestral.unpitched.triangle",
+        "instrument.orchestral.unpitched.whip",
+        "instrument.orchestral.unpitched.whistle",
+        "instrument.orchestral.unpitched.wind.gong",
+        "instrument.percussion.other.cowbell.high",
+        "instrument.percussion.other.cowbell.low",
+        "instrument.percussion.other.tambourine",
+        "instrument.percussion.other.wood.block.high",
+        "instrument.percussion.other.wood.block.low",
+        "instrument.percussion.other.wood.block.medium",
+        "instrument.percussion.other.wood.block.medium.high",
+        "instrument.percussion.other.wood.block.medium.low",
+        "instrument.unpitched.china.cymbal",
+        "instrument.unpitched.flexatone",
+        "instrument.unpitched.kick.drum.low",
+        "instrument.unpitched.kick.drum.very.low",
+        "instrument.unpitched.ribboncrasher",
+        "instrument.unpitched.splash.cymbal"
+      ],
+      "codes": [
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.natural"
+          ],
+          "name": "Natural"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.roll"
+          ],
+          "name": "Roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.tremolo"
+          ],
+          "name": "Tremolo"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.buzzRoll"
+          ],
+          "name": "Buzz roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.pressRoll"
+          ],
+          "name": "Press roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.flatRoll"
+          ],
+          "name": "Flat roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.circularRoll"
+          ],
+          "name": "Circular roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.swooshRoll"
+          ],
+          "name": "Swoosh roll"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.trill"
+          ],
+          "name": "Trill"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.trill.half"
+          ],
+          "name": "Trill (half-step)"
+        },
+        {
+          "pitch": 36,
+          "techniques": [
+            "pt.trill.whole"
+          ],
+          "name": "Trill (whole step)"
+        }
+      ],
+      "entry_count": 825
+    }
+  ]
+}

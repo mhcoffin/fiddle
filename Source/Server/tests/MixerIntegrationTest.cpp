@@ -2259,6 +2259,237 @@ void testCompiledBridgeThroughMixer() {
   send(true, 72, 0); f.expectLevel(0);
 }
 
+// A layer's own expression map, played through the mixer as Dorico would:
+// init actions at transport start, kChannelSwitch routing, millisecondsBefore,
+// and Off actions only when the switch changes (overlaps keep the successor).
+void testLayerMapPlaysLikeDorico() {
+  using fiddle::SwitchActionType;
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  strip->setInputAssignment(0, 1); // Dorico channel 2
+  std::vector<std::pair<double, juce::MidiMessage>> received;
+  auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+  processor->onMidi = [&](const juce::MidiMessage &msg) { received.emplace_back(f.now, msg); };
+  REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+  auto map = std::make_shared<fiddle::ExpressionMapData>();
+  map->initActions = {{SwitchActionType::CC, 7, 100}};
+  map->combinations.push_back(fiddle::TechniqueCombination{
+      .name = "Tremolo", .techniqueIDs = {"pt.tremolo"},
+      .switchOnActions = {{SwitchActionType::ChannelSwitch, 5, 0},
+                          {SwitchActionType::KeySwitch, 24, 100}},
+      .switchOffActions = {{SwitchActionType::CC, 64, 0}},
+      .millisecondsBefore = 20});
+  map->combinations.push_back(fiddle::TechniqueCombination{
+      .name = "Natural", .techniqueIDs = {"pt.natural"},
+      .switchOnActions = {{SwitchActionType::KeySwitch, 36, 100}}});
+  strip->setExpressionMap(map);
+
+  const auto note = [](uint64_t noteId, int pitch, const char *technique) {
+    fiddle::Note n;
+    n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
+    (*n.mutable_notation_techniques())["technique"] = technique;
+    return n;
+  };
+  const double start = f.now;
+  f.mixer.transportStarted(start + 5);
+  auto tremolo = note(1, 72, "pt.tremolo"), natural = note(2, 74, "pt.natural");
+  auto on = tremolo; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 40);
+  on = natural; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 60);
+  auto off = tremolo; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 70);
+  off = natural; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 80);
+  while (f.now < start + 90) f.render();
+
+  struct Expected { double ms; int channel; bool noteOn, noteOff; int number, value; };
+  const std::vector<Expected> expected{
+      // Switches lead their note by Dorico's default 10 ticks (10 ms at 120 BPM).
+      {5, 2, false, false, 7, 100},     // init action, strip channel
+      {10, 5, true, false, 24, 100},    // keyswitch 10 ms ahead of its 20 ms-early note
+      {20, 5, true, false, 72, 90},     // tremolo plays on its switch channel
+      {50, 5, false, false, 64, 0},   // tremolo's Off, on its channel
+      {50, 2, true, false, 36, 100},  // natural's On
+      {50, 5, false, true, 24, 0},    // latched tremolo keyswitch released
+      {60, 2, true, false, 74, 90},
+      {70, 5, false, true, 72, 0},    // overlapped note-off follows its note-on
+      {80, 2, false, true, 74, 0}};
+  REQUIRE(received.size() == expected.size());
+  for (size_t i = 0; i < expected.size(); ++i) {
+    const auto &[at, msg] = received[i];
+    const auto &e = expected[i];
+    REQUIRE(std::abs(at - (start + e.ms)) < 2.0);
+    REQUIRE(msg.getChannel() == e.channel);
+    if (e.noteOn) {
+      REQUIRE(msg.isNoteOn() && msg.getNoteNumber() == e.number && msg.getVelocity() == e.value);
+    } else if (e.noteOff) {
+      REQUIRE(msg.isNoteOff() && msg.getNoteNumber() == e.number);
+    } else {
+      REQUIRE(msg.isController() && msg.getControllerNumber() == e.number &&
+              msg.getControllerValue() == e.value);
+    }
+  }
+}
+
+// Bridge maps pin Dorico's durations to 100%: a written-length staccato note
+// ends at the project's staccato percent, or at a layer map's own override.
+void testWrittenDurationsUseProjectOptions() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  std::array<std::vector<std::pair<double, juce::MidiMessage>>, 2> received;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto id = f.mixer.addStrip();
+    auto *strip = f.mixer.getStrip(id);
+    strip->setInputAssignment(0, 1);
+    auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+    processor->onMidi = [&, layer](const juce::MidiMessage &msg) { received[layer].emplace_back(f.now, msg); };
+    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+    if (layer == 1) {
+      auto map = std::make_shared<fiddle::ExpressionMapData>();
+      map->combinations.push_back(fiddle::TechniqueCombination{
+          .name = "Staccato", .techniqueIDs = {"pt.staccato"}});
+      map->timingOptions[fiddle::DurationCategory::Staccato] = 30;
+      strip->setExpressionMap(map);
+    }
+  }
+  auto settings = f.mixer.projectSettings();
+  settings.doricoDurationPercents[size_t(fiddle::DurationCategory::Staccato)] = 40;
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetProjectSettingsAction>(f.mixer, settings, "Durations")));
+
+  fiddle::Note note;
+  note.set_id(1); note.set_channel(2); note.set_note_number(60); note.set_start_velocity(90);
+  (*note.mutable_notation_techniques())["articulation"] = "pt.staccato";
+  (*note.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
+  const double start = f.now;
+  auto on = note; f.mixer.routeAnnotatedNoteOn(0, 1, on, start + 10);
+  note.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
+  auto off = note; f.mixer.routeAnnotatedNoteOff(0, 1, off, start + 110);
+  while (f.now < start + 130) f.render();
+
+  for (int layer = 0; layer < 2; ++layer) {
+    const double expectedEnd = start + 10 + (layer == 0 ? 40 : 30);
+    bool ended = false;
+    for (const auto &[at, msg] : received[layer])
+      if (msg.isNoteOff() && msg.getNoteNumber() == 60) {
+        REQUIRE(std::abs(at - expectedEnd) < 2.0);
+        ended = true;
+      }
+    REQUIRE(ended);
+  }
+  REQUIRE(f.undo.undo());
+  REQUIRE(f.mixer.projectSettings().doricoDurationPercents == fiddle::kDoricoDefaultDurationPercents);
+}
+
+// Legato beyond 100% (or a later note's lead) must not let one note's off
+// silence the next note of the same pitch, in either arrival order.
+void testSamePitchNotesNeverOverlap() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  strip->setInputAssignment(0, 1);
+  std::vector<std::pair<double, juce::MidiMessage>> received;
+  auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+  processor->onMidi = [&](const juce::MidiMessage &msg) { received.emplace_back(f.now, msg); };
+  REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+  auto map = std::make_shared<fiddle::ExpressionMapData>();
+  map->combinations.push_back(fiddle::TechniqueCombination{.name = "Legato", .techniqueIDs = {"pt.legato"}});
+  map->timingOptions[fiddle::DurationCategory::Legato] = 120;
+  strip->setExpressionMap(map);
+  strip->emittedCapture.startCapture();
+
+  const auto note = [&](uint64_t noteId, int pitch) {
+    fiddle::Note n;
+    n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
+    n.set_duration_samples(static_cast<uint64_t>(f.sampleRate / 10)); // written 100 ms
+    (*n.mutable_notation_techniques())["articulation"] = "pt.legato";
+    (*n.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
+    return n;
+  };
+  const double start = f.now;
+  const auto on = [&](fiddle::Note n, double ms) { f.mixer.routeAnnotatedNoteOn(0, 1, n, start + ms); };
+  const auto off = [&](fiddle::Note n, double ms) { f.mixer.routeAnnotatedNoteOff(0, 1, n, start + ms); };
+  // Pitch 60: the first note's (extended) off is scheduled before the next on.
+  on(note(1, 60), 10); off(note(1, 60), 110); on(note(2, 60), 110); off(note(2, 60), 210);
+  // Pitch 62: the next on is scheduled before the first note's off.
+  on(note(3, 62), 10); on(note(4, 62), 110); off(note(3, 62), 110); off(note(4, 62), 210);
+  while (f.now < start + 260) f.render();
+
+  for (const int pitch : {60, 62}) {
+    std::vector<std::pair<double, bool>> events; // (time, on)
+    for (const auto &[at, msg] : received)
+      if ((msg.isNoteOn() || msg.isNoteOff()) && msg.getNoteNumber() == pitch)
+        events.emplace_back(at, msg.isNoteOn());
+    REQUIRE(events.size() == 4);
+    REQUIRE(events[0].second && !events[1].second && events[2].second && !events[3].second);
+    REQUIRE(std::abs(events[1].first - (start + 109)) < 2.0); // cut from 130 ms
+    REQUIRE(std::abs(events[2].first - (start + 110)) < 2.0);
+    REQUIRE(std::abs(events[3].first - (start + 230)) < 2.0); // last note keeps 120%
+    // The emitted-MIDI capture shows each note-off once, where it was sent.
+    std::vector<std::pair<double, bool>> captured;
+    const auto log = strip->emittedCapture.toVar();
+    for (const auto &e : *log.getArray())
+      if (int(e["p1"]) == pitch && int(e["type"]) <= 1)
+        captured.emplace_back(double(e["t"]), int(e["type"]) == 0);
+    std::stable_sort(captured.begin(), captured.end());
+    REQUIRE(captured.size() == 4);
+    REQUIRE(captured[0].second && !captured[1].second && captured[2].second && !captured[3].second);
+  }
+}
+
+// A pinned bridge's linear dynamics reach the instrument on the project's
+// Dorico curve (power 1.75 here), and a layer map's own curve wins.
+void testPinnedDynamicsUseLayerCurves() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  std::array<std::vector<juce::MidiMessage>, 2> received;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto id = f.mixer.addStrip();
+    auto *strip = f.mixer.getStrip(id);
+    strip->setInputAssignment(0, 1);
+    auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+    processor->onMidi = [&, layer](const juce::MidiMessage &msg) { received[layer].push_back(msg); };
+    REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+    auto map = std::make_shared<fiddle::ExpressionMapData>();
+    map->combinations.push_back(fiddle::TechniqueCombination{.name = "Natural", .techniqueIDs = {"pt.natural"}});
+    if (layer == 1)
+      map->dynamicsOverrides.curve = std::array<double, 3>{0.5, 1.0, 1.0};
+    strip->setExpressionMap(map);
+  }
+  auto settings = f.mixer.projectSettings();
+  settings.doricoDynamics.lowerPower = settings.doricoDynamics.upperPower = 1.75;
+  f.mixer.setProjectSettings(settings);
+
+  fiddle::DoricoDynamics bridge;
+  bridge.lowerPower = bridge.upperPower = 1.0;
+  bridge.minLevel = fiddle::kBridgeDynamicsMinLevel;
+  bridge.maxLevel = fiddle::kBridgeDynamicsMaxLevel;
+  fiddle::Note note;
+  note.set_id(1); note.set_channel(2); note.set_note_number(60);
+  note.set_start_velocity(bridge.midiValue(-1)); // p
+  note.set_dynamics_mode(fiddle::Note::VELOCITY);
+  (*note.mutable_notation_techniques())["articulation"] = "pt.natural";
+  (*note.mutable_notation_dimensions())[fiddle::kPinnedPlaybackDimension] = 1.0f;
+  auto on = note; f.mixer.routeAnnotatedNoteOn(0, 1, on, f.now + 5);
+  for (int i = 0; i < 10; ++i) f.render();
+
+  auto project = settings.doricoDynamics, linear = settings.doricoDynamics;
+  linear.lowerPower = linear.upperPower = 1.0;
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto expected = (layer == 0 ? project : linear).midiValue(-1);
+    bool seen = false;
+    for (const auto &msg : received[layer])
+      if (msg.isNoteOn()) {
+        REQUIRE(std::abs(msg.getVelocity() - expected) <= 1);
+        seen = true;
+      }
+    REQUIRE(seen);
+  }
+}
+
 void testBridgeMapVersioningAndVerification() {
   Sandbox sandbox;
   const auto databaseFile = sandbox.directory.getChildFile("bridge.sqlite");
@@ -2356,8 +2587,9 @@ void testBridgeSectionsFromChairs() {
   fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [&] { return busy; });
   const auto root = juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments");
   const auto load = [&](const fiddle::BridgeSectionInfo &info) {
-    for (const auto *dir : {"orchestral-strings-bridge/r4", "orchestral-winds-bridge/woodwinds-r2",
-                            "orchestral-winds-bridge/brass-r2", "orchestral-percussion-bridge/pitched-percussion-r1"}) {
+    for (const auto *dir : {"orchestral-strings-bridge/r5", "orchestral-winds-bridge/woodwinds-r3",
+                            "orchestral-winds-bridge/brass-r3", "orchestral-percussion-bridge/pitched-percussion-r2",
+                            "unpitched-percussion-bridge/unpitched-percussion-r2"}) {
       const auto file = root.getChildFile(dir).getChildFile(info.templateFile);
       if (file.existsAsFile()) return file.loadFileAsString();
     }
@@ -2365,18 +2597,22 @@ void testBridgeSectionsFromChairs() {
   };
   const std::vector<fiddle::BridgeMapCommands::ChairInput> chairs{
       {1, "instrument.strings.violin"}, {2, "instrument.wind.flute"}, {3, "instrument.brass.horn.f"},
-      {4, "instrument.pitchedpercussion.timpani"}, {5, "instrument.keyboard.piano"}, {17, "instrument.strings.viola"}};
+      {4, "instrument.pitchedpercussion.timpani"}, {5, "instrument.keyboard.piano"}, {17, "instrument.strings.viola"},
+      {6, "instrument.orchestral.unpitched.snare.drum"}};
   REQUIRE(bridges.applyChairSections(chairs, load));
   auto status = bridges.status();
-  REQUIRE(status["documents"].size() == 4);
-  REQUIRE(status["assignments"].size() == 5); // piano keeps the universal map
+  REQUIRE(status["documents"].size() == 5);
+  REQUIRE(status["assignments"].size() == 6); // piano keeps the universal map
   fiddle::BridgeMapProject project; juce::String error;
   REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
-  REQUIRE(project.sections.size() == 4);
+  REQUIRE(project.sections.size() == 5);
   REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
   REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
   REQUIRE(project.assignments.at({0, 5}) == project.sections.at("pitched-percussion"));
   REQUIRE(!project.assignments.count({0, 6}));
+  REQUIRE(project.assignments.at({0, 7}) == project.sections.at("unpitched-percussion"));
+  REQUIRE(project.documents.at(project.sections.at("unpitched-percussion"))->percussionMapId
+          == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r2");
   // Reapplying unchanged chairs records nothing.
   const auto before = f.mixer.projectSettings().bridgeMapsJson;
   REQUIRE(bridges.applyChairSections(chairs, load));
@@ -2394,12 +2630,41 @@ void testBridgeSectionsFromChairs() {
   REQUIRE(bridges.applyChairSections(chairs, load));
   REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
   REQUIRE(project.assignments.at({0, 2}) == r3->contentHash);
-  REQUIRE(project.documents.size() == 4); // the unused built-in strings revision is dropped
+  REQUIRE(project.documents.size() == 5); // the unused built-in strings revision is dropped
   busy = true;
   REQUIRE(!bridges.applyChairSections(chairs, load));
   busy = false;
   // Every section is pinned now, so no built-in template is needed.
   REQUIRE(bridges.applyChairSections(chairs, [](const fiddle::BridgeSectionInfo &) { return juce::String{}; }));
+
+  // The pinned r3 can be moved to the built-in revision, with every channel
+  // that used it, in one undoable change.
+  bridges.setBuiltIns(load);
+  status = bridges.status();
+  const auto section = [&](const char *key) {
+    for (const auto &s : *status["sections"].getArray()) if (s["key"].toString() == key) return s;
+    return juce::var();
+  };
+  REQUIRE(bool(section("strings")["updateAvailable"]) && !bool(section("strings")["pinsPlayback"]));
+  REQUIRE(int(section("strings")["builtInRevision"]) == 5 && bool(section("strings")["builtInPinsPlayback"]));
+  REQUIRE(!bool(section("woodwinds")["updateAvailable"]) && bool(section("woodwinds")["pinsPlayback"]));
+  const auto beforeUpdate = f.mixer.projectSettings().bridgeMapsJson;
+  busy = true;
+  REQUIRE(!bridges.useBuiltInSections());
+  busy = false;
+  REQUIRE(bridges.useBuiltInSections({"strings"}));
+  REQUIRE(fiddle::BridgeMapProject::parse(f.mixer.projectSettings().bridgeMapsJson, project, error));
+  REQUIRE(project.sections.at("strings") != r3->contentHash);
+  REQUIRE(project.assignments.at({0, 2}) == project.sections.at("strings"));
+  REQUIRE(project.assignments.at({1, 2}) == project.sections.at("strings"));
+  REQUIRE(project.documents.size() == 5 && !project.documents.count(r3->contentHash));
+  REQUIRE(project.documents.at(project.sections.at("strings"))->revision == 5);
+  status = bridges.status();
+  REQUIRE(!bool(section("strings")["updateAvailable"]));
+  // Nothing left to update records nothing.
+  const auto updated = f.mixer.projectSettings().bridgeMapsJson;
+  REQUIRE(bridges.useBuiltInSections() && f.mixer.projectSettings().bridgeMapsJson == updated);
+  REQUIRE(f.undo.undo() && f.mixer.projectSettings().bridgeMapsJson == beforeUpdate);
 }
 
 void testProjectSettingsAndAtomicMixerUndo() {
@@ -3337,6 +3602,10 @@ int main(int argc, char **argv) {
   };
   run("bridge documents survive version checkout and verify conservatively", testBridgeMapVersioningAndVerification);
   run("compiled bridge commands reach two downstream maps without leaking", testCompiledBridgeThroughMixer);
+  run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
+  run("written-length notes take the project's Dorico durations", testWrittenDurationsUseProjectOptions);
+  run("same-pitch notes never overlap on a layer", testSamePitchNotesNeverOverlap);
+  run("pinned bridge dynamics take each layer's Dorico curve", testPinnedDynamicsUseLayerCurves);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("synchronized stem files, routing, audibility and Master latency", [] {

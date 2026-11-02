@@ -1,6 +1,9 @@
 #pragma once
 
 #include "AnnotationRecord.h"
+#include "DoricoPlaybackOptions.h"
+#include "NoteInspection.h"
+#include "PinnedDynamics.h"
 #include "TonalContext.h"
 #include "midi_event.pb.h"
 #include <array>
@@ -10,11 +13,33 @@
 
 namespace fiddle {
 
+/// Whether Dorico sent this note at its written length: its bridge map pins
+/// Dorico's note-duration playback options to 100%.
+inline bool hasPinnedPlayback(const fiddle::Note &note) {
+  const auto it = note.notation_dimensions().find(kPinnedPlaybackDimension);
+  return it != note.notation_dimensions().end() && it->second > 0.5f;
+}
+
+/// Note-off shift (ms) that makes the received duration `factor` times as long.
+inline double scaledDurationAdjustMs(const fiddle::Note &note, double factor,
+                                     double sampleRate) {
+  if (factor == 1.0 || note.duration_samples() == 0 || sampleRate <= 0)
+    return 0.0;
+  return (factor - 1.0) * static_cast<double>(note.duration_samples()) / sampleRate * 1000.0;
+}
+
 /// Read-only context passed to Annotator methods.
 struct AnnotatorContext {
   int stripChannel = 1; // 1-based output channel of the strip
   double sampleRate = 44100.0;
   double currentTimeMs = 0.0;
+  double tempoBpm = 120.0; // live Dorico tempo, for tick-based timing
+  /// The project's copy of Dorico's note-duration Playback Options.
+  DurationPercents doricoDurationPercents = kDoricoDefaultDurationPercents;
+  /// The project's Dorico "Expression map switches before notes" (ticks).
+  int doricoSwitchLeadTicks = kDoricoDefaultSwitchLeadTicks;
+  /// The project's Dorico dynamics options.
+  DoricoDynamics doricoDynamics;
 
   /// Currently active notes across all strips (read-only snapshot).
   const std::vector<fiddle::Note> *activeNotes = nullptr;
@@ -83,6 +108,21 @@ public:
   /// Negative = early noteOff, positive = late noteOff (overlap).
   virtual double durationAdjustMs() const { return 0.0; }
 
+  /// Shift (ms) of the last onNoteStart()'s note-on and its pre/during-note
+  /// MIDI relative to Dorico's time. Negative = earlier.
+  virtual double noteStartOffsetMs() const { return 0.0; }
+
+  /// Shift (ms) for live controllers routed through this annotator.
+  virtual double controllerOffsetMs() const { return 0.0; }
+
+  /// Called when Dorico's transport starts. Append MIDI the instrument
+  /// needs before the first note (e.g. an expression map's init actions).
+  virtual void onTransportStart(const AnnotatorContext &ctx,
+                                std::vector<fiddle::MidiInstruction> &out) {
+    (void)ctx;
+    (void)out;
+  }
+
   /// If > 0, schedules an early note-off at note-on time + this many ms.
   /// This is set during onNoteStart and checked by routeAnnotatedNoteOn.
   /// Unlike durationAdjustMs (which adjusts Dorico's note-off timing),
@@ -108,12 +148,48 @@ public:
  */
 class PassthroughAnnotator : public Annotator {
 public:
-  void onNoteStart(fiddle::Note &, const AnnotatorContext &) override {}
-  void onNoteEnd(fiddle::Note &, const AnnotatorContext &) override {}
-  bool onCC(const fiddle::MidiEvent &, const AnnotatorContext &) override {
-    return true;
+  /// A pinned bridge's dynamics are re-expressed on the project's curve:
+  /// velocity for velocity-dynamics notes, CC1 for controller-dynamics ones.
+  void onNoteStart(fiddle::Note &note, const AnnotatorContext &ctx) override {
+    pinned_ = hasPinnedPlayback(note);
+    dynamics_ = ctx.doricoDynamics;
+    if (!pinned_)
+      return;
+    const bool controller = note.dynamics_mode() == fiddle::Note::CC;
+    PinnedDynamics::apply(note, dynamics_, collectInputTechniqueIds(note), !controller,
+                          controller ? std::vector<int>{1} : std::vector<int>{}, 1.0f,
+                          ctx.sampleRate);
+  }
+  /// A note sent at written length still gets the project's Dorico duration
+  /// option, as Dorico would have applied it.
+  void onNoteEnd(fiddle::Note &note, const AnnotatorContext &ctx) override {
+    durationAdjustMs_ = 0.0;
+    if (!hasPinnedPlayback(note))
+      return;
+    const auto category = durationCategory(collectInputTechniqueIds(note));
+    durationAdjustMs_ = scaledDurationAdjustMs(
+        note, ctx.doricoDurationPercents[size_t(category)] / 100.0, ctx.sampleRate);
+  }
+  double durationAdjustMs() const override { return durationAdjustMs_; }
+  bool onCC(const fiddle::MidiEvent &event, const AnnotatorContext &) override {
+    return !(pinned_ && event.has_cc() && event.cc().controller_number() == 1);
+  }
+  void translateCC(const fiddle::MidiEvent &event, const AnnotatorContext &,
+                   std::vector<fiddle::MidiInstruction> &out) override {
+    if (!pinned_ || !event.has_cc() || event.cc().controller_number() != 1)
+      return;
+    fiddle::MidiInstruction inst;
+    inst.set_type(fiddle::MidiInstruction::CC);
+    inst.set_param1(1);
+    inst.set_param2(PinnedDynamics::layerValue(dynamics_, static_cast<int>(event.cc().controller_value())));
+    out.push_back(inst);
   }
   std::string name() const override { return "Passthrough"; }
+
+private:
+  double durationAdjustMs_ = 0.0;
+  bool pinned_ = false;      // the last note came from a pinned bridge
+  DoricoDynamics dynamics_;  // the project's dynamics for live CC1
 };
 
 } // namespace fiddle

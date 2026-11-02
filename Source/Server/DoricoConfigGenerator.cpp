@@ -135,10 +135,12 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
       return juce::Result::fail("Duplicate or invalid MIDI destination in playback template");
     const auto pin = bridges.assignments.find(endpoint);
     a.expressionMapID = kExpressionMapId;
+    a.drumkitNoteMapID.clear();
     if (pin == bridges.assignments.end()) needsLegacy = true;
     else {
       const auto doc = bridges.documents.at(pin->second);
       a.expressionMapID = doc->entityId;
+      a.drumkitNoteMapID = doc->percussionMapId;
       used[pin->second] = doc;
     }
   }
@@ -160,11 +162,18 @@ juce::Result DoricoConfigGenerator::generateAndInstallFiles(
     const auto *entities = defs ? defs->getChildByName("entities") : nullptr;
     const auto *map = entities ? entities->getFirstChildElement() : nullptr;
     if (!map) return juce::Result::fail("Invalid installed bridge file: " + file.getFileName());
+    const auto *drums = xml->getChildByName("drumKitNoteMapDefinitions");
+    const auto *drumEntities = drums ? drums->getChildByName("entities") : nullptr;
+    const auto *drumMap = drumEntities ? drumEntities->getFirstChildElement() : nullptr;
+    const auto installedPercussionId = drumMap ? drumMap->getChildElementAllSubText("entityID", {}) : juce::String{};
     for (const auto &[hash, doc] : used) {
-      if (map->getChildElementAllSubText("entityID", {}) != doc->entityId) continue;
+      const bool sameMap = map->getChildElementAllSubText("entityID", {}) == doc->entityId;
+      const bool samePercussion = doc->percussionMapId.isNotEmpty() && installedPercussionId == doc->percussionMapId;
+      if (!sameMap && !samePercussion) continue;
       auto existing = BridgeMapDocument::compile(file.loadFileAsString(), error, doc->musicalLow, doc->musicalHigh);
       if (!existing || existing->contentHash != hash)
-        return juce::Result::fail("An installed bridge has different content under Dorico ID " + doc->entityId
+        return juce::Result::fail("An installed bridge has different content under Dorico ID "
+            + (sameMap ? doc->entityId : doc->percussionMapId)
             + ". Publish a new revision in Bridge maps before installing.");
     }
   }
@@ -314,7 +323,8 @@ DoricoConfigGenerator::buildEndpointConfigXml(
     entry->createNewChildElement("collectionName");
     entry->createNewChildElement("expressionMapID")
         ->addTextElement(assignments[i].expressionMapID);
-    entry->createNewChildElement("drumkitNoteMapID");
+    entry->createNewChildElement("drumkitNoteMapID")
+        ->addTextElement(assignments[i].drumkitNoteMapID);
     entry->createNewChildElement("flags")->addTextElement("0");
   }
 
@@ -455,6 +465,9 @@ juce::Result DoricoConfigGenerator::writePresetsXml(
         ->addTextElement(a.category.isNotEmpty() ? a.category : "Other");
     preset->createNewChildElement("ExpressionMap")
         ->addTextElement(a.expressionMapID);
+    if (a.drumkitNoteMapID.isNotEmpty())
+      preset->createNewChildElement("DrumKitNoteMap")
+          ->addTextElement(a.drumkitNoteMapID);
 
     auto *addr = preset->createNewChildElement("Address");
     addr->createNewChildElement("Program")->addTextElement(

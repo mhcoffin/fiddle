@@ -10,6 +10,12 @@ void MainComponent::setupBridgeMapHandlers() {
   bridgeMapCommands_ = std::make_unique<BridgeMapCommands>(mixer_, noteTracker, undoManager_,
       [this] { stateManager_.markDirty(); scheduleStateRebuild(); pushConfigStatus(); pushBridgeMapState(); },
       [this] { return isTransportStarted_.load(std::memory_order_acquire); });
+  const auto templates = juce::File::getSpecialLocation(juce::File::currentExecutableFile)
+      .getParentDirectory().getSiblingFile("Resources").getChildFile("BridgeMaps");
+  bridgeMapCommands_->setBuiltIns([templates](const BridgeSectionInfo &info) {
+    const auto file = templates.getChildFile(info.templateFile);
+    return file.existsAsFile() ? file.loadFileAsString() : juce::String{};
+  });
   mixer_.onBridgeMapsChanged = [this](const std::string &json) {
     bridgeMapCommands_->restore(json); pushBridgeMapState(); broadcastTemplateDirty();
   };
@@ -18,6 +24,14 @@ void MainComponent::setupBridgeMapHandlers() {
   };
   jsRouter_.registerHandler("requestBridgeMaps", [this](const juce::var &) {
     safeCallAsync([this] { pushBridgeMapState(); });
+  });
+  // One section's key, or none for every section that differs.
+  jsRouter_.registerHandler("useBuiltInBridgeMaps", [this, argument](const juce::var &payload) {
+    const auto key = argument(payload).toString();
+    safeCallAsync([this, key] {
+      bridgeMapCommands_->useBuiltInSections(key.isEmpty() ? std::vector<juce::String>{} : std::vector<juce::String>{key});
+      pushBridgeMapState();
+    });
   });
   jsRouter_.registerHandler("exportBridgeMap", [this, argument](const juce::var &payload) {
     const auto hash = argument(payload).toString();

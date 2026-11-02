@@ -5,7 +5,7 @@
 namespace fiddle {
 
 bool RealtimeMidiScheduler::schedule(
-    double triggerTimeMs, const juce::MidiMessage &message) noexcept {
+    double triggerTimeMs, const juce::MidiMessage &message, uint64_t tag) noexcept {
   const auto size = message.getRawDataSize();
   if (size <= 0 || size > 3) {
     droppedMessages_.fetch_add(1, std::memory_order_relaxed);
@@ -15,11 +15,19 @@ bool RealtimeMidiScheduler::schedule(
   RealtimeMidiMessage queued;
   queued.triggerTimeMs = triggerTimeMs;
   queued.generation = currentGeneration_.load(std::memory_order_acquire);
+  queued.tag = tag;
   queued.size = static_cast<uint8_t>(size);
   std::copy_n(message.getRawData(), size, queued.data);
   if (incoming_.tryPush(queued))
     return true;
 
+  droppedMessages_.fetch_add(1, std::memory_order_relaxed);
+  return false;
+}
+
+bool RealtimeMidiScheduler::cancel(uint64_t tag) noexcept {
+  if (tag != 0 && cancels_.tryPush(tag))
+    return true;
   droppedMessages_.fetch_add(1, std::memory_order_relaxed);
   return false;
 }
@@ -37,12 +45,27 @@ void RealtimeMidiScheduler::requestPanic() noexcept {
 void RealtimeMidiScheduler::renderBlock(
     double blockStartMs, double sampleRate, int numSamples,
     juce::MidiBuffer &destination) noexcept {
+  // Cancellations first: a cancel follows its schedule() on the producer, so
+  // every message a cancel visible here names is visible to the drain below.
+  size_t cancelCount = 0;
+  while (cancelCount < cancelled_.size() && cancels_.tryPop(cancelled_[cancelCount]))
+    ++cancelCount;
+
   RealtimeMidiMessage queued;
   while (incoming_.tryPop(queued)) {
     if (pendingCount_ < pending_.size())
       pending_[pendingCount_++] = queued;
     else
       droppedMessages_.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  if (cancelCount > 0) {
+    const auto first = cancelled_.begin(), last = first + cancelCount;
+    size_t retained = 0;
+    for (size_t i = 0; i < pendingCount_; ++i)
+      if (pending_[i].tag == 0 || std::find(first, last, pending_[i].tag) == last)
+        pending_[retained++] = pending_[i];
+    pendingCount_ = retained;
   }
 
   const bool panic = panicRequested_.exchange(false, std::memory_order_acquire);

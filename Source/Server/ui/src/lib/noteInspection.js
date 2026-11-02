@@ -1,9 +1,12 @@
 export const techniqueEntries = (record) =>
     Object.entries(record.receivedTechniques || {});
 
+// Transport metadata from the bridge, not musical dimensions.
+const hiddenDimensions = new Set(["dorico_length_category", "dorico_pinned_playback"]);
+
 export const dimensionEntries = (record) =>
     Object.entries(record.receivedDimensions || {}).filter(
-        ([name]) => name !== "dorico_length_category",
+        ([name]) => !hiddenDimensions.has(name),
     );
 
 export const formatDimensionValue = (value) => {

@@ -1,0 +1,33 @@
+{
+  "id": "percussion-techniques",
+  "title": "Percussion techniques",
+  "description": "Strokes, surfaces and modifiers through the unpitched percussion bridge, each from Dorico's own items: snare noteheads (side stick, rim shot, cross stick), rim, stick shot, buzz roll and snares off/on; hi-hat open, closed and half-open; cymbal choke, l.v. and damp; a tambourine roll; conga open and muffled. Most marks are added by hand in Dorico (the list appears when the test is armed; the score shows an \"add:\" cue at each).",
+  "tempo": 100,
+  "parts": [
+    {
+      "id": "sn",
+      "instrument": "snare",
+      "music": "!mf x/q x/q+sidestick x/q+rimshot x/q+crossstick | x/q+rim x/q x/q+stickshot x/q+acc+rim | x/h+buzz x/q x/q | x/q+snaresoff x/q x/q x/q | x/q+snareson x/q x/q x/q | r/w | r/w | r/w | r/w | r/w | r/w"
+    },
+    {
+      "id": "hh",
+      "instrument": "hi-hat",
+      "music": "r/w | r/w | r/w | r/w | r/w | !mf x/q x/q+open x/q+closed x/q | x/q+halfopen x/q x/q+open x/q | r/w | r/w | r/w | r/w"
+    },
+    {
+      "id": "cym",
+      "instrument": "suspended-cymbal",
+      "music": "r/w | r/w | r/w | r/w | r/w | r/w | r/w | !f x/q+choke r/q x/q+lv r/q | !mf x/q+damp r/q x/q r/q | r/w | r/w"
+    },
+    {
+      "id": "tamb",
+      "instrument": "tambourine",
+      "music": "r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | !mf x/h+trem x/q x/q | r/w"
+    },
+    {
+      "id": "cga",
+      "instrument": "conga",
+      "music": "r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | r/w | !mf x/q x/q+open x/q+muffled x/q"
+    }
+  ]
+}

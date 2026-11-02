@@ -203,5 +203,15 @@ def schema2(spec):
                               "ENTITY_ID": f"xmap.user.Fiddle.Orchestral{section}.r2"})
 
 
-# r1 artifacts are frozen schema-1 inspection candidates; r2 is current.
-CURRENT = {key: schema2(spec) for key, spec in PROFILES.items()}
+def written_durations(spec):
+    """r2 with Dorico's note-duration options pinned to 100% (written lengths)."""
+    section = spec.SECTION
+    return SimpleNamespace(**{**vars(schema2(spec)), "REVISION": 3, "WRITTEN_DURATIONS": True,
+                              "NAME": f"Fiddle Bridge - Orchestral {section} r3 (host test)",
+                              "ENTITY_ID": f"xmap.user.Fiddle.Orchestral{section}.r3"})
+
+
+# r1 (schema-1 inspection) and r2 artifacts are frozen; r3 is current.
+SCHEMA2 = {key: schema2(spec) for key, spec in PROFILES.items()}
+CURRENT = {key: written_durations(spec) for key, spec in PROFILES.items()}
+REVISIONS = {1: PROFILES, 2: SCHEMA2, 3: CURRENT}

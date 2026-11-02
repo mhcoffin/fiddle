@@ -1,4 +1,5 @@
 #pragma once
+#include "DoricoPlaybackOptions.h"
 #include "midi_event.pb.h"
 #include <algorithm>
 #include <array>
@@ -32,11 +33,23 @@ struct CompiledBridgeMap {
   std::vector<Dimension> dimensions;
   int musicalLow = 21, musicalHigh = 114;
   std::array<int, 2> beacon{-1, -1}; // expected beacon velocities (schema 2)
+  // Dorico's playback options are pinned (see kPinnedPlaybackDimension).
+  bool pinnedPlayback = false;
+  // Unpitched sections: the library's percussion map exists so Dorico plays
+  // (and sustains rolls); every technique still arrives through the
+  // dimensions above, and the chair names the instrument. A note on a pitch
+  // the map never sends is withheld.
+  bool hasPercussionMap = false;
+  std::set<int> percussionPitches;
 };
 
 struct BridgeMapDocument {
   static constexpr int latestSchema = 2;
   juce::String sourceXml, entityId, name, contentHash;
+  // The percussion map published in the same library, when there is one,
+  // and the Dorico instruments it covers.
+  juce::String percussionMapId, percussionMapName;
+  std::set<juce::String> percussionInstruments;
   // Identity of everything Dorico or the decoder act on, independent of XML
   // formatting, row order and display text. Used to compare Dorico exports.
   juce::String semanticHash;
@@ -71,7 +84,7 @@ struct BridgeMapProject {
 // user attests a matching export, or the schema-2 Init beacon matches.
 class BridgeDecoderState {
 public:
-  enum class Withheld { None, Unverified, BeaconMismatch, BaseUnknown, InvalidCommand, OutsideRange, Count };
+  enum class Withheld { None, Unverified, BeaconMismatch, BaseUnknown, InvalidCommand, OutsideRange, UnmappedPitch, Count };
   enum class Beacon { Unsupported, Absent, Matched, Mismatched };
   static constexpr double offDebounceMs = 30.0;
   struct Diagnostics {
@@ -150,6 +163,8 @@ public:
       for (const auto &id : v.techniques)
         (*note.mutable_notation_techniques())[key + ":" + id] = id;
     }
+    if (map_->pinnedPlayback)
+      (*note.mutable_notation_dimensions())[kPinnedPlaybackDimension] = 1.0f;
     diagnostics_.lastWithheld = Withheld::None;
     return Withheld::None;
   }
@@ -167,6 +182,7 @@ public:
     case Withheld::BaseUnknown: return "base articulation not received (start playback so Dorico sends Init)";
     case Withheld::InvalidCommand: return "an unknown command value invalidated a dimension";
     case Withheld::OutsideRange: return "note outside the bridge's musical range";
+    case Withheld::UnmappedPitch: return "pitch is not one the percussion map sends";
     case Withheld::Count: break;
     }
     return "";
@@ -224,6 +240,8 @@ private:
   Withheld check(const Note &note) const {
     if (int(note.note_number()) < map_->musicalLow || int(note.note_number()) > map_->musicalHigh)
       return Withheld::OutsideRange;
+    if (map_->hasPercussionMap && !map_->percussionPitches.count(int(note.note_number())))
+      return Withheld::UnmappedPitch;
     if (diagnostics_.beacon == Beacon::Mismatched) return Withheld::BeaconMismatch;
     if (!playable()) return Withheld::Unverified;
     if (values_[0] == invalid) return Withheld::InvalidCommand;

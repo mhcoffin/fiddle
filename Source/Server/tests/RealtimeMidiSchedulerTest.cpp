@@ -131,12 +131,40 @@ void testUnsupportedMessagesAreCounted() {
 
 } // namespace
 
+void testCancelWithdrawsOnlyTheTaggedPendingEvent() {
+  fiddle::RealtimeMidiScheduler scheduler;
+  juce::MidiBuffer block;
+
+  const auto rendered = scheduler.nextTag(), pending = scheduler.nextTag(),
+             unseen = scheduler.nextTag();
+  CHECK(rendered != pending && pending != unseen && rendered != 0);
+  scheduler.schedule(1000.0, juce::MidiMessage::noteOn(1, 60, 0.8f), rendered);
+  scheduler.schedule(2000.0, juce::MidiMessage::noteOff(1, 60), pending);
+  scheduler.schedule(2000.0, juce::MidiMessage::noteOff(1, 61));
+  scheduler.renderBlock(1000.0, 48000.0, 512, block);
+  CHECK(capture(block).size() == 1);
+
+  // A pending message and one still in the queue are both withdrawn; an
+  // already rendered one is unaffected; untagged messages stay.
+  CHECK(scheduler.cancel(rendered));
+  CHECK(scheduler.cancel(pending));
+  scheduler.schedule(2000.0, juce::MidiMessage::noteOff(1, 62), unseen);
+  CHECK(scheduler.cancel(unseen));
+  CHECK(!scheduler.cancel(0));
+  block.clear();
+  scheduler.renderBlock(1999.0, 48000.0, 512, block);
+  const auto events = capture(block);
+  CHECK(events.size() == 1);
+  CHECK(events.size() == 1 && events[0].message.getNoteNumber() == 61);
+}
+
 int main() {
   testSampleAccurateSchedulingAndRetention();
   testClearDropsQueuedAndPendingEvents();
   testClearPreservesEventsScheduledAfterTheBarrier();
   testPanicClearsNotesAndEmitsControllerResets();
   testUnsupportedMessagesAreCounted();
+  testCancelWithdrawsOnlyTheTaggedPendingEvent();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

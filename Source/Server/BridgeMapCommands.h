@@ -62,6 +62,49 @@ public:
     if (after.serialize() == project_.serialize()) { error_.clear(); return true; }
     return commit(after, "Assign bridge maps by instrument section");
   }
+  // The app's built-in section maps (Resources/BridgeMaps), compiled once.
+  // A section pinned to another revision can be moved to them.
+  using TemplateLoader = std::function<juce::String(const BridgeSectionInfo &)>;
+  void setBuiltIns(const TemplateLoader &loadTemplate) {
+    builtIns_.clear();
+    for (const auto &info : bridgeSections()) {
+      juce::String error;
+      const auto xml = loadTemplate(info);
+      if (const auto doc = xml.isEmpty() ? nullptr : BridgeMapDocument::compile(xml, error))
+        builtIns_[info.key] = doc;
+    }
+  }
+  // Pin each listed section (all sections when empty) to its built-in map,
+  // and move every channel that used the old pin. Recorded as one undoable
+  // change; Dorico needs the reinstalled playback template afterwards.
+  bool useBuiltInSections(const std::vector<juce::String> &keys = {}) {
+    if (!canChange()) return false;
+    auto after = project_;
+    juce::StringArray updated;
+    for (const auto &info : bridgeSections()) {
+      if (!keys.empty() && std::find(keys.begin(), keys.end(), juce::String(info.key)) == keys.end()) continue;
+      const auto builtIn = builtIns_.find(info.key);
+      const auto pin = after.sections.find(info.key);
+      if (builtIn == builtIns_.end() || pin == after.sections.end()) continue;
+      const auto old = pin->second, now = builtIn->second->contentHash;
+      if (old == now) continue;
+      after.documents[now] = builtIn->second;
+      pin->second = now;
+      for (auto &[endpoint, hash] : after.assignments)
+        if (hash == old) hash = now;
+      updated.add(info.label);
+    }
+    if (updated.isEmpty()) { error_.clear(); return true; }
+    // Drop revisions nothing uses any more, as template installation does.
+    for (auto it = after.documents.begin(); it != after.documents.end();) {
+      const auto &hash = it->first;
+      const bool used = std::any_of(after.sections.begin(), after.sections.end(), [&](const auto &s) { return s.second == hash; })
+                        || std::any_of(after.assignments.begin(), after.assignments.end(), [&](const auto &a) { return a.second == hash; });
+      it = used ? std::next(it) : after.documents.erase(it);
+    }
+    return commit(after, updated.size() == 1 ? "Use built-in " + updated[0] + " bridge map"
+                                             : juce::String("Use built-in bridge maps"));
+  }
   bool publish(const juce::String &source, const juce::String &parent = {}, int low = 21, int high = 114) {
     if (!canChange()) return false;
     auto xml = source;
@@ -85,6 +128,16 @@ public:
             id->addTextElement("ptmg.user.Fiddle.Bridge." + juce::Uuid().toString().removeCharacters("-"));
           }
       BridgeMapDocument::stampBeacon(*map);
+      // A percussion map published with the expression map gets its own new
+      // identity and the same version, as the compiler requires.
+      if (auto *drums = root->getChildByName("drumKitNoteMapDefinitions"))
+        if (auto *drumEntities = drums->getChildByName("entities"))
+          for (auto *drumMap : drumEntities->getChildIterator()) {
+            auto *drumId = drumMap->getChildByName("entityID"), *drumVersion = drumMap->getChildByName("version");
+            if (!drumId || !drumVersion) return fail("Invalid percussion-map XML");
+            drumId->deleteAllChildElements(); drumId->addTextElement("drumkitmap.user.Fiddle.Bridge." + juce::Uuid().toString().removeCharacters("-"));
+            drumVersion->deleteAllChildElements(); drumVersion->addTextElement(juce::String(found->second->revision + 1));
+          }
       xml = root->toString();
     } else {
       // An edited schema-2 map may carry a stale beacon. Restamp only then, so
@@ -153,6 +206,7 @@ public:
     for (const auto &[hash, doc] : project_.documents) {
       auto *d = new juce::DynamicObject(); d->setProperty("hash", hash); d->setProperty("name", doc->name);
       d->setProperty("entityId", doc->entityId); d->setProperty("revision", doc->revision);
+      d->setProperty("percussionMapId", doc->percussionMapId);
       d->setProperty("dimensions", int(doc->compiled->dimensions.size())); d->setProperty("sourceXml", doc->sourceXml);
       d->setProperty("low", doc->musicalLow); d->setProperty("high", doc->musicalHigh);
       d->setProperty("schema", doc->schema); docs.add(juce::var(d));
@@ -180,6 +234,16 @@ public:
       auto *s = new juce::DynamicObject(); s->setProperty("key", info.key); s->setProperty("label", info.label);
       const auto pin = project_.sections.find(info.key);
       s->setProperty("hash", pin == project_.sections.end() ? juce::String{} : pin->second);
+      if (const auto builtIn = builtIns_.find(info.key); builtIn != builtIns_.end()) {
+        s->setProperty("builtInName", builtIn->second->name);
+        s->setProperty("builtInRevision", builtIn->second->revision);
+        s->setProperty("builtInSchema", builtIn->second->schema);
+        s->setProperty("builtInPinsPlayback", builtIn->second->compiled->pinnedPlayback);
+        s->setProperty("updateAvailable", pin != project_.sections.end() && pin->second != builtIn->second->contentHash);
+      }
+      if (pin != project_.sections.end())
+        if (const auto doc = project_.documents.find(pin->second); doc != project_.documents.end())
+          s->setProperty("pinsPlayback", doc->second->compiled->pinnedPlayback);
       sections.add(juce::var(s));
     }
     o->setProperty("documents", docs); o->setProperty("assignments", assignments);
@@ -205,6 +269,7 @@ private:
   MixerModel &mixer_; NoteStreamTracker &tracker_; UndoManager &undo_;
   std::function<void()> changed_; std::function<bool()> busy_;
   BridgeMapProject project_;
+  std::map<juce::String, std::shared_ptr<const BridgeMapDocument>> builtIns_;
   std::set<BridgeMapProject::Endpoint> verified_;
   juce::String error_;
 };

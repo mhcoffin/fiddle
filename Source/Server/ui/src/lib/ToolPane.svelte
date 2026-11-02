@@ -7,6 +7,7 @@
     import BusManager from "./BusManager.svelte";
     import AudioDiagnostics from "./AudioDiagnostics.svelte";
     import TechniqueCatalog from "./TechniqueCatalog.svelte";
+    import ScoreTests from "./ScoreTests.svelte";
 
     let { toolId } = $props();
     let visible = $state(true);
@@ -44,6 +45,7 @@
     {:else if toolId === "bus-manager"}<BusManager {buses} {strips} {selectedStripIds} undoState={undo} onClose={close} />
     {:else if toolId === "audio-performance"}<AudioDiagnostics standalone {visible} onClose={close} />
     {:else if toolId === "technique-catalog"}<TechniqueCatalog {visible} onClose={close} />
+    {:else if toolId === "score-tests"}<ScoreTests {visible} onClose={close} />
     {/if}
 </div>
 
