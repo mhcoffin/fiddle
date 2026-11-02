@@ -3,8 +3,8 @@
   "run_id": "basic-rhythm-20261021-143200",
   "test_id": "basic-rhythm",
   "title": "Basic rhythm",
-  "armed_at": "2026-10-21T16:19:40.132-07:00",
-  "finished_at": "2026-10-21T16:19:40.135-07:00",
+  "armed_at": "2026-11-01T16:28:52.047-08:00",
+  "finished_at": "2026-11-01T16:28:52.050-08:00",
   "pass": false,
   "summary": {
     "expected": 18,
@@ -12,7 +12,8 @@
     "passed": 17,
     "failed": 1,
     "missing": 0,
-    "extra": 1
+    "extra": 1,
+    "auditions": 0
   },
   "failures": [
     "#3 vln bar 3 beat 1 F5/q: onset (+12 ms); duration (-12 ms)",
@@ -51,7 +52,8 @@
       "passed": 17,
       "failed": 1,
       "missing": 0,
-      "extra": 1
+      "extra": 1,
+      "auditions": 0
     },
     "offset_ms": 10000.0,
     "tolerances": {
@@ -1502,7 +1504,8 @@
           ]
         ]
       }
-    ]
+    ],
+    "auditions": []
   },
   "origin_ms": 9900.0,
   "received": [

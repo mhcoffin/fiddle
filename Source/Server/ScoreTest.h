@@ -128,6 +128,10 @@ public:
   static bool instrumentMatches(const juce::String &chair, const juce::String &part) {
     return chair == part || chair.startsWith(part + ".");
   }
+  // A note that ends as it starts is Dorico auditioning a note clicked in
+  // the score (stamped with the playhead's position), not playback: every
+  // played note lasts. Auditions are listed apart, neither matched nor extra.
+  static bool isAudition(const ReceivedNote &note) { return note.durationMs && *note.durationMs < 1e-6; }
 
 private:
   struct Part { juce::String id, name, instrument; std::optional<Endpoint> endpoint; juce::String boundBy; };
@@ -162,7 +166,8 @@ private:
 
   void bind() {
     std::map<Endpoint, int> counts;
-    for (const auto &r : received_) ++counts[r.endpoint];
+    for (const auto &r : received_)
+      if (!isAudition(r)) ++counts[r.endpoint];
     std::set<Endpoint> used;
     for (auto &part : parts_) {
       std::optional<Endpoint> best;
@@ -187,7 +192,7 @@ private:
     std::vector<size_t> list;
     if (!part.endpoint) return list;
     for (size_t i = 0; i < received_.size(); ++i)
-      if (received_[i].endpoint == *part.endpoint) list.push_back(i);
+      if (received_[i].endpoint == *part.endpoint && !isAudition(received_[i])) list.push_back(i);
     std::stable_sort(list.begin(), list.end(), [this](size_t a, size_t b) {
       const auto &x = received_[a], &y = received_[b];
       return x.onsetMs != y.onsetMs ? x.onsetMs < y.onsetMs : x.pitch < y.pitch;
@@ -293,7 +298,8 @@ private:
       }
     }
     for (size_t i = 0; i < received_.size(); ++i)
-      if (!matched.count(i)) extras_.push_back(i);
+      if (isAudition(received_[i])) auditions_.push_back(i);
+      else if (!matched.count(i)) extras_.push_back(i);
   }
   // How far a received note is from a row: onset, then duration (a note
   // that never ended counts as off by the written length).
@@ -472,6 +478,8 @@ private:
       failures.add("extra note " + pitchName(r.pitch) + " on port " + juce::String(r.endpoint.first + 1) + " channel "
                    + juce::String(r.endpoint.second) + " at " + juce::String(rounded(r.onsetMs - offsetMs_, 0.1)) + " ms");
     }
+    juce::Array<juce::var> auditions;
+    for (const auto i : auditions_) auditions.add(received_[i].toVar(offsetMs_));
     juce::DynamicObject::Ptr summary = new juce::DynamicObject();
     summary->setProperty("expected", int(rows_.size()));
     summary->setProperty("received", int(received_.size()));
@@ -479,6 +487,7 @@ private:
     summary->setProperty("failed", failed);
     summary->setProperty("missing", missing);
     summary->setProperty("extra", int(extras_.size()));
+    summary->setProperty("auditions", int(auditions_.size()));
     const bool pass = !rows_.empty() && failed == 0 && missing == 0 && extras_.empty();
     juce::DynamicObject::Ptr tol = new juce::DynamicObject();
     tol->setProperty("onset_ms", tolerances_.onsetMs);
@@ -493,6 +502,7 @@ private:
     o->setProperty("failures", failures);
     o->setProperty("notes", notes);
     o->setProperty("extras", extras);
+    o->setProperty("auditions", auditions);
     return o.get();
   }
 
@@ -502,7 +512,7 @@ private:
   Tolerances tolerances_;
   std::vector<Part> parts_;
   std::vector<Row> rows_;
-  std::vector<size_t> extras_;
+  std::vector<size_t> extras_, auditions_;
   double offsetMs_ = 0;
 };
 

@@ -162,6 +162,11 @@ def report(record, notes=(), window_ms=50.0, limit=25):
         out.append(f"Extra notes ({len(c['extras'])}):")
         for r in c["extras"][:limit]:
             out += ["  " + line for line in received_text(r)]
+    if c.get("auditions"):
+        out.append(f"Auditions, not counted ({len(c['auditions'])}): zero-length notes Dorico played "
+                   "for notes clicked in the score, at the playhead's position")
+        for r in c["auditions"][:limit]:
+            out += ["  " + line for line in received_text(r)]
     for index in notes:
         note = next((n for n in c["notes"] if n["index"] == index), None)
         if note is None:

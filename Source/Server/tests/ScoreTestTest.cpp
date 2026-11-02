@@ -329,9 +329,9 @@ void bindingsAndExtras() {
   const auto &extras = *withExtras["comparison"]["extras"].getArray();
   CHECK(extras[0]["pitch"] == juce::var(90) && extras[1]["duration_ms"].isVoid());
 
-  // A zero-length note at a note's onset (Dorico auditioning the note the
-  // playhead starts on, percussion-techniques-20261101-153952) is the
-  // extra; the note that lasts its written length is the match.
+  // A zero-length note at a note's onset (Dorico auditioning a note clicked
+  // in the score, percussion-techniques-20261101-153952 and -162643) is an
+  // audition, neither the match nor an extra: the run passes.
   {
     auto doubled = play(expected);
     const auto first = expected["notes"][0];
@@ -346,8 +346,9 @@ void bindingsAndExtras() {
     doubledRig.recorder.arm("basic-rhythm", expected, doubled.instruments);
     doubledRig.send(doubled);
     const auto record = runRecord("z", *doubledRig.recorder.finish());
-    CHECK(int(record["summary"]["extra"]) == 1 && noteResult(record, 0)["status"].toString() == "pass");
-    CHECK(double(record["comparison"]["extras"][0]["duration_ms"]) == 0.0);
+    CHECK(bool(record["pass"]) && int(record["summary"]["extra"]) == 0 && int(record["summary"]["auditions"]) == 1);
+    CHECK(noteResult(record, 0)["status"].toString() == "pass");
+    CHECK(double(record["comparison"]["auditions"][0]["duration_ms"]) == 0.0);
   }
 
   // Chair instruments that match no part: a single part takes the only endpoint.

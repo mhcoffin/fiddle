@@ -44,7 +44,7 @@ everything after a point.
 | --- | --- |
 | Every note missing, or a part bound to nothing | No chair plays the part's instrument, the template isn't applied in Dorico, or the bridge withheld notes: see **Bridges at Done** (identity check `mismatched` = Dorico plays another bridge revision; withheld "base articulation not received" = Dorico never sent the bridge's Init; start playback again). |
 | Notes missing after a point | Playback stopped early, or a later take was cut short (only the latest playthrough counts). |
-| Extra notes | Auditioned notes while armed (clicking in Dorico), or another instrument on the bound endpoint. |
+| Extra notes | Another instrument on the bound endpoint, or a played note the spec doesn't expect. Notes auditioned while armed (clicking in Dorico) are zero-length and listed apart as **auditions**, not extras; records before 2026-11-01 counted them as extras. |
 | One note withheld on a part's endpoint ("map not verified") in **Bridges at Done**, the test passing | Harmless: Dorico auditioned the note clicked to place the playhead, before playback sent the bridge's Init and beacon. It is outside the take. |
 | Onsets drifting through the test | Tempo: Dorico's tempo differs from the spec (tempo-changes test), or swing/humanize is on. |
 | Onsets scattered by a few ms | Humanize start positions isn't 0 in Dorico's Playback Options. |
