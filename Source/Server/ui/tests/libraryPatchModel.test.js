@@ -93,20 +93,8 @@ test("guided setup advances only after an explicit changed player state", () => 
     assert.match(libraryManagerSource, /dispatchCpp\("closeLibraryPatchEditor"/);
 });
 
-test("the Library Manager exposes guarded propagation to linked layers", () => {
-    assert.match(libraryManagerSource, /"Update Layers"/);
-    assert.match(
-        libraryManagerSource,
-        /dispatchCpp\("updateLayersFromLibraryPatch", row\.id\)/,
-    );
-    assert.match(
-        libraryManagerSource,
-        /disabled=\{editorDirty \|\| !row\.outOfDateLayerCount\}/,
-    );
-    assert.match(
-        libraryManagerSource,
-        /Save the library before updating layers/,
-    );
+test("library patches are pulled by layers, never pushed from the Library Manager", () => {
+    assert.doesNotMatch(libraryManagerSource, /Update Layers|updateLayersFromLibraryPatch/);
 });
 
 test("chair layers expose a one-click, undoable refresh from their source patch", () => {

@@ -125,11 +125,6 @@ public:
   /// their current source patch. Layers whose source patch is missing are not
   /// included; callers can report that condition separately.
   std::vector<std::string> outOfDateLayerIds() const;
-  /// Copy the current catalog patch defaults to every linked layer while
-  /// preserving layer-owned routing and mixer controls. Returns the number of
-  /// updated layers, or std::nullopt on failure/missing patch.
-  std::optional<int>
-  updateLayersFromPatch(const std::string &patchId);
 
   // Atomically replace only library-owned setup fields. Reject missing or
   // reassigned layers; never overwrite routing, position or mixer controls.

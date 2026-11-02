@@ -2792,19 +2792,13 @@ void MainComponent::pushUndoState() {
 void MainComponent::pushLibraryLayerStatus() {
   auto *repository = db_.getLibraryRoutingRepository();
   if (!repository) return;
-  const auto outdated = repository->outOfDateLayerIds();
-  std::map<std::string, std::pair<int, int>> counts;
-  for (const auto &row : repository->listLayers()) {
-    auto &count = counts[row.patchId];
-    ++count.first;
-    if (std::find(outdated.begin(), outdated.end(), row.id) != outdated.end()) ++count.second;
-  }
+  std::map<std::string, int> counts;
+  for (const auto &row : repository->listLayers()) ++counts[row.patchId];
   juce::Array<juce::var> status;
   for (const auto &[id, count] : counts) {
     auto *item = new juce::DynamicObject();
     item->setProperty("patchId", juce::String(id));
-    item->setProperty("usageCount", count.first);
-    item->setProperty("outOfDateLayerCount", count.second);
+    item->setProperty("usageCount", count);
     status.add(juce::var(item));
   }
   broadcastMessage("setLibraryLayerStatus", status);
@@ -5565,8 +5559,6 @@ void MainComponent::setupJsHandlers() {
           patchObj->setProperty("hasPluginState", !patch.pluginState.empty());
           patchObj->setProperty("usageCount",
                                 repository->patchUsageCount(patch.id));
-          patchObj->setProperty("outOfDateLayerCount",
-                                repository->outOfDateLayerCount(patch.id));
           patchArr.add(juce::var(patchObj));
         }
       } else {
@@ -5586,57 +5578,12 @@ void MainComponent::setupJsHandlers() {
           patchObj->setProperty("hasPluginState",
                                 inst.pluginState.getSize() > 0);
           patchObj->setProperty("usageCount", 0);
-          patchObj->setProperty("outOfDateLayerCount", 0);
           patchArr.add(juce::var(patchObj));
         }
       }
       result->setProperty("patches", juce::var(patchArr));
 
       broadcastMessage("setLibraryData", juce::var(result));
-    });
-    return;
-  });
-  jsRouter_.registerHandler("updateLayersFromLibraryPatch",
-                            [this](const juce::var &payload) {
-    juce::Array<juce::var> args;
-    if (payload.isArray())
-      args = *payload.getArray();
-    if (args.isEmpty())
-      return;
-    const auto patchId = args[0].toString().toStdString();
-
-    safeCallAsync([this, patchId]() {
-      auto *repository = db_.getLibraryRoutingRepository();
-      const auto patch = repository ? repository->getPatch(patchId)
-                                    : std::nullopt;
-      if (!patch) {
-        broadcastMessage("libraryLayersUpdateResult",
-                         juce::var("Could not update layers from the patch"));
-        return;
-      }
-
-      std::vector<LayerRow> layers;
-      for (const auto &layer : repository->listLayers())
-        if (layer.patchId == patchId) layers.push_back(layer);
-      const int updatedCount = (int)layers.size();
-      if (updatedCount > 0 && !refreshLayersFromPatch(*patch, layers)) {
-        broadcastMessage("libraryLayersUpdateResult",
-                         juce::var("Could not update layers; no changes were applied"));
-        return;
-      }
-      if (updatedCount > 0) {
-        pushMixerState();
-        scheduleStateRebuild();
-      }
-      const auto noun = updatedCount == 1 ? " layer" : " layers";
-      auto *result = new juce::DynamicObject();
-      result->setProperty("success", true);
-      result->setProperty("patchId", juce::String(patchId));
-      result->setProperty("updatedCount", updatedCount);
-      result->setProperty("message",
-                          "OK: Updated " + juce::String(updatedCount) + noun +
-                              " from " + juce::String(patch->name) + ". Undo in the main mixer.");
-      broadcastMessage("libraryLayersUpdateResult", juce::var(result));
     });
     return;
   });

@@ -3,7 +3,7 @@
 export class LibraryHistory {
     constructor(limit = 100) { this.limit = limit; this.reset([], true); }
     snapshot(rows) {
-        return rows.map(({ usageCount, outOfDateLayerCount, pluginStatePending, hasPluginState, ...row }) => ({ ...row }));
+        return rows.map(({ usageCount, pluginStatePending, hasPluginState, ...row }) => ({ ...row }));
     }
     reset(rows, saved = true) {
         this.current = this.snapshot(rows);

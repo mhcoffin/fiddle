@@ -16,7 +16,6 @@ export function createLibraryPatch(instrument, character, id, defaults = {}) {
         expectedPresetName: defaults.expectedPresetName || "",
         setupComplete: defaults.setupComplete !== false,
         usageCount: 0,
-        outOfDateLayerCount: 0,
     };
 }
 

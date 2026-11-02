@@ -124,9 +124,9 @@ print polling suspension without stopping a take. Audio Performance uses 30
 fixture plugins to verify row ordering and fixed header/footer controls, copies
 a report with plugin/device metadata, and checks the Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.
-It also opens the Library Manager with fixture data, clicks Update Layers once,
-checks the project command dispatch and linkage counts after simulated Undo,
-and verifies that status updates preserve unsaved drafts and their disabled guard.
+It also opens the Library Manager with fixture data, checks that it offers no
+Update Layers push (layers pull with Refresh Library), and verifies that linkage
+status updates preserve unsaved drafts.
 Set `FIDDLE_LAYOUT_SCREENSHOT_DIR` to an existing directory to capture each size.
 
 ## Production mixer integration

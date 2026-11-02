@@ -636,67 +636,6 @@ LibraryRoutingRepository::outOfDateLayerIds() const {
   return result;
 }
 
-std::optional<int>
-LibraryRoutingRepository::updateLayersFromPatch(
-    const std::string &patchId) {
-  std::lock_guard<std::mutex> lock(databaseMutex_);
-
-  std::string patchName;
-  std::string libraryId;
-  std::string libraryName;
-  int pluginUid = 0;
-  std::vector<std::uint8_t> pluginState;
-  std::string expressionMapId;
-  std::string percussionMapId;
-  int patchRevision = 0;
-  {
-    Statement patchStatement(database_, R"(
-      SELECT p.name, p.library_id, COALESCE(l.name, ''), p.plugin_uid,
-             p.plugin_state, p.expression_map_id, p.revision,
-             p.percussion_map_id
-      FROM library_patches p
-      LEFT JOIN libraries l ON l.id = p.library_id
-      WHERE p.id = ?
-    )");
-    if (!patchStatement)
-      return std::nullopt;
-    bindText(patchStatement.get(), 1, patchId);
-    if (sqlite3_step(patchStatement.get()) != SQLITE_ROW)
-      return std::nullopt;
-
-    patchName = columnText(patchStatement.get(), 0);
-    libraryId = columnText(patchStatement.get(), 1);
-    libraryName = columnText(patchStatement.get(), 2);
-    pluginUid = sqlite3_column_int(patchStatement.get(), 3);
-    pluginState = columnBlob(patchStatement.get(), 4);
-    expressionMapId = columnText(patchStatement.get(), 5);
-    patchRevision = sqlite3_column_int(patchStatement.get(), 6);
-    percussionMapId = columnText(patchStatement.get(), 7);
-  }
-
-  Statement update(database_, R"(
-    UPDATE layers SET
-      patch_name = ?, library_id = ?, library_name = ?, plugin_uid = ?,
-      plugin_state = ?, expression_map_id = ?, source_patch_revision = ?,
-      plugin_state_edited = 0, percussion_map_id = ?
-    WHERE patch_id = ?
-  )");
-  if (!update)
-    return std::nullopt;
-  bindText(update.get(), 1, patchName);
-  bindText(update.get(), 2, libraryId);
-  bindText(update.get(), 3, libraryName);
-  sqlite3_bind_int(update.get(), 4, pluginUid);
-  bindBlob(update.get(), 5, pluginState);
-  bindText(update.get(), 6, expressionMapId);
-  sqlite3_bind_int(update.get(), 7, patchRevision);
-  bindText(update.get(), 8, percussionMapId);
-  bindText(update.get(), 9, patchId);
-  if (sqlite3_step(update.get()) != SQLITE_DONE)
-    return std::nullopt;
-  return sqlite3_changes(database_);
-}
-
 bool LibraryRoutingRepository::updateLayerSetups(const std::vector<LayerRow> &layers) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   if (!execute(database_, "BEGIN IMMEDIATE")) return false;

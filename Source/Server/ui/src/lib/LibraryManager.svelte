@@ -65,7 +65,6 @@
         expectedPresetName: patch.expectedPresetName || "",
         setupComplete: patch.setupComplete !== false,
         usageCount: Number(patch.usageCount) || 0,
-        outOfDateLayerCount: Number(patch.outOfDateLayerCount) || 0,
       }));
       selectedPatchIds = new Set();
       searchQuery = "";
@@ -132,14 +131,14 @@
     playerFlags.clear();
     layerStatus.clear();
     for (const patch of patches) layerStatus.set(patch.id, {
-      usageCount: patch.usageCount, outOfDateLayerCount: patch.outOfDateLayerCount,
+      usageCount: patch.usageCount,
     });
     for (const patch of patches) playerFlags.set(patch.previewId || patch.id, {
       hasPluginState: patch.hasPluginState, pluginStatePending: false,
     });
     draftHistory.reset(patches, saved);
     saving = false; confirmDiscard = false;
-    buildResult = ""; layerUpdateResult = "";
+    buildResult = "";
     syncHistory();
   };
   const recordEdit = (label) => {
@@ -164,7 +163,6 @@
     patches = restored.map(patch => ({ ...patch,
       ...playerFlags.get(patch.previewId || patch.id),
       usageCount: layerStatus.get(patch.id)?.usageCount || 0,
-      outOfDateLayerCount: layerStatus.get(patch.id)?.outOfDateLayerCount || 0,
     }));
     instrumentChooserPatchId = "";
     selectedPatchIds = new Set([...selectedPatchIds].filter(id => patches.some(p => p.id === id)));
@@ -283,7 +281,6 @@
       || nextGuidedPatch(patches),
   );
   /** @type {string} */ let pendingDeleteId = $state("");
-  let layerUpdateResult = $state("");
 
   // ── Portal container for modals ───────────────────────
   // Attach modal DOM directly to <body> so overflow:hidden parents
@@ -339,12 +336,6 @@
     }
     syncHistory();
   });
-  onFromCpp("libraryLayersUpdateResult", (result) => {
-    layerUpdateResult = typeof result === "string"
-      ? result
-      : result?.message || "Could not update layers from the patch";
-    setTimeout(() => { layerUpdateResult = ""; }, 5000);
-  });
   onFromCpp("setLibraryLayerStatus", (status) => {
     // Project Undo/Redo updates linkage status without discarding library drafts.
     const byId = new Map((status || []).map((item) => [item.patchId, item]));
@@ -352,7 +343,6 @@
     for (const [id, item] of byId) layerStatus.set(id, item);
     patches = patches.map((patch) => ({ ...patch,
       usageCount: byId.get(patch.id)?.usageCount || 0,
-      outOfDateLayerCount: byId.get(patch.id)?.outOfDateLayerCount || 0,
     }));
   });
 
@@ -462,15 +452,10 @@
     recordEdit("Delete patch");
   };
 
-  const updateLayersFromPatch = (row) => {
-    if (editorDirty || !row.outOfDateLayerCount) return;
-    dispatchCpp("updateLayersFromLibraryPatch", row.id);
-  };
-
   const duplicatePatch = (row) => {
     const copy = duplicateLibraryPatch(row, crypto.randomUUID());
     copy.previewId = copy.id;
-    copy.usageCount = 0; copy.outOfDateLayerCount = 0;
+    copy.usageCount = 0;
     playerFlags.set(copy.id, { hasPluginState: row.hasPluginState, pluginStatePending: row.pluginStatePending });
     dispatchCpp("cloneLibraryPatchPreview", { previewId: copy.id,
       sourcePreviewId: row.previewId || row.id, sourcePatchId: row.sourcePatchId || row.id,
@@ -832,11 +817,6 @@
           </div>
           {#if buildResult}<div class="layer-update-result" class:success={buildResult.startsWith("OK:")} role="status">{buildResult}</div>{/if}
 
-          {#if layerUpdateResult}
-            <div class="layer-update-result" class:success={layerUpdateResult.startsWith("OK:")} role="status">
-              {layerUpdateResult}
-            </div>
-          {/if}
 
           <div class="batch-toolbar">
             <button class="select-all-btn" onclick={selectAllPatches}>
@@ -973,18 +953,6 @@
                   />
                 </div>
                 <div class="ir-actions">
-                  <button
-                    class="action-update-layers"
-                    disabled={editorDirty || !row.outOfDateLayerCount}
-                    title={editorDirty
-                      ? "Save the library before updating layers"
-                      : !row.usageCount
-                        ? "This patch is not used by any current layer"
-                        : !row.outOfDateLayerCount
-                          ? "All linked layers already match this patch"
-                          : `Update ${row.usageCount} linked ${row.usageCount === 1 ? "layer" : "layers"}; ${row.outOfDateLayerCount} currently differ. Undo in the main mixer.`}
-                    onclick={() => updateLayersFromPatch(row)}
-                  >{"Update Layers"}</button>
                   <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
                   <button class="action-delete" onclick={() => removePatch(row.id)}>Delete</button>
                 </div>
@@ -1422,20 +1390,12 @@
   .ir-check { display: flex; justify-content: center; }
   .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .action-update-layers, .action-duplicate, .action-delete {
+  .action-duplicate, .action-delete {
     width: auto; height: 30px; padding: 0 9px; box-sizing: border-box;
     border: 1px solid #44446c;
     border-radius: 4px; background: #1a194b; color: #d8d7ff;
     font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
-  .action-update-layers { color: #a7f3d0; border-color: #2f6f61; }
-  .action-update-layers:hover:not(:disabled) {
-    border-color: #5eead4; background: #164e46; color: #ecfdf5;
-  }
-  .action-update-layers.confirm {
-    border-color: #fbbf24; background: #5b4311; color: #fff4bd;
-  }
-  .action-update-layers:disabled { opacity: .36; cursor: default; }
   .action-duplicate:hover { border-color: #95a9ff; background: #292863; }
   .action-delete:hover { border-color: #d96a78; background: #4b1e32; color: #ffd7dc; }
   .layer-update-result {

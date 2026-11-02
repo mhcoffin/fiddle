@@ -157,8 +157,9 @@ again, and Redo-remove/Undo. The latest settings should survive each cycle.
 automated tests and the user's smoke check passed. Included in the checkpoint
 "Make library layer updates undoable as one project edit".
 
-- Library Manager's Update Layers and the strip's Refresh Library share
-  `LayerLibrarySetupAction`. A batch is one project-history step. It updates
+- (Update Layers was later removed from the Library Manager, November 2026;
+  Refresh Library remains.) Library Manager's Update Layers and the strip's
+  Refresh Library share `LayerLibrarySetupAction`. A batch is one project-history step. It updates
   all linked layers and captures each layer's independent live player state,
   expression-map object/import path, patch revision and edited flag.
 - Undo/Redo captures departing player state on each cycle and does not consult

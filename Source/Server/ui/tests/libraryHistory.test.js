@@ -34,7 +34,7 @@ test('save is a checkpoint, not a draft history reset', () => {
 test('project linkage and player notifications are not structural history', () => {
     const h = new LibraryHistory();
     h.reset([row]);
-    assert.equal(h.record([{ ...row, usageCount: 8, outOfDateLayerCount: 2,
+    assert.equal(h.record([{ ...row, usageCount: 8,
         hasPluginState: true, pluginStatePending: true }], 'Status'), false);
     h.playerChanged();
     assert.equal(h.dirty, true);
