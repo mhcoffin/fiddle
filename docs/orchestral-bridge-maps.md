@@ -450,8 +450,8 @@ document, not a historical proposal or an experiment's old “next test” parag
 
 [Bridge profiles and audit reference](dorico-bridge-profiles.md) describes existing
 tools and retained assignment/versioning constraints. The **Chair coverage** and
-**Repair plan** UI tabs have not been removed or relabeled in this documentation
-change. Violin 1's enormous product count and the shared-budget starvation are
+**Repair plan** tabs, with the rest of the Technique Catalog, were removed on
+2026-10-19. Violin 1's enormous product count and the shared-budget starvation are
 limitations of the old analyzer, not evidence that this section-profile plan
 needs an astronomical number of entries. Do not use those tabs as its install plan.
 

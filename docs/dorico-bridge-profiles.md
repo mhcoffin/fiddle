@@ -87,6 +87,14 @@ remains relevant to the later custom-technique project.
 
 ## Implemented first stage: assigned-map audit
 
+> **Retired 2026-10-19.** The Technique Catalog window, its Assigned-map audit,
+> Chair coverage, Repair plan and Vocabulary catalog tabs, and their code
+> (`TechniqueCatalog`, `BridgeReachability`, `BridgeRepairPlan`, `ChairCoverage`)
+> were removed. They targeted the legacy universal decoder, not the section maps.
+> This document is kept as history; the code is in git before that date.
+> Bridge map status now appears in **Chairs**.
+
+
 Open View → Windows → Technique Catalog → Assigned-map audit (the default).
 Refresh snapshots the **actual parsed maps assigned to current project layers**
 and the decoder loaded in memory. It does not substitute a newer vendor file
@@ -258,6 +266,13 @@ Future production tests must cover program selection/replay, simultaneous same-c
 traffic on different ports, and instrument changes while notes are held.
 
 ## Verification
+
+> **Retired 2026-10-19.** The Technique Catalog window, its Assigned-map audit,
+> Chair coverage, Repair plan and Vocabulary catalog tabs, and their code
+> (`TechniqueCatalog`, `BridgeReachability`, `BridgeRepairPlan`, `ChairCoverage`)
+> were removed. They targeted the legacy universal decoder, not the section maps.
+> This document is kept as history; the code is in git before that date.
+> Bridge map status now appears in **Chairs**.
 
 `BridgeReachabilityTest` covers defaults/Natural, length-conditioned choices,
 shadowed entries, same-controller conflicts, custom-ID loss, add-ons, chair-wide

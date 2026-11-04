@@ -18,7 +18,6 @@ public:
   static constexpr int kLibraryManagerMenuItemId = 104;
   static constexpr int kHistoryMenuItemId = 105;
   static constexpr int kPrintMenuItemId = 106;
-  static constexpr int kTechniqueCatalogMenuItemId = 107;
   static constexpr int kScoreTestsMenuItemId = 108;
   static constexpr int kChairsMenuItemId = 111;
   static constexpr int kBusesMenuItemId = 112;
@@ -149,7 +148,6 @@ public:
       windows.addItem(kBusesMenuItemId, "Audio Bus Manager...");
       windows.addItem(kSettingsMenuItemId, "Settings...");
       windows.addItem(kLibraryManagerMenuItemId, "Library Manager");
-      windows.addItem(kTechniqueCatalogMenuItemId, "Technique Catalog...");
       windows.addItem(kScoreTestsMenuItemId, "Score Tests...");
       windows.addItem(kHistoryMenuItemId, "Project History");
       windows.addSeparator();
@@ -220,7 +218,6 @@ private:
     case kLibraryManagerMenuItemId: return "library-manager";
     case kHistoryMenuItemId: return "project-history";
     case kPrintMenuItemId: return "print";
-    case kTechniqueCatalogMenuItemId: return "technique-catalog";
     case kScoreTestsMenuItemId: return "score-tests";
     case kChairsMenuItemId: return "chairs";
     case kBusesMenuItemId: return "bus-manager";

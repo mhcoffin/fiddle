@@ -1,5 +1,12 @@
 # Chair coverage — superseded generation proposal / existing diagnostic
 
+> **Retired 2026-10-19.** The Technique Catalog window, its Assigned-map audit,
+> Chair coverage, Repair plan and Vocabulary catalog tabs, and their code
+> (`TechniqueCatalog`, `BridgeReachability`, `BridgeRepairPlan`, `ChairCoverage`)
+> were removed. They targeted the legacy universal decoder, not the section maps.
+> This document is kept as history; the code is in git before that date.
+> Bridge map status now appears in **Chairs**.
+
 > **Superseded as a bridge-generation strategy, 2026-09-24.** The current plan is
 > [four orchestral section bridge maps](orchestral-bridge-maps.md), using a small
 > base set plus mutex-grouped add-ons on independent conduits. The assumptions
