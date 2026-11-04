@@ -121,6 +121,26 @@ void testPanicClearsNotesAndEmitsControllerResets() {
   CHECK(resetControllers == 16);
 }
 
+void testMillisecondJitterRoundsToNearestSample() {
+  // An event exactly on a sample boundary, expressed in ms, is off by a tiny
+  // epsilon in either direction. It must neither play a sample early in the
+  // previous block nor be truncated to the preceding sample.
+  constexpr double rate = 48000.0, sampleMs = 1000.0 / rate, origin = 123456789.0;
+  fiddle::RealtimeMidiScheduler scheduler;
+  juce::MidiBuffer block;
+  CHECK(scheduler.schedule(origin + 64 * sampleMs - 1e-7, juce::MidiMessage::noteOn(1, 60, 0.8f)));
+  CHECK(scheduler.schedule(origin + 101 * sampleMs - 1e-7, juce::MidiMessage::noteOff(1, 60)));
+  CHECK(scheduler.schedule(origin + 102 * sampleMs + 1e-7, juce::MidiMessage::noteOn(1, 61, 0.8f)));
+  scheduler.renderBlock(origin, rate, 64, block);
+  CHECK(block.isEmpty());
+  scheduler.renderBlock(origin + 64 * sampleMs, rate, 64, block);
+  const auto events = capture(block);
+  CHECK(events.size() == 3);
+  CHECK(events[0].sampleOffset == 0);
+  CHECK(events[1].sampleOffset == 37);
+  CHECK(events[2].sampleOffset == 38);
+}
+
 void testUnsupportedMessagesAreCounted() {
   fiddle::RealtimeMidiScheduler scheduler;
   const uint8_t payload[] = {1, 2, 3, 4};
@@ -163,6 +183,7 @@ int main() {
   testClearDropsQueuedAndPendingEvents();
   testClearPreservesEventsScheduledAfterTheBarrier();
   testPanicClearsNotesAndEmitsControllerResets();
+  testMillisecondJitterRoundsToNearestSample();
   testUnsupportedMessagesAreCounted();
   testCancelWithdrawsOnlyTheTaggedPendingEvent();
   std::cout << "Passed: " << passed << '\n';

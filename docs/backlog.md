@@ -70,10 +70,6 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 1 — complete the conventional stereo mixer
 
-- **Investigate send-alignment regression tests.** The 2026-09-19 full test run
-  fails the pre/post-send sample-alignment/device-reprepare and send-path
-  continuity assertions in `MixerIntegrationTest.cpp`. Printing/tail regressions
-  pass; these two failures still need diagnosis before claiming a clean suite.
 - **Pre-fader sends — implemented, awaiting smoke test.** Per-send pre/post tap,
   correct rack-latency compensation, explicit mute/solo behavior, persistence,
   Undo/Redo, and promoted controls in the corresponding strip section. See
