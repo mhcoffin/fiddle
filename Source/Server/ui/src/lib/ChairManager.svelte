@@ -3,6 +3,8 @@
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { populateScoreOrder } from "./orchestralOrder.js";
     import { groupChairs, likelySectionRoleMistakes, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
+    import { bridgeForChair, counterText, isPlaying, verificationText } from "./bridgeStatus.js";
+    import BridgeMaps from "./BridgeMaps.svelte";
 
     let { onClose = () => {} } = $props();
     let chairs = $state([]);
@@ -17,6 +19,7 @@
     let installing = $state(false);
     let message = $state("");
     let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
+    let bridgeState = $state({ documents: [], assignments: [], sections: [], error: "" });
     let groups = $derived(groupChairs(chairs));
     let roleWarnings = $derived(likelySectionRoleMistakes(chairs));
     let results = $derived(searchDoricoInstruments(instruments, query));
@@ -33,6 +36,7 @@
         populateScoreOrder(instruments);
     }));
     unsubscribers.push(onFromCpp("setTemplateDirty", (data) => { templateDirty = !!data; }));
+    unsubscribers.push(onFromCpp("setBridgeMapState", (data) => { bridgeState = data || bridgeState; }));
     unsubscribers.push(onFromCpp("chairOperationResult", (data) => {
         message = typeof data === "string" ? data : "The chair could not be changed";
         clearMessageLater();
@@ -138,10 +142,12 @@
                 <div>
                     <h3>Dorico chairs</h3>
                     <p>{chairs.length} {chairs.length === 1 ? "destination" : "destinations"}</p>
-                    <p>Assign project bridge revisions in Technique Catalog → Bridge maps before installing. Unassigned inputs use the legacy map. Restart Dorico and apply the Fiddle playback template after installation.</p>
+                    <p>Installing gives each orchestral chair its section’s bridge map. Restart Dorico and apply the Fiddle playback template after installation.</p>
                 </div>
                 <button class="primary" onclick={openAdd}>Add Chair</button>
             </div>
+
+            <BridgeMaps {bridgeState} />
 
             {#if message}
                 <div class:error={message.startsWith("Error") || message.startsWith("Could") || message.startsWith("Add ")} class="message">{message}</div>
@@ -204,6 +210,12 @@
                                         <div class="midi">
                                             <span>MIDI destination</span>
                                             <strong>Port {chair.port + 1} · Channel {chair.channel + 1}</strong>
+                                            {#if bridgeForChair(bridgeState, chair)}
+                                                {@const bridge = bridgeForChair(bridgeState, chair)}
+                                                <span class="bridge" class:warn={!isPlaying(bridge)} title={[bridge.lastWithheld ? `Last withheld note: ${bridge.lastWithheld}` : "", counterText(bridge)].filter(Boolean).join("\n")}>{`${bridge.label} · ${verificationText(bridge)}${bridge.withheldNotes ? ` · ${bridge.withheldNotes} withheld` : ""}`}</span>
+                                            {:else}
+                                                <span class="bridge">Universal map</span>
+                                            {/if}
                                         </div>
                                         <button
                                             class:confirm={pendingDeleteId === chair.id}
@@ -322,6 +334,7 @@
     .chair-role:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
     .midi { min-width:185px; display:flex; flex-direction:column; gap:4px; font-variant-numeric:tabular-nums; }
     .midi strong { font-size:.88rem; }
+    .midi .bridge { max-width:260px; } .midi .bridge.warn { color:#f8bd9d; }
     .delete { min-width:116px; } .delete.confirm { border-color:#f87171; background:#7f1d1d; color:#fee2e2; }
     .add-backdrop { position:absolute; inset:0; z-index:2; display:flex; align-items:center; justify-content:center; padding:40px; background:rgba(2,6,23,.82); }
     .add-dialog { width:min(680px, 100%); max-height:calc(100% - 40px); display:flex; flex-direction:column; padding:24px; border:1px solid #3b4b61; border-radius:12px; background:#111c2e; box-shadow:0 24px 60px rgba(0,0,0,.5); }

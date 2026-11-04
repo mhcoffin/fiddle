@@ -10,13 +10,14 @@ template, and pins the four revisions with the project's branch/version. Every
 other chair keeps the universal Fiddle map. Users do not assign ports, channels
 or maps. A branch keeps the revisions it pinned even when the app ships newer
 built-ins; editing a map is future editor work.
-**View → Windows → Technique Catalog → Bridge maps** shows the four section
-maps (with Dorico export) and each routed channel's live status. When a
-section's pinned map differs from the app's built-in one, it shows both and
-offers **Use built-in revision N** (or **Use all built-in maps**): one undoable
-change that repins the section and moves every channel that used the old map.
-Then reinstall the playback template with Dorico closed and reapply it in open
-projects; until then the beacon mismatches and those notes are withheld.
+**Chairs** shows each chair's bridge map and live status (beacon match, withheld
+notes), and a **Bridge maps** list of the section maps with Dorico export. When
+a section's pinned map differs from the app's built-in one, the list opens and
+shows both, offering **Use built-in revision N** (or **Use all built-in maps**):
+one undoable change that repins the section and moves every channel that used
+the old map. Then reinstall the playback template with Dorico closed and
+reapply it in open projects; until then the beacon mismatches and those notes
+are withheld. The separate Technique Catalog window was removed on 2026-10-19.
 The compiler/decoder exists; production Dorico acceptance is still pending.
 
 The manual workspace described below (starting-map buttons, per-port
@@ -346,6 +347,6 @@ database. A `.dorico` alone is not yet a self-contained Fiddle backup: retain th
 Fiddle database and export bridge bundles when transferring projects. Embedding
 a recoverable full project snapshot in host state remains future work.
 
-The current Assigned-map audit/Repair plan tabs still inspect the legacy decoder.
-They do not yet audit these per-input compiled revisions. Template installation
+The legacy audit tools were removed on 2026-10-19. A coverage check of chair
+library maps against their section map is future work. Template installation
 uses project pins; production host acceptance remains separate work.

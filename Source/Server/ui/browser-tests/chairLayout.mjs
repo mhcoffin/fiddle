@@ -879,13 +879,48 @@ try {
     const chairPage = await openTool("chairs");
     await chairPage.evaluate(chairs => { window.fixtureChairs = chairs; }, await page.evaluate(() => window.fixtureChairs));
     const manager = chairPage.getByRole("dialog", { name: "Chair Manager", exact: true });
-    assert.match(await manager.innerText(), /Assign project bridge revisions/);
+    assert.match(await manager.innerText(), /Installing gives each orchestral chair its section’s bridge map/);
     await chairPage.evaluate(() => {
         window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
         window.__dispatchFromCpp({ type: "setUndoState", data: {
             canUndo: true, canRedo: false, undoDescription: "Edit chair 'New flute'", redoDescription: "",
         } });
     });
+    // Each chair shows its bridge map and live status; others use the universal map.
+    const bridgeState = {
+        documents: [{ hash: "ww", name: "Fiddle Bridge - Orchestral Woodwinds r2 (host test)", revision: 2, schema: 2 }],
+        sections: [{ key: "woodwinds", label: "Orchestral woodwinds", hash: "ww" }, { key: "brass", label: "Orchestral brass", hash: "" }],
+        assignments: [
+            { port: 0, channel: 1, hash: "ww", verified: false, beacon: "matched", receivedBeacon: [5, 6], expectedBeacon: [5, 6], lastWithheld: "", withheldNotes: 0 },
+            { port: 0, channel: 3, hash: "ww", verified: false, beacon: "mismatched", receivedBeacon: [3, 4], expectedBeacon: [5, 6],
+              lastWithheld: "Dorico is playing a different bridge revision", withheldNotes: 2, ignoredOffs: 1, debouncedOffs: 3 }],
+        error: "",
+    };
+    await chairPage.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), bridgeState);
+    const chairRow = name => manager.locator("article.chair-row").filter({ has: chairPage.getByRole("textbox", { name: `Name for ${name}`, exact: true }) });
+    assert.match(await chairRow("Flute 1").innerText(), /Orchestral woodwinds · Beacon matches/);
+    const mismatched = chairRow("Flute 3").locator(".bridge");
+    assert.match(await mismatched.innerText(), /different revision \(beacon 3\/4, expected 5\/6\) · notes withheld · 2 withheld/);
+    assert.match(await mismatched.getAttribute("title"), /1 stale Offs ignored · 3 early Offs suppressed/);
+    assert.ok(await mismatched.evaluate(e => e.classList.contains("warn")));
+    assert.match(await chairRow("Flute 4").innerText(), /Universal map/);
+    const bridgeMaps = manager.locator("details.bridges");
+    await bridgeMaps.locator("summary").click();
+    assert.match(await bridgeMaps.innerText(), /Orchestral Woodwinds r2 \(host test\) · revision 2/);
+    assert.match(await bridgeMaps.innerText(), /Set when the playback template is installed/);
+    await bridgeMaps.getByRole("button", { name: "Export Dorico map…", exact: true }).click();
+    assert.ok(await chairPage.evaluate(() => window.fixtureMessages.some(m => m.type === "exportBridgeMap" && m.payload[0] === "ww")));
+    await bridgeMaps.getByRole("button", { name: "Refresh live status", exact: true }).click();
+    assert.ok(await chairPage.evaluate(() => window.fixtureMessages.some(m => m.type === "requestBridgeMaps")));
+    // A pinned section map older than the built-in one opens the list and offers the repin.
+    await bridgeMaps.locator("summary").click();
+    assert.ok(!(await bridgeMaps.evaluate(e => e.open)));
+    await chairPage.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), {
+        ...bridgeState, sections: [{ ...bridgeState.sections[0], updateAvailable: true, builtInName: "Fiddle Bridge - Orchestral Woodwinds r3", builtInRevision: 3 }, bridgeState.sections[1]] });
+    assert.ok(await bridgeMaps.evaluate(e => e.open));
+    assert.match(await bridgeMaps.innerText(), /Fiddle's built-in maps differ for orchestral woodwinds/);
+    await bridgeMaps.getByRole("button", { name: "Use built-in revision 3", exact: true }).click();
+    assert.ok(await chairPage.evaluate(() => window.fixtureMessages.some(m => m.type === "useBuiltInBridgeMaps" && m.payload[0] === "woodwinds")));
     const installTemplate = manager.getByRole("button", { name: "Install Playback Template", exact: true });
     await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setTemplateDirty", data: false }));
     assert.ok(await installTemplate.isDisabled());

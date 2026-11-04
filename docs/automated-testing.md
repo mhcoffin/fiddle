@@ -204,20 +204,9 @@ integration/acceptance work below.
 
 ## Next stages
 
-The read-only [technique catalog](technique-catalog.md) has a native
-`technique_catalog` fixture suite, pure UI scope/filter tests, and a separate
-optional rendered test:
-
-```sh
-node Source/Server/ui/browser-tests/techniqueCatalog.mjs
-```
-
-It uses the same Playwright/browser environment variables as the chair-layout
-test. To audit real libraries without touching the live project, set
-`FIDDLE_TECHNIQUE_SCAN_TOOL` to `build/release/TechniqueCatalogTest` (absolute
-path) and `FIDDLE_TECHNIQUE_SCAN_ARGS` to a JSON argument array of pairs such as
-`["--installed", "/path/to/DefaultLibraryAdditions", "--reference", "/path/to/Art-Conductor"]`.
-No vendor data is part of the fixture tests or checked into the repository.
+The technique catalog and its `technique_catalog`, `bridge_reachability`,
+`bridge_repair_plan` and `chair_coverage` suites were retired on 2026-10-19
+([history](technique-catalog.md)).
 
 1. Add rendered UI interaction tests, replacing fragile source checks where
    practical. Exercise selection, button enablement, dialogs, and undo.
@@ -247,14 +236,14 @@ version restore, full-state blobs, portable bundles, and two downstream instrume
 receiving the same compiled intent without protocol-command leakage. Version-store tests cover
 bridge content identity and conflicting/non-conflicting merges.
 
-The Technique Catalog browser fixture also covers the Bridge maps workspace,
-including draft preservation on error, assignment numbering, honest verification
-labels, busy gating, export commands and narrow layout. Run from the repository:
+The Chairs browser fixture (`chairLayout.mjs`) covers each chair's bridge map and
+live status, the section-map list and export. `ui/tests/bridgeStatus.test.js`
+covers the status model. Run from the repository:
 
 ```sh
 cmake --build build/release --target BridgeMapDocumentTest MixerIntegrationTest VersionStoreTest
 ctest --test-dir build/release -R 'bridge_map_document|mixer_integration|version_store' --output-on-failure
-node Source/Server/ui/browser-tests/techniqueCatalog.mjs
+node Source/Server/ui/browser-tests/chairLayout.mjs
 ```
 
 Browser fixtures require Playwright and Chrome; see that script's environment

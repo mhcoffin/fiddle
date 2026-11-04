@@ -22,7 +22,6 @@
 #include "PluginScanner.h"
 #include "ScoreTest.h"
 #include "ToolWindow.h"
-#include "TechniqueCatalog.h"
 
 #include "HarmonicAnalysisService.h"
 #include "MessageRouter.h"
@@ -148,13 +147,6 @@ private:
   juce::String scoreTestError_;
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
   ExpressionMapLibrary xmapLibrary_;
-  TechniqueCatalogScan techniqueCatalogScan_;
-  juce::File bridgeExpressionMapFile_;
-  std::vector<juce::File> techniqueCatalogExtraSources_;
-  bool techniqueCatalogIncludeReference_ = false;
-  juce::var techniqueCatalogLastState_;
-  void scanTechniqueCatalog(bool includeReference);
-  void pushTechniqueCatalogState(bool force = false);
   UndoManager undoManager_;
   UndoManager libraryUndoManager_;
   bool libraryDraftDirty_ = false;

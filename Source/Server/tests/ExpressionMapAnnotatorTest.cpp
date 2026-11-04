@@ -2,7 +2,6 @@
 #include "../ExpressionMapData.h"
 #include "../ExpressionMapParser.h"
 #include "../NoteInspection.h"
-#include "../BridgeReachability.h"
 #include "../NoteStreamTracker.h"
 #include "../NoteStartSettler.h"
 #include "midi_event.pb.h"
@@ -1468,55 +1467,42 @@ static void testIncomingSwitchTrackerAmbiguity();
 // Runner
 // ---------------------------------------------------------------------------
 
+// Universal (legacy) map decoding, still used by chairs outside the four
+// section maps: every non-default dimension value sent before a note must
+// reach that note as its technique ID, and Natural/default values must not.
 static void testBridgeWitnessesThroughIncomingNotes() {
   std::cout << "--- testBridgeWitnessesThroughIncomingNotes ---" << std::endl;
   ExpressionMap bridge;
   const bool loaded = bridge.loadFromDoricolib(juce::File::getCurrentWorkingDirectory().getChildFile("resources/Fiddle_Universal.doricolib"));
   A_CHECK(loaded);
   if (!loaded) return;
-  ExpressionMapData map;
-  for (const auto &id : {"pt.natural", "pt.staccato", "pt.legato", "pt.muted", "pt.sulTasto"}) {
-    TechniqueCombination c; c.name = id; c.techniqueIDs = {id}; map.combinations.push_back(c);
-  }
-  BridgeReachability::Assignment assignment{"chair", "Chair", "layer", "Layer", map};
-  const auto result = BridgeReachability::audit(bridge.getDimensions(), {assignment});
-  A_CHECK(bool(result["decoderAvailable"]));
   int replayed = 0;
-  for (const auto &row : *result["chairs"][0]["layers"][0]["rows"].getArray()) {
-    if (row["status"].toString() != "witness") continue;
-    NoteStreamTracker tracker;
-    tracker.setExpressionMap(&bridge);
-    bool received = false;
-    NoteStreamTracker::Callbacks callbacks;
-    callbacks.onNoteStarted = [&](const fiddle::Note &note) {
-      received = true;
-      const auto ids = collectInputTechniqueIds(note);
-      std::set<std::string> expected;
-      for (const auto &id : *row["witness"]["techniques"].getArray()) expected.insert(id.toString().toStdString());
-      A_CHECK(ids == expected);
-      const auto length = inputLengthCategory(note, 44100.0);
-      A_CHECK(int(length) == int(row["witness"]["length"]));
-      const auto match = map.resolveMatch(ids, length);
-      A_CHECK(match.base == &map.combinations[int(row["index"])]);
-    };
-    tracker.setCallbacks(std::move(callbacks));
-    for (const auto &cc : *row["witness"]["cc"].getArray()) {
+  for (const auto &dim : bridge.getDimensions()) {
+    if (dim.ccNumber < 0 || dim.ccNumber > 127 || dim.ccNumber == 102) continue;
+    for (const auto &[value, display] : dim.techniques) {
+      const bool isDefault = std::find(dim.defaultValues.begin(), dim.defaultValues.end(), value) != dim.defaultValues.end();
+      NoteStreamTracker tracker;
+      tracker.setExpressionMap(&bridge);
+      std::set<std::string> ids;
+      NoteStreamTracker::Callbacks callbacks;
+      callbacks.onNoteStarted = [&](const fiddle::Note &note) { ids = collectInputTechniqueIds(note); };
+      tracker.setCallbacks(std::move(callbacks));
       fiddle::MidiEvent event;
       event.set_channel(1); event.set_host_sample_position(0);
-      event.mutable_cc()->set_controller_number(int(cc["cc"]));
-      event.mutable_cc()->set_controller_value(int(cc["value"]));
+      event.mutable_cc()->set_controller_number(102); event.mutable_cc()->set_controller_value(2); // Natural, medium
       tracker.processEvent(event);
+      event.mutable_cc()->set_controller_number(dim.ccNumber); event.mutable_cc()->set_controller_value(value);
+      tracker.processEvent(event);
+      fiddle::MidiEvent note;
+      note.set_channel(1); note.set_host_sample_position(100);
+      note.mutable_note_on()->set_note_number(60); note.mutable_note_on()->set_velocity(80);
+      tracker.processEvent(note);
+      const auto id = techniqueIdFromDisplay(display.toStdString());
+      A_CHECK(isDefault ? !ids.count(id) || id == "pt.natural" : ids.count(id) == 1);
+      ++replayed;
     }
-    fiddle::MidiEvent event;
-    event.set_channel(1); event.set_host_sample_position(100);
-    event.mutable_note_on()->set_note_number(60); event.mutable_note_on()->set_velocity(80);
-    tracker.processEvent(event);
-    A_CHECK(received);
-    ++replayed;
   }
   A_CHECK(replayed >= 3);
-  // The current legacy decoder lowercases this canonical camel-case identity.
-  A_CHECK(result["chairs"][0]["layers"][0]["rows"][4]["status"].toString() == "missing");
 }
 
 // ---------------------------------------------------------------------------
