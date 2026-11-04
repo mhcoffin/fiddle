@@ -8,6 +8,7 @@
 #include "HostedPluginSlot.h"
 #include "IncomingSwitchTracker.h"
 #include "MidiCaptureLog.h"
+#include "PercussionMap.h"
 #include "RealtimeMidiScheduler.h"
 #include "StripAudioEngine.h"
 #include <atomic>
@@ -26,6 +27,13 @@ class LuaPlugin;
 struct ExpressionMapAssignment {
   std::shared_ptr<ExpressionMapData> data;
   juce::String sourcePath;
+  juce::String sourceXml;
+};
+
+/// A layer's library percussion map. sourceXml is the DrumKitNoteMapDefinition
+/// it plays, so a project version restores the map it had.
+struct PercussionMapAssignment {
+  std::shared_ptr<const PercussionMap> map;
   juce::String sourceXml;
 };
 
@@ -156,6 +164,17 @@ struct MixerStrip {
   /// and rebuilds the full annotator chain.
   void setExpressionMap(std::shared_ptr<ExpressionMapData> em);
 
+  // Library percussion map, applied ahead of the expression map on an
+  // unpitched chair (docs/library-percussion-maps.md).
+  std::shared_ptr<const PercussionMap> percussionMap;
+  juce::String percussionMapSourceXml;
+  /// The chair's Dorico instrument entity ID, which percussion maps key on.
+  juce::String instrumentEntityId;
+
+  [[nodiscard]] PercussionMapAssignment snapshotPercussionMap() const;
+  void setPercussionMapAssignment(PercussionMapAssignment assignment);
+  void setInstrumentEntityId(const juce::String &entityId);
+
   // Lua plugins installed on this strip (ordered chain).
   std::vector<std::shared_ptr<LuaPlugin>> luaPlugins;
 
@@ -172,8 +191,8 @@ struct MixerStrip {
   /// Returns basenames only (e.g. "force_staccato.lua"), not full paths.
   std::vector<std::string> getLuaPluginFileNames() const;
 
-  /// Rebuild the annotator chain from the Lua plugins + expression map.
-  /// Lua plugins run first (in order), then the ExpressionMapAnnotator.
+  /// Rebuild the annotator chain: Lua plugins (in order), the percussion map,
+  /// then the ExpressionMapAnnotator.
   void rebuildAnnotatorChain();
 
 private:

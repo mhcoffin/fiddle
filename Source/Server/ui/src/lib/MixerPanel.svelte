@@ -50,6 +50,7 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
     let availableXmaps = $state([]);
+    let percussionMaps = $state([]);
     let luaPluginCatalog = $state([]);
     let masterAudio = $state({
         id: "master",
@@ -190,6 +191,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         } catch (e) {
             console.error("[Mixer] xmap error:", e);
         }
+    });
+    onFromCpp("setPercussionMaps", (data) => {
+        percussionMaps = Array.isArray(data) ? data : [];
     });
     onFromCpp("setLuaPluginCatalog", (data) => {
         try {
@@ -335,6 +339,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         dispatchCpp("requestMasterAudioState");
         dispatchCpp("requestGroupBusState");
         dispatchCpp("requestExpressionMaps");
+        dispatchCpp("requestPercussionMaps");
         dispatchCpp("requestCurrentBranch");
         dispatchCpp("requestChairs");
         dispatchCpp("requestLayerCatalog");
@@ -1621,6 +1626,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 pluginName={getPluginName(detailsStrip)}
                 plugins={scannedPlugins}
                 maps={availableXmaps}
+                {percussionMaps}
                 luaCatalog={luaPluginCatalog}
                 inspectorOpen={inspectorOpen && inspectorStripId === detailsStrip.id}
                 onClose={() => { layerDetailsStripId = ""; }}
@@ -1630,6 +1636,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onSelectMap={(entityID) => loadExpressionMap(detailsStrip.id, entityID)}
                 onClearMap={() => clearExpressionMap(detailsStrip.id)}
                 onLoadMapFile={() => loadExpressionMapFromFile(detailsStrip.id)}
+                onSelectPercussionMap={(entityId) => dispatchCpp("loadPercussionMap", detailsStrip.id, entityId)}
+                onClearPercussionMap={() => dispatchCpp("clearPercussionMap", detailsStrip.id)}
+                onLoadPercussionMapFile={() => dispatchCpp("loadPercussionMapFromFile", detailsStrip.id)}
                 onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}
                 onRemoveLua={(index) => removeLuaPlugin(detailsStrip.id, index)}
                 onInspectMidi={() => {

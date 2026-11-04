@@ -129,6 +129,38 @@ private:
   bool success_ = false;
 };
 
+/// Undo/redo for a layer's percussion map choice.
+class SetPercussionMapAction : public UndoableAction {
+public:
+  SetPercussionMapAction(MixerModel &mixer, const juce::String &stripId,
+                         PercussionMapAssignment before, PercussionMapAssignment after)
+      : mixer_(mixer), stripId_(stripId), before_(std::move(before)), after_(std::move(after)) {}
+
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override {
+    if (!after_.map)
+      return "Clear percussion map";
+    return "Set percussion map to '" + juce::String(after_.map->name) + "'";
+  }
+
+private:
+  void apply(const PercussionMapAssignment &assignment) {
+    success_ = false;
+    if (auto *strip = mixer_.getStrip(stripId_)) {
+      strip->allNotesOff();
+      strip->setPercussionMapAssignment(assignment);
+      success_ = true;
+    }
+  }
+
+  MixerModel &mixer_;
+  juce::String stripId_;
+  PercussionMapAssignment before_, after_;
+  bool success_ = false;
+};
+
 /// Undo/redo for a host-visible VSTi program selection. Program index alone is
 /// insufficient: many instruments update additional opaque state when a
 /// program changes, so both sides retain the complete serialized state too.

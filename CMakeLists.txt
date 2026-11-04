@@ -225,6 +225,9 @@ target_sources(FiddleServer PRIVATE
     Source/Server/HarmonicAnalysisService.h
     Source/Server/TonalContext.h
     Source/Server/AnnotatorChain.h
+    Source/Server/PercussionMap.cpp
+    Source/Server/PercussionMap.h
+    Source/Server/PercussionMapAnnotator.h
     Source/Server/FiddleConfig.h
     Source/Server/ExpressionMapParser.cpp
     Source/Server/TechniqueCatalog.cpp
@@ -577,6 +580,27 @@ juce_generate_juce_header(ExpressionMapTest)
 add_test(NAME expression_maps COMMAND ExpressionMapTest)
 set_tests_properties(expression_maps PROPERTIES
     LABELS stable
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+# ==============================================================================
+# PercussionMapTest — library percussion maps: parsing, matching, playback
+# ==============================================================================
+juce_add_console_app(PercussionMapTest PRODUCT_NAME "PercussionMapTest")
+target_sources(PercussionMapTest PRIVATE
+    Source/Server/tests/PercussionMapTest.cpp
+    Source/Server/PercussionMap.cpp
+    Source/Server/ExpressionMapParser.cpp
+    Source/Server/NoteInspection.cpp
+    "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc"
+)
+target_include_directories(PercussionMapTest PRIVATE Source/Server "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(PercussionMapTest PRIVATE juce::juce_core juce::juce_events libprotobuf)
+target_compile_features(PercussionMapTest PRIVATE cxx_std_17)
+juce_generate_juce_header(PercussionMapTest)
+add_test(NAME percussion_maps COMMAND PercussionMapTest)
+set_tests_properties(percussion_maps PROPERTIES
+    LABELS "percussion-map;expression-map;regression;stable"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
@@ -1277,6 +1301,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/MixerCommandService.cpp
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
+    Source/Server/PercussionMap.cpp
     Source/Server/GroupBus.cpp
     Source/Server/GroupBusCommandService.cpp
     Source/Server/GroupBusJsHandlers.cpp

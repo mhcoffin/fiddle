@@ -6,7 +6,6 @@ export function filterLayerCatalog(patches, query) {
             const haystack = [
                 patch.name,
                 patch.libraryName,
-                patch.character,
                 patch.family,
             ].filter(Boolean).join(" ").toLowerCase();
             return terms.every((term) => haystack.includes(term));

@@ -3,6 +3,8 @@
 #include "ExpressionMapAnnotator.h"
 #include "LuaAnnotator.h"
 #include "LuaPlugin.h"
+#include "BridgeSections.h"
+#include "PercussionMapAnnotator.h"
 #include <filesystem>
 
 namespace fiddle {
@@ -184,6 +186,26 @@ void MixerStrip::setExpressionMapAssignment(
   rebuildAnnotatorChain();
 }
 
+PercussionMapAssignment MixerStrip::snapshotPercussionMap() const {
+  auto lock = lockMidiState();
+  return {percussionMap, percussionMapSourceXml};
+}
+
+void MixerStrip::setPercussionMapAssignment(PercussionMapAssignment assignment) {
+  auto lock = lockMidiState();
+  percussionMap = std::move(assignment.map);
+  percussionMapSourceXml = percussionMap ? std::move(assignment.sourceXml) : juce::String();
+  rebuildAnnotatorChain();
+}
+
+void MixerStrip::setInstrumentEntityId(const juce::String &entityId) {
+  auto lock = lockMidiState();
+  if (instrumentEntityId == entityId)
+    return;
+  instrumentEntityId = entityId;
+  rebuildAnnotatorChain();
+}
+
 void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
   setExpressionMapAssignment({std::move(em), {}, {}});
 }
@@ -232,6 +254,8 @@ void MixerStrip::rebuildAnnotatorChain() {
   auto chain = std::make_unique<AnnotatorChain>();
   for (auto &plugin : luaPlugins)
     chain->add(std::make_unique<LuaAnnotator>(plugin));
+  if (percussionMap)
+    chain->add(std::make_unique<PercussionMapAnnotator>(percussionMap, instrumentEntityId.toStdString()));
   if (expressionMap)
     chain->add(std::make_unique<ExpressionMapAnnotator>(expressionMap));
   else
@@ -287,6 +311,26 @@ juce::var MixerStrip::annotationRecordToVar(const AnnotationRecord &r) {
   }
 
   // Match resolution
+  if (!r.percussion.mapName.empty()) {
+    const auto &p = r.percussion;
+    auto *percussion = new juce::DynamicObject();
+    percussion->setProperty("mapName", juce::String(p.mapName));
+    percussion->setProperty("instrument", juce::String(p.instrument));
+    percussion->setProperty("entryName", juce::String(p.entryName));
+    juce::Array<juce::var> techniques, keys;
+    for (const auto &t : p.entryTechniques)
+      techniques.add(juce::String(t));
+    for (const int k : p.keyswitches)
+      keys.add(k);
+    percussion->setProperty("entryTechniques", juce::var(techniques));
+    percussion->setProperty("pitch", p.pitch);
+    percussion->setProperty("keyswitches", juce::var(keys));
+    percussion->setProperty("instrumentFallback", p.instrumentFallback);
+    percussion->setProperty("withheld", juce::String(p.withheld));
+    percussion->setProperty("warning", juce::String(p.warning));
+    obj->setProperty("percussion", juce::var(percussion));
+  }
+
   obj->setProperty("lengthCategory", static_cast<int>(r.lengthCategory));
   obj->setProperty("baseSwitchName", juce::String(r.baseSwitchName));
   {
@@ -666,6 +710,13 @@ juce::var MixerStrip::toJson() const {
                    expressionMap ? juce::String(expressionMap->name) : "");
   obj->setProperty("expressionMapEntityID",
                    expressionMap ? juce::String(expressionMap->entityID) : "");
+  obj->setProperty("percussionMapName",
+                   percussionMap ? juce::String(percussionMap->name) : "");
+  obj->setProperty("percussionMapEntityID",
+                   percussionMap ? juce::String(percussionMap->entityId) : "");
+  obj->setProperty("instrumentEntityId", instrumentEntityId);
+  obj->setProperty("unpitchedPercussion",
+                   bridgeSectionForInstrument(instrumentEntityId) == BridgeSection::UnpitchedPercussion);
 
   if (auto *processor = instrumentSlot_.activeProcessor()) {
     AudioProcessingGate::Control control;

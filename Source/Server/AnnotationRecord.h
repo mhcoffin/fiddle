@@ -42,6 +42,19 @@ struct AnnotationRecord {
   // ── Dynamics ──
   std::string dynamicsRouting; // e.g. "velocity→CC1", "CC→velocity"
 
+  // ── Library percussion map (empty mapName when none applied) ──
+  struct Percussion {
+    std::string mapName;
+    std::string instrument;          // the chair's Dorico instrument
+    std::string entryName;           // the winning entry
+    std::set<std::string> entryTechniques;
+    int pitch = -1;
+    std::vector<int> keyswitches;
+    bool instrumentFallback = false; // a single-instrument map's entries
+    std::string withheld;            // why the note was not played
+    std::string warning;             // e.g. a roll with no roll entry
+  } percussion;
+
   // ── Duration (populated by onNoteEnd) ──
   double durationAdjustMs = 0.0;
 

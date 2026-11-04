@@ -335,6 +335,17 @@ private:
   /// mixer strip, leaving routing and mixer controls unchanged.
   bool refreshLayersFromPatch(const LibraryPatchRow &patch, const std::vector<LayerRow> &layers);
   void layerLibrarySetupSettled(const juce::String &stripId);
+  // Library percussion maps (docs/library-percussion-maps.md).
+  PercussionMapAssignment loadPercussionMap(const std::string &entityId);
+  void refreshLivePercussionMaps();
+  void pushPercussionMaps();
+  void percussionMapResult(const juce::String &action, bool success, const juce::String &message,
+                           const juce::String &entityId);
+  bool performPercussionMapEdit(const std::string &entityId, std::optional<PercussionMapRow> target,
+                                const juce::String &description);
+  void offerPercussionMapImport(const juce::Array<juce::File> &sources, const juce::String &origin);
+  void assignPercussionMap(const juce::String &stripId, PercussionMapAssignment assignment);
+  void setupPercussionMapHandlers();
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void stripAudioChanged(const juce::String &stripId);

@@ -75,6 +75,8 @@ struct StripBlob {
   std::string expressionMapEntityId;
   std::string expressionMapPath;
   std::string expressionMapSourceXml;
+  /// The library percussion map the layer plays (its definition XML), or empty.
+  std::string percussionMapSourceXml;
   /// Empty routes directly to Master; otherwise references a GroupBusBlob ID.
   std::string directOutputBusId;
   /// Ordered post-fader send definitions; empty for pre-send projects.
@@ -120,6 +122,11 @@ struct StripBlob {
     if (!sendsJson.empty()) {
       header.append("\0postFaderSends\0", 16);
       header.append(sendsJson);
+    }
+    // Likewise for strips without a percussion map.
+    if (!percussionMapSourceXml.empty()) {
+      header.append("\0percussionMap\0", 15);
+      header.append(percussionMapSourceXml);
     }
     return header;
   }

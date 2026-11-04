@@ -64,6 +64,24 @@ fiddle::LibraryPatchRow soloViolinPatch() {
   return patch;
 }
 
+// What a layer's Refresh Library writes: the patch's library-owned setup,
+// leaving routing and mixer controls alone.
+bool refreshLayerFromPatch(fiddle::LibraryRoutingRepository &repository,
+                           const std::string &layerId) {
+  auto layer = repository.getLayer(layerId);
+  const auto patch = layer ? repository.getPatch(layer->patchId) : std::nullopt;
+  if (!patch) return false;
+  layer->patchName = patch->name;
+  layer->libraryId = patch->libraryId;
+  layer->pluginUid = patch->pluginUid;
+  layer->pluginState = patch->pluginState;
+  layer->expressionMapId = patch->expressionMapId;
+  layer->percussionMapId = patch->percussionMapId;
+  layer->sourcePatchRevision = patch->revision;
+  layer->pluginStateEdited = false;
+  return repository.updateLayerSetups({*layer});
+}
+
 fiddle::ChairRow makeChair(std::string id, fiddle::DoricoRole role,
                            int ordinal, int flatIndex) {
   fiddle::ChairRow chair;
@@ -308,7 +326,7 @@ void testOneChairAcceptsSeveralPatchesFromOneLibrary() {
   CHECK(layers.size() == 2 && layers[1].patchId == second.id);
 }
 
-void testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix() {
+void testRefreshingLinkedLayersKeepsTheirMix() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
   auto patch = soloViolinPatch();
@@ -376,14 +394,12 @@ void testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix() {
   CHECK(repository.outOfDateLayerCount(patch.id) == 1);
   CHECK(repository.outOfDateLayerIds() ==
         std::vector<std::string>({"layer-b"}));
-  const auto updateCount = repository.updateLayersFromPatch(patch.id);
-  CHECK(updateCount && *updateCount == 2);
+  CHECK(refreshLayerFromPatch(repository, "layer-b"));
   CHECK(repository.outOfDateLayerCount(patch.id) == 0);
   const auto updated = repository.getLayer("layer-a");
   CHECK(updated.has_value());
   CHECK(updated && updated->patchName == patch.name);
   CHECK(updated && updated->libraryId == patch.libraryId);
-  CHECK(updated && updated->libraryName == "Vienna");
   CHECK(updated && updated->pluginUid == patch.pluginUid);
   CHECK(updated && updated->pluginState == patch.pluginState);
   CHECK(updated && updated->expressionMapId == patch.expressionMapId);
@@ -404,9 +420,9 @@ void testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix() {
   // serialized bytes being stable.
   CHECK(repository.markLayerPluginStateEdited("layer-a"));
   CHECK(repository.outOfDateLayerCount(patch.id) == 1);
-  CHECK(repository.updateLayersFromPatch(patch.id).has_value());
+  CHECK(refreshLayerFromPatch(repository, "layer-a"));
   CHECK(repository.outOfDateLayerCount(patch.id) == 0);
-  CHECK(!repository.updateLayersFromPatch("missing-patch").has_value());
+  CHECK(!refreshLayerFromPatch(repository, "missing-layer"));
 }
 
 void testReferencedPatchDeletionIsBlocked() {
@@ -650,6 +666,54 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 
 } // namespace
 
+void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  fiddle::PercussionMapRow map{"drumkitmap.user.snare", "Snare", "<DrumKitNoteMapDefinition/>", 1};
+  CHECK(repository.upsertPercussionMap(map));
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
+  CHECK(repository.upsertPercussionMap(map)); // unchanged: same revision
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
+  map.xml = "<DrumKitNoteMapDefinition><name>Snare</name></DrumKitNoteMapDefinition>";
+  CHECK(repository.upsertPercussionMap(map));
+  CHECK(repository.getPercussionMap(map.entityId)->revision == 2);
+  CHECK(repository.listPercussionMaps().size() == 1);
+
+  auto patch = soloViolinPatch();
+  patch.instrumentEntityId = "instrument.orchestral.unpitched.snare.drum";
+  patch.percussionMapId = map.entityId;
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->percussionMapId == map.entityId);
+  auto chair = makeChair("snare-1", fiddle::DoricoRole::solo, 1, 1);
+  chair.instrumentEntityId = patch.instrumentEntityId;
+  CHECK(repository.upsertChair(chair));
+  CHECK(repository.createLayerFromPatch("snare-layer", chair.id, patch.id, 0));
+  CHECK(repository.getLayer("snare-layer")->percussionMapId == map.entityId);
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  // Referenced maps cannot be deleted.
+  CHECK(repository.percussionMapReferences(map.entityId).size() == 2);
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::referenced);
+
+  // A layer override differs from its patch until refreshed.
+  auto layer = *repository.getLayer("snare-layer");
+  layer.percussionMapId.clear();
+  CHECK(repository.updateLayerSetups({layer}));
+  CHECK(repository.getLayer("snare-layer")->percussionMapId.empty());
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+  CHECK(refreshLayerFromPatch(repository, "snare-layer"));
+  CHECK(repository.getLayer("snare-layer")->percussionMapId == map.entityId);
+
+  // Changing the patch's map is a library change.
+  const int revision = repository.getPatch(patch.id)->revision;
+  patch.percussionMapId.clear();
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->revision == revision + 1);
+  CHECK(repository.deleteLayer("snare-layer"));
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::deleted);
+  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::notFound);
+}
+
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
   testExpressionMapReferencesAreReadOnlyMetadata();
@@ -658,7 +722,7 @@ int main() {
   testLayerSetupBatchIsAtomicAndPreservesMix();
   testPatchCanCreateIndependentLayersOnDifferentChairs();
   testOneChairAcceptsSeveralPatchesFromOneLibrary();
-  testCatalogPatchCanUpdateEveryLinkedLayerWithoutChangingItsMix();
+  testRefreshingLinkedLayersKeepsTheirMix();
   testReferencedPatchDeletionIsBlocked();
   testLibraryPatchReplacementIsAtomicAndReferenceSafe();
   testDeletingChairExplicitlyDeletesItsLayersOnly();
@@ -667,6 +731,7 @@ int main() {
   testChairRoleCanChangeWithoutChangingItsMidiDestination();
   testHistoricalTopologyRestoresMissingCatalogReference();
   testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
+  testPercussionMapsAreStoredReferencedAndCopiedToLayers();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

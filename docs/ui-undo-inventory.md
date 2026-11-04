@@ -33,8 +33,10 @@ Agreed with the user during the audit:
   project history.
 - The chair level-lock toggle becomes a **saved, undoable project setting**.
   Today it is transient frontend state.
-- **Update Layers** from a library is one project undo step, like a compound
-  single-layer refresh. It does not undo the library edit that preceded it.
+- Library changes reach layers only when a layer pulls them (Refresh Library),
+  one project undo step per layer. The Library Manager's bulk **Update Layers**
+  push was removed in November 2026: it acted on the open branch from a window
+  that does not know about branches.
 - Save, branch/history operations, playback-template installation and local
   audio-device settings remain outside ordinary project Undo.
 - Playback delay is a **saved, undoable project setting**, not a device or
@@ -174,7 +176,7 @@ Sources: [strip actions](/Users/mhc/fiddle/Source/Server/StripAudioActions.h),
 The table below records the original audit. The September 13 implementation
 now provides editor-local draft history and separate native catalog history;
 see [repair status](ui-undo-repair-status.md#library-manager-history-checkpoint--13-september-2026)
-for tested behavior and lifetime policy. Update Layers is project history.
+for tested behavior and lifetime policy.
 
 | Gesture | Current behavior / intended treatment |
 |---|---|
@@ -190,7 +192,7 @@ for tested behavior and lifetime policy. Update Layers is project history.
 | Close/cancel library editor: `closeLibraryPatchPreviews` | Closes previews and abandons draft. History lifetime and dirty-draft confirmation need explicit UX. |
 | Save: `saveLibrary` | Direct catalog replacement; excluded from project history. Proposed checkpoint in library history, with save success/failure reflected correctly in the editor. |
 | Delete library: `deleteLibrary` | Direct deletion, blocked while live layers reference its patches. Recommended undoable in separate library history, retaining all catalog/player state. |
-| Update Layers: `updateLayersFromLibraryPatch` | Direct bulk replacement after a two-click confirmation. Agreed: one **project** command capturing each affected layer's live before state, not a library-history command. |
+| Update Layers: `updateLayersFromLibraryPatch` | Removed November 2026; layers pull with Refresh Library instead. |
 | Search, pick library (`loadLibrary`), select/range-select/all rows, preview status, pending confirmation | View/navigation state, not musical/library data changes; excluded from data history. Selection defines command targets but should not itself consume undo steps. |
 
 Sources: [LibraryManager](/Users/mhc/fiddle/Source/Server/ui/src/lib/LibraryManager.svelte:175),

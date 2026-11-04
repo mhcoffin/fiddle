@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="utf-8"?>
+<kScoreLibrary>
+	<fileVersion>1.1243</fileVersion>
+	<temperaments>
+		<entities array="true"/>
+	</temperaments>
+	<accidentalSystems>
+		<entities array="true"/>
+	</accidentalSystems>
+	<accidentalDefinitions>
+		<entities array="true"/>
+	</accidentalDefinitions>
+	<tonalitySystemDefinitions>
+		<entities array="true"/>
+	</tonalitySystemDefinitions>
+	<ensembles>
+		<entities array="true"/>
+	</ensembles>
+	<instruments>
+		<entities array="true"/>
+	</instruments>
+	<instrumentNames>
+		<entities array="true"/>
+		<language>kEnglish</language>
+	</instrumentNames>
+	<instrumentFamilies>
+		<entities array="true"/>
+	</instrumentFamilies>
+	<instrumentScoreOrders>
+		<entities array="true"/>
+	</instrumentScoreOrders>
+	<clefDefinitions>
+		<entities array="true"/>
+	</clefDefinitions>
+	<ottavaLineDefinitions>
+		<entities array="true"/>
+	</ottavaLineDefinitions>
+	<noteheadSetDefinitions>
+		<entities array="true"/>
+	</noteheadSetDefinitions>
+	<noteheadDefinitions>
+		<entities array="true"/>
+	</noteheadDefinitions>
+	<restSetDefinitions>
+		<entities array="true"/>
+	</restSetDefinitions>
+	<restDefinitions>
+		<entities array="true"/>
+	</restDefinitions>
+	<flagSetDefinitions>
+		<entities array="true"/>
+	</flagSetDefinitions>
+	<flagDefinitions>
+		<entities array="true"/>
+	</flagDefinitions>
+	<graphicDefinitions>
+		<entities array="true"/>
+	</graphicDefinitions>
+	<blobDefinitions>
+		<entities array="true"/>
+	</blobDefinitions>
+	<drawingDefinitions>
+		<entities array="true"/>
+	</drawingDefinitions>
+	<textDefinitions>
+		<entities array="true"/>
+	</textDefinitions>
+	<glyphDefinitions>
+		<entities array="true"/>
+	</glyphDefinitions>
+	<compositeDefinitions>
+		<entities array="true"/>
+	</compositeDefinitions>
+	<tempoPresetDefinitions>
+		<entities array="true"/>
+	</tempoPresetDefinitions>
+	<rhythmicFeelDefinitions>
+		<entities array="true"/>
+	</rhythmicFeelDefinitions>
+	<penstyles>
+		<entities array="true"/>
+	</penstyles>
+	<fontstyles>
+		<entities array="true"/>
+	</fontstyles>
+	<brushstyles>
+		<entities array="true"/>
+	</brushstyles>
+	<pagePairDefinitionSets>
+		<entities array="true"/>
+	</pagePairDefinitionSets>
+	<pageDimensionPresets>
+		<entities array="true"/>
+	</pageDimensionPresets>
+	<paragraphStyles>
+		<entities array="true"/>
+	</paragraphStyles>
+	<characterStyles>
+		<entities array="true"/>
+	</characterStyles>
+	<playingTechniques>
+		<entities array="true"/>
+	</playingTechniques>
+	<ornamentDefinitions>
+		<entities array="true"/>
+	</ornamentDefinitions>
+	<multiSegmentLineDefinitions>
+		<entities array="true"/>
+	</multiSegmentLineDefinitions>
+	<playingTechniqueAppearanceCollectionDefinition>
+		<entities array="true"/>
+	</playingTechniqueAppearanceCollectionDefinition>
+	<expressionMapDefinitions>
+		<entities array="true"/>
+	</expressionMapDefinitions>
+	<drumKitNoteMapDefinitions>
+		<entities array="true">
+			<DrumKitNoteMapDefinition>
+				<name>VSL SY Percussion - Suspended Cymbal</name>
+				<entityID>drumkitmap.user.vsl_sy_percussion_suspended_cymbal</entityID>
+				<parentEntityID/>
+				<inheritanceMask>0</inheritanceMask>
+				<version>1</version>
+				<forSingleInstrument>true</forSingleInstrument>
+				<applyStageTemplateSettings>false</applyStageTemplateSettings>
+				<entries array="true">
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.bell</techniqueIDs>
+						<pitch>53</pitch>
+						<name>Bell</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.bell+pt.stickShaft</techniqueIDs>
+						<pitch>54</pitch>
+						<name>Bell + Stick (shaft)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.bell+pt.stickShoulder</techniqueIDs>
+						<pitch>54</pitch>
+						<name>Bell + Stick (shoulder)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.bell+pt.right</techniqueIDs>
+						<pitch>55</pitch>
+						<name>Bell + Right (RH)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.bell+pt.right+pt.stickShaft</techniqueIDs>
+						<pitch>56</pitch>
+						<name>Bell + Right (RH) + Stick (shaft)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.natural</techniqueIDs>
+						<pitch>60</pitch>
+						<name>Natural</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals</techniqueIDs>
+						<pitch>61</pitch>
+						<name>Edge (cymbals)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.right</techniqueIDs>
+						<pitch>62</pitch>
+						<name>Right (RH)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.right</techniqueIDs>
+						<pitch>63</pitch>
+						<name>Edge (cymbals) + Right (RH)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.choke</techniqueIDs>
+						<pitch>65</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Choke</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.closed</techniqueIDs>
+						<pitch>65</pitch>
+						<name>Closed</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.muted</techniqueIDs>
+						<pitch>65</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Muted</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.choke+pt.edgeCymbals</techniqueIDs>
+						<pitch>66</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Choke + Edge (cymbals)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.closed+pt.edgeCymbals</techniqueIDs>
+						<pitch>66</pitch>
+						<name>Closed + Edge (cymbals)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.muted</techniqueIDs>
+						<pitch>66</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Edge (cymbals) + Muted</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.stickShaft</techniqueIDs>
+						<pitch>68</pitch>
+						<name>Stick (shaft)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.stickShoulder</techniqueIDs>
+						<pitch>68</pitch>
+						<name>Stick (shoulder)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.user.crescendo_1s</techniqueIDs>
+						<pitch>74</pitch>
+						<name>Crescendo (1s)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.tremolo+pt.user.crescendo_1s</techniqueIDs>
+						<pitch>74</pitch>
+						<name>Crescendo (1s) + tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.user.crescendo_2s</techniqueIDs>
+						<pitch>75</pitch>
+						<name>Crescendo (2s)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.tremolo+pt.user.crescendo_2s</techniqueIDs>
+						<pitch>75</pitch>
+						<name>Crescendo (2s) + tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.user.crescendo_4s</techniqueIDs>
+						<pitch>78</pitch>
+						<name>Crescendo (4s)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.tremolo+pt.user.crescendo_4s</techniqueIDs>
+						<pitch>78</pitch>
+						<name>Tremolo + Crescendo (4s)</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.muted+pt.roll</techniqueIDs>
+						<pitch>81</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Muted + Roll</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.muted+pt.tremolo</techniqueIDs>
+						<pitch>81</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Muted + Tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.closed+pt.tremolo</techniqueIDs>
+						<pitch>81</pitch>
+						<name>Closed + Tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.muted+pt.roll</techniqueIDs>
+						<pitch>83</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Edge (cymbals) + Muted + Roll</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.muted+pt.tremolo</techniqueIDs>
+						<pitch>83</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Edge (cymbals) + Muted + Tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.roll</techniqueIDs>
+						<pitch>84</pitch>
+						<name>Roll</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.tremolo</techniqueIDs>
+						<pitch>84</pitch>
+						<name>Tremolo</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.roll</techniqueIDs>
+						<pitch>85</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Edge (cymbals) + Roll</name>
+					</entry>
+					<entry>
+						<instrumentEntityID>instrument.orchestral.unpitched.suspended.cymbal</instrumentEntityID>
+						<techniqueIDs>pt.edgeCymbals+pt.tremolo</techniqueIDs>
+						<pitch>85</pitch>
+						<keyswitches>24</keyswitches>
+						<name>Edge (cymbals) + Tremolo</name>
+					</entry>
+				</entries>
+			</DrumKitNoteMapDefinition>
+		</entities>
+	</drumKitNoteMapDefinitions>
+	<repeatableCompositeCollectionDefinitions>
+		<entities array="true"/>
+	</repeatableCompositeCollectionDefinitions>
+	<chordSymbolAppearanceCollectionDefinitions>
+		<entities array="true"/>
+	</chordSymbolAppearanceCollectionDefinitions>
+	<chordSymbolAppearanceComponentCollectionDefinitions>
+		<entities array="true"/>
+	</chordSymbolAppearanceComponentCollectionDefinitions>
+	<percussionKitDefinitionCollectionDefinition>
+		<entities array="true"/>
+	</percussionKitDefinitionCollectionDefinition>
+	<percussionInstrumentDataCollectionDefinition>
+		<entities array="true"/>
+	</percussionInstrumentDataCollectionDefinition>
+	<frettedInstrumentDataCollectionDefinition>
+		<entities array="true"/>
+	</frettedInstrumentDataCollectionDefinition>
+	<chordDiagramCollectionDefinition>
+		<entities array="true"/>
+	</chordDiagramCollectionDefinition>
+	<lineAnnotationCollectionDefinition>
+		<entities array="true"/>
+	</lineAnnotationCollectionDefinition>
+	<lineBodyStyleCollectionDefinition>
+		<entities array="true"/>
+	</lineBodyStyleCollectionDefinition>
+	<lineStyleCollectionDefinition>
+		<entities array="true"/>
+	</lineStyleCollectionDefinition>
+	<chordSymbolComponentKerningPairsCollection>
+		<entities array="true"/>
+	</chordSymbolComponentKerningPairsCollection>
+</kScoreLibrary>

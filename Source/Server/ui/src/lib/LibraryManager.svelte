@@ -3,11 +3,12 @@
   import { onMount } from "svelte";
   import { onFromCpp, dispatchCpp } from "./ipc.js";
   import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+  import PercussionMapPicker from "./PercussionMapPicker.svelte";
+  import PercussionMaps from "./PercussionMaps.svelte";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
-  import { addStripRange } from "./mixerSelection.js";
-  import { LibraryHistory } from "./libraryHistory.js";
-  import { canCaptureGuidedPatch, createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, guidedSetupProgress, moveLibraryPatch, moveLibraryPatchByOffset, nextGuidedPatch, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally, togglePatchSelection, updateSelectedPatches } from "./libraryPatchModel.js";
+    import { LibraryHistory } from "./libraryHistory.js";
+  import { canCaptureGuidedPatch, createBlankLibraryPatch, createLibraryPatch, duplicateLibraryPatch, guidedSetupProgress, moveLibraryPatch, moveLibraryPatchByOffset, nextGuidedPatch, pluginSetupStatus, shouldMarkLibraryEditorDirtyForPreviewChange, sortLibraryPatchesOrchestrally } from "./libraryPatchModel.js";
 
   const standardEnsembles = ensembleData.ensembles;
 
@@ -19,6 +20,8 @@
   onFromCpp("setExpressionMaps", (data) => {
     try { availableXmaps = data; } catch (e) { /* ignore */ }
   });
+  let percussionMaps = $state([]);
+  onFromCpp("setPercussionMaps", (data) => { percussionMaps = Array.isArray(data) ? data : []; });
 
   // ── Saved libraries from C++ ────────────────────────
   /** @type {{ id: string, name: string, vendor: string, variant: string }[]} */
@@ -54,15 +57,14 @@
         character: patch.character || "",
         vstPlugin: Number(patch.vstPlugin) || patch.pluginUid || 0,
         exprMap:   patch.exprMap || "",
+        percMap:   patch.percMap || "",
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
         pluginStatePending: false,
         expectedPresetName: patch.expectedPresetName || "",
         setupComplete: patch.setupComplete !== false,
         usageCount: Number(patch.usageCount) || 0,
-        outOfDateLayerCount: Number(patch.outOfDateLayerCount) || 0,
       }));
-      selectedPatchIds = new Set();
       searchQuery = "";
       instrumentChooserPatchId = "";
       modalView = "editor";
@@ -127,14 +129,14 @@
     playerFlags.clear();
     layerStatus.clear();
     for (const patch of patches) layerStatus.set(patch.id, {
-      usageCount: patch.usageCount, outOfDateLayerCount: patch.outOfDateLayerCount,
+      usageCount: patch.usageCount,
     });
     for (const patch of patches) playerFlags.set(patch.previewId || patch.id, {
       hasPluginState: patch.hasPluginState, pluginStatePending: false,
     });
     draftHistory.reset(patches, saved);
     saving = false; confirmDiscard = false;
-    buildResult = ""; layerUpdateResult = "";
+    buildResult = "";
     syncHistory();
   };
   const recordEdit = (label) => {
@@ -159,10 +161,8 @@
     patches = restored.map(patch => ({ ...patch,
       ...playerFlags.get(patch.previewId || patch.id),
       usageCount: layerStatus.get(patch.id)?.usageCount || 0,
-      outOfDateLayerCount: layerStatus.get(patch.id)?.outOfDateLayerCount || 0,
     }));
     instrumentChooserPatchId = "";
-    selectedPatchIds = new Set([...selectedPatchIds].filter(id => patches.some(p => p.id === id)));
     syncHistory();
     syncPreviewHistory();
   };
@@ -196,7 +196,6 @@
       pendingGuidedPatchId = "";
       const next = nextGuidedPatch(patches, completedGuidedPatchId);
       guidedPatchId = next?.id || "";
-      selectedPatchIds = next ? new Set([next.id]) : new Set();
       if (next) {
         buildResult = `OK: Saved ${patches.find(p => p.id === completedGuidedPatchId)?.name || "player"}. Continue with ${next.name}.`;
         requestAnimationFrame(() => openVstEditor(next));
@@ -207,9 +206,6 @@
       buildResult = "OK: Library saved. Draft undo is still available.";
     }
   });
-  let selectedPatchIds = $state(new Set());
-  let selectionAnchorId = $state("");
-  let batchPluginUid = $state(0);
   let draggedPatchId = $state("");
   let dropTargetPatchId = $state("");
   let dropAfterTarget = $state(false);
@@ -278,7 +274,6 @@
       || nextGuidedPatch(patches),
   );
   /** @type {string} */ let pendingDeleteId = $state("");
-  let layerUpdateResult = $state("");
 
   // ── Portal container for modals ───────────────────────
   // Attach modal DOM directly to <body> so overflow:hidden parents
@@ -334,12 +329,6 @@
     }
     syncHistory();
   });
-  onFromCpp("libraryLayersUpdateResult", (result) => {
-    layerUpdateResult = typeof result === "string"
-      ? result
-      : result?.message || "Could not update layers from the patch";
-    setTimeout(() => { layerUpdateResult = ""; }, 5000);
-  });
   onFromCpp("setLibraryLayerStatus", (status) => {
     // Project Undo/Redo updates linkage status without discarding library drafts.
     const byId = new Map((status || []).map((item) => [item.patchId, item]));
@@ -347,7 +336,6 @@
     for (const [id, item] of byId) layerStatus.set(id, item);
     patches = patches.map((patch) => ({ ...patch,
       usageCount: byId.get(patch.id)?.usageCount || 0,
-      outOfDateLayerCount: byId.get(patch.id)?.outOfDateLayerCount || 0,
     }));
   });
 
@@ -358,7 +346,6 @@
     editorLibVendor = newLibVendor.trim();
     editorLibVariant = newLibVariant.trim();
     patches = [];
-    selectedPatchIds = new Set();
     searchQuery = "";
     instrumentChooserPatchId = "";
     modalView = "editor";
@@ -381,10 +368,7 @@
 
   const addBlankPatch = () => {
     const id = crypto.randomUUID();
-    const patch = createBlankLibraryPatch(id, { vstPlugin: batchPluginUid });
-    patches = [...patches, patch];
-    selectedPatchIds = new Set([id]);
-    selectionAnchorId = id;
+    patches = [...patches, createBlankLibraryPatch(id)];
     recordEdit("Add patch");
   };
 
@@ -439,36 +423,32 @@
     recordEdit("Set expression map");
   };
 
+  const setPatchPercussionMap = (/** @type {string} */ rowId, /** @type {string} */ entityId) => {
+    patches = patches.map((patch) => patch.id === rowId ? { ...patch, percMap: entityId } : patch);
+    recordEdit("Set percussion map");
+  };
+
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
     patches = [...patches, ...ens.instruments.map(inst =>
-      createLibraryPatch(inst, inst.type || "", crypto.randomUUID(), { vstPlugin: batchPluginUid }))];
+      createLibraryPatch(inst, inst.type || "", crypto.randomUUID()))];
     recordEdit("Add " + ens.name);
   };
 
   const removePatch = (/** @type {string} */ id) => {
     patches = patches.filter(r => r.id !== id);
-    selectedPatchIds.delete(id);
-    selectedPatchIds = new Set(selectedPatchIds);
     recordEdit("Delete patch");
-  };
-
-  const updateLayersFromPatch = (row) => {
-    if (editorDirty || !row.outOfDateLayerCount) return;
-    dispatchCpp("updateLayersFromLibraryPatch", row.id);
   };
 
   const duplicatePatch = (row) => {
     const copy = duplicateLibraryPatch(row, crypto.randomUUID());
     copy.previewId = copy.id;
-    copy.usageCount = 0; copy.outOfDateLayerCount = 0;
+    copy.usageCount = 0;
     playerFlags.set(copy.id, { hasPluginState: row.hasPluginState, pluginStatePending: row.pluginStatePending });
     dispatchCpp("cloneLibraryPatchPreview", { previewId: copy.id,
       sourcePreviewId: row.previewId || row.id, sourcePatchId: row.sourcePatchId || row.id,
       useSavedState: Boolean(row.hasPluginState),
       pluginUid: Number(row.vstPlugin) || row.pluginUid });
     patches = [...patches, copy];
-    selectedPatchIds = new Set([copy.id]);
-    selectionAnchorId = copy.id;
     recordEdit("Duplicate patch");
   };
 
@@ -542,39 +522,6 @@
     pendingGuidedPatchId = guidedPatch.id;
     commitToLibrary(guidedPatch.id);
   };
-  const selectPatch = (id, event) => {
-    const orderedIds = patches.map((patch) => patch.id);
-    if (event.shiftKey && selectionAnchorId) {
-      selectedPatchIds = addStripRange(
-        selectedPatchIds,
-        orderedIds,
-        selectionAnchorId,
-        id,
-      );
-    } else {
-      const isCheckbox = event.currentTarget instanceof HTMLInputElement;
-      selectedPatchIds = togglePatchSelection(
-        selectedPatchIds,
-        id,
-        isCheckbox || event.metaKey || event.ctrlKey,
-      );
-    }
-    selectionAnchorId = id;
-  };
-
-  const selectAllPatches = () => {
-    selectedPatchIds = selectedPatchIds.size === patches.length
-      ? new Set()
-      : new Set(patches.map((patch) => patch.id));
-  };
-
-  const applyPluginToSelection = () => {
-    if (selectedPatchIds.size === 0) return;
-    patches = patches.map(patch => selectedPatchIds.has(patch.id)
-      ? withPlayer(patch, Number(batchPluginUid)) : patch);
-    recordEdit("Assign players");
-  };
-
   const withPlayer = (patch, uid) => {
     if (Number(patch.vstPlugin) === uid) return patch;
     const previewId = crypto.randomUUID();
@@ -587,14 +534,6 @@
       patch.id === row.id ? withPlayer(patch, uid) : patch
     );
     recordEdit("Assign player");
-  };
-
-  const applyExpressionMapToSelection = (entityID) => {
-    if (selectedPatchIds.size === 0) return;
-    patches = updateSelectedPatches(patches, selectedPatchIds, {
-      exprMap: entityID,
-    });
-    recordEdit("Assign expression maps");
   };
 
   const commitToLibrary = (guidedCompletionId = "") => {
@@ -615,6 +554,7 @@
         character:   patch.character,
         vstPlugin:   patch.vstPlugin,
         exprMap:     patch.exprMap,
+        percMap:     patch.percMap || "",
         hasPluginState: patch.hasPluginState,
         expectedPresetName: patch.expectedPresetName || "",
         setupComplete: patch.id === guidedCompletionId
@@ -690,6 +630,7 @@
         </div>
       {/if}
     </div>
+    <PercussionMaps instruments={allDoricoInstruments} />
   </div>
 </div>
 
@@ -815,50 +756,19 @@
           {/if}
           <div class="patch-toolbar">
             <button class="add-patch-btn" onclick={addBlankPatch}>+ Add Patch</button>
-            <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}>Sort Orchestrally</button>
             <span>Creates an empty catalog row. Instrument classification is optional.</span>
+            <button class="sort-patches-btn" disabled={patches.length < 2} onclick={sortPatchesOrchestrally}
+              title="Reorder patches by orchestral family">Sort orchestrally</button>
           </div>
           {#if buildResult}<div class="layer-update-result" class:success={buildResult.startsWith("OK:")} role="status">{buildResult}</div>{/if}
 
-          {#if layerUpdateResult}
-            <div class="layer-update-result" class:success={layerUpdateResult.startsWith("OK:")} role="status">
-              {layerUpdateResult}
-            </div>
-          {/if}
-
-          <div class="batch-toolbar">
-            <button class="select-all-btn" onclick={selectAllPatches}>
-              {selectedPatchIds.size === patches.length && patches.length > 0 ? "Clear selection" : "Select all"}
-            </button>
-            <span class="batch-count">{selectedPatchIds.size} selected</span>
-            <select class="batch-select" bind:value={batchPluginUid}>
-              <option value={0}>Choose player…</option>
-              {#each scannedPlugins.filter((plugin) => plugin.valid !== false) as plugin}
-                <option value={plugin.uid}>{plugin.name}</option>
-              {/each}
-            </select>
-            <button class="batch-apply" disabled={selectedPatchIds.size === 0} onclick={applyPluginToSelection}>
-              Assign player
-            </button>
-            <div class="batch-xmap">
-              <ExpressionMapPicker
-                maps={availableXmaps}
-                selectedId=""
-                selectedName="Assign expression map…"
-                onselect={applyExpressionMapToSelection}
-                onclear={() => applyExpressionMapToSelection("")}
-                canLoadFromFile={false}
-              />
-            </div>
-          </div>
-
           <!-- Table header -->
           <div class="inst-table-header">
-            <span class="th-order">ORDER</span>
+            <span class="th-order" aria-label="Order"></span>
             <span class="th-name">PATCH</span>
-            <span class="th-character">CHARACTER</span>
             <span class="th-vst">PLAYER</span>
             <span class="th-expr">EXPRESSION MAP</span>
+            <span class="th-perc">PERCUSSION MAP</span>
             <span class="th-actions">ACTIONS</span>
           </div>
 
@@ -868,7 +778,6 @@
               {@const setupStatus = pluginSetupStatus(row)}
               <div
                 class="inst-row"
-                class:patch-selected={selectedPatchIds.has(row.id)}
                 class:guided-current={guidedMode && guidedPatch?.id === row.id}
                 class:patch-dragging={draggedPatchId === row.id}
                 class:patch-drop-before={dropTargetPatchId === row.id && !dropAfterTarget}
@@ -892,11 +801,6 @@
                       }
                     }}
                   >⠿</button>
-                  <div class="ir-check">
-                    <input type="checkbox" checked={selectedPatchIds.has(row.id)}
-                      aria-label={`Select ${row.name}`}
-                      onclick={(event) => selectPatch(row.id, event)} />
-                  </div>
                 </div>
                 <div class="ir-name">
                   <div class="ir-name-text">
@@ -913,20 +817,6 @@
                       {instrumentDisplayName(row) || "Choose instrument (optional)…"}
                     </button>
                   </div>
-                </div>
-                <div class="ir-character">
-                  <select class="ir-select" value={row.character}
-                    onchange={(event) => {
-                      const character = event.currentTarget.value;
-                      patches = patches.map((patch) => patch.id === row.id ? { ...patch, character } : patch);
-                      recordEdit("Set patch character");
-                    }}>
-                    <option value="">Unspecified</option>
-                    <option value="solo">Solo</option>
-                    <option value="section">Section</option>
-                    <option value="ensemble">Ensemble</option>
-                    <option value="overlay">Overlay</option>
-                  </select>
                 </div>
                 <div class="ir-vst">
                   <select class="ir-select" value={row.vstPlugin}
@@ -963,19 +853,18 @@
                     canLoadFromFile={false}
                   />
                 </div>
+                <div class="ir-percussion">
+                  <PercussionMapPicker
+                    maps={percussionMaps}
+                    instrument={row.entityID}
+                    selectedId={row.percMap || ""}
+                    noneLabel="None"
+                    canLoadFromFile={false}
+                    onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
+                    onclear={() => setPatchPercussionMap(row.id, "")}
+                  />
+                </div>
                 <div class="ir-actions">
-                  <button
-                    class="action-update-layers"
-                    disabled={editorDirty || !row.outOfDateLayerCount}
-                    title={editorDirty
-                      ? "Save the library before updating layers"
-                      : !row.usageCount
-                        ? "This patch is not used by any current layer"
-                        : !row.outOfDateLayerCount
-                          ? "All linked layers already match this patch"
-                          : `Update ${row.usageCount} linked ${row.usageCount === 1 ? "layer" : "layers"}; ${row.outOfDateLayerCount} currently differ. Undo in the main mixer.`}
-                    onclick={() => updateLayersFromPatch(row)}
-                  >{"Update Layers"}</button>
                   <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
                   <button class="action-delete" onclick={() => removePatch(row.id)}>Delete</button>
                 </div>
@@ -1308,7 +1197,7 @@
 
   /* ── Instrument content ───────────────────────────── */
   .inst-content { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; }
-  .inst-content > * { min-width: 1074px; box-sizing: border-box; flex-shrink: 0; }
+  .inst-content > * { min-width: 900px; box-sizing: border-box; flex-shrink: 0; }
   .guided-setup {
     display: flex; align-items: center; justify-content: space-between; gap: 24px;
     padding: 16px 20px; border-bottom: 1px solid #5968bb;
@@ -1344,38 +1233,22 @@
     border-bottom: 1px solid #44446c;
   }
   .patch-toolbar span { color: #8584ac; font: 500 .68rem "Inter", sans-serif; }
-  .add-patch-btn, .sort-patches-btn {
+  .add-patch-btn {
     min-height: 36px; padding: 7px 14px; border: 1px solid #7877b8;
     border-radius: 4px; background: #3938a0; color: #f1f0ff;
     font: 700 .72rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
   }
   .add-patch-btn:hover { background: #4a49b8; border-color: #a8b7ff; }
-  .sort-patches-btn { background: #1a194b; border-color: #555480; color: #c4c3e3; }
-  .sort-patches-btn:hover:not(:disabled) { background: #292863; border-color: #95a9ff; color: #f1f0ff; }
+  .sort-patches-btn {
+    margin-left: auto; padding: 5px 8px; border: none; border-radius: 4px;
+    background: none; color: #8584ac;
+    font: 600 .66rem "Inter", sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  .sort-patches-btn:hover:not(:disabled) { background: #1d1c50; color: #d8d7f5; }
   .sort-patches-btn:disabled { opacity: .4; cursor: default; }
-  .batch-toolbar {
-    display: flex; align-items: center; gap: 10px; padding: 10px 20px;
-    background: #10103d; border-bottom: 1px solid #2a2a5a;
-  }
-  .select-all-btn, .batch-apply {
-    min-height: 34px; padding: 6px 12px; border-radius: 4px;
-    border: 1px solid #44446c; background: #1a194b; color: #d8d7ff;
-    cursor: pointer; font-family: "Inter", sans-serif; font-size: .7rem;
-  }
-  .select-all-btn:hover, .batch-apply:hover:not(:disabled) {
-    border-color: #95a9ff; background: #23225b;
-  }
-  .batch-apply:disabled { opacity: .4; cursor: default; }
-  .batch-count { min-width: 72px; color: #9695bd; font-size: .68rem; }
-  .batch-select {
-    min-height: 34px; flex: 1; min-width: 150px; padding: 6px 10px;
-    border: 1px solid #44446c; border-radius: 4px; background: #131342;
-    color: #e5e3ff; font: inherit;
-  }
-  .batch-xmap { min-width: 210px; }
   .inst-table-header {
     display: grid;
-    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
+    grid-template-columns: 32px minmax(170px, 1.5fr) minmax(160px, 1.1fr) minmax(170px, 1.2fr) minmax(140px, 1fr) 150px;
     gap: 8px; padding: 10px 20px;
     background: #0e0d38; border-bottom: 1px solid #2a2a5a;
   }
@@ -1388,14 +1261,13 @@
   .inst-table-body { flex: 1; overflow-y: auto; padding-bottom: 12px; }
   .inst-row {
     display: grid;
-    grid-template-columns: 64px minmax(190px, 1.5fr) 110px minmax(190px, 1.2fr) minmax(190px, 1.2fr) 240px;
+    grid-template-columns: 32px minmax(170px, 1.5fr) minmax(160px, 1.1fr) minmax(170px, 1.2fr) minmax(140px, 1fr) 150px;
     gap: 8px; align-items: start;
     padding: 12px 20px;
     border-bottom: 1px solid rgba(68,68,108,.3);
     transition: background .1s;
   }
   .inst-row:hover { background: rgba(149,169,255,.04); }
-  .inst-row.patch-selected { background: rgba(149,169,255,.09); }
   .inst-row.guided-current { box-shadow: inset 4px 0 0 #67d3ff; background: rgba(64,151,202,.1); }
   .inst-row.patch-dragging { opacity: .45; }
   .inst-row.patch-drop-before { box-shadow: inset 0 3px 0 #75d3ff; }
@@ -1410,23 +1282,13 @@
     border-color: #95a9ff; color: #e5e3ff; background: #292863; outline: none;
   }
   .patch-drag-handle:active { cursor: grabbing; }
-  .ir-check { display: flex; justify-content: center; }
-  .ir-check input { width: 18px; height: 18px; accent-color: #95a9ff; }
   .ir-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .action-update-layers, .action-duplicate, .action-delete {
+  .action-duplicate, .action-delete {
     width: auto; height: 30px; padding: 0 9px; box-sizing: border-box;
     border: 1px solid #44446c;
     border-radius: 4px; background: #1a194b; color: #d8d7ff;
     font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
-  .action-update-layers { color: #a7f3d0; border-color: #2f6f61; }
-  .action-update-layers:hover:not(:disabled) {
-    border-color: #5eead4; background: #164e46; color: #ecfdf5;
-  }
-  .action-update-layers.confirm {
-    border-color: #fbbf24; background: #5b4311; color: #fff4bd;
-  }
-  .action-update-layers:disabled { opacity: .36; cursor: default; }
   .action-duplicate:hover { border-color: #95a9ff; background: #292863; }
   .action-delete:hover { border-color: #d96a78; background: #4b1e32; color: #ffd7dc; }
   .layer-update-result {
@@ -1470,6 +1332,8 @@
     position: relative; width: 30px; height: 30px; flex: 0 0 30px;
   }
   .ir-expr { margin-top: -1px; }
+  .ir-percussion { min-width: 0; }
+  :global(.ir-percussion select) { height: 30px; background: #131342; border: 1px solid #44446c; border-radius: 4px; color: #e5e3ff; font-size: .78rem; }
   :global(.ir-expr .xmap-control) { margin-bottom: 0; }
   :global(.ir-expr .xmap-trigger) {
     height: 30px; min-height: 30px; box-sizing: border-box;

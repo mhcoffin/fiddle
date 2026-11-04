@@ -123,6 +123,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
                       blob.active, blob.muted, blob.soloed, blob.gainDb,
                       blob.pluginUid, blob.pluginState, blob.expressionMapEntityId,
                       saved.sourcePatchRevision, saved.pluginStateEdited});
+    if (const auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())))
+      layers.back().percussionMapId = map->entityId;
   }
   // replaceTopology validates all identities/references before its atomic
   // transaction. Failure must not silently fall back to a different project.
@@ -200,6 +202,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
              juce::String::fromUTF8(blob.expressionMapPath.c_str()),
              sourceXml});
     }
+    if (auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())))
+      current->setPercussionMapAssignment({std::move(map), juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())});
     for (const auto &name : blob.luaPluginFileNames) {
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
       auto plugin = std::make_shared<LuaPlugin>(path.empty() ? name : path);
@@ -252,6 +256,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
         auto strip = std::make_unique<MixerStrip>();
         strip->id = layer.id;
         strip->chairId = chair.id;
+        strip->setInstrumentEntityId(chair.instrumentEntityId);
         strip->patchId = layer.patchId;
         strip->layerName = !layer.patchName.empty() ? layer.patchName
                             : patch ? patch->name : "Missing catalog patch";

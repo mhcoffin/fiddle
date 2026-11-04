@@ -4,6 +4,7 @@
     import {
         dimensionEntries,
         formatDimensionValue,
+        percussionState,
         resolutionState,
         techniqueEntries,
     } from "./noteInspection.js";
@@ -115,6 +116,7 @@
                 {@const rawTechniques = techniqueEntries(rec)}
                 {@const rawDimensions = dimensionEntries(rec)}
                 {@const resolution = resolutionState(rec)}
+                {@const percussion = percussionState(rec)}
                 <div class="ni-record" class:skipped={rec.redundancySkipped}>
                     <!-- Incoming structured note from Dorico -->
                     <div class="ni-row ni-input-summary">
@@ -154,6 +156,17 @@
                                     {dimension}: {formatDimensionValue(value)}
                                 </span>
                             {/each}
+                        </div>
+                    {/if}
+
+                    <!-- Optional library percussion map -->
+                    {#if percussion}
+                        <div class="ni-row ni-match-row" title={percussion.mapName}>
+                            <span class="ni-label">Percussion:</span>
+                            <span class="ni-match" class:has-match={percussion.kind !== "withheld"} class:no-match={percussion.kind === "withheld"}>
+                                <span class={percussion.kind === "withheld" ? "ni-no-match" : "ni-base-name"}>{percussion.label}</span>
+                            </span>
+                            {#if percussion.warning}<span class="ni-no-map">{percussion.warning}</span>{/if}
                         </div>
                     {/if}
 

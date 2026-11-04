@@ -31,7 +31,7 @@
                 class="search"
                 type="search"
                 bind:value={query}
-                placeholder="Search by patch, library, family, or character"
+                placeholder="Search by patch, library, or family"
                 aria-label="Search library patches"
             />
             <div class="summary">{groups.reduce((count, group) => count + group.patches.length, 0)} matching patches</div>
@@ -55,7 +55,7 @@
                                     <button class="patch" onclick={() => onChoose(patch.id)}>
                                         <span class="patch-name">{patch.name}</span>
                                         <span class="patch-details">
-                                            {[patch.character, patch.family].filter(Boolean).join(" · ") || "Unclassified patch"}
+                                            {patch.family || "Unclassified patch"}
                                         </span>
                                         <span class="add-label">Add layer</span>
                                     </button>

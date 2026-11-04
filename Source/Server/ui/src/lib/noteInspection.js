@@ -17,6 +17,21 @@ export const formatDimensionValue = (value) => {
         : numeric.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 };
 
+/** The library percussion map's decision for a note, or null. */
+export const percussionState = (record) => {
+    const p = record.percussion;
+    if (!p || !p.mapName) return null;
+    if (p.withheld) return { kind: "withheld", label: `Not played: ${p.withheld}` };
+    const keys = (p.keyswitches || []).length ? ` + KS ${p.keyswitches.join(", ")}` : "";
+    const fallback = p.instrumentFallback ? " (map for another instrument)" : "";
+    return {
+        kind: p.warning ? "warning" : "matched",
+        label: `${p.entryName || (p.entryTechniques || []).join("+")} → ${p.pitch}${keys}${fallback}`,
+        warning: p.warning || "",
+        mapName: p.mapName,
+    };
+};
+
 export const resolutionState = (record) => {
     if (!record.expressionMapAssigned)
         return { kind: "unmapped", label: "No expression map assigned" };
