@@ -141,6 +141,8 @@ target_sources(FiddleServer PRIVATE
     Source/Server/RealtimeMixPrinter.cpp
     Source/Server/RealtimeMixPrinter.h
     Source/Server/ApplicationRestart.h
+    Source/Server/LaunchWindowPlacement.cpp
+    Source/Server/LaunchWindowPlacement.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
     Source/Server/LegacyStripConversion.cpp
@@ -262,6 +264,7 @@ if(APPLE)
     target_sources(FiddleServer PRIVATE
         Source/Server/MacWindowMenu.mm
         Source/Server/MacWindowMenu.h
+        Source/Server/LaunchWindowPlacementMac.mm
     )
 endif()
 
@@ -760,6 +763,20 @@ target_compile_features(ApplicationRestartTest PRIVATE cxx_std_17)
 
 add_test(NAME application_restart COMMAND ApplicationRestartTest)
 set_tests_properties(application_restart PROPERTIES
+    LABELS "application;regression;stable"
+)
+
+# LaunchWindowPlacementTest — reopened windows return to their saved place
+# after Stage Manager moves them before the first activation
+add_executable(LaunchWindowPlacementTest
+    Source/Server/tests/LaunchWindowPlacementTest.cpp
+    Source/Server/LaunchWindowPlacement.cpp)
+target_include_directories(LaunchWindowPlacementTest PRIVATE Source/Server)
+target_link_libraries(LaunchWindowPlacementTest PRIVATE juce::juce_gui_basics)
+target_compile_definitions(LaunchWindowPlacementTest PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+target_compile_features(LaunchWindowPlacementTest PRIVATE cxx_std_17)
+add_test(NAME launch_window_placement COMMAND LaunchWindowPlacementTest)
+set_tests_properties(launch_window_placement PROPERTIES
     LABELS "application;regression;stable"
 )
 

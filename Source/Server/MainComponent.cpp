@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "LaunchWindowPlacement.h"
 #include "AudioDeviceSettings.h"
 #include "ChairLayerActions.h"
 #include "LayerLibrarySetupAction.h"
@@ -1125,6 +1126,8 @@ void MainComponent::initDatabase() {
     if (dws.width > 0 && dws.height > 0) {
       debugWindow_->restoreGeometry(dws.x, dws.y, dws.width, dws.height,
                                     dws.visible);
+      LaunchWindowPlacement::instance().remember(*debugWindow_,
+                                                 debugWindow_->getBounds());
     }
     // If no saved geometry, window stays hidden (constructor default).
   }
@@ -1160,6 +1163,8 @@ void MainComponent::initDatabase() {
           if (lws.width > 0 && lws.height > 0) {
             libraryManagerWindow_->restoreGeometry(lws.x, lws.y, lws.width,
                                                    lws.height, true);
+            LaunchWindowPlacement::instance().remember(
+                *libraryManagerWindow_, libraryManagerWindow_->getBounds());
           } else {
             libraryManagerWindow_->setVisible(true);
           }
@@ -3166,9 +3171,12 @@ void MainComponent::showHistoryWindow() {
     const auto root = juce::WebBrowserComponent::getResourceProviderRoot();
     historyWindow_->getWebView().goToURL(root + "index.html?view=history");
     const auto settings = db_.loadWindowSettings("history");
-    if (settings.width > 0 && settings.height > 0)
+    if (settings.width > 0 && settings.height > 0) {
       historyWindow_->restoreGeometry(settings.x, settings.y, settings.width,
                                       settings.height, false);
+      LaunchWindowPlacement::instance().remember(*historyWindow_,
+                                                 historyWindow_->getBounds());
+    }
   }
   if (!historyWindow_)
     return;
@@ -3299,7 +3307,7 @@ void MainComponent::saveDebugWindowGeometry() {
     return;
   fiddle::WindowSettings ws;
   ws.windowId = "debug";
-  auto bounds = debugWindow_->getBounds();
+  auto bounds = LaunchWindowPlacement::instance().boundsToSave(*debugWindow_);
   ws.x = bounds.getX();
   ws.y = bounds.getY();
   ws.width = bounds.getWidth();
@@ -3313,7 +3321,7 @@ void MainComponent::saveHistoryWindowGeometry() {
     return;
   fiddle::WindowSettings settings;
   settings.windowId = "history";
-  const auto bounds = historyWindow_->getBounds();
+  const auto bounds = LaunchWindowPlacement::instance().boundsToSave(*historyWindow_);
   settings.x = bounds.getX();
   settings.y = bounds.getY();
   settings.width = bounds.getWidth();
@@ -3332,7 +3340,7 @@ void MainComponent::saveLibraryManagerWindowGeometry() {
   auto existing = db_.loadWindowSettings("library");
   fiddle::WindowSettings ws;
   ws.windowId = "library";
-  auto bounds = libraryManagerWindow_->getBounds();
+  auto bounds = LaunchWindowPlacement::instance().boundsToSave(*libraryManagerWindow_);
   ws.x = bounds.getX();
   ws.y = bounds.getY();
   ws.width = bounds.getWidth();

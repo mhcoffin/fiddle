@@ -1,4 +1,5 @@
 #include "ApplicationRestart.h"
+#include "LaunchWindowPlacement.h"
 #include "MainComponent.h"
 #include "MacWindowMenu.h"
 #include <juce_gui_extra/juce_gui_extra.h>
@@ -56,6 +57,7 @@ public:
       if (auto *mc = dynamic_cast<MainComponent *>(getContentComponent())) {
         auto bounds = mc->restoreMainWindowGeometry();
         setBounds(bounds);
+        LaunchWindowPlacement::instance().remember(*this, bounds);
       } else {
         centreWithSize(getWidth(), getHeight());
       }
@@ -81,7 +83,7 @@ public:
   private:
     void saveGeometry() {
       if (auto *mc = dynamic_cast<MainComponent *>(getContentComponent())) {
-        auto b = getBounds();
+        auto b = LaunchWindowPlacement::instance().boundsToSave(*this);
         mc->saveMainWindowGeometry(b.getX(), b.getY(), b.getWidth(),
                                    b.getHeight());
       }
@@ -92,6 +94,9 @@ public:
 
   void initialise(const juce::String &commandLine) override {
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
+    // After a background relaunch, put windows back once the user brings
+    // Fiddle forward (see LaunchWindowPlacement.h).
+    settleLaunchPlacementOnFirstActivation(600);
 
 #if JUCE_MAC
     applicationMenu_.addItem(kRestartMenuItemId, "Restart Fiddle");
