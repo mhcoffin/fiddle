@@ -33,7 +33,7 @@ Agreed with the user during the audit:
   project history.
 - The chair level-lock toggle becomes a **saved, undoable project setting**.
   Today it is transient frontend state.
-- Library changes reach layers only when a layer pulls them (Refresh Library),
+- Library changes reach layers only when a layer pulls them (Update from Library),
   one project undo step per layer. The Library Manager's bulk **Update Layers**
   push was removed in November 2026: it acted on the open branch from a window
   that does not know about branches.
@@ -190,7 +190,7 @@ for tested behavior and lifetime policy.
 | Close/cancel library editor: `closeLibraryPatchPreviews` | Closes previews and abandons draft. History lifetime and dirty-draft confirmation need explicit UX. |
 | Save: `saveLibrary` | Direct catalog replacement; excluded from project history. Proposed checkpoint in library history, with save success/failure reflected correctly in the editor. |
 | Delete library: `deleteLibrary` | Direct deletion, blocked while live layers reference its patches. Recommended undoable in separate library history, retaining all catalog/player state. |
-| Update Layers: `updateLayersFromLibraryPatch` | Removed November 2026; layers pull with Refresh Library instead. |
+| Update Layers: `updateLayersFromLibraryPatch` | Removed November 2026; layers pull with Update from Library instead. |
 | Search, pick library (`loadLibrary`), select/range-select/all rows, preview status, pending confirmation | View/navigation state, not musical/library data changes; excluded from data history. Selection defines command targets but should not itself consume undo steps. |
 
 Sources: [LibraryManager](/Users/mhc/fiddle/Source/Server/ui/src/lib/LibraryManager.svelte:175),

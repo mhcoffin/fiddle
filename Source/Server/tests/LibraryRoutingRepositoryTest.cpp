@@ -64,7 +64,7 @@ fiddle::LibraryPatchRow soloViolinPatch() {
   return patch;
 }
 
-// What a layer's Refresh Library writes: the patch's library-owned setup,
+// What a layer's Update from Library writes: the patch's library-owned setup,
 // leaving routing and mixer controls alone.
 bool refreshLayerFromPatch(fiddle::LibraryRoutingRepository &repository,
                            const std::string &layerId) {

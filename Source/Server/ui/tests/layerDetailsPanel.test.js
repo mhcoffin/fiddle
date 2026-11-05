@@ -41,7 +41,7 @@ test("rarely changed layer configuration lives in the details panel", () => {
     assert.match(detailsSource, /Expression map/);
     assert.match(detailsSource, /Lua processors/);
     assert.match(detailsSource, /Inspect MIDI/);
-    assert.match(detailsSource, /Refresh Library/);
+    assert.match(detailsSource, /Update from Library/);
     assert.doesNotMatch(detailsSource, /Audio output/);
 });
 

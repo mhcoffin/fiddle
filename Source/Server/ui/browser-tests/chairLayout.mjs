@@ -1161,7 +1161,7 @@ try {
     });
     const libraryEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
     const linked = libraryEditor.locator(".inst-row").first();
-    // Layers pull library changes (Refresh Library); the library never pushes.
+    // Layers pull library changes (Update from Library); the library never pushes.
     assert.equal(await libraryEditor.getByRole("button", { name: "Update Layers", exact: true }).count(), 0);
     await linked.getByRole("textbox", { name: "Patch name", exact: true }).fill("Unsaved draft");
     await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryLayerStatus", data: [

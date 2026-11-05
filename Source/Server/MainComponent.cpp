@@ -4941,7 +4941,7 @@ void MainComponent::setupJsHandlers() {
       result->setProperty("success", true);
       result->setProperty("operation", "refresh");
       result->setProperty("layerId", juce::String(layerId));
-      result->setProperty("message", "Layer refreshed from library");
+      result->setProperty("message", "Layer updated from library");
       broadcastMessage("layerOperationResult", juce::var(result));
     });
     return;
@@ -5942,7 +5942,7 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
     targets.push_back(std::move(target));
   }
   const auto description = layers.size() == 1
-      ? "Refresh layer '" + juce::String(patch.name) + "' from library"
+      ? "Update layer '" + juce::String(patch.name) + "' from library"
       : "Update " + juce::String((int)layers.size()) + " layers from '" + juce::String(patch.name) + "'";
   return undoManager_.perform(std::make_unique<LayerLibrarySetupAction>(
       *repository, mixer_, std::move(targets), description,

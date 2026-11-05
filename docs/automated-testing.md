@@ -125,7 +125,7 @@ fixture plugins to verify row ordering and fixed header/footer controls, copies
 a report with plugin/device metadata, and checks the Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.
 It also opens the Library Manager with fixture data, checks that it offers no
-Update Layers push (layers pull with Refresh Library), and verifies that linkage
+Update Layers push (layers pull with Update from Library), and verifies that linkage
 status updates preserve unsaved drafts.
 Set `FIDDLE_LAYOUT_SCREENSHOT_DIR` to an existing directory to capture each size.
 

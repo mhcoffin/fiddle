@@ -58,7 +58,7 @@
                         class:attention={strip.sourcePatchOutOfDate}
                         disabled={strip.missingPatchReference || !strip.sourcePatchOutOfDate}
                         onclick={onRefreshLibrary}
-                    >Refresh Library</button>
+                    >Update from Library</button>
                 </div>
                 <div class="fields">
                     <label>

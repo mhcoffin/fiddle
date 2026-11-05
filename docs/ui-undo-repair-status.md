@@ -158,8 +158,8 @@ automated tests and the user's smoke check passed. Included in the checkpoint
 "Make library layer updates undoable as one project edit".
 
 - (Update Layers was later removed from the Library Manager, November 2026;
-  Refresh Library remains.) Library Manager's Update Layers and the strip's
-  Refresh Library share `LayerLibrarySetupAction`. A batch is one project-history step. It updates
+  Update from Library remains.) Library Manager's Update Layers and the strip's
+  Update from Library share `LayerLibrarySetupAction`. A batch is one project-history step. It updates
   all linked layers and captures each layer's independent live player state,
   expression-map object/import path, patch revision and edited flag.
 - Undo/Redo captures departing player state on each cycle and does not consult
@@ -191,7 +191,7 @@ two layers with different presets, save/reopen the library, then click Update
 Layers. Undo once in the mixer should restore both individual presets; Redo
 should reapply the library setup. Check that levels/routing/FX stay unchanged
 and that the Library Manager's update availability follows Undo/Redo. Also try
-Refresh Library on one layer. A large player may need time to reload. This pass
+Update from Library on one layer. A large player may need time to reload. This pass
 does not require rebuilding or reinstalling the native Fiddle VST3.
 
 ## Library Manager history checkpoint — 13 September 2026

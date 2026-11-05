@@ -99,7 +99,7 @@ test("chair layers expose a one-click, undoable refresh from their source patch"
     assert.match(mixerPanelSource, /"refreshChairLayerFromLibrary", strip\.id/);
     assert.match(mixerPanelSource, /!strip\.sourcePatchOutOfDate/);
     assert.match(mixerPanelSource, /strip\.missingPatchReference/);
-    assert.match(layerDetailsSource, />Refresh Library<\/button>/);
+    assert.match(layerDetailsSource, />Update from Library<\/button>/);
     assert.doesNotMatch(mixerPanelSource, /pendingLayerRefreshId/);
     assert.match(
         mainComponentSource,
