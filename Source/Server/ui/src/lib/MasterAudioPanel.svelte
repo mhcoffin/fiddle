@@ -222,27 +222,30 @@
         .loudness-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .loudness-section .section-heading { flex-wrap: wrap; }
     }
+    /* Centred over the blurred mixer, a little shorter than the window. */
     .backdrop {
         position: absolute;
         inset: 0;
         z-index: 50;
         display: flex;
-        justify-content: flex-end;
+        align-items: center;
+        justify-content: center;
         background: rgba(2, 6, 23, 0.62);
         backdrop-filter: blur(2px);
     }
     .panel {
         position: relative;
-        margin: 0 0 0 auto;
+        margin: 0;
         padding: 0;
         width: min(820px, calc(100% - 48px));
-        height: 100%;
+        height: calc(100% - 64px);
         display: flex;
         flex-direction: column;
+        overflow: hidden;
         background: #0b1220;
-        border: 0;
-        border-left: 1px solid #334155;
-        box-shadow: -16px 0 40px rgba(0, 0, 0, 0.42);
+        border: 1px solid #334155;
+        border-radius: 12px;
+        box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
     }
     header, .section-heading, .row-actions, .scale, .header-status {
         display: flex;
@@ -274,7 +277,7 @@
     button:hover:not(:disabled) { border-color: #7dd3fc; background: #1e3048; }
     button:disabled { opacity: 0.38; cursor: default; }
     .close { min-width: 72px; }
-    .content { padding: 24px 26px 32px; overflow-y: auto; }
+    .content { min-height: 0; padding: 24px 26px 32px; overflow-y: auto; }
     .gain-section, .loudness-section, .insert-section {
         border: 1px solid #26364d;
         border-radius: 10px;
@@ -320,7 +323,7 @@
     .empty-inserts, .empty-picker { padding: 28px; border: 1px dashed #334155; border-radius: 8px; color: #94a3b8; text-align: center; line-height: 1.5; }
     .empty-picker { padding: 18px; }
     @media (max-width: 760px) {
-        .panel { width: 100%; }
+        .panel { width: calc(100% - 24px); }
         .insert-row { grid-template-columns: 38px 1fr; }
         .row-actions { grid-column: 1 / -1; justify-content: flex-start; }
         header { align-items: flex-start; }
