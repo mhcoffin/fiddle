@@ -137,37 +137,6 @@ StripSnapshot MixerModel::snapshotStrip(const juce::String &id) const {
   return snap;
 }
 
-juce::String MixerModel::duplicateStripAfter(const juce::String &afterId) {
-  std::lock_guard<std::mutex> lock(stripsMutex_);
-  auto it = strips_.begin();
-  for (; it != strips_.end(); ++it) {
-    if ((*it)->id == afterId)
-      break;
-  }
-  if (it == strips_.end())
-    return {};
-
-  auto &source = *it;
-  auto strip = std::make_unique<MixerStrip>();
-  strip->id = juce::Uuid().toString();
-  strip->updatePluginSlotId();
-  const auto sourceState = source->realtimeState();
-  strip->setInputAssignment(sourceState.inputPort, sourceState.inputChannel);
-  strip->family = source->family;
-  strip->isSolo = source->isSolo;
-  strip->directOutputBusId = source->directOutputBusId;
-  strip->sends = source->sends;
-  strip->prepareToPlay(currentSampleRate_, currentBlockSize_);
-
-  // Library label defaults to empty — user fills in later
-  strip->library = "";
-
-  juce::String newId = strip->id;
-  strips_.insert(it + 1, std::move(strip));
-  commitAudioGraph();
-  return newId;
-}
-
 MixerStrip *MixerModel::getStrip(const juce::String &id) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
   for (auto &s : strips_) {

@@ -15,36 +15,11 @@ MixerCommandService::MixerCommandService(MixerModel &mixer,
     : mixer_(mixer), undoManager_(undoManager),
       programApplied_(std::move(programApplied)) {}
 
-bool MixerCommandService::addStrip() {
-  undoManager_.perform(std::make_unique<AddStripAction>(mixer_));
-  return true;
-}
-
-bool MixerCommandService::duplicateStrip(const juce::String &stripId) {
-  if (mixer_.getStrip(stripId) == nullptr)
-    return false;
-
-  undoManager_.perform(
-      std::make_unique<DuplicateStripAction>(mixer_, stripId));
-  return true;
-}
-
 bool MixerCommandService::removeStrip(const juce::String &stripId) {
   if (mixer_.getStrip(stripId) == nullptr)
     return false;
 
   undoManager_.perform(std::make_unique<RemoveStripAction>(mixer_, stripId));
-  return true;
-}
-
-bool MixerCommandService::setLibrary(const juce::String &stripId,
-                                     const juce::String &library) {
-  auto *strip = mixer_.getStrip(stripId);
-  if (strip == nullptr)
-    return false;
-
-  undoManager_.perform(std::make_unique<SetLibraryAction>(
-      mixer_, stripId, strip->library, library));
   return true;
 }
 
@@ -161,24 +136,6 @@ bool MixerCommandService::setGroupGainAbsolute(
 
   undoManager_.perform(std::make_unique<CompoundAction>(
       "Group gain absolute", std::move(actions)));
-  return true;
-}
-
-bool MixerCommandService::setGroupLibrary(
-    const std::vector<juce::String> &stripIds, const juce::String &library) {
-  std::vector<std::unique_ptr<UndoableAction>> actions;
-  for (const auto &stripId : stripIds) {
-    if (auto *strip = mixer_.getStrip(stripId)) {
-      actions.push_back(std::make_unique<SetLibraryAction>(
-          mixer_, stripId, strip->library, library));
-    }
-  }
-
-  if (actions.empty())
-    return false;
-
-  undoManager_.perform(std::make_unique<CompoundAction>(
-      "Group set library", std::move(actions)));
   return true;
 }
 

@@ -13,11 +13,7 @@ class MixerCommands {
 public:
   virtual ~MixerCommands() = default;
 
-  virtual bool addStrip() = 0;
-  virtual bool duplicateStrip(const juce::String &stripId) = 0;
   virtual bool removeStrip(const juce::String &stripId) = 0;
-  virtual bool setLibrary(const juce::String &stripId,
-                          const juce::String &library) = 0;
   virtual bool setInput(const juce::String &stripId, int port, int channel) = 0;
   virtual bool setGain(const juce::String &stripId, float gainDb) = 0;
   virtual bool setMute(const juce::String &stripId, bool muted) = 0;
@@ -29,8 +25,6 @@ public:
                                  float deltaDb) = 0;
   virtual bool setGroupGainAbsolute(const std::vector<juce::String> &stripIds,
                                     float gainDb) = 0;
-  virtual bool setGroupLibrary(const std::vector<juce::String> &stripIds,
-                               const juce::String &library) = 0;
   virtual bool removeGroupStrips(
       const std::vector<juce::String> &stripIds) = 0;
 };

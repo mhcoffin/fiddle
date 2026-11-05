@@ -134,9 +134,7 @@ Sources: [MixerPanel](/Users/mhc/fiddle/Source/Server/ui/src/lib/MixerPanel.svel
 | Change direct output: `setStripDirectOutput` | Connected | Records old/new bus ID. Needs interleaved bus/layer deletion tests and exact persistence verification. |
 | Edit/hide instrument: `showStripEditor`, `toggleStripEditor` | Excluded | Window visibility is not a musical edit; preserve normal plugin-editor-local keyboard handling. |
 | Open/hide MIDI inspector | Excluded | View state; it does not change routing. |
-| Free-standing strip library label: `setStripLibrary`, `setGroupLibrary` | Connected; legacy UI | Editable only for non-chair strips. Batch action exists. Chair layer's library label is read-only. |
-| Free-standing strip duplicate: `duplicateStripInput` | Partial; legacy UI | Redo recreates from current source subset, not the retained duplicate. Needs same lifetime/state discipline as chair layers. Hidden for chair layers. |
-| Free-standing add/delete/group delete: `addMixerStrip`, `removeMixerStrip`, `removeGroupStrips` | Partial; legacy helpers | Commands exist; Add redo makes a blank strip, unlike new chair-layer add. Keep-alive removal is better. Old endpoints must not mutate chair layers without their repository rows. |
+| Strip delete/group delete: `removeMixerStrip`, `removeGroupStrips` | Partial; legacy helpers | Keep-alive removal. Old endpoints must not mutate chair layers without their repository rows. Free-standing strips are gone: Add, Duplicate and the library label were removed (docs/library-map-import.md). |
 | Input port/channel: `setStripInput` | Connected; no current visible control found | Legacy helper/action. Chairs own current routing; a stray per-layer override would disagree with the chair model. Remove/restrict legacy route-changing entry points. |
 
 Sources: [LayerDetailsPanel](/Users/mhc/fiddle/Source/Server/ui/src/lib/LayerDetailsPanel.svelte),
@@ -230,7 +228,7 @@ Read-only requests, also excluded: `requestBranches`, `requestCurrentBranch`,
 `requestStripAudioState`, `requestLibraries`, `getPlaybackDelay`.
 
 Backend-only legacy routes found in addition to the 104 UI literals include
-`saveSelectedInstruments`, `buildPlaybackTemplate`, `restoreLibraryPluginState`,
+`saveSelectedInstruments`, `restoreLibraryPluginState`,
 `restoreLibraryPatchState`, import-capture/setup/history helpers. These should
 be retired or explicitly restricted rather than left as an alternate way to
 mutate the current project outside its command model. They were not counted as

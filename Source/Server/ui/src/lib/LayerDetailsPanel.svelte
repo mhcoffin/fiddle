@@ -24,8 +24,6 @@
         onRemoveLua = () => {},
         onInspectMidi = () => {},
         onRefreshLibrary = () => {},
-        onRenameLibrary = () => {},
-        onDuplicate = () => {},
         onDelete = () => {},
     } = $props();
 
@@ -54,15 +52,13 @@
                 <div class="section-heading">
                     <div>
                         <h3>Library source</h3>
-                        <p>{strip.chairId ? "This layer inherits its initial setup from a library patch." : "This is a free-standing mixer strip."}</p>
+                        <p>This layer inherits its initial setup from a library patch.</p>
                     </div>
-                    {#if strip.chairId}
-                        <button
-                            class:attention={strip.sourcePatchOutOfDate}
-                            disabled={strip.missingPatchReference || !strip.sourcePatchOutOfDate}
-                            onclick={onRefreshLibrary}
-                        >Refresh Library</button>
-                    {/if}
+                    <button
+                        class:attention={strip.sourcePatchOutOfDate}
+                        disabled={strip.missingPatchReference || !strip.sourcePatchOutOfDate}
+                        onclick={onRefreshLibrary}
+                    >Refresh Library</button>
                 </div>
                 <div class="fields">
                     <label>
@@ -71,11 +67,7 @@
                     </label>
                     <label>
                         <span>Library</span>
-                        <input
-                            value={strip.library || ""}
-                            readonly={Boolean(strip.chairId)}
-                            onchange={(event) => onRenameLibrary(event.currentTarget.value)}
-                        />
+                        <input value={strip.library || ""} readonly />
                     </label>
                 </div>
                 {#if strip.missingPatchReference}
@@ -216,10 +208,7 @@
                     <p>Structural operations are kept away from the mixing controls.</p>
                 </div>
                 <div class="danger-actions">
-                    {#if !strip.chairId}
-                        <button onclick={onDuplicate}>Duplicate strip</button>
-                    {/if}
-                    <button class="danger" onclick={onDelete}>Delete {strip.chairId ? "layer" : "strip"}</button>
+                    <button class="danger" onclick={onDelete}>Delete layer</button>
                 </div>
             </section>
         </div>

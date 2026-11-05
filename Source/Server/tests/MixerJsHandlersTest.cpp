@@ -43,20 +43,9 @@ public:
   float number = 0.0f;
   bool flag = false;
 
-  bool addStrip() override { return record("add"); }
-  bool duplicateStrip(const juce::String &id) override {
-    stripId = id;
-    return record("duplicate");
-  }
   bool removeStrip(const juce::String &id) override {
     stripId = id;
     return record("remove");
-  }
-  bool setLibrary(const juce::String &id,
-                  const juce::String &newLibrary) override {
-    stripId = id;
-    library = newLibrary;
-    return record("library");
   }
   bool setInput(const juce::String &id, int port, int channel) override {
     stripId = id;
@@ -100,12 +89,6 @@ public:
     number = gainDb;
     return record("group-gain-absolute");
   }
-  bool setGroupLibrary(const std::vector<juce::String> &ids,
-                       const juce::String &newLibrary) override {
-    stripIds = ids;
-    library = newLibrary;
-    return record("group-library");
-  }
   bool removeGroupStrips(const std::vector<juce::String> &ids) override {
     stripIds = ids;
     return record("group-remove");
@@ -135,20 +118,14 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   handlers.registerHandlers();
 
   CHECK(!router.handleMessage("notACommand", {}));
-  CHECK(router.handleMessage("addMixerStrip", {}));
-  CHECK(commands.calls.back() == "add");
-
-  CHECK(router.handleMessage("duplicateStripInput", payload({"strip-a"})));
-  CHECK(commands.calls.back() == "duplicate");
-  CHECK(commands.stripId == "strip-a");
+  // Free-standing strip commands are gone (docs/library-map-import.md).
+  CHECK(!router.handleMessage("addMixerStrip", {}));
+  CHECK(!router.handleMessage("duplicateStripInput", payload({"strip-a"})));
+  CHECK(!router.handleMessage("setStripLibrary", payload({"strip-a", "Berlin"})));
+  CHECK(!router.handleMessage("setGroupLibrary", payload({"[]", "Berlin"})));
 
   CHECK(router.handleMessage("removeMixerStrip", payload({"strip-b"})));
   CHECK(commands.calls.back() == "remove");
-
-  CHECK(router.handleMessage("setStripLibrary",
-                             payload({"strip-a", "Berlin"})));
-  CHECK(commands.calls.back() == "library");
-  CHECK(commands.library == "Berlin");
 
   CHECK(router.handleMessage("setStripInput", payload({"strip-a", 2, 15})));
   CHECK(commands.calls.back() == "input");
@@ -194,17 +171,12 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   CHECK(commands.calls.back() == "group-gain-absolute");
   CHECK(std::abs(commands.number - -120.0f) < 0.001f);
 
-  CHECK(router.handleMessage("setGroupLibrary",
-                             payload({idsJson, "Synchron"})));
-  CHECK(commands.calls.back() == "group-library");
-  CHECK(commands.library == "Synchron");
-
   CHECK(router.handleMessage("removeGroupStrips", payload({idsJson})));
   CHECK(commands.calls.back() == "group-remove");
   CHECK(commands.stripIds.size() == 2);
 
-  CHECK(commands.calls.size() == 14);
-  CHECK(changed == 14);
+  CHECK(commands.calls.size() == 10);
+  CHECK(changed == 10);
 }
 
 void testDispatchAndFailedCommandsControlSideEffects() {
@@ -260,8 +232,7 @@ void testMalformedPayloadsDoNotDispatch() {
 
   CHECK(router.handleMessage("setStripGain", payload({"strip-a"})));
   CHECK(router.handleMessage("setStripInput", "not-an-array"));
-  CHECK(router.handleMessage("setGroupLibrary",
-                             payload({"not-json", "Berlin"})));
+  CHECK(router.handleMessage("setGroupGainDelta", payload({"not-json", 1.0})));
   CHECK(router.handleMessage("removeGroupStrips", payload({"[]"})));
   CHECK(dispatched == 0);
   CHECK(commands.calls.empty());

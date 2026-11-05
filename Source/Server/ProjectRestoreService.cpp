@@ -1,6 +1,7 @@
 #include "ProjectRestoreService.h"
 #include "LuaPlugin.h"
 #include "BridgeMapDocument.h"
+#include "LegacyStripConversion.h"
 
 #include <map>
 #include <set>
@@ -111,6 +112,30 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
 
   std::vector<ChairRow> chairs;
   std::vector<LayerRow> layers;
+  std::map<std::string, std::string> layerHashes;
+  // A version saved before chairs existed is converted to chairs, layers and
+  // generated libraries (LegacyStripConversion.h). Without a repository (some
+  // tests) its strips are restored as they were saved.
+  const bool convertLegacy = !topology && repository_;
+  std::vector<std::string> generatedLibraries;
+  if (convertLegacy) {
+    std::vector<std::pair<versioning::Hash, versioning::StripBlob>> strips;
+    for (const auto &hash : state.stripHashes)
+      strips.emplace_back(hash, blobs.at(hash));
+    auto conversion = convertLegacyStrips(strips, repository_->listChairs(),
+                                          [] { return juce::Uuid().toString().toStdString(); });
+    // Libraries are catalog data, written before the project topology. They
+    // stay if the topology is then rejected; they are valid either way.
+    for (const auto &generated : conversion.libraries) {
+      const auto merged = mergeRestoredLibrary(repository_->captureLibrary(generated.id), generated);
+      if (repository_->restoreLibrary(merged) != PatchReplaceResult::replaced)
+        return {false, false, "Could not create the library \"" + generated.name + "\" for this version's strips"};
+      generatedLibraries.push_back(generated.name);
+    }
+    chairs = std::move(conversion.chairs);
+    layers = std::move(conversion.layers);
+    layerHashes = std::move(conversion.layerHashes);
+  }
   for (const auto &saved : state.routingState.chairs) {
     chairs.push_back({saved.id, saved.instrumentEntityId, saved.name, saved.family,
                       saved.isSolo ? DoricoRole::solo : DoricoRole::section,
@@ -128,7 +153,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   }
   // replaceTopology validates all identities/references before its atomic
   // transaction. Failure must not silently fall back to a different project.
-  if (topology && !repository_->replaceTopology(chairs, layers))
+  if ((topology || convertLegacy) && !repository_->replaceTopology(chairs, layers))
     return {false, false, "Could not restore chair/layer topology"};
 
   if (session_)
@@ -245,8 +270,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     });
   };
 
-  if (topology) {
-    std::map<std::string, std::string> layerHashes;
+  if (topology || convertLegacy) {
     for (const auto &saved : state.routingState.layers)
       layerHashes.emplace(saved.id, saved.stripHash);
     // Repository ordering is the same as ordinary chair/layer materialization.
@@ -305,7 +329,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   }
   mixer_.refreshAudioRouting();
   Session::complete(session);
-  return {true, topology, {}};
+  return {true, topology || convertLegacy, {}, std::move(generatedLibraries)};
 }
 
 } // namespace fiddle

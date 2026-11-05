@@ -11,30 +11,6 @@ namespace fiddle {
 
 // ─── Property change actions ─────────────────────────────────────────
 
-/// Undo/redo for setStripLibrary.
-class SetLibraryAction : public UndoableAction {
-public:
-  SetLibraryAction(MixerModel &mixer, const juce::String &stripId,
-                   const juce::String &oldLib, const juce::String &newLib)
-      : mixer_(mixer), stripId_(stripId), oldLib_(oldLib), newLib_(newLib) {}
-
-  void execute() override {
-    if (auto *s = mixer_.getStrip(stripId_))
-      s->library = newLib_;
-  }
-  void undo() override {
-    if (auto *s = mixer_.getStrip(stripId_))
-      s->library = oldLib_;
-  }
-  juce::String getDescription() const override {
-    return "Set library to '" + newLib_ + "'";
-  }
-
-private:
-  MixerModel &mixer_;
-  juce::String stripId_, oldLib_, newLib_;
-};
-
 /// Undo/redo for setStripInput.
 class SetInputAction : public UndoableAction {
 public:
@@ -297,35 +273,6 @@ private:
 
 // ─── Structural actions ──────────────────────────────────────────────
 
-/// Undo/redo for addMixerStrip.
-class AddStripAction : public UndoableAction {
-public:
-  AddStripAction(MixerModel &mixer) : mixer_(mixer) {}
-
-  void execute() override {
-    if (createdId_.isEmpty()) {
-      createdId_ = mixer_.addStrip();
-    } else {
-      // Re-add on redo: create a new strip with same ID
-      auto strip = std::make_unique<MixerStrip>();
-      strip->id = createdId_;
-      mixer_.insertStripAt(std::move(strip), insertIndex_);
-    }
-    insertIndex_ = mixer_.stripIndex(createdId_);
-  }
-  void undo() override {
-    insertIndex_ = mixer_.stripIndex(createdId_);
-    mixer_.removeStrip(createdId_);
-  }
-  juce::String getDescription() const override { return "Add strip"; }
-  juce::String getCreatedId() const { return createdId_; }
-
-private:
-  MixerModel &mixer_;
-  juce::String createdId_;
-  int insertIndex_ = -1;
-};
-
 /// Undo/redo for removeMixerStrip. Keeps the strip alive for undo.
 class RemoveStripAction : public UndoableAction {
 public:
@@ -350,43 +297,6 @@ private:
   juce::String stripId_;
   int index_ = 0;
   std::shared_ptr<MixerStrip> removedStrip_;
-};
-
-/// Undo/redo for duplicateStripInput.
-class DuplicateStripAction : public UndoableAction {
-public:
-  DuplicateStripAction(MixerModel &mixer, const juce::String &sourceStripId)
-      : mixer_(mixer), sourceStripId_(sourceStripId) {}
-
-  void execute() override {
-    if (createdId_.isEmpty()) {
-      createdId_ = mixer_.duplicateStripAfter(sourceStripId_);
-    } else {
-      // Re-duplicate on redo
-      auto strip = std::make_unique<MixerStrip>();
-      strip->id = createdId_;
-      // Copy source properties
-      if (auto *src = mixer_.getStrip(sourceStripId_)) {
-        const auto sourceState = src->realtimeState();
-        strip->setInputAssignment(sourceState.inputPort,
-                                  sourceState.inputChannel);
-        strip->family = src->family;
-        strip->isSolo = src->isSolo;
-        strip->directOutputBusId = src->directOutputBusId;
-        strip->sends = src->sends;
-      }
-      int sourceIdx = mixer_.stripIndex(sourceStripId_);
-      mixer_.insertStripAt(std::move(strip), sourceIdx + 1);
-    }
-  }
-  void undo() override { mixer_.removeStrip(createdId_); }
-  juce::String getDescription() const override { return "Duplicate strip"; }
-  juce::String getCreatedId() const { return createdId_; }
-
-private:
-  MixerModel &mixer_;
-  juce::String sourceStripId_;
-  juce::String createdId_;
 };
 
 /// Undo/redo for toggleLibraryActive. Captures per-strip old active states.

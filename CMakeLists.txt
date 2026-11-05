@@ -143,6 +143,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ApplicationRestart.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
+    Source/Server/LegacyStripConversion.cpp
     Source/Server/ExpressionMapCommandService.cpp
     Source/Server/ExpressionMapCommandService.h
     Source/Server/ExpressionMapCommands.h
@@ -608,12 +609,13 @@ set_tests_properties(percussion_maps PROPERTIES
 juce_add_console_app(LibraryMapsTest PRODUCT_NAME "LibraryMapsTest")
 target_sources(LibraryMapsTest PRIVATE
     Source/Server/tests/LibraryMapsTest.cpp
+    Source/Server/LegacyStripConversion.cpp
     Source/Server/LibraryMaps.cpp
     Source/Server/LibraryRoutingRepository.cpp
     Source/Server/PercussionMap.cpp
     Source/Server/ExpressionMapParser.cpp
 )
-target_include_directories(LibraryMapsTest PRIVATE Source/Server)
+target_include_directories(LibraryMapsTest PRIVATE Source/Server "${xxhash_SOURCE_DIR}")
 target_link_libraries(LibraryMapsTest PRIVATE juce::juce_core juce::juce_cryptography SQLite::SQLite3)
 target_compile_features(LibraryMapsTest PRIVATE cxx_std_17)
 juce_generate_juce_header(LibraryMapsTest)
@@ -1273,6 +1275,8 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/RenderAheadEngine.cpp
     Source/Server/RealtimeMixPrinter.cpp
     Source/Server/ProjectRestoreService.cpp
+    Source/Server/LegacyStripConversion.cpp
+    Source/Server/LibraryMaps.cpp
     Source/Server/MixerCommandService.cpp
     Source/Server/MixerModel.cpp
     Source/Server/MixerStrip.cpp
@@ -1303,7 +1307,7 @@ target_sources(MixerIntegrationTest PRIVATE
 target_include_directories(MixerIntegrationTest PRIVATE
     Source Source/Server "${CMAKE_CURRENT_BINARY_DIR}" "${xxhash_SOURCE_DIR}")
 target_link_libraries(MixerIntegrationTest PRIVATE
-    juce::juce_audio_utils juce::juce_gui_extra
+    juce::juce_cryptography juce::juce_audio_utils juce::juce_gui_extra
     libprotobuf lua_static sol2 SQLite::SQLite3)
 target_compile_definitions(MixerIntegrationTest PRIVATE
     JUCE_PLUGINHOST_VST3=1 JUCE_MODAL_LOOPS_PERMITTED=1

@@ -16,6 +16,7 @@
 #include "MixerModel.h"
 #include "PluginScanner.h"
 #include "ProjectRestoreService.h"
+#include "LegacyStripConversion.h"
 #include "StateManager.h"
 #include "StateBlobTypes.h"
 #include "UndoManager.h"
@@ -3044,6 +3045,90 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
   }
 }
 
+// A version saved before chairs existed restores as chairs and layers in
+// generated libraries (LegacyStripConversion.h), and still sounds the same.
+void testRestoreConvertsVersionsSavedBeforeChairs() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("legacy.sqlite")));
+  auto *repository = db.getLibraryRoutingRepository();
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::versioning::FiddleState saved;
+  std::vector<float> expected;
+  {
+    MixerFixture source;
+    const auto first = source.instrument(0.1f, 1);
+    const auto second = source.instrument(0.2f, 2);
+    const auto third = source.instrument(0.3f, 3);
+    source.mixer.getStrip(first)->library = "Elite";
+    source.mixer.getStrip(second)->library = "Elite";
+    source.mixer.getStrip(second)->setGainDb(-6.0f);
+    source.mixer.getStrip(third)->family = "brass";
+    expected = renderPassage(source);
+    for (auto *strip : source.mixer.getAllStrips())
+      strip->refreshPluginStateCache();
+    fiddle::StateManager state; // no routing repository: strips are saved free-standing
+    state.setVersionStore(&versions);
+    const auto version = state.commitCurrentState(source.mixer, branch);
+    saved = *versions.getState(versions.getVersion(version)->stateHash);
+  }
+  REQUIRE(saved.routingState.schemaVersion == 0 && saved.stripHashes.size() == 3);
+
+  // The current project has a chair on input 2; the restored chair there copies it.
+  fiddle::ChairRow cello;
+  cello.id = "live-cello";
+  cello.instrumentEntityId = "test.cello";
+  cello.name = "Cello 1";
+  cello.family = "strings";
+  cello.flatIndex = 2;
+  REQUIRE(repository->upsertChair(cello));
+
+  MixerFixture f;
+  f.mixer.getFormatManager().addFormat(std::make_unique<TestPluginFormat>());
+  int finished = 0;
+  fiddle::ProjectRestoreService restore(f.mixer, versions, repository, restoreCallbacks(finished));
+  const auto result = restore.restore(saved);
+  REQUIRE(result.accepted && result.restoredTopology);
+  REQUIRE(result.generatedLibraries.size() == 2);
+  pumpUntil([&] { return !restore.isLoading(); });
+  REQUIRE(finished == 1);
+
+  REQUIRE(f.mixer.size() == 3);
+  REQUIRE(repository->listChairs().size() == 3);
+  const auto elite = fiddle::restoredLibraryId("Elite");
+  for (auto *strip : f.mixer.getAllStrips()) {
+    REQUIRE(!strip->chairId.isEmpty());
+    REQUIRE(!strip->missingPatchReference);
+    const auto patch = repository->getPatch(strip->patchId.toStdString());
+    REQUIRE(patch.has_value());
+    REQUIRE(repository->getLayer(strip->id.toStdString()).has_value());
+    const auto input = strip->realtimeState();
+    if (input.inputChannel == 3) {
+      REQUIRE(strip->libraryId.toStdString() == fiddle::restoredLibraryId(""));
+      REQUIRE(strip->library == "Unfiled (restored)");
+    } else {
+      REQUIRE(strip->libraryId.toStdString() == elite);
+      REQUIRE(strip->library == "Elite (restored)");
+    }
+    if (input.inputChannel == 2)
+      REQUIRE(strip->instrumentEntityId == "test.cello");
+  }
+  REQUIRE(!repository->listPatches(elite).empty());
+  requireSameAudio(expected, renderPassage(f));
+
+  // Restoring it again reuses the generated libraries.
+  REQUIRE(restore.restore(saved).accepted);
+  pumpUntil([&] { return !restore.isLoading(); });
+  int restoredLibraries = 0;
+  for (const auto &library : db.listLibraries())
+    restoredLibraries += library.name.endsWith(" (restored)") ? 1 : 0;
+  REQUIRE(restoredLibraries == 2);
+  REQUIRE(repository->listChairs().size() == 3);
+  requireSameAudio(expected, renderPassage(f));
+}
+
 void testMissingPluginsAndSupersededRestore() {
   Sandbox sandbox;
   fiddle::FiddleDatabase db;
@@ -3646,6 +3731,7 @@ int main(int argc, char **argv) {
   run("historical mixer save forks and survives reopen", testHistoricalMixerSaveForkSurvivesReopen);
   run("restore recreates audio after database reopen", testRestoreRecreatesAudioAfterDatabaseReopen);
   run("missing plug-ins and superseded restore", testMissingPluginsAndSupersededRestore);
+  run("restore converts versions saved before chairs", testRestoreConvertsVersionsSavedBeforeChairs);
   run("cancelled rebuild retains published host state", testCancelledStateRebuildRetainsPublishedBlob);
   run("render-ahead worker preserves note deadlines and remaps generations", testRenderAheadWorkerAndRemapping);
   run("variable block lengths preserve instrument and FX samples", testVariableBlockContinuity);

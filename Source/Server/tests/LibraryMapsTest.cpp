@@ -1,7 +1,9 @@
 // Per-library expression and percussion maps (docs/library-map-import.md):
 // reading maps from .doricolib files, fingerprints, library-scoped storage,
-// snapshots, and the migration from the shared percussion map list.
+// snapshots, the migration from the shared percussion map list, and the
+// conversion of pre-chair project versions (LegacyStripConversion.h).
 #include "../ExpressionMapParser.h"
+#include "../LegacyStripConversion.h"
 #include "../LibraryMaps.h"
 #include "../LibraryRoutingRepository.h"
 
@@ -379,6 +381,160 @@ void testMigrationCopiesExpressionMapsIntoLibraries() {
   temp.deleteRecursively();
 }
 
+
+fiddle::versioning::StripBlob legacyStrip(std::string library, std::string family, int port, int channel,
+                                          int pluginUid, std::vector<std::uint8_t> state = {}) {
+  fiddle::versioning::StripBlob blob;
+  blob.library = std::move(library);
+  blob.family = std::move(family);
+  blob.isSolo = false;
+  blob.inputPort = port;
+  blob.inputChannel = channel;
+  blob.pluginUid = pluginUid;
+  blob.pluginState = std::move(state);
+  return blob;
+}
+
+// A version saved before chairs: strips sharing an input share a chair, strips
+// sharing a library name share a generated library, identical setups share a
+// patch, and empty strips leave only their chair.
+void testLegacyStripsBecomeChairsLayersAndLibraries() {
+  juce::String error;
+  const auto clarinet = fiddle::readLibraryMapFile(
+      LibraryMapKind::expression, fixture("example-expression-maps/BWWA Eb Clarinet.doricolib"), error);
+  const auto snare = fiddle::readLibraryMapFile(
+      LibraryMapKind::percussion,
+      fixture("example-expression-maps/percussion/VSL SY Percussion - Snare Drum (PM).doricolib"), error);
+  CHECK(clarinet.size() == 1 && snare.size() == 1);
+  if (clarinet.empty() || snare.empty())
+    return;
+
+  auto first = legacyStrip("Elite", "strings", 0, 1, 5, {1, 2, 3});
+  first.expressionMapEntityId = clarinet.front().entityId;
+  first.expressionMapSourceXml = fiddle::expressionMapLibraryXml(clarinet.front().definitionXml).toStdString();
+  first.gainDb = -6.0f;
+  first.muted = true;
+  const auto second = legacyStrip(" Elite ", "strings", 0, 1, 6, {9});    // same input, same library
+  auto drum = legacyStrip("", "percussion", 0, 2, 7);                      // unnamed library
+  drum.percussionMapSourceXml = snare.front().definitionXml.toStdString();
+  const auto empty = legacyStrip("Elite", "wind", 0, 3, 0);                // only a chair
+  auto noInput = legacyStrip("Elite", "strings", 0, 0, 5, {1, 2, 3});      // same setup as first
+  noInput.expressionMapEntityId = first.expressionMapEntityId;
+  noInput.expressionMapSourceXml = first.expressionMapSourceXml;
+  const std::vector<std::pair<std::string, fiddle::versioning::StripBlob>> strips{
+      {"h-first", first}, {"h-second", second}, {"h-drum", drum}, {"h-empty", empty}, {"h-noinput", noInput}};
+
+  fiddle::ChairRow live;
+  live.id = "live-violin";
+  live.instrumentEntityId = "instrument.strings.violin";
+  live.name = "Violin 1";
+  live.family = "strings";
+  live.role = fiddle::DoricoRole::section;
+  live.ordinal = 1;
+  live.flatIndex = 1;
+  int nextId = 0;
+  const auto newId = [&nextId] { return "id-" + std::to_string(++nextId); };
+  const auto conversion = fiddle::convertLegacyStrips(strips, {live}, newId);
+
+  CHECK(conversion.libraries.size() == 2);
+  CHECK(fiddle::restoredLibraryId("Elite") == fiddle::restoredLibraryId(" Elite "));
+  CHECK(fiddle::restoredLibraryId("") == fiddle::restoredLibraryId("  "));
+  CHECK(fiddle::restoredLibraryId("Elite") != fiddle::restoredLibraryId(""));
+  const fiddle::LibraryCatalogSnapshot *elite = nullptr, *unfiled = nullptr;
+  for (const auto &library : conversion.libraries) {
+    if (library.name == "Elite (restored)") elite = &library;
+    if (library.name == "Unfiled (restored)") unfiled = &library;
+  }
+  CHECK(elite && unfiled);
+  if (!elite || !unfiled)
+    return;
+  CHECK(elite->id == fiddle::restoredLibraryId("Elite") && elite->exists && elite->includesMaps);
+  CHECK(elite->patches.size() == 2); // first and noInput share a patch
+  CHECK(elite->maps.size() == 1 && elite->maps.front().kind == LibraryMapKind::expression &&
+        elite->maps.front().entityId == clarinet.front().entityId &&
+        elite->maps.front().xml == clarinet.front().definitionXml.toStdString());
+  if (!elite->patches.empty()) {
+    const auto &patch = elite->patches.front();
+    CHECK(patch.name == clarinet.front().name);
+    CHECK(patch.pluginUid == 5 && patch.pluginState == std::vector<std::uint8_t>({1, 2, 3}));
+    CHECK(patch.expressionMapId == clarinet.front().entityId);
+    CHECK(patch.instrumentEntityId == "instrument.strings.violin");
+  }
+  CHECK(unfiled->patches.size() == 1 && unfiled->maps.size() == 1);
+  if (!unfiled->patches.empty())
+    CHECK(unfiled->patches.front().percussionMapId == snare.front().entityId);
+
+  // Inputs 1, 2 and 3 keep their chairs; the strip on input 0 gets input 4.
+  CHECK(conversion.chairs.size() == 4);
+  if (conversion.chairs.size() == 4) {
+    const auto &violin = conversion.chairs[0];
+    CHECK(violin.flatIndex == 1 && violin.instrumentEntityId == "instrument.strings.violin" &&
+          violin.name == "Violin 1" && violin.role == fiddle::DoricoRole::section && violin.ordinal == 1);
+    CHECK(violin.id != live.id);
+    CHECK(conversion.chairs[1].flatIndex == 2 &&
+          conversion.chairs[1].instrumentEntityId == fiddle::standInInstrument("percussion") &&
+          conversion.chairs[1].name == "Percussion 1/3");
+    CHECK(conversion.chairs[2].flatIndex == 3 && conversion.chairs[2].instrumentEntityId == "instrument.wind.flute");
+    // A stand-in on the violin's instrument and role takes the next ordinal.
+    CHECK(conversion.chairs[3].flatIndex == 4 && conversion.chairs[3].instrumentEntityId == "instrument.strings.violin" &&
+          conversion.chairs[3].role == fiddle::DoricoRole::section && conversion.chairs[3].ordinal == 2);
+    for (int i = 0; i < 4; ++i)
+      CHECK(conversion.chairs[static_cast<size_t>(i)].displayOrder == i);
+  }
+
+  CHECK(conversion.layers.size() == 4); // the empty strip has none
+  CHECK(conversion.layerHashes.size() == 4);
+  if (conversion.layers.size() == 4 && conversion.chairs.size() == 4) {
+    const auto &layer = conversion.layers[0];
+    CHECK(layer.chairId == conversion.chairs[0].id && layer.position == 0);
+    CHECK(layer.libraryId == elite->id && layer.libraryName == "Elite (restored)");
+    CHECK(layer.muted && layer.gainDb == -6.0f && layer.pluginUid == 5);
+    CHECK(conversion.layerHashes.at(layer.id) == "h-first");
+    CHECK(conversion.layers[1].chairId == conversion.chairs[0].id && conversion.layers[1].position == 1);
+    CHECK(conversion.layers[2].chairId == conversion.chairs[1].id &&
+          conversion.layers[2].percussionMapId == snare.front().entityId);
+    CHECK(conversion.layers[3].chairId == conversion.chairs[3].id &&
+          conversion.layers[3].patchId == conversion.layers[0].patchId);
+  }
+
+  // Converting again yields the same library and patch identities.
+  const auto again = fiddle::convertLegacyStrips(strips, {live}, newId);
+  CHECK(again.libraries.size() == 2 && again.layers.size() == 4);
+  if (again.layers.size() == 4 && conversion.layers.size() == 4)
+    CHECK(again.layers[0].patchId == conversion.layers[0].patchId);
+
+  // Written to the database: the libraries and topology are accepted, and a
+  // second restore keeps the user's edits to the generated library.
+  DatabaseFixture db;
+  fiddle::LibraryRoutingRepository repository(db.database, db.mutex);
+  for (const auto &library : conversion.libraries)
+    CHECK(repository.restoreLibrary(fiddle::mergeRestoredLibrary(repository.captureLibrary(library.id), library)) ==
+          fiddle::PatchReplaceResult::replaced);
+  CHECK(repository.replaceTopology(conversion.chairs, conversion.layers));
+  CHECK(repository.listChairs().size() == 4);
+  CHECK(repository.listPatches(elite->id).size() == 2);
+  CHECK(repository.getLibraryMap(unfiled->id, LibraryMapKind::percussion, snare.front().entityId).has_value());
+
+  auto renamed = repository.getPatch(elite->patches.front().id);
+  CHECK(renamed.has_value());
+  if (renamed) {
+    renamed->name = "My clarinet";
+    CHECK(repository.upsertPatch(*renamed));
+  }
+  auto extra = legacyStrip("Elite", "brass", 0, 5, 11, {4});
+  const auto third = fiddle::convertLegacyStrips({{"h-extra", extra}}, repository.listChairs(), newId);
+  CHECK(third.libraries.size() == 1);
+  if (third.libraries.size() == 1) {
+    const auto merged = fiddle::mergeRestoredLibrary(repository.captureLibrary(elite->id), third.libraries.front());
+    CHECK(merged.patches.size() == 3 && merged.maps.size() == 1);
+    CHECK(repository.restoreLibrary(merged) == fiddle::PatchReplaceResult::replaced);
+  }
+  CHECK(repository.listPatches(elite->id).size() == 3);
+  const auto kept = repository.getPatch(elite->patches.front().id);
+  CHECK(kept && kept->name == "My clarinet");
+  CHECK(repository.getLibraryMap(elite->id, LibraryMapKind::expression, clarinet.front().entityId).has_value());
+}
+
 } // namespace
 
 int main() {
@@ -389,6 +545,7 @@ int main() {
   testSnapshotsCarryMapsOnlyWhenCaptured();
   testSharedPercussionMapsMigrateToTheLibrariesThatUseThem();
   testMigrationCopiesExpressionMapsIntoLibraries();
+  testLegacyStripsBecomeChairsLayersAndLibraries();
   std::cout << "LibraryMapsTest: " << passed << " passed, " << failed << " failed" << std::endl;
   return failed == 0 ? 0 : 1;
 }

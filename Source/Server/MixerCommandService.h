@@ -17,11 +17,7 @@ public:
   MixerCommandService(MixerModel &mixer, UndoManager &undoManager,
                       ProgramAppliedCallback programApplied = {});
 
-  bool addStrip() override;
-  bool duplicateStrip(const juce::String &stripId) override;
   bool removeStrip(const juce::String &stripId) override;
-  bool setLibrary(const juce::String &stripId,
-                  const juce::String &library) override;
   bool setInput(const juce::String &stripId, int port, int channel) override;
   bool setGain(const juce::String &stripId, float gainDb) override;
   bool setMute(const juce::String &stripId, bool muted) override;
@@ -33,8 +29,6 @@ public:
                          float deltaDb) override;
   bool setGroupGainAbsolute(const std::vector<juce::String> &stripIds,
                             float gainDb) override;
-  bool setGroupLibrary(const std::vector<juce::String> &stripIds,
-                       const juce::String &library) override;
   bool removeGroupStrips(
       const std::vector<juce::String> &stripIds) override;
 

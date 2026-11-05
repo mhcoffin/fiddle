@@ -350,9 +350,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         return () => window.removeEventListener("keydown", handleKeyDown);
     });
 
-    const addStrip = () => {
-        dispatchCpp("addMixerStrip");
-    };
     const removeStrip = (id) => {
         const target = strips.find((strip) => strip.id === id);
         if (target?.chairId) {
@@ -373,10 +370,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         if (!strip?.chairId || strip.missingPatchReference ||
             !strip.sourcePatchOutOfDate) return;
         dispatchCpp("refreshChairLayerFromLibrary", strip.id);
-    };
-
-    const duplicateStrip = (id) => {
-        dispatchCpp("duplicateStripInput", id);
     };
 
     const setInput = (stripId, port, channel) => {
@@ -420,13 +413,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         channelAudioStripId = "";
         channelAudio = null;
         layerDetailsStripId = strip.id;
-    };
-    const renameLibrary = (stripId, value) => {
-        const library = String(value || "").trim();
-        if (!library) return;
-        if (isMultiSelected && selectedIds.has(stripId))
-            dispatchCpp("setGroupLibrary", selectedIdsJson(), library);
-        else dispatchCpp("setStripLibrary", stripId, library);
     };
     const setDirectOutput = (stripId, busId) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
@@ -1636,11 +1622,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                     layerDetailsStripId = "";
                 }}
                 onRefreshLibrary={() => refreshLayerFromLibrary(detailsStrip)}
-                onRenameLibrary={(value) => renameLibrary(detailsStrip.id, value)}
-                onDuplicate={() => {
-                    duplicateStrip(detailsStrip.id);
-                    layerDetailsStripId = "";
-                }}
                 onDelete={() => {
                     removeStrip(detailsStrip.id);
                     layerDetailsStripId = "";

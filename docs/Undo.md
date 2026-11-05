@@ -9,7 +9,6 @@
 * Changing the VST for an instrument
 * Changing the gain on a strip
 * setStripInput
-* duplicateStripInput
 
 
 

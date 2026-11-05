@@ -52,20 +52,6 @@ void MixerJsHandlers::notifyChanged(bool changed, bool persist) {
 }
 
 void MixerJsHandlers::registerHandlers() {
-  router_.registerHandler("addMixerStrip", [this](const juce::var &) {
-    dispatch([this] { notifyChanged(commands_.addStrip(), false); });
-  });
-
-  router_.registerHandler("duplicateStripInput", [this](const juce::var &payload) {
-    const auto arguments = payloadArguments(payload);
-    if (arguments.size() < 1)
-      return;
-    const auto stripId = arguments[0].toString();
-    dispatch([this, stripId] {
-      notifyChanged(commands_.duplicateStrip(stripId), false);
-    });
-  });
-
   router_.registerHandler("removeMixerStrip", [this](const juce::var &payload) {
     const auto arguments = payloadArguments(payload);
     if (arguments.size() < 1)
@@ -73,17 +59,6 @@ void MixerJsHandlers::registerHandlers() {
     const auto stripId = arguments[0].toString();
     dispatch([this, stripId] {
       notifyChanged(commands_.removeStrip(stripId), false);
-    });
-  });
-
-  router_.registerHandler("setStripLibrary", [this](const juce::var &payload) {
-    const auto arguments = payloadArguments(payload);
-    if (arguments.size() < 2)
-      return;
-    const auto stripId = arguments[0].toString();
-    const auto library = arguments[1].toString();
-    dispatch([this, stripId, library] {
-      notifyChanged(commands_.setLibrary(stripId, library), false);
     });
   });
 
@@ -182,19 +157,6 @@ void MixerJsHandlers::registerHandlers() {
         -120.0f, 6.0f, static_cast<float>(static_cast<double>(arguments[1])));
     dispatch([this, stripIds, gainDb] {
       notifyChanged(commands_.setGroupGainAbsolute(stripIds, gainDb), false);
-    });
-  });
-
-  router_.registerHandler("setGroupLibrary", [this](const juce::var &payload) {
-    const auto arguments = payloadArguments(payload);
-    if (arguments.size() < 2)
-      return;
-    const auto stripIds = parseStripIds(arguments[0]);
-    if (stripIds.empty())
-      return;
-    const auto library = arguments[1].toString();
-    dispatch([this, stripIds, library] {
-      notifyChanged(commands_.setGroupLibrary(stripIds, library), false);
     });
   });
 

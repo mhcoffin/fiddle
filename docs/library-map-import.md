@@ -1,10 +1,12 @@
 # Per-library expression and percussion maps — design
 
-Status: **maps implemented** (2026-11-04): storage, migration, import, the
-library editor sections, pickers and update checks. **Free-standing strip
-conversion is not done yet** (see [Every layer has a library](#every-layer-has-a-library)).
-Not yet checked in the running app against the live database; a rehearsal on
-a copy migrated all 67 expression maps and 11 percussion maps in use.
+Status: **implemented** (2026-11-04). Maps: storage, migration, import, the
+library editor sections, pickers and update checks. Free-standing strips:
+restoring a version saved before chairs converts its strips to chairs, layers
+and generated libraries, and the leftover strip code is gone. Not yet checked
+in the running app against the live database. Rehearsals on copies migrated
+all 67 expression maps and 11 percussion maps in use, and restored all 106
+pre-chair versions.
 
 ## Where it lives
 
@@ -130,7 +132,7 @@ library:
 | --- | --- |
 | Patch setup (`MainComponent.cpp:6209`) | Look up the patch's library map |
 | Layer sync (`MainComponent.cpp:6299`) | Look up the layer's library map |
-| Older library-instrument path (`MainComponent.cpp:5679`) | Removed with `buildPlaybackTemplate` (see [Every layer has a library](#every-layer-has-a-library)) |
+| Older library-instrument path | Removed with `buildPlaybackTemplate` (see [Every layer has a library](#every-layer-has-a-library)) |
 | `loadPersisted` (project restore, lines 845, 1906, 2046) | Unchanged: it prefers the project's saved map copy |
 | `loadPercussionMap(id)` | Takes the layer's or patch's library |
 | `requestExpressionMapDetails` (viewer, Note Inspector) | Resolve within the library |
@@ -142,9 +144,9 @@ Fiddle's own Dorico-side maps and are unaffected.
 
 ## Migration (one-time, on first launch)
 
-1. **Free-standing strips:** convert each one, as described in
-   [Every layer has a library](#every-layer-has-a-library). This comes first,
-   so its maps are collected in the next two steps.
+1. **Free-standing strips:** none exist in the live database, so the
+   migration has nothing to convert. Old project versions are converted when
+   restored; see [Every layer has a library](#every-layer-has-a-library).
 2. **Expression maps:** for each library, collect the `expression_map_id`
    values used by its patches and layers. Copy each map's definition from
    Dorico's folder (via `ExpressionMapLibrary`) into
@@ -177,30 +179,60 @@ editable name. The current UI can't create one: `addMixerStrip` and the old
 appear by restoring an old project version, and **Duplicate strip** in Layer
 Details can copy it.
 
-This design removes free-standing strips entirely:
+This design removes free-standing strips entirely.
 
-1. **Convert them.** On migration, and whenever a restored project version
-   contains one, each free-standing strip gets an auto-generated library:
-   - Named after the strip's library name, or "Unfiled" if it has none. Strips
-     with the same name share one library.
-   - Given a patch built from the strip's plugin, plugin state and maps. The
-     maps are imported into the new library.
-   - The strip is then linked to that library and patch.
+1. **Convert them** (`LegacyStripConversion.h`, called from
+   `ProjectRestoreService`). The live database has none: every row in
+   `strips` is a chair layer. So conversion happens only when a restored
+   project version predates chairs (`routingState.schemaVersion` 0):
+   - **Libraries.** Strips with the same library name share a generated
+     library named "<name> (restored)", or "Unfiled (restored)" when the name
+     is empty. Each library's ID is derived from its name, so restoring
+     another old version reuses the library. The user's own libraries of the
+     same name are left alone.
+   - **Patches.** Each distinct setup (plug-in, plug-in state, expression map
+     and percussion map) becomes one patch. The patch is named after its map.
+     Maps saved with the strip are imported into the library. Expression maps
+     an old version didn't save are filled in afterwards by the map migration
+     (`migrateLibraryMaps`), from Dorico's folders. If a patch is already in
+     the stored library, the stored copy wins, so the user's edits survive.
+   - **Chairs.** Each MIDI port and channel becomes a chair at the same input
+     (`flat_index = port × 16 + channel`).
+     - If the current project already has a chair on that input, the new
+       chair copies its instrument, name, role and ordinal, so Dorico's
+       current template still reaches it.
+     - Otherwise the chair is a stand-in for the strip's family (a violin for
+       strings, a flute for wind, and so on), named after the family and
+       input, for example "Brass 1/4".
+     - Strips on input 0 (never a chair input) or with no input get fresh
+       inputs after the highest one used.
+   - **Layers.** Every strip that holds anything (a plug-in, a map, scripts or
+     effects) becomes a layer on its chair. It keeps its gain, mute, solo,
+     sends, effects and plug-in state. Empty strips, which old templates made
+     for every channel, leave just the chair.
 
-   The conversion is logged, and the Library Manager shows the generated
-   libraries like any other.
-2. **Remove the leftover code:**
+   The restore logs which libraries it made or extended. The Library Manager
+   shows them like any other.
+
+   Tests and other callers that construct `ProjectRestoreService` without a
+   repository still restore old versions as plain strips. The app always
+   passes one.
+2. **Remove the leftover code** (done):
    - the `addMixerStrip` handler and `MixerCommandService::addStrip`, with its
      undo action;
-   - `buildPlaybackTemplate`, including the `library_instruments` strip setup
-     at `MainComponent.cpp:5679`;
-   - `duplicateStripInput`, and the **Duplicate strip** button;
+   - `buildPlaybackTemplate`, including its `library_instruments` strip setup
+     and `FiddleDatabase::loadAllLibraryInstruments`;
+   - `duplicateStripInput`, `MixerModel::duplicateStripAfter`, and the
+     **Duplicate strip** button;
    - `setStripLibrary`, `setGroupLibrary`, and the editable library name in
      Layer Details;
    - the "free-standing mixer strip" wording.
 
-   Whatever code is left only for the old `library_instruments` table moves to
-   the migration, or is deleted if the migration doesn't need it.
+   Still present: `MixerModel::addStrip` (the integration tests build mixers
+   with it), `removeMixerStrip`, and the server's handler for the plug-in's
+   old `restore_state` message. That handler rebuilds strips from a state
+   blob. The plug-in no longer sends this message; only `fiddle_mock load`
+   does.
 
 Then every layer has a library by construction, and Load from file always has
 a library to import into.
@@ -240,9 +272,13 @@ not checked.
 - **Update checks:** for each status (up to date, newer version, differs,
   moved and found again, source missing, edited in Fiddle), with fixture
   `.doricolib` files changed on disk between checks.
-- **Free-standing strip conversion:** on migration and on restoring an old
-  version. Covers named and unnamed strips, two strips sharing a name, and the
-  resulting patch's plugin, state and maps.
+- **Free-standing strip conversion** (`LibraryMapsTest`,
+  `MixerIntegrationTest` "restore converts versions saved before chairs"):
+  named and unnamed strips, two strips sharing a name and an input, an
+  identical setup shared as one patch, an empty strip, input 0, chairs copied
+  from the current project, the resulting patch's plug-in, state and maps,
+  and a second restore that keeps the user's edits. It also checks that the
+  restored project sounds the same.
 - **Playback:** two libraries with different maps under the same entity ID;
   each layer plays its own library's map.
 - **UI unit tests:** the generalized import offer, search filtering and

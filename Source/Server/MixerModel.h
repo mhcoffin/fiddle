@@ -97,10 +97,6 @@ public:
   /// Take a snapshot of a strip's restorable state.
   [[nodiscard]] StripSnapshot snapshotStrip(const juce::String &id) const;
 
-  /// Insert a new strip right after the strip with the given ID,
-  /// copying its input port/channel/family but with no plugin.
-  juce::String duplicateStripAfter(const juce::String &afterId);
-
   /// Find a strip by ID (nullptr if not found).
   MixerStrip *getStrip(const juce::String &id);
 

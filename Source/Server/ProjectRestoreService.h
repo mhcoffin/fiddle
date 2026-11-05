@@ -7,6 +7,8 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace fiddle {
 
@@ -31,6 +33,8 @@ public:
     bool accepted = false;
     bool restoredTopology = false;
     std::string error;
+    /// Libraries made or extended for a version saved before chairs existed.
+    std::vector<std::string> generatedLibraries;
   };
 
   ProjectRestoreService(MixerModel &, versioning::VersionStore &,

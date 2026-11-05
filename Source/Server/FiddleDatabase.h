@@ -299,9 +299,6 @@ public:
   /// Delete a library and its instruments.
   void deleteLibrary(const juce::String &libraryId);
 
-  /// Load all instruments across all libraries (for Dorico template).
-  std::vector<LibraryInstrumentRow> loadAllLibraryInstruments();
-
 private:
   void createSchema();
   void prepareStatements();
@@ -358,7 +355,6 @@ private:
   SqliteStatement stmtInsertLibraryInstrument_;
   SqliteStatement stmtListLibraries_;
   SqliteStatement stmtLoadLibraryInstruments_;
-  SqliteStatement stmtLoadAllLibraryInstruments_;
 };
 
 } // namespace fiddle

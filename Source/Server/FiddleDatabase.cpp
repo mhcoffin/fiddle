@@ -587,15 +587,6 @@ void FiddleDatabase::prepareStatements() {
     FROM library_instruments WHERE library_id = ? ORDER BY sort_order
   )",
        stmtLoadLibraryInstruments_);
-  prep(R"(
-    SELECT li.library_id, li.sort_order, li.entity_id, li.name, li.category,
-           li.is_solo, li.vst_plugin, li.expr_map, li.plugin_uid, li.plugin_state,
-           li.family, li.instance_nums, li.note
-    FROM library_instruments li
-    INNER JOIN libraries l ON li.library_id = l.id
-    ORDER BY l.name, li.sort_order
-  )",
-       stmtLoadAllLibraryInstruments_);
 }
 
 void FiddleDatabase::finalizeStatements() {
@@ -642,7 +633,6 @@ void FiddleDatabase::finalizeStatements() {
   fin(stmtInsertLibraryInstrument_);
   fin(stmtListLibraries_);
   fin(stmtLoadLibraryInstruments_);
-  fin(stmtLoadAllLibraryInstruments_);
 }
 
 bool FiddleDatabase::exec(const char *sql) {
@@ -1940,37 +1930,6 @@ void FiddleDatabase::deleteLibrary(const juce::String &libraryId) {
 
   exec("COMMIT");
   std::cerr << "[FiddleDB] Deleted library " << libraryId << std::endl;
-}
-
-std::vector<LibraryInstrumentRow> FiddleDatabase::loadAllLibraryInstruments() {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<LibraryInstrumentRow> result;
-  if (!stmtLoadAllLibraryInstruments_)
-    return result;
-
-  sqlite3_reset(stmtLoadAllLibraryInstruments_);
-  while (sqlite3_step(stmtLoadAllLibraryInstruments_) == SQLITE_ROW) {
-    LibraryInstrumentRow row;
-    row.libraryId = colText(stmtLoadAllLibraryInstruments_, 0);
-    row.sortOrder = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 1);
-    row.entityId = colText(stmtLoadAllLibraryInstruments_, 2);
-    row.name = colText(stmtLoadAllLibraryInstruments_, 3);
-    row.category = colText(stmtLoadAllLibraryInstruments_, 4);
-    row.isSolo = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 5) != 0;
-    row.vstPlugin = colText(stmtLoadAllLibraryInstruments_, 6);
-    row.exprMap = colText(stmtLoadAllLibraryInstruments_, 7);
-    row.pluginUid = sqlite3_column_int(stmtLoadAllLibraryInstruments_, 8);
-    if (auto *blobData = sqlite3_column_blob(stmtLoadAllLibraryInstruments_, 9)) {
-      int blobSize = sqlite3_column_bytes(stmtLoadAllLibraryInstruments_, 9);
-      row.pluginState.append(blobData, (size_t)blobSize);
-    }
-    row.family = colText(stmtLoadAllLibraryInstruments_, 10);
-    row.instanceNums = LibraryInstrumentRow::parseInstanceNums(
-        colText(stmtLoadAllLibraryInstruments_, 11));
-    row.note = colText(stmtLoadAllLibraryInstruments_, 12);
-    result.push_back(std::move(row));
-  }
-  return result;
 }
 
 } // namespace fiddle
