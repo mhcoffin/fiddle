@@ -57,7 +57,6 @@ public:
       if (auto *mc = dynamic_cast<MainComponent *>(getContentComponent())) {
         auto bounds = mc->restoreMainWindowGeometry();
         setBounds(bounds);
-        LaunchWindowPlacement::instance().remember(*this, bounds);
       } else {
         centreWithSize(getWidth(), getHeight());
       }

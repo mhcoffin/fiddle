@@ -1180,6 +1180,9 @@ void MainComponent::initDatabase() {
     auto bounds = restoreMainWindowGeometry();
     if (auto *topLevel = getTopLevelComponent()) {
       topLevel->setBounds(bounds);
+      // Remember the saved place, not the placeholder the window opened at
+      // before the database was ready.
+      LaunchWindowPlacement::instance().remember(*topLevel, bounds);
     }
   }
 
