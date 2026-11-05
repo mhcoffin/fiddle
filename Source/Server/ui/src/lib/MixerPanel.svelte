@@ -1034,7 +1034,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 <div
     class="mixer-container"
     class:compact-strips={stripSize === "compact"}
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 404 : 334}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 380 : 310}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1317,7 +1317,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 </div>
 
                                                 <section class="ch-strip-section ch-instrument-section" aria-label="Instrument">
-                                                <div class="ch-section-title">Instrument</div>
                                                 <div class="ch-instrument-summary">
                                                     {#if strip.hasPlugin}
                                                         <button
@@ -2469,7 +2468,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         height: 24px;
         flex-shrink: 0;
     }
-    .ch-instrument-section { height: 68px; display: flex; flex-direction: column; gap: 4px; }
+    .ch-instrument-section { height: 44px; display: flex; flex-direction: column; gap: 4px; }
     .ch-audio-fx {
         min-width: 22px;
         height: 24px;

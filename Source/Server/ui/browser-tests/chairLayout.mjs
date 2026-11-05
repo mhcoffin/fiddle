@@ -653,7 +653,7 @@ try {
         assert.equal(controlHeights.fx, 24, "FX management uses a compact header button");
         assert.equal(controlHeights.output, controlHeights.vst, "output and VSTi controls must have equal height");
         assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(),
-            ['Instrument', 'Pre-fader', 'Post-fader', 'Output']);
+            ['Pre-fader', 'Post-fader', 'Output']);
         const headingsFit = await firstStrip.locator('.ch-section-heading').evaluateAll((headings) => headings.every((heading) => {
             const text = heading.querySelector('.ch-section-title').getBoundingClientRect();
             const button = heading.querySelector('button').getBoundingClientRect();

@@ -28,7 +28,9 @@ test("strip effects are grouped by signal position before the output selector", 
     assert.ok(mixerSource.indexOf("<PromotedSends") < mixerSource.indexOf('class="ch-strip-section ch-output-routing"'));
     assert.match(mixerSource, /horizontal=\{stripSize === "large"\}/);
     assert.match(mixerSource, /\.ch-strip-section\s*\{[^}]*background: #1b283b/);
-    assert.match(mixerSource, /ch-section-title">Instrument/);
+    // The VSTi control needs no "Instrument" heading (the section keeps its accessible name).
+    assert.doesNotMatch(mixerSource, /ch-section-title">Instrument/);
+    assert.match(mixerSource, /ch-instrument-section" aria-label="Instrument"/);
     assert.match(mixerSource, /ch-section-title">Output/);
     assert.match(mixerSource, /ch-section-title">\{location\}-fader/);
     assert.match(mixerSource, /ch-fx-empty">No inserts/);
