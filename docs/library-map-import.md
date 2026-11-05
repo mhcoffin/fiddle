@@ -82,7 +82,8 @@ The home page's Percussion Maps panel is removed.
   undoable edit and status rules as an import, and then assigned to the layer.
   Its patch row then shows it in the drop-down. (Today the percussion version
   already adds the file to the shared list, and the expression-map version
-  keeps the map on the layer only.)
+  keeps the map on the layer only.) Every layer has a library; see
+  [Every layer has a library](#every-layer-has-a-library).
 
 ### Playback and lookups
 
@@ -93,7 +94,7 @@ library:
 | --- | --- |
 | Patch setup (`MainComponent.cpp:6209`) | Look up the patch's library map |
 | Layer sync (`MainComponent.cpp:6299`) | Look up the layer's library map |
-| Older library-instrument path (`MainComponent.cpp:5679`) | Use the library's map, or drop the path if nothing still calls it |
+| Older library-instrument path (`MainComponent.cpp:5679`) | Removed with `buildPlaybackTemplate` (see [Every layer has a library](#every-layer-has-a-library)) |
 | `loadPersisted` (project restore, lines 845, 1906, 2046) | Unchanged: it prefers the project's saved map copy |
 | `loadPercussionMap(id)` | Takes the layer's or patch's library |
 | `requestExpressionMapDetails` (viewer, Note Inspector) | Resolve within the library |
@@ -105,27 +106,64 @@ Fiddle's own Dorico-side maps and are unaffected.
 
 ## Migration (one-time, on first launch)
 
-1. **Expression maps:** for each library, collect the `expression_map_id`
+1. **Free-standing strips:** convert each one, as described in
+   [Every layer has a library](#every-layer-has-a-library). This comes first,
+   so its maps are collected in the next two steps.
+2. **Expression maps:** for each library, collect the `expression_map_id`
    values used by its patches and layers. Copy each map's definition from
    Dorico's folder (via `ExpressionMapLibrary`) into
    `library_expression_maps`. If a map's file is gone, use the latest project
    version's saved map copy (`expression_map_source`). If neither exists, keep
    the ID, mark the map missing in the library editor (as the pickers' "not in
    library" label does today), and list it in the migration report.
-2. **Percussion maps:** copy each map into every library whose patches or
+3. **Percussion maps:** copy each map into every library whose patches or
    layers use it. **Drop maps no library uses.**
-3. Write a one-line migration summary to the log, giving per-library counts and
-   any missing maps.
+4. Write a one-line migration summary to the log, giving per-library counts,
+   generated libraries, and any missing maps.
 
 The migration runs in one transaction and is idempotent: rerunning it finds
 nothing new to copy.
 
-## Open questions
+## Every layer has a library
 
-- **A layer with no library** (`library_id` empty): "Load from file…" can't
-  pick a library. Proposal: keep the map on the layer only, as the
-  expression-map file load does today, and say so in the Layer Details status
-  line.
+Chair layers always come from a library patch (`assignPatchToChair`), so they
+have a library. The exception is the **free-standing mixer strip**, left over
+from before chairs existed. It has no chair, and its "library" is just an
+editable name. The current UI can't create one: `addMixerStrip` and the old
+`buildPlaybackTemplate` path are no longer called from anywhere. One can still
+appear by restoring an old project version, and **Duplicate strip** in Layer
+Details can copy it.
+
+This design removes free-standing strips entirely:
+
+1. **Convert them.** On migration, and whenever a restored project version
+   contains one, each free-standing strip gets an auto-generated library:
+   - Named after the strip's library name, or "Unfiled" if it has none. Strips
+     with the same name share one library.
+   - Given a patch built from the strip's plugin, plugin state and maps. The
+     maps are imported into the new library.
+   - The strip is then linked to that library and patch.
+
+   The conversion is logged, and the Library Manager shows the generated
+   libraries like any other.
+2. **Remove the leftover code:**
+   - the `addMixerStrip` handler and `MixerCommandService::addStrip`, with its
+     undo action;
+   - `buildPlaybackTemplate`, including the `library_instruments` strip setup
+     at `MainComponent.cpp:5679`;
+   - `duplicateStripInput`, and the **Duplicate strip** button;
+   - `setStripLibrary`, `setGroupLibrary`, and the editable library name in
+     Layer Details;
+   - the "free-standing mixer strip" wording.
+
+   Whatever code is left only for the old `library_instruments` table moves to
+   the migration, or is deleted if the migration doesn't need it.
+
+Then every layer has a library by construction, and Load from file always has
+a library to import into.
+
+## Open question
+
 - **Updating from disk:** compare `version` and the definition text against
   the source file on demand (when the editor opens, or with a refresh button),
   rather than watching Dorico's folders.
@@ -136,6 +174,9 @@ nothing new to copy.
   libraries holds different content), the migration (copied, missing and
   dropped maps, and a rerun that copies nothing), deleting a library, and the
   delete block while a map is in use.
+- **Free-standing strip conversion:** on migration and on restoring an old
+  version. Covers named and unnamed strips, two strips sharing a name, and the
+  resulting patch's plugin, state and maps.
 - **Playback:** two libraries with different maps under the same entity ID;
   each layer plays its own library's map.
 - **UI unit tests:** the generalized import offer, search filtering and
