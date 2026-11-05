@@ -27,6 +27,9 @@
         onDelete = () => {},
     } = $props();
 
+    let validPlugins = $derived(plugins.filter((plugin) => plugin.valid !== false));
+    // A missing or unscanned player still shows by name in the selector.
+    let pluginListed = $derived(validPlugins.some((plugin) => plugin.uid === strip?.pluginUid));
     let expressionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "expression"));
     let percussionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "percussion"));
 
@@ -91,11 +94,13 @@
                 </div>
                 <select value={strip.pluginUid || 0} onchange={(event) => onSetPlugin(Number(event.currentTarget.value))}>
                     <option value="0">No instrument assigned</option>
-                    {#each plugins.filter((plugin) => plugin.valid !== false) as plugin}
+                    {#if strip.pluginUid && !pluginListed}
+                        <option value={strip.pluginUid}>{pluginName || "Unknown instrument"} (not available)</option>
+                    {/if}
+                    {#each validPlugins as plugin}
                         <option value={plugin.uid}>{plugin.name}</option>
                     {/each}
                 </select>
-                <div class="current-value">Current: {pluginName || "No instrument assigned"}</div>
 
                 {#if !strip.hasPlugin && strip.pluginUid && (strip.pluginStatus === "missing" || strip.pluginStatus === "failed")}
                     <div class="warning">
@@ -123,6 +128,7 @@
                         <p>From the {strip.library || "layer's"} library. Load from file adds a map to that library.</p>
                     </div>
                 </div>
+                <div class="map-picker">
                 <ExpressionMapSelect
                     maps={expressionMaps}
                     libraryId={strip.libraryId || ""}
@@ -134,6 +140,7 @@
                     onclear={onClearMap}
                     onloadfile={onLoadMapFile}
                 />
+                </div>
             </section>
 
             {#if strip.unpitchedPercussion || strip.percussionMapEntityID}
@@ -144,6 +151,7 @@
                             <p>Choose the library pitch (and keyswitch) for each stroke. The expression map still handles switches and dynamics.</p>
                         </div>
                     </div>
+                    <div class="map-picker">
                     <PercussionMapPicker
                         maps={percussionMaps}
                         canLoadFromFile={Boolean(strip.libraryId)}
@@ -154,6 +162,7 @@
                         onclear={onClearPercussionMap}
                         onloadfile={onLoadPercussionMapFile}
                     />
+                    </div>
                 </section>
             {/if}
 
@@ -224,11 +233,15 @@
     h2 { color: #f8fafc; font-size: 1.45rem; }
     h3 { color: #f1f5f9; font-size: 1.02rem; }
     p { margin-top: 4px; color: #94a3b8; font-size: 0.84rem; line-height: 1.4; }
-    button, input, select { min-height: 38px; box-sizing: border-box; border: 1px solid #475569; border-radius: 6px; background: #172337; color: #e2e8f0; font: inherit; }
-    button { padding: 7px 12px; cursor: pointer; font-weight: 600; }
-    button:hover:not(:disabled) { border-color: #7dd3fc; background: #1e3048; }
-    button:disabled { opacity: 0.38; cursor: default; }
-    input, select { width: 100%; padding: 8px 11px; }
+    /* The map pickers are child components; give their row of controls (not
+       the map viewer they open) the same look. */
+    button, input, select, .map-picker > :global(div > button), .map-picker > :global(div > select) { min-height: 38px; box-sizing: border-box; border: 1px solid #475569; border-radius: 6px; background: #172337; color: #e2e8f0; font: inherit; }
+    button, .map-picker > :global(div > button) { padding: 7px 12px; cursor: pointer; font-weight: 600; }
+    button:hover:not(:disabled), .map-picker > :global(div > button:hover:not(:disabled)) { border-color: #7dd3fc; background: #1e3048; }
+    button:disabled, .map-picker > :global(div > button:disabled) { opacity: 0.38; cursor: default; }
+    input, select, .map-picker > :global(div > select) { width: 100%; padding: 8px 11px; }
+    /* WebKit draws selects as native menus, which ignore min-height; match the buttons. */
+    select, .map-picker > :global(div > select) { height: 40px; }
     input[readonly] { color: #94a3b8; }
     .close { min-width: 72px; }
     .content { padding: 24px 26px 32px; overflow-y: auto; }
@@ -238,12 +251,11 @@
     label { display: flex; flex-direction: column; gap: 6px; }
     label > span { color: #94a3b8; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
     .program { margin-top: 14px; }
-    .current-value { margin-top: 8px; color: #94a3b8; font-size: 0.78rem; }
     .notice, .warning, .empty { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; }
     .warning { display: flex; flex-direction: column; gap: 4px; }
     .notice { border: 1px solid #854d0e; background: rgba(133, 77, 14, 0.2); color: #fde68a; }
     .warning { border: 1px solid #991b1b; background: rgba(127, 29, 29, 0.22); color: #fecaca; }
-    .empty { border: 1px dashed #334155; color: #94a3b8; text-align: center; }
+    .empty { margin-bottom: 12px; border: 1px dashed #334155; color: #94a3b8; text-align: center; }
     .attention { border-color: #f59e0b; color: #fbbf24; }
     .lua-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
     .lua-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 1px solid #334155; border-radius: 7px; background: #111c2e; }
