@@ -122,12 +122,10 @@ juce::var serializeExpressionMap(const ExpressionMapData &data,
   return juce::var(root);
 }
 
-bool isCatalogAssignment(const ExpressionMapAssignment &assignment,
-                         const std::string &entityId) {
-  return assignment.data && assignment.data->entityID == entityId &&
-         assignment.sourcePath.isEmpty() && assignment.sourceXml.isEmpty();
+bool isSameAssignment(const ExpressionMapAssignment &a, const ExpressionMapAssignment &b) {
+  return a.data && b.data && a.data->entityID == b.data->entityID &&
+         a.sourcePath == b.sourcePath && a.sourceXml == b.sourceXml;
 }
-
 bool isSameImportedAssignment(const ExpressionMapAssignment &assignment,
                               const ExpressionMapData &data,
                               const juce::File &file,
@@ -136,7 +134,6 @@ bool isSameImportedAssignment(const ExpressionMapAssignment &assignment,
          assignment.sourcePath == file.getFullPathName() &&
          assignment.sourceXml == sourceXml;
 }
-
 } // namespace
 
 ExpressionMapCommandService::ExpressionMapCommandService(
@@ -147,8 +144,21 @@ juce::var ExpressionMapCommandService::catalog() const {
   return juce::JSON::parse(library_.toJson());
 }
 
-juce::var ExpressionMapCommandService::details(const juce::String &entityId) {
+ExpressionMapAssignment
+ExpressionMapCommandService::resolve(const juce::String &stripId, const std::string &entityId) {
+  if (sources_.forStrip)
+    return sources_.forStrip(stripId, entityId);
+  return {library_.load(entityId), {}, {}};
+}
+
+juce::var ExpressionMapCommandService::details(const juce::String &entityId,
+                                               const juce::String &libraryId) {
   const auto requestedId = entityId.toStdString();
+  if (libraryId.isNotEmpty() && sources_.forLibrary) {
+    const auto assignment = sources_.forLibrary(libraryId, requestedId);
+    if (assignment.data)
+      return serializeExpressionMap(*assignment.data, assignment.sourcePath);
+  }
   const auto data = library_.load(requestedId);
   if (data == nullptr) {
     auto *error = new juce::DynamicObject();
@@ -174,17 +184,16 @@ bool ExpressionMapCommandService::assign(const juce::String &stripId,
   if (strip == nullptr || entityId.isEmpty())
     return false;
 
-  const auto newData = library_.load(entityId.toStdString());
-  if (newData == nullptr)
+  auto assignment = resolve(stripId, entityId.toStdString());
+  if (assignment.data == nullptr)
     return false;
 
   auto before = strip->snapshotExpressionMap();
-  if (isCatalogAssignment(before, entityId.toStdString()))
+  if (isSameAssignment(before, assignment))
     return false;
 
   return undoManager_.perform(std::make_unique<SetExpressionMapAction>(
-      mixer_, stripId, std::move(before),
-      ExpressionMapAssignment{newData, {}, {}}));
+      mixer_, stripId, std::move(before), std::move(assignment)));
 }
 
 bool ExpressionMapCommandService::clear(const juce::String &stripId) {
@@ -200,13 +209,10 @@ bool ExpressionMapCommandService::clear(const juce::String &stripId) {
       mixer_, stripId, std::move(before), ExpressionMapAssignment{}));
 }
 
+// Each strip takes the map from its own library. Strips whose library has no
+// such map are left alone; nothing changes if none has it.
 bool ExpressionMapCommandService::assignGroup(
     const std::vector<juce::String> &stripIds, const juce::String &entityId) {
-  const auto newEntityId = entityId.toStdString();
-  auto newData = entityId.isEmpty() ? nullptr : library_.load(newEntityId);
-  if (entityId.isNotEmpty() && newData == nullptr)
-    return false;
-
   std::set<juce::String> uniqueIds;
   for (const auto &stripId : stripIds)
     if (stripId.isEmpty() || !uniqueIds.insert(stripId).second ||
@@ -217,15 +223,17 @@ bool ExpressionMapCommandService::assignGroup(
   for (const auto &stripId : stripIds) {
     auto *strip = mixer_.getStrip(stripId);
     auto before = strip->snapshotExpressionMap();
-    const bool alreadyAssigned = entityId.isEmpty()
-                                     ? !before.data
-                                     : isCatalogAssignment(before, newEntityId);
-    if (alreadyAssigned)
+    ExpressionMapAssignment after;
+    if (entityId.isNotEmpty()) {
+      after = resolve(stripId, entityId.toStdString());
+      if (!after.data || isSameAssignment(before, after))
+        continue;
+    } else if (!before.data) {
       continue;
+    }
 
     actions.push_back(std::make_unique<SetExpressionMapAction>(
-        mixer_, stripId, std::move(before),
-        ExpressionMapAssignment{newData, {}, {}}));
+        mixer_, stripId, std::move(before), std::move(after)));
   }
 
   if (actions.empty())
@@ -241,6 +249,10 @@ bool ExpressionMapCommandService::importFile(const juce::String &stripId,
   auto *strip = mixer_.getStrip(stripId);
   if (strip == nullptr)
     return false;
+  if (sources_.importForStrip) {
+    const auto entityId = sources_.importForStrip(stripId, file);
+    return !entityId.empty() && assign(stripId, juce::String(entityId));
+  }
 
   auto data = std::make_shared<ExpressionMapData>();
   const auto sourceXml = file.loadFileAsString();

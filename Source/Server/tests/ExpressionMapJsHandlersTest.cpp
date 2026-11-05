@@ -43,7 +43,7 @@ public:
   juce::File file;
 
   juce::var catalog() const override { return catalogValue; }
-  juce::var details(const juce::String &targetEntityId) override {
+  juce::var details(const juce::String &targetEntityId, const juce::String & = {}) override {
     calls.emplace_back("details");
     entityId = targetEntityId;
     return detailsValue;

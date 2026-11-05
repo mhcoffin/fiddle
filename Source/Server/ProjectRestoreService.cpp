@@ -258,6 +258,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
         strip->chairId = chair.id;
         strip->setInstrumentEntityId(chair.instrumentEntityId);
         strip->patchId = layer.patchId;
+        strip->libraryId = layer.libraryId;
         strip->layerName = !layer.patchName.empty() ? layer.patchName
                             : patch ? patch->name : "Missing catalog patch";
         strip->library = !layer.libraryName.empty() ? layer.libraryName

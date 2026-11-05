@@ -1099,6 +1099,24 @@ std::string FiddleDatabase::loadSetting(const std::string &key,
   return defaultValue;
 }
 
+juce::String FiddleDatabase::findSavedExpressionMapSource(const std::string &entityId) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  sqlite3_stmt *statement = nullptr;
+  // strip_blobs has no timestamp; rowid order is insertion order.
+  if (!db_ || sqlite3_prepare_v2(db_,
+          "SELECT expression_map_source FROM strip_blobs "
+          "WHERE expression_map = ? AND expression_map_source <> '' "
+          "ORDER BY rowid DESC LIMIT 1", -1, &statement, nullptr) != SQLITE_OK)
+    return {};
+  sqlite3_bind_text(statement, 1, entityId.c_str(), -1, SQLITE_TRANSIENT);
+  juce::String result;
+  if (sqlite3_step(statement) == SQLITE_ROW)
+    if (const auto *text = sqlite3_column_text(statement, 0))
+      result = juce::String::fromUTF8(reinterpret_cast<const char *>(text));
+  sqlite3_finalize(statement);
+  return result;
+}
+
 // ── Saved configurations ─────────────────────────────────────────────
 
 juce::String FiddleDatabase::saveConfig(const juce::String &name) {

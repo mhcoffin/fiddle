@@ -7,6 +7,8 @@
 #include "DebugUiFeed.h"
 #include "DoricoInstrumentBrowser.h"
 #include "ExpressionMapLibrary.h"
+#include "ExpressionMapCommandService.h"
+#include "LibraryMaps.h"
 #include "FiddleDatabase.h"
 #include "HistoryWindow.h"
 
@@ -327,17 +329,27 @@ private:
   /// mixer strip, leaving routing and mixer controls unchanged.
   bool refreshLayersFromPatch(const LibraryPatchRow &patch, const std::vector<LayerRow> &layers);
   void layerLibrarySetupSettled(const juce::String &stripId);
-  // Library percussion maps (docs/library-percussion-maps.md).
-  PercussionMapAssignment loadPercussionMap(const std::string &entityId);
-  void refreshLivePercussionMaps();
-  void pushPercussionMaps();
-  void percussionMapResult(const juce::String &action, bool success, const juce::String &message,
-                           const juce::String &entityId);
-  bool performPercussionMapEdit(const std::string &entityId, std::optional<PercussionMapRow> target,
-                                const juce::String &description);
-  void offerPercussionMapImport(const juce::Array<juce::File> &sources, const juce::String &origin);
+  // Per-library maps (docs/library-map-import.md), in LibraryMapUi.cpp.
+  std::string layerLibraryId(const juce::String &stripId);
+  PercussionMapAssignment loadPercussionMap(const std::string &libraryId, const std::string &entityId);
+  ExpressionMapAssignment loadLibraryExpressionMap(const std::string &libraryId, const std::string &entityId);
+  void refreshLiveLibraryMaps();
+  void pushLibraryMaps();
+  void libraryMapResult(const juce::String &libraryId, LibraryMapKind kind, const juce::String &action,
+                        bool success, const juce::String &message, const juce::String &entityId = {});
+  bool performLibraryMapEdit(const std::string &libraryId, LibraryMapKind kind, const std::string &entityId,
+                             std::optional<LibraryMapRow> target, const juce::String &description);
+  bool importLibraryMap(const std::string &libraryId, const LibraryMapCandidate &candidate);
+  void offerLibraryMapImport(const juce::String &libraryId, LibraryMapKind kind,
+                             const juce::Array<juce::File> &sources, const juce::String &origin);
   void assignPercussionMap(const juce::String &stripId, PercussionMapAssignment assignment);
-  void setupPercussionMapHandlers();
+  /// Import a file's map into the strip's library; its entity ID, or empty.
+  std::string importMapFileForStrip(const juce::String &stripId, LibraryMapKind kind, const juce::File &file);
+  void migrateLibraryMaps();
+  void checkLibraryMapSources(const juce::String &libraryId);
+  ExpressionMapSources libraryExpressionMapSources();
+  void setupLibraryMapHandlers();
+  void setupLibraryMapSourceHandlers();
   void installChairPlaybackTemplate();
   void masterAudioChanged();
   void stripAudioChanged(const juce::String &stripId);

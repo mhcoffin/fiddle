@@ -8,7 +8,7 @@
         selectExpressionMapCombination,
     } from "./expressionMapViewer.js";
 
-    let { entityId, onclose = () => {} } = $props();
+    let { entityId, libraryId = "", onclose = () => {} } = $props();
 
     let dialog = $state();
     let searchInput = $state();
@@ -44,7 +44,7 @@
         });
 
         dialog?.showModal();
-        dispatchCpp("requestExpressionMapDetails", entityId);
+        dispatchCpp("requestExpressionMapDetails", entityId, libraryId);
         return unsubscribe;
     });
 </script>

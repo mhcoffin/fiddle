@@ -2,9 +2,10 @@
   /** @type {import('svelte')} */
   import { onMount } from "svelte";
   import { onFromCpp, dispatchCpp } from "./ipc.js";
-  import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+  import ExpressionMapSelect from "./ExpressionMapSelect.svelte";
   import PercussionMapPicker from "./PercussionMapPicker.svelte";
-  import PercussionMaps from "./PercussionMaps.svelte";
+  import LibraryMaps from "./LibraryMaps.svelte";
+  import { mapsFor } from "./libraryMaps.js";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
     import { LibraryHistory } from "./libraryHistory.js";
@@ -13,15 +14,9 @@
   const standardEnsembles = ensembleData.ensembles;
 
   // ── Expression maps from C++ ───────────────────────
-  let availableXmaps = $state([]);
-  let expressionMapNames = $derived(
-    new Map(availableXmaps.map((map) => [map.entityID, map.name])),
-  );
-  onFromCpp("setExpressionMaps", (data) => {
-    try { availableXmaps = data; } catch (e) { /* ignore */ }
-  });
-  let percussionMaps = $state([]);
-  onFromCpp("setPercussionMaps", (data) => { percussionMaps = Array.isArray(data) ? data : []; });
+  // Every library's expression and percussion maps (docs/library-map-import.md).
+  let libraryMaps = $state([]);
+  onFromCpp("setLibraryMaps", (data) => { libraryMaps = Array.isArray(data) ? data : []; });
 
   // ── Saved libraries from C++ ────────────────────────
   /** @type {{ id: string, name: string, vendor: string, variant: string }[]} */
@@ -280,7 +275,7 @@
   // can't clip position:fixed overlays in WKWebView.
   let portalTarget = $state(null);
   onMount(() => {
-    dispatchCpp("requestExpressionMaps");
+    dispatchCpp("requestLibraryMaps");
     dispatchCpp("requestPluginsState");
     dispatchCpp("requestLibraries");
     dispatchCpp("requestLibraryCatalogHistory");
@@ -408,10 +403,17 @@
     closeInstrumentChooser();
   };
 
-  const expressionMapName = (/** @type {string} */ entityID) => {
-    if (!entityID) return "";
-    return expressionMapNames.get(entityID) || entityID;
-  };
+  let editorExpressionMaps = $derived(mapsFor(libraryMaps, editorLibId, "expression"));
+  let editorPercussionMaps = $derived(mapsFor(libraryMaps, editorLibId, "percussion"));
+  let editorLibrarySaved = $derived(savedLibraries.some((library) => library.id === editorLibId));
+  // Each time a saved library's editor opens, compare its maps with their
+  // source files.
+  let checkedLibraryId = "";
+  $effect(() => {
+    const id = modalView === "editor" && editorLibrarySaved ? editorLibId : "";
+    if (id && id !== checkedLibraryId) dispatchCpp("checkLibraryMapSources", id);
+    checkedLibraryId = id;
+  });
 
   const setInstrumentExpressionMap = (
     /** @type {string} */ rowId,
@@ -630,7 +632,6 @@
         </div>
       {/if}
     </div>
-    <PercussionMaps instruments={allDoricoInstruments} />
   </div>
 </div>
 
@@ -843,19 +844,18 @@
                   {/if}
                 </div>
                 <div class="ir-expr">
-                  <ExpressionMapPicker
-                    maps={availableXmaps}
+                  <ExpressionMapSelect
+                    maps={editorExpressionMaps}
+                    libraryId={editorLibId}
                     selectedId={row.exprMap}
-                    selectedName={expressionMapName(row.exprMap)}
                     onselect={(entityID) =>
                       setInstrumentExpressionMap(row.id, entityID)}
                     onclear={() => setInstrumentExpressionMap(row.id, "")}
-                    canLoadFromFile={false}
                   />
                 </div>
                 <div class="ir-percussion">
                   <PercussionMapPicker
-                    maps={percussionMaps}
+                    maps={editorPercussionMaps}
                     instrument={row.entityID}
                     selectedId={row.percMap || ""}
                     noneLabel="None"
@@ -878,6 +878,15 @@
               </div>
             {/if}
           </div>
+          {#each ["expression", "percussion"] as kind (kind)}
+            <LibraryMaps
+              {kind}
+              library={{ id: editorLibId, name: editorLibName, vendor: editorLibVendor }}
+              maps={libraryMaps}
+              saved={editorLibrarySaved}
+              instruments={allDoricoInstruments}
+            />
+          {/each}
         </div>
       </div>
 

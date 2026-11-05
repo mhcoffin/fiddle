@@ -185,6 +185,10 @@ public:
   std::string loadSetting(const std::string &key,
                           const std::string &defaultValue = "");
 
+  /// The most recent project version's saved copy of an expression map (the
+  /// .doricolib text a layer played), or empty.
+  juce::String findSavedExpressionMapSource(const std::string &entityId);
+
   // ── Saved configurations ───────────────────────────────────────────
 
   /// Snapshot the current strips table into saved_configs under the given name.

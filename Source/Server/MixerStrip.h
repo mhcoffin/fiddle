@@ -54,6 +54,9 @@ struct MixerStrip {
   // strips created by the legacy mixer workflow.
   juce::String chairId;
   juce::String patchId;
+  /// The layer's library (layers.library_id); its maps are the ones this
+  /// strip can choose from. Empty for a strip with no library.
+  juce::String libraryId;
   juce::String layerName;
   bool missingPatchReference = false;
 

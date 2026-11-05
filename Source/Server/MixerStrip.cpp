@@ -682,6 +682,7 @@ juce::var MixerStrip::toJson() const {
   obj->setProperty("isSolo", isSolo);
   obj->setProperty("chairId", chairId);
   obj->setProperty("patchId", patchId);
+  obj->setProperty("libraryId", libraryId);
   obj->setProperty("layerName", layerName);
   obj->setProperty("missingPatchReference", missingPatchReference);
   obj->setProperty("directOutputBusId", directOutputBusId);

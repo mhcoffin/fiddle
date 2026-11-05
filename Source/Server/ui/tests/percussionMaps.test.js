@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-    coversInstrument, defaultImportSelection, duplicatePercussionMap, formatTechniques, isUnpitchedInstrument,
+    coversInstrument, duplicatePercussionMap, formatTechniques, isUnpitchedInstrument,
     newPercussionMap, newPercussionMapId, parseKeyswitches, parseTechniques, pitchName, sortForInstrument,
     validatePercussionMap,
 } from "../src/lib/percussionMaps.js";
@@ -63,14 +63,6 @@ test("unpitched instruments and instrument coverage", () => {
     assert.deepEqual(sortForInstrument([snareMap, toms], "instrument.band.unpitched.tomtom.low").map((m) => m.name), ["Toms", "A snare"]);
 });
 
-test("imports preselect only new and newer maps", () => {
-    const selection = defaultImportSelection([
-        { status: "new", map: { entityId: "a" } }, { status: "newer", map: { entityId: "b" } },
-        { status: "same", map: { entityId: "c" } }, { status: "changed", map: { entityId: "d" } },
-    ]);
-    assert.deepEqual([...selection].sort(), ["a", "b"]);
-});
-
 test("note inspector summarizes the percussion decision", () => {
     assert.equal(percussionState({}), null);
     const played = percussionState({ percussion: { mapName: "VSL", entryName: "Rim shot", pitch: 66, keyswitches: [24] } });
@@ -84,7 +76,9 @@ test("layers on unpitched chairs offer a percussion map picker", () => {
     const mixer = readFileSync(new URL("../src/lib/MixerPanel.svelte", import.meta.url), "utf8");
     assert.match(details, /strip\.unpitchedPercussion \|\| strip\.percussionMapEntityID/);
     assert.match(mixer, /dispatchCpp\("loadPercussionMap", detailsStrip\.id, entityId\)/);
-    assert.match(mixer, /dispatchCpp\("requestPercussionMaps"\)/);
+    assert.match(mixer, /dispatchCpp\("requestLibraryMaps"\)/);
+    // The picker lists only the layer's library's maps.
+    assert.match(details, /mapsFor\(libraryMaps, strip\?\.libraryId \|\| "", "percussion"\)/);
     const manager = readFileSync(new URL("../src/lib/LibraryManager.svelte", import.meta.url), "utf8");
     assert.match(manager, /percMap:\s+patch\.percMap \|\| ""/);
 });

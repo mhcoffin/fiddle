@@ -1,13 +1,13 @@
 <script>
-    import ExpressionMapPicker from "./ExpressionMapPicker.svelte";
+    import ExpressionMapSelect from "./ExpressionMapSelect.svelte";
     import PercussionMapPicker from "./PercussionMapPicker.svelte";
+    import { mapsFor } from "./libraryMaps.js";
 
     let {
         strip,
         pluginName = "",
         plugins = [],
-        maps = [],
-        percussionMaps = [],
+        libraryMaps = [],   // every library's maps; this layer uses its library's
         luaCatalog = [],
         inspectorOpen = false,
         onClose = () => {},
@@ -28,6 +28,9 @@
         onDuplicate = () => {},
         onDelete = () => {},
     } = $props();
+
+    let expressionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "expression"));
+    let percussionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "percussion"));
 
     const closeFromBackdrop = (event) => {
         if (event.target === event.currentTarget) onClose();
@@ -125,13 +128,16 @@
                 <div class="section-heading">
                     <div>
                         <h3>Expression map</h3>
-                        <p>Choose the articulation map supplied to this layer.</p>
+                        <p>From the {strip.library || "layer's"} library. Load from file adds a map to that library.</p>
                     </div>
                 </div>
-                <ExpressionMapPicker
-                    {maps}
+                <ExpressionMapSelect
+                    maps={expressionMaps}
+                    libraryId={strip.libraryId || ""}
                     selectedId={strip.expressionMapEntityID || ""}
                     selectedName={strip.expressionMapName || ""}
+                    noneLabel="No expression map"
+                    canLoadFromFile={Boolean(strip.libraryId)}
                     onselect={onSelectMap}
                     onclear={onClearMap}
                     onloadfile={onLoadMapFile}
@@ -148,6 +154,7 @@
                     </div>
                     <PercussionMapPicker
                         maps={percussionMaps}
+                        canLoadFromFile={Boolean(strip.libraryId)}
                         instrument={strip.instrumentEntityId || ""}
                         selectedId={strip.percussionMapEntityID || ""}
                         selectedName={strip.percussionMapName || ""}

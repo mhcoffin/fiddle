@@ -128,12 +128,22 @@ std::vector<PercussionMap> PercussionMap::parseLibrary(const juce::String &xml, 
     if (const auto *entities = defs->getChildByName("entities"))
       for (const auto *d : entities->getChildWithTagNameIterator("DrumKitNoteMapDefinition"))
         definitions.push_back(d);
+  // One invalid map doesn't hide the rest of the file: Dorico's own General
+  // MIDI map repeats an entry. Skipped maps are reported through error.
+  juce::StringArray skipped;
   for (const auto *d : definitions) {
     PercussionMap map;
-    if (!fromDefinition(*d, map, error)) return {};
+    juce::String problem;
+    if (!fromDefinition(*d, map, problem)) {
+      skipped.add(problem);
+      continue;
+    }
     maps.push_back(std::move(map));
   }
-  if (maps.empty()) error = "The file contains no percussion maps";
+  if (!skipped.isEmpty())
+    error = "Skipped " + skipped.joinIntoString("; ");
+  else if (maps.empty())
+    error = "The file contains no percussion maps";
   return maps;
 }
 

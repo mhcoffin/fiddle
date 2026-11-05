@@ -49,8 +49,8 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
     let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
     let availableInputs = $state([]);
     let scannedPlugins = $state([]);
-    let availableXmaps = $state([]);
-    let percussionMaps = $state([]);
+    // Every library's maps; Layer Details shows the strip's library's.
+    let libraryMaps = $state([]);
     let luaPluginCatalog = $state([]);
     let masterAudio = $state({
         id: "master",
@@ -185,15 +185,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         strips = strips.map((strip) => strip.id === data.stripId
             ? { ...strip, instrumentEditorOpen: Boolean(data.editorOpen) } : strip);
     });
-    onFromCpp("setExpressionMaps", (data) => {
-        try {
-            availableXmaps = data;
-        } catch (e) {
-            console.error("[Mixer] xmap error:", e);
-        }
-    });
-    onFromCpp("setPercussionMaps", (data) => {
-        percussionMaps = Array.isArray(data) ? data : [];
+    onFromCpp("setLibraryMaps", (data) => {
+        libraryMaps = Array.isArray(data) ? data : [];
     });
     onFromCpp("setLuaPluginCatalog", (data) => {
         try {
@@ -338,8 +331,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         dispatchCpp("requestPluginsState");
         dispatchCpp("requestMasterAudioState");
         dispatchCpp("requestGroupBusState");
-        dispatchCpp("requestExpressionMaps");
-        dispatchCpp("requestPercussionMaps");
+        dispatchCpp("requestLibraryMaps");
         dispatchCpp("requestCurrentBranch");
         dispatchCpp("requestChairs");
         dispatchCpp("requestLayerCatalog");
@@ -1624,8 +1616,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 strip={detailsStrip}
                 pluginName={getPluginName(detailsStrip)}
                 plugins={scannedPlugins}
-                maps={availableXmaps}
-                {percussionMaps}
+                {libraryMaps}
                 luaCatalog={luaPluginCatalog}
                 inspectorOpen={inspectorOpen && inspectorStripId === detailsStrip.id}
                 onClose={() => { layerDetailsStripId = ""; }}

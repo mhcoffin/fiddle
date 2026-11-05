@@ -1,6 +1,28 @@
 # Per-library expression and percussion maps — design
 
-Status: **proposed** (2026-11-04). Not implemented.
+Status: **maps implemented** (2026-11-04): storage, migration, import, the
+library editor sections, pickers and update checks. **Free-standing strip
+conversion is not done yet** (see [Every layer has a library](#every-layer-has-a-library)).
+Not yet checked in the running app against the live database; a rehearsal on
+a copy migrated all 67 expression maps and 11 percussion maps in use.
+
+## Where it lives
+
+| Piece | Code |
+| --- | --- |
+| Storage, snapshots | `library_maps` table, `LibraryMapRow`, `LibraryRoutingRepository` (`listLibraryMaps`, `getLibraryMap`, `upsertLibraryMap`, `libraryMapReferences`, `deleteLibraryMap`, `missingLibraryMapReferences`) |
+| Reading, fingerprints, migration | `LibraryMaps.{h,cpp}` (`readLibraryMapFile`, `libraryMapHash`, `compileExpressionMap`, `doricoMapSources`, `migrateLibraryMaps`) |
+| Undo | `LibraryMapCatalogAction` (`LibraryCatalogAction.h`), on the catalog undo stack |
+| Server | `LibraryMapUi.cpp`: lookups for playback, IPC (`requestLibraryMaps`, `chooseLibraryMapFiles`, `findDoricoLibraryMaps`, `importLibraryMaps`, `saveLibraryMap`, `deleteLibraryMap`, `exportLibraryMap`, `checkLibraryMapSources`, `updateLibraryMap`, `loadPercussionMap`, `clearPercussionMap`, `loadPercussionMapFromFile`); expression-map layer commands resolve through `ExpressionMapSources` (`ExpressionMapCommandService`) |
+| UI | `LibraryMaps.svelte` (library editor sections), `ExpressionMapSelect.svelte`, `PercussionMapPicker.svelte`, `libraryMaps.js`; `LayerDetailsPanel.svelte` filters by `strip.libraryId` |
+| Tests | `Source/Server/tests/LibraryMapsTest.cpp`, `LibraryRoutingRepositoryTest`, `ui/tests/libraryMaps.test.js`, `browser-tests/chairLayout.mjs` |
+
+Dorico's built-in maps (`expressionMapsDefinitions.xml`, `drumKitNoteMaps.xml`
+in the Dorico app bundle) count as Dorico's library: they're offered by **Find
+in Dorico Library…**, and the migration uses them (one of the 67 maps in use,
+`xmap.velocity_and_mod_wheel_dynamic`, is built in). A percussion file with one
+invalid map now loads its other maps; Dorico's own General MIDI map repeats an
+entry and is reported as skipped.
 
 ## Problem
 
@@ -28,14 +50,15 @@ maps.
 
 ### Storage
 
-Maps are copied into Fiddle's database and keyed by library:
+Maps are copied into Fiddle's database, one table for both kinds, keyed by
+library:
 
 | Table | Key | Columns |
 | --- | --- | --- |
-| `library_expression_maps` (new) | `(library_id, entity_id)` | `name`, `xml` (the `.doricolib` map definition), `revision`, `updated_at`, plus the source columns below |
-| `library_percussion_maps` (changed) | `(library_id, entity_id)`, was `entity_id` | existing columns, plus the source columns below |
+| `library_maps` (replaces `library_percussion_maps`) | `(library_id, kind, entity_id)`, `kind` is `expression` or `percussion` | `name`, `xml` (the map's own definition element), `revision`, `updated_at`, plus the source columns below |
 
-Both tables record where each map came from:
+One table (rather than one per kind) lets storage, migration, import and the UI
+share one code path. Each row records where its map came from:
 
 | Column | Meaning |
 | --- | --- |

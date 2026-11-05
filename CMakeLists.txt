@@ -226,6 +226,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/TonalContext.h
     Source/Server/AnnotatorChain.h
     Source/Server/PercussionMap.cpp
+    Source/Server/LibraryMaps.cpp
     Source/Server/PercussionMap.h
     Source/Server/PercussionMapAnnotator.h
     Source/Server/FiddleConfig.h
@@ -279,6 +280,7 @@ add_custom_command(
 
 
 target_link_libraries(FiddleServer PRIVATE
+    juce::juce_cryptography
     juce::juce_gui_extra
     juce::juce_gui_basics
     juce::juce_graphics
@@ -596,6 +598,28 @@ juce_generate_juce_header(PercussionMapTest)
 add_test(NAME percussion_maps COMMAND PercussionMapTest)
 set_tests_properties(percussion_maps PROPERTIES
     LABELS "percussion-map;expression-map;regression;stable"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+# ==============================================================================
+# LibraryMapsTest — per-library expression and percussion maps: reading,
+# fingerprints, storage and migration (docs/library-map-import.md)
+# ==============================================================================
+juce_add_console_app(LibraryMapsTest PRODUCT_NAME "LibraryMapsTest")
+target_sources(LibraryMapsTest PRIVATE
+    Source/Server/tests/LibraryMapsTest.cpp
+    Source/Server/LibraryMaps.cpp
+    Source/Server/LibraryRoutingRepository.cpp
+    Source/Server/PercussionMap.cpp
+    Source/Server/ExpressionMapParser.cpp
+)
+target_include_directories(LibraryMapsTest PRIVATE Source/Server)
+target_link_libraries(LibraryMapsTest PRIVATE juce::juce_core juce::juce_cryptography SQLite::SQLite3)
+target_compile_features(LibraryMapsTest PRIVATE cxx_std_17)
+juce_generate_juce_header(LibraryMapsTest)
+add_test(NAME library_maps COMMAND LibraryMapsTest)
+set_tests_properties(library_maps PROPERTIES
+    LABELS "library;percussion-map;expression-map;persistence;regression;stable"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
@@ -1367,7 +1391,8 @@ foreach(bridge_target FiddleServer MixerIntegrationTest BridgeMapDocumentTest Sc
     target_sources(${bridge_target} PRIVATE Source/Server/BridgeMapDocument.cpp)
     target_link_libraries(${bridge_target} PRIVATE juce::juce_cryptography)
 endforeach()
-target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp Source/Server/ScoreTestUi.cpp)
+target_sources(FiddleServer PRIVATE Source/Server/BridgeMapUi.cpp Source/Server/ScoreTestUi.cpp
+    Source/Server/LibraryMapUi.cpp)
 add_custom_command(TARGET FiddleServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>/../Resources/BridgeMaps"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

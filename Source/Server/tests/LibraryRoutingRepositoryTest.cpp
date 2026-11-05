@@ -669,15 +669,21 @@ void testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows() {
 void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   DatabaseFixture fixture;
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
-  fiddle::PercussionMapRow map{"drumkitmap.user.snare", "Snare", "<DrumKitNoteMapDefinition/>", 1};
-  CHECK(repository.upsertPercussionMap(map));
-  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
-  CHECK(repository.upsertPercussionMap(map)); // unchanged: same revision
-  CHECK(repository.getPercussionMap(map.entityId)->revision == 1);
+  const auto kind = fiddle::LibraryMapKind::percussion;
+  fiddle::LibraryMapRow map;
+  map.libraryId = "vsl";
+  map.kind = kind;
+  map.entityId = "drumkitmap.user.snare";
+  map.name = "Snare";
+  map.xml = "<DrumKitNoteMapDefinition/>";
+  CHECK(repository.upsertLibraryMap(map));
+  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 1);
+  CHECK(repository.upsertLibraryMap(map)); // unchanged: same revision
+  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 1);
   map.xml = "<DrumKitNoteMapDefinition><name>Snare</name></DrumKitNoteMapDefinition>";
-  CHECK(repository.upsertPercussionMap(map));
-  CHECK(repository.getPercussionMap(map.entityId)->revision == 2);
-  CHECK(repository.listPercussionMaps().size() == 1);
+  CHECK(repository.upsertLibraryMap(map));
+  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 2);
+  CHECK(repository.listLibraryMaps("vsl", kind).size() == 1);
 
   auto patch = soloViolinPatch();
   patch.instrumentEntityId = "instrument.orchestral.unpitched.snare.drum";
@@ -692,8 +698,8 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.outOfDateLayerCount(patch.id) == 0);
 
   // Referenced maps cannot be deleted.
-  CHECK(repository.percussionMapReferences(map.entityId).size() == 2);
-  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::referenced);
+  CHECK(repository.libraryMapReferences("vsl", kind, map.entityId).size() == 2);
+  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::referenced);
 
   // A layer override differs from its patch until refreshed.
   auto layer = *repository.getLayer("snare-layer");
@@ -710,8 +716,8 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.upsertPatch(patch));
   CHECK(repository.getPatch(patch.id)->revision == revision + 1);
   CHECK(repository.deleteLayer("snare-layer"));
-  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::deleted);
-  CHECK(repository.deletePercussionMap(map.entityId) == fiddle::PatchDeleteResult::notFound);
+  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::deleted);
+  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::notFound);
 }
 
 int main() {

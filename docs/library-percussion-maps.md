@@ -8,9 +8,9 @@ Status: **approved and implemented** (2026-11-01).
 | --- | --- |
 | Model, parser, matcher | `Source/Server/PercussionMap.{h,cpp}` |
 | Playback | `Source/Server/PercussionMapAnnotator.h`, inserted by `MixerStrip::rebuildAnnotatorChain` |
-| Storage | `library_percussion_maps`, `library_patches.percussion_map_id`, `layers.percussion_map_id` (`LibraryRoutingRepository`); `strip_blobs.percussion_map_source` (project versions) |
-| IPC | `MainComponent::setupPercussionMapHandlers` (`requestPercussionMaps`, `savePercussionMap`, `deletePercussionMap`, `choosePercussionMapFiles`, `scanDoricoPercussionMaps`, `importPercussionMaps`, `exportPercussionMap`, `loadPercussionMap`, `clearPercussionMap`, `loadPercussionMapFromFile`) |
-| UI | `PercussionMaps.svelte` (Library Manager section), `PercussionMapPicker.svelte` (patch rows, Layer Details), `percussionMaps.js`, Note Inspector "Percussion:" row |
+| Storage | Per library since 2026-11-04: `library_maps` (kind `percussion`), `library_patches.percussion_map_id`, `layers.percussion_map_id` (`LibraryRoutingRepository`); `strip_blobs.percussion_map_source` (project versions). See [per-library maps](library-map-import.md). |
+| IPC | `LibraryMapUi.cpp`, shared with expression maps (see [per-library maps](library-map-import.md)) |
+| UI | `LibraryMaps.svelte` (library editor section), `PercussionMapPicker.svelte` (patch rows, Layer Details), `percussionMaps.js`, Note Inspector "Percussion:" row |
 | Tests | `Source/Server/tests/PercussionMapTest.cpp` (VSL fixtures in `example-expression-maps/percussion/`), `LibraryRoutingRepositoryTest`, `ui/tests/percussionMaps.test.js` |
 
 Not verified in Dorico or with a live sample library: Fiddle only reproduces

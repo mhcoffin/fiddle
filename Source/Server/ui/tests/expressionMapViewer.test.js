@@ -14,7 +14,7 @@ const viewerSource = readFileSync(
     "utf8",
 );
 const pickerSource = readFileSync(
-    new URL("../src/lib/ExpressionMapPicker.svelte", import.meta.url),
+    new URL("../src/lib/ExpressionMapSelect.svelte", import.meta.url),
     "utf8",
 );
 
@@ -60,9 +60,9 @@ test("viewer selection follows the filtered rows and has a safe fallback", () =>
 });
 
 test("picker opens the read-only viewer without assigning a map", () => {
-    assert.match(pickerSource, /<ExpressionMapViewer entityId=\{viewerId\}/);
-    assert.match(pickerSource, /onclick=\{\(\) => view\(map\.entityID\)\}/);
+    assert.match(pickerSource, /<ExpressionMapViewer entityId=\{selectedId\} \{libraryId\}/);
+    assert.match(pickerSource, /onclick=\{\(\) => \(viewing = true\)\}/);
     assert.match(viewerSource, /onFromCpp\("setExpressionMapDetails"/);
-    assert.match(viewerSource, /dispatchCpp\("requestExpressionMapDetails", entityId\)/);
+    assert.match(viewerSource, /dispatchCpp\("requestExpressionMapDetails", entityId, libraryId\)/);
     assert.doesNotMatch(viewerSource, /loadExpressionMap|setGroupExpressionMap/);
 });

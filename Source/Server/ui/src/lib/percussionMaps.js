@@ -111,8 +111,3 @@ export function sortForInstrument(maps, instrument) {
 }
 
 /** Import candidates the dialog selects by default. */
-export function defaultImportSelection(candidates) {
-    return new Set((candidates || [])
-        .filter((c) => c.status === "new" || c.status === "newer")
-        .map((c) => c.map.entityId));
-}
