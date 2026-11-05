@@ -15,6 +15,9 @@ namespace fiddle {
 /// system's, not the user's: until Fiddle has been active, the saved geometry
 /// stays as it was at launch, and shortly after activation every reopened
 /// window goes back to it.
+///
+/// Only a Restart Fiddle relaunch with Settings > Windows on arms this; any
+/// other launch settles at once, so moves are saved as usual.
 class LaunchWindowPlacement {
 public:
   static LaunchWindowPlacement &instance();

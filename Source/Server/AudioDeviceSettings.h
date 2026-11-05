@@ -18,6 +18,8 @@ public:
     std::function<void(int)> setRenderWorkers;
     std::function<DoricoPlaybackSettings()> getDoricoPlayback;
     std::function<void(const DoricoPlaybackSettings &)> setDoricoPlayback;
+    std::function<bool()> getReturnWindowsAfterRestart;
+    std::function<void(bool)> setReturnWindowsAfterRestart;
   };
 
   AudioDeviceSettings(juce::AudioDeviceManager &manager, juce::File file,

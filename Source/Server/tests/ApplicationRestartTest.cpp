@@ -39,10 +39,18 @@ void testHelperArgumentsPreservePathWithSpaces() {
   CHECK(arguments[0] == "/bin/sh");
   CHECK(arguments[1] == "-c");
   CHECK(arguments[2].contains("kill -0 \"$1\""));
-  CHECK(arguments[2].contains("open -g -n \"$2\""));
+  CHECK(arguments[2].contains("open -g -n \"$2\" --args --relaunched"));
   CHECK(arguments[3] == "fiddle-restart");
   CHECK(arguments[4] == "12345");
   CHECK(arguments[5] == "/tmp/My Build/FiddleServer.app");
+}
+
+void testRelaunchIsRecognisedOnlyFromItsArgument() {
+  using fiddle::application_restart::wasRelaunched;
+  CHECK(wasRelaunched("--relaunched"));
+  CHECK(wasRelaunched("-NSDocumentRevisionsDebugMode YES --relaunched"));
+  CHECK(!wasRelaunched(""));
+  CHECK(!wasRelaunched("--relaunched-later"));
 }
 
 } // namespace
@@ -52,6 +60,7 @@ int main() {
 
   testAppBundleResolution();
   testHelperArgumentsPreservePathWithSpaces();
+  testRelaunchIsRecognisedOnlyFromItsArgument();
 
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;

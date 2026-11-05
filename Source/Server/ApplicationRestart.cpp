@@ -21,11 +21,17 @@ juce::StringArray makeMacHelperArguments(int processId,
       "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; "
       // -g: launch behind the current app so Stage Manager keeps the user's
       // layout; Fiddle waits in the strip instead of taking over the stage.
-      "exec /usr/bin/open -g -n \"$2\"",
+      "exec /usr/bin/open -g -n \"$2\" --args " +
+          juce::String(kRelaunchedArgument),
       "fiddle-restart",
       juce::String(processId),
       appBundle.getFullPathName(),
   };
+}
+
+bool wasRelaunched(const juce::String &commandLine) {
+  return juce::StringArray::fromTokens(commandLine, true)
+      .contains(kRelaunchedArgument);
 }
 
 bool schedule(const juce::File &executable) {

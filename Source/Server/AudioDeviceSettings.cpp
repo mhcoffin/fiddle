@@ -11,6 +11,7 @@ public:
         playbackGroup_("playback", "Playback"),
         durationsGroup_("durations", "Dorico playback options"),
         renderingGroup_("rendering", "Rendering"),
+        windowsGroup_("windows", "Windows"),
         deviceGroup_("device", "Audio output"),
         selector_(manager, 0, 0, 2, 2, false, false, true, false) {
     note_.setText(
@@ -95,6 +96,18 @@ public:
         juce::dontSendNotification);
     workerGuidance_.setJustificationType(juce::Justification::topLeft);
 
+    returnWindows_.setButtonText("After Restart Fiddle, return windows to where they were");
+    returnWindows_.onClick = [this] {
+      if (!refreshing_ && controls_.setReturnWindowsAfterRestart)
+        controls_.setReturnWindowsAfterRestart(returnWindows_.getToggleState());
+    };
+    returnWindowsHelp_.setText(
+        "Restart Fiddle reopens it in the background. With Stage Manager it waits in "
+        "the strip; when you bring it forward, its windows go back to where they were "
+        "instead of where you dropped them. Remembered on this Mac.",
+        juce::dontSendNotification);
+    returnWindowsHelp_.setJustificationType(juce::Justification::topLeft);
+
     selector_.setItemHeight(36);
     addAndMakeVisible(note_);
     addAndMakeVisible(playbackGroup_);
@@ -108,9 +121,12 @@ public:
     addAndMakeVisible(workers_);
     addAndMakeVisible(workerStatus_);
     addAndMakeVisible(workerGuidance_);
+    addAndMakeVisible(windowsGroup_);
+    addAndMakeVisible(returnWindows_);
+    addAndMakeVisible(returnWindowsHelp_);
     addAndMakeVisible(deviceGroup_);
     addAndMakeVisible(selector_);
-    setSize(780, 1060);
+    setSize(780, 1170);
     refresh();
     startTimerHz(4);
   }
@@ -128,6 +144,10 @@ public:
       field.slider->setEnabled(static_cast<bool>(controls_.setDoricoPlayback));
     }
 
+    returnWindows_.setToggleState(controls_.getReturnWindowsAfterRestart &&
+                                      controls_.getReturnWindowsAfterRestart(),
+                                  juce::dontSendNotification);
+    returnWindows_.setEnabled(static_cast<bool>(controls_.setReturnWindowsAfterRestart));
     const auto requested = controls_.getRequestedRenderWorkers
                                ? controls_.getRequestedRenderWorkers()
                                : 1;
@@ -186,6 +206,14 @@ public:
     workerGuidance_.setBounds(rendering.removeFromTop(56));
 
     area.removeFromTop(10);
+    auto windows = area.removeFromTop(110);
+    windowsGroup_.setBounds(windows);
+    windows = windows.reduced(14, 10);
+    windows.removeFromTop(18);
+    returnWindows_.setBounds(windows.removeFromTop(28));
+    returnWindowsHelp_.setBounds(windows.removeFromTop(44));
+
+    area.removeFromTop(10);
     deviceGroup_.setBounds(area);
     selector_.setBounds(area.reduced(14, 28));
   }
@@ -197,8 +225,10 @@ private:
   bool refreshing_ = false;
   juce::Label note_, delayLabel_, delayHelp_, workersLabel_, workerStatus_,
       workerGuidance_;
-  juce::GroupComponent playbackGroup_, durationsGroup_, renderingGroup_, deviceGroup_;
-  juce::Label durationsHelp_;
+  juce::GroupComponent playbackGroup_, durationsGroup_, renderingGroup_, windowsGroup_,
+      deviceGroup_;
+  juce::Label durationsHelp_, returnWindowsHelp_;
+  juce::ToggleButton returnWindows_;
 
   /// One labelled value in the Dorico playback group.
   struct DoricoField {

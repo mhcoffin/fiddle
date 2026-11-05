@@ -44,6 +44,10 @@ namespace fiddle {
 namespace {
 
 constexpr uint32_t kPluginStateSettleMs = 5000;
+/// Settings > Windows, on this Mac: "1" (default) returns windows to their
+/// saved places after a Restart Fiddle relaunch (LaunchWindowPlacement.h).
+constexpr const char *kReturnWindowsAfterRestartSetting =
+    "return_windows_after_restart";
 
 } // namespace
 
@@ -980,6 +984,12 @@ void MainComponent::initAudioDevice() {
     };
     settingsControls.setDoricoPlayback =
         [this](const DoricoPlaybackSettings &dorico) { changeDoricoPlayback(dorico); };
+    settingsControls.getReturnWindowsAfterRestart = [this] {
+      return db_.loadSetting(kReturnWindowsAfterRestartSetting, "1") == "1";
+    };
+    settingsControls.setReturnWindowsAfterRestart = [this](bool on) {
+      db_.saveSetting(kReturnWindowsAfterRestartSetting, on ? "1" : "0");
+    };
     audioSettings_ = std::make_unique<AudioDeviceSettings>(
         deviceManager,
         FiddleConfig::getAppDataDir().getChildFile("audio-device.xml"),
@@ -1002,6 +1012,10 @@ void MainComponent::initDatabase() {
   auto dbFile = FiddleConfig::getAppDataDir().getChildFile("fiddle.db");
   db_.open(dbFile);
   mixer_.setRenderWorkerCount(juce::String(db_.loadSetting("audio_render_workers", "1")).getIntValue());
+  // Settings > Windows: without it, save and keep window positions as usual
+  // even after a Restart Fiddle relaunch.
+  if (db_.loadSetting(kReturnWindowsAfterRestartSetting, "1") != "1")
+    LaunchWindowPlacement::instance().settle();
   scanPersistedExpressionMapSources();
   migrateLegacyLibraryPatches();
   migrateLibraryMaps();

@@ -93,9 +93,14 @@ public:
 
   void initialise(const juce::String &commandLine) override {
     mainWindow = std::make_unique<MainWindow>(getApplicationName());
-    // After a background relaunch, put windows back once the user brings
-    // Fiddle forward (see LaunchWindowPlacement.h).
-    settleLaunchPlacementOnFirstActivation(600);
+    // After a Restart Fiddle relaunch (in the background), put windows back
+    // once the user brings Fiddle forward. Any other launch saves window
+    // positions as usual from the start. See LaunchWindowPlacement.h; the
+    // Settings > Windows option can also turn this off.
+    if (application_restart::wasRelaunched(commandLine))
+      settleLaunchPlacementOnFirstActivation(600);
+    else
+      LaunchWindowPlacement::instance().settle();
 
 #if JUCE_MAC
     applicationMenu_.addItem(kRestartMenuItemId, "Restart Fiddle");
