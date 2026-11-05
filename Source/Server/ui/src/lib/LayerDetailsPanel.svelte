@@ -225,8 +225,9 @@
 </div>
 
 <style>
-    .backdrop { position: absolute; inset: 0; z-index: 52; display: flex; justify-content: flex-end; background: rgba(2, 6, 23, 0.62); backdrop-filter: blur(2px); }
-    .panel { position: relative; margin: 0 0 0 auto; padding: 0; width: min(760px, calc(100% - 48px)); height: 100%; display: flex; flex-direction: column; background: #0b1220; border: 0; border-left: 1px solid #334155; box-shadow: -16px 0 40px rgba(0, 0, 0, 0.42); }
+    /* Centred over the blurred mixer, a little shorter than the window. */
+    .backdrop { position: absolute; inset: 0; z-index: 52; display: flex; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.62); backdrop-filter: blur(2px); }
+    .panel { position: relative; margin: 0; padding: 0; width: min(760px, calc(100% - 48px)); height: calc(100% - 64px); display: flex; flex-direction: column; overflow: hidden; background: #0b1220; border: 1px solid #334155; border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); }
     header, .section-heading, .danger-zone, .danger-actions { display: flex; align-items: center; }
     header { justify-content: space-between; gap: 24px; padding: 22px 26px; border-bottom: 1px solid #273449; background: #111c2e; }
     h2, h3, p { margin: 0; }
@@ -244,7 +245,7 @@
     select, .map-picker > :global(div > select) { height: 40px; }
     input[readonly] { color: #94a3b8; }
     .close { min-width: 72px; }
-    .content { padding: 24px 26px 32px; overflow-y: auto; }
+    .content { min-height: 0; padding: 24px 26px 32px; overflow-y: auto; }
     section { margin-bottom: 18px; padding: 20px; border: 1px solid #26364d; border-radius: 10px; background: #0f1929; }
     .section-heading { justify-content: space-between; gap: 20px; margin-bottom: 16px; }
     .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -268,7 +269,7 @@
     .danger-actions { justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .danger { border-color: #7f1d1d; color: #fecaca; }
     @media (max-width: 680px) {
-        .panel { width: 100%; }
+        .panel { width: calc(100% - 24px); }
         .fields { grid-template-columns: 1fr; }
         .danger-zone { align-items: flex-start; flex-direction: column; }
     }
