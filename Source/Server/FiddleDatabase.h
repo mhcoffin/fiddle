@@ -2,6 +2,7 @@
 
 #include "LibraryRoutingRepository.h"
 #include "MixerModel.h"
+#include "PluginCacheRow.h"
 #include "SqliteStatement.h"
 #include "SqliteVersionStorage.h"
 #include <juce_core/juce_core.h>
@@ -46,17 +47,6 @@ struct WindowSettings {
   bool visible = true;
   juce::String mode = "mixer"; // main window only
   bool found = false;          // true if loaded from DB
-};
-
-/// Cached plugin metadata from scanning.
-struct PluginCacheRow {
-  juce::String path;
-  int64_t modTime = 0;
-  juce::String name, manufacturer, category, format;
-  int uid = 0;
-  int numInputs = 0, numOutputs = 0;
-  bool isInstrument = false;
-  bool valid = true;
 };
 
 /// A single channel assignment (flat_index → instrument).

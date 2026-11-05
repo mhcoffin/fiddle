@@ -213,6 +213,9 @@ target_sources(FiddleServer PRIVATE
     Source/Server/NoteStreamTracker.h
     Source/Server/SubnoteGenerator.h
     Source/Server/PluginScanner.h
+    Source/Server/PluginCacheRow.h
+    Source/Server/PluginCatalogScan.cpp
+    Source/Server/PluginCatalogScan.h
     Source/Server/PluginEditorWindow.h
     Source/Server/MixerStrip.h
     Source/Server/MixerModel.h
@@ -261,6 +264,26 @@ if(APPLE)
         Source/Server/MacWindowMenu.h
     )
 endif()
+
+# FiddlePluginScan: describes one VST3 bundle in its own process, so that
+# instantiating a plug-in to read its description can never crash or stall
+# FiddleServer (see PluginCatalogScan.h). Lives next to the server executable.
+juce_add_console_app(FiddlePluginScan PRODUCT_NAME "FiddlePluginScan")
+target_sources(FiddlePluginScan PRIVATE
+    Source/Server/PluginScanHelperMain.mm
+    Source/Server/PluginCatalogScan.cpp)
+target_include_directories(FiddlePluginScan PRIVATE Source/Server)
+target_link_libraries(FiddlePluginScan PRIVATE
+    juce::juce_audio_processors_headless "-framework AppKit")
+target_compile_definitions(FiddlePluginScan PRIVATE
+    JUCE_PLUGINHOST_VST3=1 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_compile_features(FiddlePluginScan PRIVATE cxx_std_17)
+add_dependencies(FiddleServer FiddlePluginScan)
+add_custom_command(TARGET FiddleServer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:FiddlePluginScan>"
+        "$<TARGET_FILE_DIR:FiddleServer>/FiddlePluginScan"
+    COMMENT "Copying FiddlePluginScan into FiddleServer bundle")
 
 # Copy expression map resource into FiddleServer app bundle
 add_custom_command(TARGET FiddleServer POST_BUILD
@@ -539,6 +562,28 @@ if(APPLE)
     add_test(NAME midi_probe_smoke COMMAND MidiProbeSmokeTest "${FIDDLE_PROBE_BUNDLE}")
     set_tests_properties(midi_probe_smoke PROPERTIES LABELS "midi;plugin;regression;stable")
 endif()
+
+# PluginScanTest: plugin_cache handling for changed bundles, and the helper
+# process (describing the MIDI probe bundle, timeouts, crashes).
+juce_add_console_app(PluginScanTest PRODUCT_NAME "PluginScanTest")
+target_sources(PluginScanTest PRIVATE
+    Source/Server/tests/PluginScanTest.cpp
+    Source/Server/PluginCatalogScan.cpp)
+target_include_directories(PluginScanTest PRIVATE Source/Server)
+target_link_libraries(PluginScanTest PRIVATE juce::juce_audio_processors_headless)
+target_compile_definitions(PluginScanTest PRIVATE
+    JUCE_PLUGINHOST_VST3=1 JUCE_USE_CURL=0 JUCE_WEB_BROWSER=0)
+target_compile_features(PluginScanTest PRIVATE cxx_std_17)
+add_dependencies(PluginScanTest FiddlePluginScan)
+if(TARGET FiddleMidiProbe)
+    add_dependencies(PluginScanTest FiddleMidiProbe)
+    set(PLUGIN_SCAN_TEST_BUNDLE "${CMAKE_BINARY_DIR}/FiddleMidiProbe_artefacts/VST3/Fiddle MIDI Probe.vst3")
+else()
+    set(PLUGIN_SCAN_TEST_BUNDLE "")
+endif()
+add_test(NAME plugin_scan COMMAND PluginScanTest
+    "$<TARGET_FILE:FiddlePluginScan>" "${PLUGIN_SCAN_TEST_BUNDLE}")
+set_tests_properties(plugin_scan PROPERTIES LABELS "plugin;persistence;regression;stable")
 
 add_executable(HostMidiBlockTest Source/NativePlugin/tests/HostMidiBlockTest.cpp "${CMAKE_CURRENT_BINARY_DIR}/midi_event.pb.cc")
 target_include_directories(HostMidiBlockTest PRIVATE "${VST3_SDK}" "${CMAKE_CURRENT_BINARY_DIR}" Source/NativePlugin)
@@ -1284,6 +1329,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/GroupBus.cpp
     Source/Server/GroupBusCommandService.cpp
     Source/Server/GroupBusJsHandlers.cpp
+    Source/Server/PluginCatalogScan.cpp
     Source/Server/StripAudioEngine.cpp
     Source/Server/MasterAudioEngine.cpp
     Source/Server/HostedPluginSlot.cpp

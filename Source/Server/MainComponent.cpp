@@ -1856,19 +1856,9 @@ void MainComponent::loadStripsFromDB() {
   // Try new plugin_cache table first
   auto cachedPlugins = db_.loadPluginCache();
   if (!cachedPlugins.empty()) {
-    for (const auto &row : cachedPlugins) {
-      juce::PluginDescription desc;
-      desc.name = row.name;
-      desc.manufacturerName = row.manufacturer;
-      desc.category = row.category;
-      desc.pluginFormatName = row.format;
-      desc.uniqueId = row.uid;
-      desc.numInputChannels = row.numInputs;
-      desc.numOutputChannels = row.numOutputs;
-      desc.isInstrument = row.isInstrument;
-      desc.fileOrIdentifier = row.path;
-      pluginScanner_.getKnownPluginListMutable().addType(desc);
-    }
+    for (const auto &row : cachedPlugins)
+      pluginScanner_.getKnownPluginListMutable().addType(
+          descriptionFromCacheRow(row));
     std::cerr << "[loadDB] Restored " << cachedPlugins.size()
               << " plugins from plugin_cache table" << std::endl;
   } else {

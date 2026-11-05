@@ -2,6 +2,7 @@
 
 #include "FiddleDatabase.h"
 #include "HostedPluginSlot.h"
+#include "PluginCatalogScan.h"
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace fiddle {
@@ -11,7 +12,7 @@ namespace fiddle {
 /// plugin_cache to avoid re-scanning unchanged plugins.
 class PluginScanner {
 public:
-  PluginScanner() { formatManager_.addFormat(std::make_unique<juce::VST3PluginFormat>()); }
+  PluginScanner() = default;
 
   /// Is a scan currently running?
   bool isScanning() const { return scanning_.load(); }
@@ -106,14 +107,49 @@ public:
   juce::KnownPluginList &getKnownPluginListMutable() { return knownPlugins_; }
 
 private:
-  juce::AudioPluginFormatManager formatManager_;
+  /// How long one bundle may take to describe in the helper process before it
+  /// is killed. Large sample players with copy protection take seconds.
+  static constexpr int probeTimeoutMs = 60000;
+
   juce::KnownPluginList knownPlugins_;
   std::atomic<bool> scanning_{false};
 
-  /// Map from plugin UID to validity (false = failed to load)
+  /// Map from plugin UID to validity (false = failed to load). Message thread.
   std::unordered_map<int, bool> validityMap_;
 
-  /// Background thread that performs the actual file-system scan.
+  /// Message thread: replaces the catalog with a finished scan's result. The
+  /// previous catalog stays visible for the whole scan, so a slow bundle never
+  /// leaves plug-ins missing from the UI.
+  void applyCatalog(const PluginCatalog &catalog) {
+    knownPlugins_.clear();
+    for (const auto &desc : catalog.types)
+      knownPlugins_.addType(desc);
+    validityMap_ = catalog.validity;
+  }
+
+  /// Keeps the scan's cache rows in the plugin_cache table.
+  class DatabaseCacheStore : public PluginCacheStore {
+  public:
+    explicit DatabaseCacheStore(FiddleDatabase &db) : db_(db) {}
+    std::vector<PluginCacheRow> load() override {
+      return db_.loadPluginCache();
+    }
+    void save(const PluginCacheRow &row) override {
+      db_.savePluginCacheEntry(row);
+    }
+    void remove(const juce::String &path) override {
+      db_.removePluginCacheEntry(path);
+    }
+    void clear() override { db_.clearPluginCache(); }
+
+  private:
+    FiddleDatabase &db_;
+  };
+
+  /// Background thread that lists the bundles and describes changed ones in
+  /// the FiddlePluginScan helper process. Plug-ins are never instantiated in
+  /// FiddleServer's own process here: the layers may be hosting the same
+  /// plug-in at that moment.
   class ScanThread : public juce::Thread {
   public:
     ScanThread(PluginScanner &owner, FiddleDatabase *db, bool fullRescan,
@@ -122,160 +158,51 @@ private:
           fullRescan_(fullRescan), onComplete_(std::move(onComplete)) {}
 
     void run() override {
-      // Build the list of .vst3 files on disk
       juce::StringArray paths;
       paths.add("/Library/Audio/Plug-Ins/VST3");
       paths.add(juce::File::getSpecialLocation(juce::File::userHomeDirectory)
                     .getFullPathName() +
                 "/Library/Audio/Plug-Ins/VST3");
 
-      auto *vst3Format = owner_.formatManager_.getFormat(0);
-      if (vst3Format == nullptr) {
-        owner_.scanning_ = false;
-        return;
-      }
-
-      // Clear existing list to prevent duplicates when rescanning
-      owner_.knownPlugins_.clear();
-      owner_.validityMap_.clear();
-
-      // Collect all .vst3 files
-      std::vector<juce::File> allFiles;
+      std::vector<juce::File> bundles;
       for (const auto &dir : paths) {
         juce::File folder(dir);
         if (!folder.isDirectory())
           continue;
-        auto files = folder.findChildFiles(juce::File::findFilesAndDirectories,
-                                           false, "*.vst3");
-        for (const auto &f : files)
-          allFiles.push_back(f);
+        for (const auto &f : folder.findChildFiles(
+                 juce::File::findFilesAndDirectories, false, "*.vst3"))
+          bundles.push_back(f);
       }
 
-      if (db_) {
-        scanWithCache(vst3Format, allFiles);
+      const auto helper = defaultPluginScanHelper();
+      auto shouldExit = [this] { return threadShouldExit(); };
+      PluginProbe probe = [&](const juce::File &bundle) {
+        return probePluginOutOfProcess(helper, bundle, probeTimeoutMs,
+                                       shouldExit);
+      };
+
+      PluginCatalog catalog;
+      if (db_ != nullptr) {
+        DatabaseCacheStore store(*db_);
+        catalog =
+            scanPluginBundles(store, bundles, fullRescan_, probe, shouldExit);
       } else {
-        scanWithoutCache(vst3Format, allFiles);
+        NullPluginCacheStore store;
+        catalog = scanPluginBundles(store, bundles, true, probe, shouldExit);
       }
 
-      owner_.scanning_ = false;
-
-      if (onComplete_) {
-        juce::MessageManager::callAsync(
-            [cb = std::move(onComplete_)]() { cb(); });
-      }
-
+      juce::MessageManager::callAsync(
+          [&owner = owner_, catalog = std::move(catalog),
+           cb = std::move(onComplete_)]() {
+            owner.applyCatalog(catalog);
+            owner.scanning_ = false;
+            if (cb)
+              cb();
+          });
       juce::MessageManager::callAsync([this]() { delete this; });
     }
 
   private:
-    void scanWithCache(juce::AudioPluginFormat *vst3Format,
-                       const std::vector<juce::File> &allFiles) {
-      if (fullRescan_)
-        db_->clearPluginCache();
-
-      // Load existing cache
-      auto cached = db_->loadPluginCache();
-      std::unordered_map<std::string, PluginCacheRow> cacheMap;
-      for (auto &row : cached)
-        cacheMap[row.path.toStdString()] = std::move(row);
-
-      // Track which cache entries are still on disk
-      std::set<std::string> presentPaths;
-
-      for (const auto &file : allFiles) {
-        if (threadShouldExit())
-          break;
-
-        auto path = file.getFullPathName().toStdString();
-        presentPaths.insert(path);
-
-        int64_t modTime = file.getLastModificationTime().toMilliseconds();
-        auto it = cacheMap.find(path);
-
-        if (!fullRescan_ && it != cacheMap.end() &&
-            it->second.modTime == modTime) {
-          // Cache hit — plugin unchanged, add from cache
-          juce::PluginDescription desc;
-          desc.name = it->second.name;
-          desc.manufacturerName = it->second.manufacturer;
-          desc.category = it->second.category;
-          desc.pluginFormatName = it->second.format;
-          desc.uniqueId = it->second.uid;
-          desc.numInputChannels = it->second.numInputs;
-          desc.numOutputChannels = it->second.numOutputs;
-          desc.isInstrument = it->second.isInstrument;
-          desc.fileOrIdentifier = juce::String(path);
-          owner_.knownPlugins_.addType(desc);
-          owner_.validityMap_[desc.uniqueId] = it->second.valid;
-          continue;
-        }
-
-        // Cache miss — introspect the plugin
-        std::cerr << "[PluginScanner] Scanning: " << path << std::endl;
-        juce::OwnedArray<juce::PluginDescription> results;
-        vst3Format->findAllTypesForFile(results, file.getFullPathName());
-
-        if (results.isEmpty()) {
-          // Failed to load — mark as invalid
-          PluginCacheRow row;
-          row.path = juce::String(path);
-          row.modTime = modTime;
-          row.name = file.getFileNameWithoutExtension();
-          row.valid = false;
-          db_->savePluginCacheEntry(row);
-
-          // Still add a minimal entry so it shows in the UI
-          juce::PluginDescription desc;
-          desc.name = row.name;
-          desc.fileOrIdentifier = juce::String(path);
-          desc.pluginFormatName = "VST3";
-          desc.uniqueId = static_cast<int>(juce::String(path).hashCode());
-          owner_.knownPlugins_.addType(desc);
-          owner_.validityMap_[desc.uniqueId] = false;
-        } else {
-          for (auto *desc : results) {
-            owner_.knownPlugins_.addType(*desc);
-            owner_.validityMap_[desc->uniqueId] = true;
-
-            PluginCacheRow row;
-            row.path = juce::String(path);
-            row.modTime = modTime;
-            row.name = desc->name;
-            row.manufacturer = desc->manufacturerName;
-            row.category = desc->category;
-            row.format = desc->pluginFormatName;
-            row.uid = desc->uniqueId;
-            row.numInputs = desc->numInputChannels;
-            row.numOutputs = desc->numOutputChannels;
-            row.isInstrument = desc->isInstrument;
-            row.valid = true;
-            db_->savePluginCacheEntry(row);
-          }
-        }
-      }
-
-      // Remove cache entries for plugins that no longer exist on disk
-      for (const auto &[path, _] : cacheMap) {
-        if (presentPaths.find(path) == presentPaths.end()) {
-          db_->removePluginCacheEntry(juce::String(path));
-        }
-      }
-    }
-
-    void scanWithoutCache(juce::AudioPluginFormat *vst3Format,
-                          const std::vector<juce::File> &allFiles) {
-      for (const auto &file : allFiles) {
-        if (threadShouldExit())
-          break;
-
-        juce::OwnedArray<juce::PluginDescription> results;
-        vst3Format->findAllTypesForFile(results, file.getFullPathName());
-        for (auto *desc : results) {
-          owner_.knownPlugins_.addType(*desc);
-        }
-      }
-    }
-
     PluginScanner &owner_;
     FiddleDatabase *db_;
     bool fullRescan_;
