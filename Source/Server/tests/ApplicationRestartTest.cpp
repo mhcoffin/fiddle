@@ -39,7 +39,7 @@ void testHelperArgumentsPreservePathWithSpaces() {
   CHECK(arguments[0] == "/bin/sh");
   CHECK(arguments[1] == "-c");
   CHECK(arguments[2].contains("kill -0 \"$1\""));
-  CHECK(arguments[2].contains("open -n \"$2\""));
+  CHECK(arguments[2].contains("open -g -n \"$2\""));
   CHECK(arguments[3] == "fiddle-restart");
   CHECK(arguments[4] == "12345");
   CHECK(arguments[5] == "/tmp/My Build/FiddleServer.app");
