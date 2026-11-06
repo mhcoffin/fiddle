@@ -143,6 +143,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ApplicationRestart.h
     Source/Server/LaunchWindowPlacement.cpp
     Source/Server/LaunchWindowPlacement.h
+    Source/Server/FileChooserLaunch.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
     Source/Server/LegacyStripConversion.cpp

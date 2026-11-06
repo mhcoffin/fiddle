@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "FileChooserLaunch.h"
 #include "LaunchWindowPlacement.h"
 #include "AudioDeviceSettings.h"
 #include "ChairLayerActions.h"
@@ -3908,7 +3909,7 @@ void MainComponent::setupJsHandlers() {
               .getChildFile(defaultName),
           "*.wav");
       const juce::Component::SafePointer<MainComponent> safeThis(this);
-      chooser->launchAsync(
+      fiddle::launchFileChooser(*chooser,
           juce::FileBrowserComponent::saveMode |
               juce::FileBrowserComponent::canSelectFiles |
               juce::FileBrowserComponent::warnAboutOverwriting,
@@ -3964,7 +3965,7 @@ void MainComponent::setupJsHandlers() {
           "Choose parent folder for a new Fiddle stem take",
           juce::File::getSpecialLocation(juce::File::userDesktopDirectory));
       const juce::Component::SafePointer<MainComponent> safeThis(this);
-      chooser->launchAsync(juce::FileBrowserComponent::openMode |
+      fiddle::launchFileChooser(*chooser, juce::FileBrowserComponent::openMode |
                               juce::FileBrowserComponent::canSelectDirectories,
           [safeThis, chooser, busIds, includeMaster, tailSeconds](const juce::FileChooser &fc) {
             if (safeThis == nullptr || fc.getResults().isEmpty()) return;
@@ -4248,7 +4249,7 @@ void MainComponent::setupJsHandlers() {
               return;
             auto chooser = std::make_shared<juce::FileChooser>(
                 "Load Expression Map", juce::File{}, "*.doricolib");
-            chooser->launchAsync(
+            fiddle::launchFileChooser(*chooser,
                 juce::FileBrowserComponent::openMode |
                     juce::FileBrowserComponent::canSelectFiles,
                 [safeThis, chooser, selection = std::move(selection)](
@@ -4737,7 +4738,7 @@ void MainComponent::setupJsHandlers() {
             .getChildFile(defaultName + ".midi-dump"),
         "*.midi-dump");
 
-    chooser->launchAsync(juce::FileBrowserComponent::saveMode |
+    fiddle::launchFileChooser(*chooser, juce::FileBrowserComponent::saveMode |
                              juce::FileBrowserComponent::canSelectFiles |
                              juce::FileBrowserComponent::warnAboutOverwriting,
                          [text, chooser](const juce::FileChooser &fc) {

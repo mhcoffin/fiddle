@@ -1,6 +1,7 @@
 // Per-library expression and percussion maps (docs/library-map-import.md):
 // lookups for playback, catalog edits, import/export, layer assignment, the
 // one-time migration and source update checks.
+#include "FileChooserLaunch.h"
 #include "LibraryCatalogAction.h"
 #include "LibraryMaps.h"
 #include "MainComponent.h"
@@ -329,7 +330,7 @@ void MainComponent::setupLibraryMapHandlers() {
     auto chooser = std::make_shared<juce::FileChooser>(
         "Import " + kindNoun(*kind, true) + " (.doricolib file or folder)", juce::File{}, "*.doricolib");
     juce::Component::SafePointer<MainComponent> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles |
+    fiddle::launchFileChooser(*chooser, juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles |
                              juce::FileBrowserComponent::canSelectDirectories |
                              juce::FileBrowserComponent::canSelectMultipleItems,
                          [safeThis, chooser, libraryId, kind = *kind](const juce::FileChooser &fc) {
@@ -470,7 +471,7 @@ void MainComponent::setupLibraryMapHandlers() {
             .getChildFile(juce::File::createLegalFileName(juce::String(row->name) + suffix + ".doricolib")),
         "*.doricolib");
     juce::Component::SafePointer<MainComponent> safeThis(this);
-    chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
+    fiddle::launchFileChooser(*chooser, juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles |
                              juce::FileBrowserComponent::warnAboutOverwriting,
                          [safeThis, chooser, text, row = *row](const juce::FileChooser &fc) {
                            if (!safeThis || fc.getResult() == juce::File{})
@@ -502,7 +503,7 @@ void MainComponent::setupLibraryMapHandlers() {
     const auto stripId = argument(payload, 0).toString();
     auto chooser = std::make_shared<juce::FileChooser>("Load percussion map", juce::File{}, "*.doricolib");
     juce::Component::SafePointer<MainComponent> safeThis(this);
-    chooser->launchAsync(
+    fiddle::launchFileChooser(*chooser,
         juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
         [safeThis, chooser, stripId](const juce::FileChooser &fc) {
           if (!safeThis || fc.getResult() == juce::File{})

@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include "BridgeMapCommands.h"
+#include "FileChooserLaunch.h"
 
 namespace fiddle {
 void MainComponent::pushBridgeMapState() {
@@ -42,7 +43,7 @@ void MainComponent::setupBridgeMapHandlers() {
       auto chooser = std::make_shared<juce::FileChooser>("Export bridge artifact",
           juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("Fiddle-Bridge" + juce::String(extension)), "*" + juce::String(extension));
       juce::Component::SafePointer<MainComponent> safeThis(this);
-      chooser->launchAsync(juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+      fiddle::launchFileChooser(*chooser, juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
           [safeThis, chooser, content](const juce::FileChooser &fc) {
             if (!safeThis || fc.getResult() == juce::File{}) return;
             if (!fc.getResult().replaceWithText(content)) safeThis->bridgeMapCommands_->reportError("Could not write bridge artifact");
