@@ -1161,6 +1161,16 @@ try {
     });
     const libraryEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
     const linked = libraryEditor.locator(".inst-row").first();
+    // Player, expression map and percussion map selectors share one look,
+    // and each keeps its native drop-down arrow.
+    const rowSelectLooks = await linked.locator("select").evaluateAll(selects => selects.map(select => {
+        const style = getComputedStyle(select);
+        return [style.height, style.backgroundColor, style.borderColor, style.borderRadius,
+            style.color, style.fontSize, style.appearance].join(" ");
+    }));
+    assert.equal(rowSelectLooks.length, 3, "a patch row has player, expression and percussion selectors");
+    assert.equal(new Set(rowSelectLooks).size, 1, `patch row selectors differ: ${rowSelectLooks.join(" / ")}`);
+    assert.doesNotMatch(rowSelectLooks[0], / none$/, "patch row selectors keep their drop-down arrow");
     // Layers pull library changes (Update from Library); the library never pushes.
     assert.equal(await libraryEditor.getByRole("button", { name: "Update Layers", exact: true }).count(), 0);
     await linked.getByRole("textbox", { name: "Patch name", exact: true }).fill("Unsaved draft");

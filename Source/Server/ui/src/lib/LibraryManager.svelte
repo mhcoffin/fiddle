@@ -1319,14 +1319,15 @@
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   }
   .ir-instrument-name:hover { color: #b8c3ff; text-decoration: underline; }
-  .ir-select {
-    width: 100%; background: #131342; border: 1px solid #44446c;
-    border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;
-    height: 30px; box-sizing: border-box; font-size: .68rem;
-    padding: 0 8px; outline: none; cursor: pointer;
-    -webkit-appearance: none; appearance: none;
+  /* Player, expression map and percussion map: one look, native arrows kept. */
+  .ir-select, .ir-expr :global(.expression-select > select), .ir-percussion :global(select) {
+    width: 100%; height: 30px; box-sizing: border-box; padding: 0 8px;
+    background: #131342; border: 1px solid #44446c; border-radius: 4px;
+    color: #e5e3ff; font: 500 .74rem "Inter", sans-serif;
+    outline: none; cursor: pointer;
   }
-  .ir-select:focus { border-color: #95a9ff; color: #e5e3ff; }
+  .ir-select:focus, .ir-expr :global(.expression-select > select:focus),
+  .ir-percussion :global(select:focus) { border-color: #95a9ff; }
   .ir-input {
     width: 100%; background: #131342; border: 1px solid #44446c;
     border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;
@@ -1340,13 +1341,15 @@
   .vst-editor-control {
     position: relative; width: 30px; height: 30px; flex: 0 0 30px;
   }
-  .ir-expr { margin-top: -1px; }
+  .ir-expr { min-width: 0; }
   .ir-percussion { min-width: 0; }
-  :global(.ir-percussion select) { height: 30px; background: #131342; border: 1px solid #44446c; border-radius: 4px; color: #e5e3ff; font-size: .78rem; }
-  :global(.ir-expr .xmap-control) { margin-bottom: 0; }
-  :global(.ir-expr .xmap-trigger) {
-    height: 30px; min-height: 30px; box-sizing: border-box;
+  .ir-expr :global(.expression-select > button) {
+    height: 30px; padding: 0 9px; box-sizing: border-box;
+    border: 1px solid #44446c; border-radius: 4px; background: #1a194b;
+    color: #d8d7ff; font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
+  .ir-expr :global(.expression-select > button:hover:not(:disabled)) { border-color: #95a9ff; background: #292863; }
+  .ir-expr :global(.expression-select > button:disabled) { opacity: .45; cursor: default; }
   .action-vst-edit {
     background: transparent; border: 1px solid #33335c; border-radius: 3px;
     width: 30px; height: 30px; box-sizing: border-box;
