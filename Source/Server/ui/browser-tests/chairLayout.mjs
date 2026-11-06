@@ -1291,6 +1291,30 @@ try {
     assert.ok(libraryCommands.some(x => x.type === "undoLibraryCatalog"));
     assert.equal(libraryCommands.some(x => x.type === "undo" || x.type === "redo"), false,
         "library operations must never dispatch project history");
+
+    // Check for updates answers at once: the icon spins for a moment (the
+    // button stays enabled), then a dated summary line reports the result.
+    await libraryPage.evaluate(() => {
+        window.__dispatchFromCpp({ type: "setLibraryList", data: [{ id: "checked-library", name: "Checked library" }] });
+        window.__dispatchFromCpp({ type: "setLibraryMaps", data: [{ libraryId: "checked-library", kind: "expression",
+            entityId: "x.strings", name: "Strings", sourcePath: "/maps/strings.doricolib", references: [] }] });
+        window.__dispatchFromCpp({ type: "setLibraryData", data: { id: "checked-library", name: "Checked library", patches: [] } });
+    });
+    const checkedEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
+    await checkedEditor.getByRole("button", { name: /^Expression Maps/ }).click();
+    const mapsPane = checkedEditor.getByRole("dialog", { name: "Expression Maps", exact: true });
+    const checkButton = mapsPane.getByRole("button", { name: "Check for updates", exact: true });
+    await checkButton.click();
+    assert.equal(await checkButton.isEnabled(), true, "the button stays enabled while checking");
+    assert.equal(await checkButton.getAttribute("aria-busy"), "true");
+    assert.equal(await mapsPane.locator(".lmap-check-icon.spinning").count(), 1, "the icon spins while checking");
+    assert.ok(await libraryPage.evaluate(() => window.fixtureMessages.some(m => m.type === "checkLibraryMapSources")));
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "libraryMapSourceStatus", data: {
+        libraryId: "checked-library", statuses: [{ kind: "expression", entityId: "x.strings", status: "newer", version: 3 }] } }));
+    assert.equal(await mapsPane.locator(".lmap-check-icon.spinning").count(), 1, "an instant answer still shows the spinner briefly");
+    await mapsPane.locator(".lmap-check-icon:not(.spinning)").waitFor();
+    assert.match(await mapsPane.locator(".lmap-check-result").innerText(), /Checked .+ · 1 update available/);
+    assert.match(await mapsPane.locator(".lmap-table").innerText(), /Newer version \(v3\)/);
     await libraryPage.close();
     assert.deepEqual(errors, [], "no browser runtime errors");
     console.log("PASS: chair layout, mixer Undo, project settings, audio diagnostics, library status, and separate library history");

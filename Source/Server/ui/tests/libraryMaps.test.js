@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-    defaultImportSelection, filterCandidates, initialSearch, mapsFor, sourceFileName,
+    defaultImportSelection, filterCandidates, initialSearch, mapsFor, sourceFileName, summarizeSourceCheck,
 } from "../src/lib/libraryMaps.js";
 
 const maps = [
@@ -46,4 +46,14 @@ test("search matches every word against name, ID, creator and file", () => {
 test("source file names come from the stored path", () => {
     assert.equal(sourceFileName({ sourcePath: "/Users/me/Dorico/VSL Snare (PM).doricolib" }), "VSL Snare (PM).doricolib");
     assert.equal(sourceFileName({ sourcePath: "" }), "");
+});
+
+test("a source check sums up as one line", () => {
+    const of = (...statuses) => statuses.map((status) => ({ status }));
+    assert.deepEqual(summarizeSourceCheck(of("current", "current", "current")), { text: "All 3 up to date", tone: "ok" });
+    assert.deepEqual(summarizeSourceCheck(of("current")), { text: "Up to date", tone: "ok" });
+    assert.deepEqual(summarizeSourceCheck(of("newer", "differs", "missing", "current")),
+        { text: "2 updates available · 1 source missing · 1 up to date", tone: "warn" });
+    assert.deepEqual(summarizeSourceCheck(of("newer")), { text: "1 update available", tone: "warn" });
+    assert.deepEqual(summarizeSourceCheck([]), { text: "No imported maps to check", tone: "ok" });
 });

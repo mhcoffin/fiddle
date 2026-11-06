@@ -21,6 +21,23 @@ export const SOURCE_STATUS_LABELS = {
     missing: "Source missing",
 };
 
+/**
+ * One line summing up a source check: what is current, what has an update,
+ * and what has lost its source. `tone` is "ok" when everything is current.
+ */
+export function summarizeSourceCheck(statuses) {
+    const count = (...kinds) => (statuses || []).filter((s) => kinds.includes(s.status)).length;
+    const current = count("current"), updates = count("newer", "differs"), missing = count("missing");
+    if (current + updates + missing === 0) return { text: "No imported maps to check", tone: "ok" };
+    if (updates === 0 && missing === 0)
+        return { text: current === 1 ? "Up to date" : `All ${current} up to date`, tone: "ok" };
+    const parts = [];
+    if (updates) parts.push(`${updates} ${updates === 1 ? "update" : "updates"} available`);
+    if (missing) parts.push(`${missing} ${missing === 1 ? "source" : "sources"} missing`);
+    if (current) parts.push(`${current} up to date`);
+    return { text: parts.join(" · "), tone: "warn" };
+}
+
 /** One library's maps of one kind, sorted by name. */
 export function mapsFor(maps, libraryId, kind) {
     return (maps || [])

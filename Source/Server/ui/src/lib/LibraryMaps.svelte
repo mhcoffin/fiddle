@@ -2,7 +2,7 @@
   import { onFromCpp, dispatchCpp } from "./ipc.js";
   import {
     IMPORT_STATUS_LABELS, KIND_LABELS, SOURCE_STATUS_LABELS, defaultImportSelection, filterCandidates,
-    initialSearch, mapsFor, sourceFileName,
+    initialSearch, mapsFor, sourceFileName, summarizeSourceCheck,
   } from "./libraryMaps.js";
   import {
     PERCUSSION_TECHNIQUES, blankEntry, duplicatePercussionMap, formatTechniques, isUnpitchedInstrument,
@@ -33,6 +33,12 @@
   let search = $state("");
   let sourceStatus = $state({}); // entityId → { status, version, file, movedTo }
   let checking = $state(false);
+  // A check is near-instant, so the spinner shows for at least this long and
+  // the summary line and status cells flash when a check you asked for ends.
+  const MIN_CHECK_MS = 700;
+  let checkStartedAt = 0;
+  let lastCheck = $state(null); // { time, text, tone }
+  let checkFlash = $state(0);
   let draft = $state(null);
   let draftIsNew = $state(false);
   let draftSaving = $state(false);
@@ -58,11 +64,21 @@
   });
   onFromCpp("libraryMapSourceStatus", (data) => {
     if (data?.libraryId !== library.id) return;
-    checking = false;
     const next = {};
     for (const status of data.statuses || [])
       if (status.kind === kind) next[status.entityId] = status;
-    sourceStatus = next;
+    const finish = () => {
+      const asked = checking;
+      checking = false;
+      sourceStatus = next;
+      lastCheck = {
+        time: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
+        ...summarizeSourceCheck(Object.values(next)),
+      };
+      if (asked) checkFlash += 1;
+    };
+    const wait = checking ? checkStartedAt + MIN_CHECK_MS - Date.now() : 0;
+    if (wait > 0) setTimeout(finish, wait); else finish();
   });
 
   let visibleCandidates = $derived(importOffer ? filterCandidates(importOffer.maps, search) : []);
@@ -78,7 +94,12 @@
     if (chosen.length) dispatchCpp("importLibraryMaps", library.id, kind, chosen);
     importOffer = null;
   };
-  const checkSources = () => { checking = true; dispatchCpp("checkLibraryMapSources", library.id); };
+  const checkSources = () => {
+    if (checking) return; // already under way; the spinner says so
+    checking = true;
+    checkStartedAt = Date.now();
+    dispatchCpp("checkLibraryMapSources", library.id);
+  };
   const update = (map) => {
     const status = sourceStatus[map.entityId];
     if (map.edited && pendingUpdateId !== map.entityId) { pendingUpdateId = map.entityId; return; }
@@ -161,9 +182,20 @@
         {#if kind === "percussion"}<button onclick={startNew}>+ New Map</button>{/if}
         <button onclick={() => dispatchCpp("chooseLibraryMapFiles", library.id, kind)}>Import .doricolib…</button>
         <button onclick={() => dispatchCpp("findDoricoLibraryMaps", library.id, kind)}>Find in Dorico Library…</button>
-        <button disabled={checking || !ownMaps.some((m) => m.sourcePath)} onclick={checkSources}>
-          {checking ? "Checking…" : "Check for updates"}</button>
+        <button class="lmap-check" aria-busy={checking} disabled={!ownMaps.some((m) => m.sourcePath)}
+          title="Compare each imported map with its .doricolib file" onclick={checkSources}>
+          <span class="lmap-check-icon" class:spinning={checking} aria-hidden="true">↻</span>Check for updates</button>
       </div>
+    </div>
+    <div class="lmap-check-result" role="status">
+      {#if checking}
+        <span class="checking">Checking sources…</span>
+      {:else if lastCheck}
+        {#key checkFlash}
+          <span class="lmap-check-line {lastCheck.tone}" class:flash={checkFlash > 0}>
+            {lastCheck.tone === "ok" ? "✓" : "⚠"} Checked {lastCheck.time} · {lastCheck.text}</span>
+        {/key}
+      {/if}
     </div>
     {#if message}
       <div class="lmap-message" class:ok={message.ok} role="status">
@@ -181,7 +213,8 @@
                 <span class="lmap-id">{map.entityId}{map.version ? ` · v${map.version}` : ""}{kind === "percussion" ? ` · ${map.entryCount} entries` : ""}</span></td>
               <td title={map.sourcePath}>{map.sourcePath ? sourceFileName(map) : "Made in Fiddle"}{map.edited ? " · edited" : ""}</td>
               <td title={(map.references || []).join("\n")}>{map.references?.length || "—"}</td>
-              <td class="lmap-status {status?.status || ''}">{statusText(map)}</td>
+              <td class="lmap-status {status?.status || ''}">
+                {#key checkFlash}<span class:flash={checkFlash > 0}>{statusText(map)}</span>{/key}</td>
               <td><div class="lmap-row-actions">
                 {#if canUpdate(map)}
                   <button class:confirm={pendingUpdateId === map.entityId}
@@ -340,7 +373,22 @@
   .lmap-body { min-height: 0; overflow-y: auto; padding: 18px 20px 24px; }
   .lmap-title { font-family: "Sora","Inter",sans-serif; font-size: .95rem; font-weight: 700; color: #e5e3ff; }
   .lmap-count { color: #a8a7d5; font-size: .75rem; border: 1px solid #44446c; border-radius: 10px; padding: 1px 8px; }
-  .lmap-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .lmap-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 6px; }
+  .lmap-check { display: inline-flex; align-items: center; gap: 6px; }
+  .lmap-check[aria-busy="true"] { cursor: progress; }
+  .lmap-check-icon { display: inline-block; font-size: .95rem; line-height: 1; }
+  .lmap-check-icon.spinning { animation: lmap-spin .7s linear infinite; }
+  @keyframes lmap-spin { to { transform: rotate(360deg); } }
+  /* One line, always reserved, so the table never jumps when it fills in. */
+  .lmap-check-result { min-height: 18px; margin-bottom: 8px; text-align: right; font-size: .74rem; color: #a8a7d5; }
+  .lmap-check-line { display: inline-block; padding: 1px 6px; border-radius: 4px; }
+  .lmap-check-line.ok { color: #69db7c; }
+  .lmap-check-line.warn { color: #fbbf24; }
+  .flash { animation: lmap-flash 1.2s ease-out; }
+  @keyframes lmap-flash { from { background: rgba(149,169,255,.32); } to { background: transparent; } }
+  @media (prefers-reduced-motion: reduce) {
+    .lmap-check-icon.spinning { animation: none; opacity: .5; }
+  }
   .lmap-sub, .lmap-note { margin: 0; color: #a8a7d5; font-size: .76rem; }
   .lmap-note { padding-bottom: 12px; }
   @media (max-width: 680px) { .lmap { width: calc(100% - 24px); } }
@@ -363,7 +411,7 @@
   td { padding: 7px 8px; border-bottom: 1px solid rgba(68,68,108,.35); vertical-align: middle; color: #c9c8ef; }
   .lmap-table td strong { display: block; color: #e5e3ff; }
   .lmap-id { display: block; color: #72719c; font-size: .68rem; overflow-wrap: anywhere; }
-  .lmap-status { font-size: .74rem; color: #a8a7d5; }
+  .lmap-status { width: 24%; font-size: .74rem; color: #a8a7d5; }
   .lmap-status.newer, .lmap-status.differs { color: #fbbf24; }
   .lmap-status.missing { color: #ff8787; }
   .lmap-status.current { color: #69db7c; }
