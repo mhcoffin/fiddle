@@ -1,42 +1,37 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import test from "node:test";
 
-const mixerSource = readFileSync(
-    new URL("../src/lib/MixerPanel.svelte", import.meta.url), "utf8",
-);
-const managerSource = readFileSync(
-    new URL("../src/lib/BusManager.svelte", import.meta.url), "utf8",
-);
-const detailsSource = readFileSync(
-    new URL("../src/lib/LayerDetailsPanel.svelte", import.meta.url), "utf8",
-);
+const read = (name) => readFileSync(new URL(`../src/lib/${name}`, import.meta.url), "utf8");
+const mixerSource = read("MixerPanel.svelte");
+const bankSource = read("AudioBusBank.svelte");
+const addSource = read("AddBusDialog.svelte");
+const detailsSource = read("BusDetailsPanel.svelte");
+const layerDetailsSource = read("LayerDetailsPanel.svelte");
 
-test("the bus bank opens a spacious Bus Manager", () => {
-    const tool = readFileSync(new URL("../src/lib/ToolPane.svelte", import.meta.url), "utf8");
-    assert.match(tool, /<BusManager/);
-    assert.match(tool, /setMixerSelection/);
-    assert.match(tool, /selectedIds.filter/);
-    assert.match(mixerSource, /onManage=\{\(\) => dispatchCpp\("showView", "bus-manager"\)/);
-    assert.match(mixerSource, /dispatchCpp\("setMixerSelection", \[\.\.\.selectedIds\]\)/);
-    assert.match(mixerSource, /requestGroupBusState/);
-    assert.match(managerSource, /Create from selection/);
-    assert.match(managerSource, /addGroupBus/);
-    assert.match(managerSource, /removeGroupBus/);
-    assert.match(managerSource, /Confirm remove/);
-    assert.doesNotMatch(managerSource, /window\.confirm/);
+test("buses are added from the bank header with a name dialog", () => {
+    assert.ok(!existsSync(new URL("../src/lib/BusManager.svelte", import.meta.url)));
+    assert.doesNotMatch(mixerSource, /bus-manager/);
+    assert.doesNotMatch(bankSource, />Manage</);
+    assert.match(bankSource, /event\.stopPropagation\(\); onAddBus\(\);/);
+    assert.match(mixerSource, /<AddBusDialog/);
+    assert.match(mixerSource, /dispatchCpp\("addGroupBus", name, JSON\.stringify\(routeSelection \? selectedLayerIds\(\) : \[\]\)\)/);
+    assert.match(addSource, /Route the \{selectedCount\} selected/);
+    assert.match(addSource, /already exists/);
 });
 
-test("bus management exposes naming, order, gain, mute, and solo", () => {
-    assert.match(managerSource, /renameGroupBus/);
-    assert.match(managerSource, /moveGroupBus/);
-    assert.match(managerSource, /setGroupBusGain/);
-    assert.match(managerSource, /setGroupBusMute/);
-    assert.match(managerSource, /setGroupBusSolo/);
+test("each bus has Edit details… for rename and delete", () => {
+    assert.match(bankSource, /onEditBus\(bus\.id\)[^>]*>Edit details…</);
+    assert.match(mixerSource, /<BusDetailsPanel/);
+    assert.match(mixerSource, /dispatchCpp\("renameGroupBus", detailsBus\.id, name\)/);
+    assert.match(mixerSource, /dispatchCpp\("removeGroupBus", detailsBus\.id\)/);
+    assert.match(detailsSource, /Delete bus/);
+    assert.match(detailsSource, /Undo restores/);
+    assert.doesNotMatch(detailsSource, /window\.confirm/);
 });
 
 test("direct-output routing is visible on every mixer strip", () => {
-    assert.doesNotMatch(detailsSource, /Audio output/);
+    assert.doesNotMatch(layerDetailsSource, /Audio output/);
     assert.match(mixerSource, /ch-output-routing/);
     assert.match(mixerSource, /Audio output for/);
     assert.match(mixerSource, /setStripDirectOutput/);

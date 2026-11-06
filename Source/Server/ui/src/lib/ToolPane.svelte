@@ -4,31 +4,21 @@
     import { historyShortcut, installHistoryGestures } from "./historyGestures.js";
     import PrintPanel from "./PrintPanel.svelte";
     import ChairManager from "./ChairManager.svelte";
-    import BusManager from "./BusManager.svelte";
     import AudioDiagnostics from "./AudioDiagnostics.svelte";
     import ScoreTests from "./ScoreTests.svelte";
 
     let { toolId } = $props();
     let visible = $state(true);
-    let buses = $state([]), strips = $state([]), selectedIds = $state([]);
-    let undo = $state({ canUndo: false, canRedo: false });
-    let selectedStripIds = $derived(selectedIds.filter(id => strips.some(strip => strip.id === id)));
     const close = () => dispatchCpp("hideToolWindow", toolId);
     const off = [onFromCpp("setToolWindowVisible", value => { visible = !!value; })];
     onMount(() => {
-        if (toolId === "bus-manager") {
-            off.push(onFromCpp("setGroupBusState", value => { buses = Array.isArray(value) ? value : []; }));
-            off.push(onFromCpp("setMixerState", value => { strips = Array.isArray(value) ? value : []; }));
-            off.push(onFromCpp("setMixerSelection", value => { selectedIds = Array.isArray(value) ? value : []; }));
-            off.push(onFromCpp("setUndoState", value => { undo = value; }));
-        }
         dispatchCpp("toolWindowReady", toolId);
         const removeGestures = installHistoryGestures(window, dispatchCpp);
         const keydown = event => {
             if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "w") {
                 event.preventDefault(); close(); return;
             }
-            if (toolId !== "chairs" && toolId !== "bus-manager") return;
+            if (toolId !== "chairs") return;
             const command = historyShortcut(event);
             if (command) { event.preventDefault(); dispatchCpp(command); }
         };
@@ -41,7 +31,6 @@
 <div class="tool-pane">
     {#if toolId === "print"}<PrintPanel />
     {:else if toolId === "chairs"}<ChairManager onClose={close} />
-    {:else if toolId === "bus-manager"}<BusManager {buses} {strips} {selectedStripIds} undoState={undo} onClose={close} />
     {:else if toolId === "audio-performance"}<AudioDiagnostics standalone {visible} onClose={close} />
     {:else if toolId === "score-tests"}<ScoreTests {visible} onClose={close} />
     {/if}

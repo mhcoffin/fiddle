@@ -3057,7 +3057,7 @@ void MainComponent::pushToDebugWindow(const juce::String &js) {
 void MainComponent::showView(const juce::String &viewId) {
   static const std::map<juce::String, juce::String> tools{
       {"print", "Print Audio"}, {"chairs", "Chairs"},
-      {"bus-manager", "Audio Bus Manager"}, {"audio-performance", "Audio Performance"},
+      {"audio-performance", "Audio Performance"},
       {"score-tests", "Score Tests"}};
   if (const auto spec = tools.find(viewId); spec != tools.end()) {
     auto &window = toolWindows_[viewId];
@@ -3142,14 +3142,6 @@ void MainComponent::refreshToolWindow(const juce::String &id) {
     pushBridgeMapState();
     found->second->sendMessage("setDoricoInstruments",
         juce::JSON::fromString(instrumentBrowser_.getInstrumentsAsJson()));
-  } else if (id == "bus-manager") {
-    pushMixerState(false);
-    pushGroupBusState();
-    pushUndoState();
-    juce::Array<juce::var> selection;
-    for (const auto &strip : mixerSelection_)
-      if (mixer_.getStrip(strip)) selection.add(strip);
-    found->second->sendMessage("setMixerSelection", selection);
   }
 }
 
@@ -3766,10 +3758,8 @@ void MainComponent::broadcastMessage(const juce::String &type,
   static const juce::StringArray chairTopics{
       "setChairState", "setDoricoInstruments", "setTemplateDirty", "setUndoState",
       "chairOperationResult", "chairTemplateResult", "setBridgeMapState"};
-  static const juce::StringArray busTopics{"setGroupBusState", "setMixerState", "setUndoState"};
   for (auto &[id, window] : toolWindows_)
     if ((id == "chairs" && chairTopics.contains(type)) ||
-        (id == "bus-manager" && busTopics.contains(type)) ||
         (id == "score-tests" && type == "scoreTestState"))
       window->sendMessage(type, data);
   auto *envelope = new juce::DynamicObject();
@@ -3876,19 +3866,6 @@ void MainComponent::setupJsHandlers() {
         refreshToolWindow(id);
       }
     });
-  });
-  jsRouter_.registerHandler("setMixerSelection", [this](const juce::var &payload) {
-    if (!payload.isArray() || payload.size() != 1 || !payload[0].isArray()) return;
-    mixerSelection_.clear();
-    juce::Array<juce::var> selection;
-    for (const auto &value : *payload[0].getArray()) {
-      const auto id = value.toString();
-      if (mixer_.getStrip(id) && !mixerSelection_.contains(id)) {
-        mixerSelection_.add(id); selection.add(id);
-      }
-    }
-    if (const auto window = toolWindows_.find("bus-manager"); window != toolWindows_.end())
-      window->second->sendMessage("setMixerSelection", selection);
   });
   jsRouter_.registerHandler("startMixPrint", [this](const juce::var &payload) {
     if (!payload.isArray() || payload.size() > 1) return;

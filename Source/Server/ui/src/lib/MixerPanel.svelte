@@ -13,6 +13,8 @@
     import BusAudioPanel from "./BusAudioPanel.svelte";
     import AudioBusBank from "./AudioBusBank.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
+    import AddBusDialog from "./AddBusDialog.svelte";
+    import BusDetailsPanel from "./BusDetailsPanel.svelte";
     import LayerPicker from "./LayerPicker.svelte";
     import NoteInspector from "./NoteInspector.svelte";
     import {
@@ -63,6 +65,8 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
     let masterAudioOpen = $state(false);
     let groupBuses = $state([]);
     let busAudioBusId = $state("");
+    let addBusOpen = $state(false);
+    let busDetailsId = $state("");
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
@@ -170,6 +174,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         groupBuses = Array.isArray(data) ? data : [];
         if (busAudioBusId && !groupBuses.some((bus) => bus.id === busAudioBusId))
             busAudioBusId = "";
+        if (busDetailsId && !groupBuses.some((bus) => bus.id === busDetailsId))
+            busDetailsId = "";
     });
     onFromCpp("setStripAudioState", (data) => {
         if (!data || typeof data !== "object" || !data.stripId) return;
@@ -233,14 +239,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     // ── Selection state ───────────────────────────────────
     let selectedIds = $state(new Set());
-    let lastSentSelection = "";
-    $effect(() => {
-        const selection = JSON.stringify([...selectedIds]);
-        if (selection !== lastSentSelection) {
-            lastSentSelection = selection;
-            dispatchCpp("setMixerSelection", [...selectedIds]);
-        }
-    });
     let lastClickedId = $state(null);
     let inspectorStripId = $state(null);
     let inspectorOpen = $state(false);
@@ -320,6 +318,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         selectedIds = new Set();
         lastClickedId = null;
     };
+    /** Selected IDs that are still layers in the mixer (Add Bus routes them). */
+    const selectedLayerIds = () => [...selectedIds].filter((id) => strips.some((strip) => strip.id === id));
 
     /** JSON-encode the selected strip IDs for group native calls */
     const selectedIdsJson = () => JSON.stringify([...selectedIds]);
@@ -340,6 +340,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         const handleKeyDown = (e) => {
             if (e.key !== "Escape") return;
             if (layerPickerChair) layerPickerChair = null;
+            else if (addBusOpen) addBusOpen = false;
+            else if (busDetailsId) busDetailsId = "";
             else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
             else if (busAudioBusId) busAudioBusId = "";
@@ -1070,7 +1072,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                         <span class="view-group-title">Windows</span>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "print"); }}>Print Audio…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "bus-manager"); }}>Audio Bus Manager…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
                         <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "score-tests"); }}>Score Tests…</button>
@@ -1533,7 +1534,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 busMeters={meters.stereoBuses}
                 masterMeters={meters.master}
                 masterLoudness={meters.loudness}
-                onManage={() => dispatchCpp("showView", "bus-manager")}
+                onAddBus={() => { addBusOpen = true; }}
+                onEditBus={(busId) => { busDetailsId = busId; }}
                 onOpenBusAudio={(busId) => { busAudioBusId = busId; }}
                 onOpenMasterAudio={() => { masterAudioOpen = true; }}
                 revealRequest={audioBankReveal}
@@ -1591,6 +1593,33 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 bus={audioBus}
                 plugins={scannedPlugins}
                 onClose={() => { busAudioBusId = ""; }}
+            />
+        {/if}
+    {/if}
+    {#if addBusOpen}
+        <AddBusDialog
+            buses={groupBuses}
+            selectedCount={selectedLayerIds().length}
+            onAdd={(name, routeSelection) => {
+                dispatchCpp("addGroupBus", name, JSON.stringify(routeSelection ? selectedLayerIds() : []));
+                addBusOpen = false;
+            }}
+            onClose={() => { addBusOpen = false; }}
+        />
+    {/if}
+    {#if busDetailsId}
+        {@const detailsBus = groupBuses.find((bus) => bus.id === busDetailsId)}
+        {#if detailsBus}
+            <BusDetailsPanel
+                bus={detailsBus}
+                routedCount={strips.filter((strip) => strip.directOutputBusId === detailsBus.id).length}
+                sendCount={strips.reduce((count, strip) => count + (strip.sends || []).filter((send) => send.busId === detailsBus.id).length, 0)}
+                onRename={(name) => dispatchCpp("renameGroupBus", detailsBus.id, name)}
+                onDelete={() => {
+                    dispatchCpp("removeGroupBus", detailsBus.id);
+                    busDetailsId = "";
+                }}
+                onClose={() => { busDetailsId = ""; }}
             />
         {/if}
     {/if}

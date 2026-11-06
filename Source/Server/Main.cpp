@@ -21,7 +21,6 @@ public:
   static constexpr int kPrintMenuItemId = 106;
   static constexpr int kScoreTestsMenuItemId = 108;
   static constexpr int kChairsMenuItemId = 111;
-  static constexpr int kBusesMenuItemId = 112;
   static constexpr int kPluginsMenuItemId = 113;
   static constexpr int kSettingsMenuItemId = 114;
   static constexpr int kAudioPerformanceMenuItemId = 121;
@@ -154,7 +153,6 @@ public:
       windows.addItem(kMainMixerMenuItemId, "Main Mixer");
       windows.addItem(kPrintMenuItemId, "Print Audio...");
       windows.addItem(kChairsMenuItemId, "Chairs...");
-      windows.addItem(kBusesMenuItemId, "Audio Bus Manager...");
       windows.addItem(kSettingsMenuItemId, "Settings...");
       windows.addItem(kLibraryManagerMenuItemId, "Library Manager");
       windows.addItem(kScoreTestsMenuItemId, "Score Tests...");
@@ -229,7 +227,6 @@ private:
     case kPrintMenuItemId: return "print";
     case kScoreTestsMenuItemId: return "score-tests";
     case kChairsMenuItemId: return "chairs";
-    case kBusesMenuItemId: return "bus-manager";
     case kPluginsMenuItemId: return "plugins";
     case kSettingsMenuItemId: return "settings";
     case kAudioPerformanceMenuItemId: return "audio-performance";

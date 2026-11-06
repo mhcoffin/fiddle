@@ -2,8 +2,8 @@
 
 ## Quick smoke test
 
-1. In **View → Bus Manager**, create a bus named Reverb with no strips selected
-   (creating from a selection changes those strips' direct outputs).
+1. In the **Audio Buses** header, click **+ Add Bus** and name it Reverb. Leave
+   "Route the selected layers" off (routing changes those layers' direct outputs).
 2. In the **Audio Buses** bank, open that bus's Audio FX panel, add a reverb,
    and set the plug-in's mix to **100% wet**.
 3. Open an instrument strip's **Post-fader** settings button. Under Sends, choose Reverb

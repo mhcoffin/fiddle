@@ -12,7 +12,8 @@
         busMeters = {},
         masterMeters,
         masterLoudness = {},
-        onManage = () => {},
+        onAddBus = () => {},
+        onEditBus = () => {},
         onOpenBusAudio = () => {},
         onOpenMasterAudio = () => {},
         revealRequest = 0,
@@ -76,7 +77,8 @@
             <span class="count">{buses.length}</span>
         </button>
         {#if !collapsed}
-            <button class="manage" onclick={onManage}>Manage</button>
+            <!-- Keep the mixer selection: Add Bus can route the selected layers. -->
+            <button class="add-bus" onclick={(event) => { event.stopPropagation(); onAddBus(); }} title="Add an audio bus">+ Add Bus</button>
         {/if}
     </div>
 
@@ -165,7 +167,7 @@
                         <button class="ms mute" class:active={bus.muted} onclick={() => dispatchCpp("setGroupBusMute", bus.id, !bus.muted)}>M</button>
                         <button class="ms solo" class:active={bus.soloed} onclick={() => dispatchCpp("setGroupBusSolo", bus.id, !bus.soloed)}>S</button>
                     </div>
-                    <div class="output">Output · Master</div>
+                    <button class="details" onclick={() => onEditBus(bus.id)} title={`Rename or delete ${bus.name} · Output: Master`}>Edit details…</button>
                     </article>
                 </section>
             {/each}
@@ -275,15 +277,16 @@
     .bank { display: flex; min-width: max-content; flex-direction: column; flex-shrink: 0; border-left: 3px solid #0e7490; background: #08111f; box-shadow: -10px 0 24px rgba(0,0,0,.28); }
     .bank.collapsed { min-width: 35px; width: 35px; box-sizing: border-box; border-left: 0; border-right: 1px solid #0f172a; }
     .header { position: relative; height: 25px; padding: 0 10px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; flex-shrink: 0; border: 0; border-bottom: 3px solid #22d3ee; background: #164e63; color: #cffafe; font-size: .7rem; font-weight: 700; letter-spacing: .04em; }
-    .header-toggle { min-width: 0; padding: 0 62px 0 0; display: flex; align-items: center; gap: 6px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+    .header-toggle { min-width: 0; padding: 0 70px 0 0; display: flex; align-items: center; gap: 6px; flex: 1; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; text-align: left; }
     .header-toggle:hover { background: rgba(8,47,73,.5); }
     .header-toggle strong { white-space: nowrap; }
     .chevron { flex-shrink: 0; transform: rotate(90deg); transition: transform .15s; }
     .chevron.collapsed { transform: rotate(0deg); }
     .count { min-width: 22px; padding: 2px 5px; border-radius: 999px; background: rgba(34,211,238,.16); color: #67e8f9; font-size: .65rem; text-align: center; }
-    .manage { position: absolute; right: 5px; top: 50%; height: 19px; padding: 1px 7px; transform: translateY(-50%); border: 1px solid rgba(165,243,252,.55); border-radius: 4px; background: rgba(8,47,73,.72); color: #cffafe; font: inherit; font-size: .6rem; font-weight: 650; letter-spacing: 0; cursor: pointer; }
+    .add-bus { position: absolute; right: 5px; top: 50%; height: 19px; padding: 1px 7px; transform: translateY(-50%); border: 1px solid rgba(165,243,252,.55); border-radius: 4px; background: rgba(8,47,73,.72); color: #cffafe; font: inherit; font-size: .6rem; font-weight: 650; letter-spacing: 0; white-space: nowrap; cursor: pointer; }
+    .add-bus:hover { border-color: #a5f3fc; background: #0e7490; }
     /* Match the orchestral sections' 34px vertical tab. Remove the expanded
-       header's Manage-button inset, and make the button fill the whole bar. */
+       header's Add Bus button inset, and make the button fill the whole bar. */
     .collapsed .header { height: auto; min-height: 0; width: 100%; padding: 0; border: 0; flex: 1; align-items: stretch; }
     .collapsed .header-toggle { writing-mode: vertical-lr; text-orientation: mixed; width: 100%; min-height: 0; box-sizing: border-box; padding: 10px 5px; flex: 1; gap: 6px; justify-content: flex-start; border-bottom: 3px solid #22d3ee; }
     .collapsed .header-toggle > * { flex-shrink: 0; }
@@ -327,6 +330,8 @@
     .ms { width: 32px; height: 28px; padding: 0; border: 1px solid #555; border-radius: 3px; background: #2a2a2a; color: #aaa; font-size: .8rem; font-weight: 700; cursor: pointer; }
     .mute.active { border-color: #f59e0b; background: rgba(245,158,11,.25); color: #fbbf24; }
     .solo.active { border-color: #22c55e; background: rgba(34,197,94,.2); color: #4ade80; }
+    .details { width: 100%; height: 27px; min-height: 27px; padding: 3px 8px; box-sizing: border-box; flex-shrink: 0; border: 1px solid #334155; border-radius: 4px; background: #0f172a; color: #cbd5e1; font: inherit; font-size: .68rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+    .details:hover { border-color: #7dd3fc; color: #e0f2fe; }
     .output { min-height: 26px; display: grid; place-items: center; border-top: 1px solid #20374b; color: #7dd3fc; font-size: .64rem; }
     /* Reuses the old 36px Mute/Solo spacer; never changes fader geometry. */
     .master-loudness-row { width: 100%; height: 36px; min-height: 36px; flex-shrink: 0; display: grid; grid-template-columns: minmax(0, 1fr) 24px; gap: 2px; align-items: center; }

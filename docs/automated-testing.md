@@ -116,11 +116,12 @@ also checks loaded/unassigned/missing instrument controls, editor and assignment
 messages, library visibility, and the selector-to-editor transition. It
 checks Edit/Hide updates from editor visibility notifications (including a
 simulated native-window close), unchanged Save enablement, and equal 32-pixel
-VSTi/Audio FX button heights. It opens isolated Chairs, Audio Bus Manager,
-Audio Performance and Print pages without mounting a duplicate mixer. It checks
-chair editing, shared Undo commands, live selection changes and deleted-selection
-filtering in the bus window, Close/Cmd-W dispatch, narrow-window layout, and
-print polling suspension without stopping a take. Audio Performance uses 30
+VSTi/Audio FX button heights. It opens isolated Chairs, Audio Performance and
+Print pages without mounting a duplicate mixer. It checks chair editing, shared
+Undo commands, Close/Cmd-W dispatch, narrow-window layout, and print polling
+suspension without stopping a take. In the mixer it checks the Audio Buses
+**+ Add Bus** dialog (focus, duplicate-name hint, Enter/Escape, routing the
+selection or not) and each bus's **Edit details…** rename and delete. Audio Performance uses 30
 fixture plugins to verify row ordering and fixed header/footer controls, copies
 a report with plugin/device metadata, and checks the Settings dispatch. It
 is separate from CTest/CI until browser dependencies are provisioned there.

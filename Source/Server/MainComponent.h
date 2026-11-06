@@ -248,7 +248,6 @@ private:
   /// Debug window (created eagerly, visibility toggled from View menu)
   std::unique_ptr<DebugWindow> debugWindow_;
   std::map<juce::String, std::unique_ptr<ToolWindow>> toolWindows_;
-  juce::StringArray mixerSelection_;
   void refreshToolWindow(const juce::String &id);
   juce::String printErrorOverride_; // retain notifications while the pane is hidden
 

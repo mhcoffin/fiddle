@@ -964,40 +964,72 @@ try {
     assert.deepEqual(await chairPage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["chairs"] });
     await chairPage.close();
 
-    const busPage = await openTool("bus-manager");
-    await busPage.evaluate(() => {
-        window.__dispatchFromCpp({ type: "setMixerState", data: [
-            { id: "one", directOutputBusId: "strings", sends: [] }, { id: "two", sends: [{ busId: "strings" }] },
-        ] });
-        window.__dispatchFromCpp({ type: "setGroupBusState", data: [{ id: "strings", name: "Strings", gainDb: 0 }] });
-        window.__dispatchFromCpp({ type: "setMixerSelection", data: ["one", "two"] });
-        window.__dispatchFromCpp({ type: "setUndoState", data: { canUndo: true, canRedo: false } });
-    });
-    const busManager = busPage.getByRole("dialog", { name: "Audio Bus Manager", exact: true });
-    assert.match(await busManager.innerText(), /2 selected strips/);
-    assert.match(await busManager.innerText(), /1 routed strip · 1 sends/);
-    await busManager.getByRole("textbox", { name: "New group bus name", exact: true }).fill("Selected submix");
-    await busManager.getByRole("button", { name: "Create from selection", exact: true }).click();
-    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "addGroupBus", payload: ["Selected submix", '["one","two"]'] });
-    await busPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixerSelection", data: ["two"] }));
-    assert.match(await busManager.innerText(), /1 selected strip will/);
-    await busPage.evaluate(() => window.__dispatchFromCpp({ type: "setMixerState", data: [{ id: "one" }] }));
-    assert.match(await busManager.innerText(), /ready for manual strip assignment/);
-    await busManager.getByRole("textbox", { name: "Bus name", exact: true }).fill("Reverb");
-    await busManager.getByRole("textbox", { name: "Bus name", exact: true }).press("Tab");
-    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "renameGroupBus", payload: ["strings", "Reverb"] });
-    await busManager.getByRole("button", { name: "Undo", exact: true }).click();
-    assert.equal((await busPage.evaluate(() => window.fixtureMessages.at(-1))).type, "undo");
-    assert.ok(await busManager.getByRole("button", { name: "Redo", exact: true }).isDisabled());
+    // Audio Buses: "+ Add Bus" asks for a name; each bus's "Edit details…"
+    // renames or deletes it. There is no separate Bus Manager window.
+    for (let i = 0; i < 4; i += 1) await page.keyboard.press("Escape");
+    const busBank = page.locator("aside.bank");
+    assert.equal(await busBank.getByRole("button", { name: "Manage", exact: true }).count(), 0);
+    await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
+    let addBus = page.getByRole("dialog", { name: "Add Audio Bus", exact: true });
+    assert.ok(await addBus.isVisible());
+    assert.ok(await addBus.getByRole("textbox", { name: "New bus name", exact: true }).evaluate((e) => e === document.activeElement));
+    assert.equal(await addBus.getByRole("checkbox").count(), 0, "no routing offer without a selection");
+    assert.ok(await addBus.getByRole("button", { name: "Add Bus", exact: true }).isDisabled());
+    const existingBusName = await busBank.locator(".bus-group .identity strong").first().innerText();
+    await addBus.getByRole("textbox", { name: "New bus name", exact: true }).fill(existingBusName.toLowerCase());
+    assert.match(await addBus.innerText(), /already exists/);
+    await addBus.getByRole("textbox", { name: "New bus name", exact: true }).fill("  Brass  ");
+    await addBus.getByRole("textbox", { name: "New bus name", exact: true }).press("Enter");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)), { type: "addGroupBus", payload: ["Brass", "[]"] });
+    assert.equal(await addBus.count(), 0);
+    await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
+    await page.keyboard.press("Escape");
+    assert.equal(await addBus.count(), 0, "Escape cancels Add Bus");
+    await page.locator(".select-bar-top").first().evaluate((element) =>
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
-        await busPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bus-manager-window.png") });
-    await busPage.setViewportSize({ width: 480, height: 420 });
-    assert.ok(await busPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
-    await busManager.getByRole("button", { name: "Close", exact: true }).click();
-    assert.deepEqual(await busPage.evaluate(() => window.fixtureMessages.at(-1)), { type: "hideToolWindow", payload: ["bus-manager"] });
-    await busPage.close();
+        await busBank.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bus-bank.png") });
+    await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
+    addBus = page.getByRole("dialog", { name: "Add Audio Bus", exact: true });
+    const routeSelected = addBus.getByRole("checkbox", { name: "Route the 1 selected layer to this bus", exact: true });
+    assert.ok(await routeSelected.isChecked());
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "add-bus.png") });
+    }
+    await addBus.getByRole("textbox", { name: "New bus name", exact: true }).fill("Selected submix");
+    await addBus.getByRole("button", { name: "Add Bus", exact: true }).click();
+    const routedAdd = await page.evaluate(() => window.fixtureMessages.at(-1));
+    assert.equal(routedAdd.type, "addGroupBus");
+    assert.equal(routedAdd.payload[0], "Selected submix");
+    const routedIds = JSON.parse(routedAdd.payload[1]);
+    assert.equal(routedIds.length, 1);
+    assert.ok(await page.evaluate((id) => window.fixtureStrips.some((strip) => strip.id === id), routedIds[0]));
+    await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
+    await routeSelected.uncheck();
+    await addBus.getByRole("textbox", { name: "New bus name", exact: true }).fill("Unrouted");
+    await addBus.getByRole("button", { name: "Add Bus", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)), { type: "addGroupBus", payload: ["Unrouted", "[]"] });
+    const firstBusGroup = busBank.locator(".bus-group:not(.master-group)").first();
+    assert.equal(await busBank.locator(".master-group").getByRole("button", { name: "Edit details…" }).count(), 0, "Master has no details");
+    await firstBusGroup.getByRole("button", { name: "Edit details…", exact: true }).click();
+    const busDetails = page.getByRole("dialog", { name: `Bus details for ${existingBusName}`, exact: true });
+    assert.ok(await busDetails.isVisible());
+    assert.match(await busDetails.innerText(), /Output: Master/);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bus-details.png") });
+    const busNameField = busDetails.getByRole("textbox", { name: "Bus name", exact: true });
+    await busNameField.fill("   ");
+    await busNameField.press("Enter");
+    assert.equal(await busNameField.inputValue(), existingBusName, "a blank name is refused");
+    await busNameField.fill("Hall");
+    await busNameField.press("Enter");
+    const renameMessage = await page.evaluate(() => window.fixtureMessages.at(-1));
+    assert.equal(renameMessage.type, "renameGroupBus");
+    assert.equal(renameMessage.payload[1], "Hall");
+    const detailsBusId = renameMessage.payload[0];
+    await busDetails.getByRole("button", { name: "Delete bus", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)), { type: "removeGroupBus", payload: [detailsBusId] });
+    assert.equal(await page.getByRole("dialog", { name: /^Bus details for/ }).count(), 0);
     await page.getByRole("button", { name: "Audio performance", exact: true }).click();
     assert.ok(await page.evaluate(() => window.fixtureMessages.some(m => m.type === "showView" && m.payload[0] === "audio-performance")));
     assert.equal(await page.getByRole("dialog", { name: "Audio performance", exact: true }).count(), 0);
