@@ -82,6 +82,10 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 2 — finish and deliver complex mixes
 
+- **Chair buses — design for review (2026-11-06).** Each chair gets its own
+  bus with inserts, sends and an output; layers always feed it, and the chair
+  fader sets its level. The lock becomes "Keep blend level". See
+  [Chair buses](chair-buses.md).
 - **Input trim and gain staging.** Add a trim before pre-fader inserts so the
   level driving compressors and saturation is independent of the mix fader.
 - **General link/VCA groups.** Support arbitrary temporary or persistent linked
