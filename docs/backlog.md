@@ -123,6 +123,14 @@ documented elsewhere; this list records the remaining work and intended order.
   a conduit (Dorico sends it with the hit, velocity 127, same length), and
   library-side percussion maps for driving instruments. Not needed after the
   one-pitch design: stroke × roll combination codes.
+- Snare grace notes and flams (low priority, noted 2026-11-05). Dorico sends a
+  grace note as an ordinary short note: the same pitch and velocity as its main
+  note, about 80–90 ms long, ending as the main note starts, with no CC102 or
+  other marker. Fiddle plays both on the map's natural entry ("Left hand",
+  pitch 60 in VSL SY Percussion – Snare Drum) at the same velocity, with an
+  ~8.5 ms gap before the main note; Synchron Percussion has no flam sample.
+  A fix could treat a short note followed at once by the same pitch as a
+  grace note and play it on the other hand ("Right hand", pitch 62), softer.
 - Surround or immersive output.
 - Multi-output instruments.
 - External audio tracks, recording, comping, and waveform editing.
