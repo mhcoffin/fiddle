@@ -16,7 +16,7 @@ pre-chair versions.
 | Reading, fingerprints, migration | `LibraryMaps.{h,cpp}` (`readLibraryMapFile`, `libraryMapHash`, `compileExpressionMap`, `doricoMapSources`, `migrateLibraryMaps`) |
 | Undo | `LibraryMapCatalogAction` (`LibraryCatalogAction.h`), on the catalog undo stack |
 | Server | `LibraryMapUi.cpp`: lookups for playback, IPC (`requestLibraryMaps`, `chooseLibraryMapFiles`, `findDoricoLibraryMaps`, `importLibraryMaps`, `saveLibraryMap`, `deleteLibraryMap`, `exportLibraryMap`, `checkLibraryMapSources`, `updateLibraryMap`, `loadPercussionMap`, `clearPercussionMap`, `loadPercussionMapFromFile`); expression-map layer commands resolve through `ExpressionMapSources` (`ExpressionMapCommandService`) |
-| UI | `LibraryMaps.svelte` (library editor sections), `ExpressionMapSelect.svelte`, `PercussionMapPicker.svelte`, `libraryMaps.js`; `LayerDetailsPanel.svelte` filters by `strip.libraryId` |
+| UI | `LibraryMaps.svelte` (library editor panes), `ExpressionMapSelect.svelte`, `PercussionMapPicker.svelte`, `libraryMaps.js`; `LayerDetailsPanel.svelte` filters by `strip.libraryId` |
 | Tests | `Source/Server/tests/LibraryMapsTest.cpp`, `LibraryRoutingRepositoryTest`, `ui/tests/libraryMaps.test.js`, `browser-tests/chairLayout.mjs` |
 
 Dorico's built-in maps (`expressionMapsDefinitions.xml`, `drumKitNoteMaps.xml`
@@ -85,8 +85,11 @@ Today percussion imports know each candidate's file but drop it when saving
 
 ### Library editor UI
 
-The library editor gets two sections, **Expression Maps** and **Percussion
-Maps**. Their layout is almost identical, generalized from today's
+The library editor gets two panes, **Expression Maps** and **Percussion
+Maps**, opened from buttons in the editor's header (each shows its map count).
+A pane floats centred over the blurred patch list, like the mixer's panes, so
+the patches never scroll out of view; ✕, a click outside or Escape closes it.
+Their layout is almost identical, generalized from today's
 `PercussionMaps.svelte`:
 
 - **Import .doricolib…** opens a file chooser. Every map in the file is listed
@@ -241,7 +244,7 @@ a library to import into.
 
 Fiddle checks on demand rather than watching Dorico's folders: once when a
 library editor opens, and again whenever **Check for updates** in its map
-sections is clicked. For each map with a `source_path`:
+panes is clicked. For each map with a `source_path`:
 
 1. **Reread the source file** and find the map by entity ID. Compare it with
    the stored `source_version` and `source_hash`:

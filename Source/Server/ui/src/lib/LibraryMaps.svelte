@@ -11,12 +11,16 @@
 
   // One library's maps of one kind (docs/library-map-import.md). Imports and
   // edits are catalog changes, saved at once and undone with "Undo catalog".
+  // The editor keeps this mounted, so messages and update checks survive
+  // closing the pane; it floats over the patch list only while `open`.
   let {
     library = { id: "", name: "", vendor: "" },
     kind = "expression",
     maps = [],          // every library's maps, from setLibraryMaps
     saved = true,       // false until the library's first Save
     instruments = [],   // Dorico instruments, for the percussion map editor
+    open = false,       // shown as a floating pane over the patch list
+    onclose = () => {},
   } = $props();
 
   const labels = $derived(KIND_LABELS[kind]);
@@ -137,11 +141,17 @@
   };
 </script>
 
-<details class="lmap" open={ownMaps.length > 0 || undefined} aria-label={labels.title}>
-  <summary>
+{#if open}
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="lmap-float" onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}>
+<section class="lmap" role="dialog" aria-label={labels.title}>
+  <header class="lmap-head">
     <span class="lmap-title">{labels.title}</span>
     <span class="lmap-count">{ownMaps.length}</span>
-  </summary>
+    <button class="lmap-close" aria-label="Close {labels.title}" onclick={onclose}>✕</button>
+  </header>
+  <div class="lmap-body">
   {#if !saved}
     <p class="lmap-note">Save the library first, then import its {labels.plural}.</p>
   {:else}
@@ -172,7 +182,7 @@
               <td title={map.sourcePath}>{map.sourcePath ? sourceFileName(map) : "Made in Fiddle"}{map.edited ? " · edited" : ""}</td>
               <td title={(map.references || []).join("\n")}>{map.references?.length || "—"}</td>
               <td class="lmap-status {status?.status || ''}">{statusText(map)}</td>
-              <td class="lmap-row-actions">
+              <td><div class="lmap-row-actions">
                 {#if canUpdate(map)}
                   <button class:confirm={pendingUpdateId === map.entityId}
                     title={map.edited ? "Replaces the edits made in Fiddle with the file's map" : "Replace with the file's map"}
@@ -190,7 +200,7 @@
                     if (pendingDeleteId === map.entityId) dispatchCpp("deleteLibraryMap", library.id, kind, map.entityId);
                     else pendingDeleteId = map.entityId;
                   }}>{pendingDeleteId === map.entityId ? "Confirm" : "Delete"}</button>
-              </td>
+              </div></td>
             </tr>
           {/each}
         </tbody>
@@ -199,11 +209,14 @@
       <div class="lmap-empty">No {labels.plural} yet. Import a vendor .doricolib or find one in Dorico's library.</div>
     {/if}
   {/if}
-</details>
+  </div>
+</section>
+</div>
+{/if}
 
 {#if importOffer?.maps?.length}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="lmap-backdrop" onkeydown={(e) => { if (e.key === "Escape") importOffer = null; }}>
+  <div class="lmap-backdrop" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); importOffer = null; } }}>
     <div class="lmap-dialog" role="dialog" aria-labelledby="lmap-import-heading-{kind}">
       <header>
         <h2 id="lmap-import-heading-{kind}">Import {labels.plural} into {library.name}</h2>
@@ -243,7 +256,7 @@
 
 {#if draft}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="lmap-backdrop" onkeydown={(e) => { if (e.key === "Escape" && !draftSaving) draft = null; }}>
+  <div class="lmap-backdrop" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); if (!draftSaving) draft = null; } }}>
     <div class="lmap-dialog lmap-editor" role="dialog" aria-labelledby="lmap-editor-heading">
       <header>
         <h2 id="lmap-editor-heading">{draftIsNew ? "New percussion map" : "Edit percussion map"}</h2>
@@ -292,11 +305,11 @@
                   }} /></td>
                 <td><input aria-label="Entry name" value={entry.name}
                   onchange={(e) => updateEntry(index, { name: e.currentTarget.value })} /></td>
-                <td class="lmap-row-actions">
+                <td><div class="lmap-row-actions">
                   <button aria-label="Move up" disabled={index === 0} onclick={() => moveEntry(index, -1)}>↑</button>
                   <button aria-label="Move down" disabled={index === draft.entries.length - 1} onclick={() => moveEntry(index, 1)}>↓</button>
                   <button aria-label="Remove entry" onclick={() => { draft.entries = draft.entries.filter((_, i) => i !== index); }}>✕</button>
-                </td>
+                </div></td>
               </tr>
             {/each}
           </tbody>
@@ -315,16 +328,22 @@
 {/if}
 
 <style>
-  .lmap { margin-top: 18px; border: 1px solid #44446c; border-radius: 4px; padding: 0 14px; }
-  .lmap[open] { padding-bottom: 14px; }
-  summary { cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 0; list-style: none; }
-  summary::before { content: "▸"; color: #a8a7d5; }
-  .lmap[open] summary::before { content: "▾"; }
+  /* Centred over the blurred patch list, a little shorter than it. */
+  .lmap-float { position: absolute; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+    background: rgba(3, 3, 20, .62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+  .lmap { width: min(1080px, calc(100% - 48px)); height: calc(100% - 48px); display: flex; flex-direction: column;
+    overflow: hidden; box-sizing: border-box; background: #0e0d38; border: 1px solid #44446c; border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5); color: #e5e3ff; }
+  .lmap-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; background: #131342;
+    border-bottom: 1px solid #44446c; }
+  .lmap-head .lmap-close { margin-left: auto; border-color: #555582; color: #d5d1ff; }
+  .lmap-body { min-height: 0; overflow-y: auto; padding: 18px 20px 24px; }
   .lmap-title { font-family: "Sora","Inter",sans-serif; font-size: .95rem; font-weight: 700; color: #e5e3ff; }
   .lmap-count { color: #a8a7d5; font-size: .75rem; border: 1px solid #44446c; border-radius: 10px; padding: 1px 8px; }
   .lmap-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
   .lmap-sub, .lmap-note { margin: 0; color: #a8a7d5; font-size: .76rem; }
   .lmap-note { padding-bottom: 12px; }
+  @media (max-width: 680px) { .lmap { width: calc(100% - 24px); } }
   .lmap-actions, .lmap-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   button { background: transparent; border: 1px solid #95a9ff; color: #95a9ff; font: inherit; font-size: .76rem;
     padding: 5px 10px; border-radius: 4px; cursor: pointer; }

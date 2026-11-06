@@ -1171,6 +1171,27 @@ try {
     assert.equal(rowSelectLooks.length, 3, "a patch row has player, expression and percussion selectors");
     assert.equal(new Set(rowSelectLooks).size, 1, `patch row selectors differ: ${rowSelectLooks.join(" / ")}`);
     assert.doesNotMatch(rowSelectLooks[0], / none$/, "patch row selectors keep their drop-down arrow");
+    // The map lists float over the patch list, opened from the header, and
+    // never push the patches out of view.
+    const firstRowTop = await linked.evaluate(row => row.getBoundingClientRect().top);
+    for (const title of ["Expression Maps", "Percussion Maps"]) {
+        await libraryEditor.getByRole("button", { name: new RegExp(`^${title}`) }).click();
+        const pane = libraryEditor.getByRole("dialog", { name: title, exact: true });
+        assert.ok(await pane.isVisible(), `${title} opens from the editor header`);
+        assert.equal(await libraryEditor.locator(".lmap").count(), 1, "one maps pane at a time");
+        assert.equal(await linked.evaluate(row => row.getBoundingClientRect().top), firstRowTop,
+            `${title} leaves the patch list where it was`);
+        const gaps = await pane.evaluate(panel => {
+            const area = panel.closest(".editor-body").getBoundingClientRect();
+            const box = panel.getBoundingClientRect();
+            return [box.left - area.left, area.right - box.right, box.top - area.top, area.bottom - box.bottom].map(Math.round);
+        });
+        assert.ok(Math.abs(gaps[0] - gaps[1]) <= 1 && Math.abs(gaps[2] - gaps[3]) <= 1 && gaps[2] > 0,
+            `${title} is centred over the patch list: ${gaps}`);
+    }
+    await libraryPage.keyboard.press("Escape");
+    assert.equal(await libraryEditor.locator(".lmap").count(), 0, "Escape closes the maps pane");
+    assert.ok(await libraryEditor.isVisible(), "Escape on a maps pane leaves the editor open");
     // Layers pull library changes (Update from Library); the library never pushes.
     assert.equal(await libraryEditor.getByRole("button", { name: "Update Layers", exact: true }).count(), 0);
     await linked.getByRole("textbox", { name: "Patch name", exact: true }).fill("Unsaved draft");

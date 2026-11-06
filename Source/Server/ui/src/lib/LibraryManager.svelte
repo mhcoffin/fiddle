@@ -99,6 +99,8 @@
   let editorLibVariant = $state("");
   let searchQuery = $state("");
   let instrumentChooserPatchId = $state("");
+  // "expression" or "percussion" while that maps pane floats over the patches.
+  let mapsPane = $state("");
   let searchInput = $state(null);
 
   // ── Editor dirty tracking ─────────────────────────────
@@ -358,6 +360,7 @@
     confirmDiscard = false;
     dispatchCpp("closeLibraryPatchPreviews");
     instrumentChooserPatchId = "";
+    mapsPane = "";
     modalView = "none";
   };
 
@@ -682,7 +685,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="modal-backdrop"
-    onkeydown={(e) => { if (e.key === "Escape") { if (instrumentChooserPatchId) closeInstrumentChooser(); else closeEditor(); } }}
+    onkeydown={(e) => {
+      if (e.key !== "Escape") return;
+      if (instrumentChooserPatchId) closeInstrumentChooser();
+      else if (mapsPane) mapsPane = "";
+      else closeEditor();
+    }}
   >
     <div class="editor-panel" role="dialog" aria-labelledby="editor-heading">
       <!-- Editor header -->
@@ -690,6 +698,15 @@
         <div class="editor-top-left">
           <span class="mh-icon">▦</span>
           <span id="editor-heading" class="editor-top-title">VST LIBRARY EDITOR</span>
+          <div class="maps-pane-buttons">
+            {#each [["expression", "Expression Maps", editorExpressionMaps.length], ["percussion", "Percussion Maps", editorPercussionMaps.length]] as [kind, title, count] (kind)}
+              <button class:active={mapsPane === kind} aria-pressed={mapsPane === kind}
+                disabled={saving}
+                onclick={() => { mapsPane = mapsPane === kind ? "" : kind; }}>
+                {title}<span class="maps-pane-count">{count}</span>
+              </button>
+            {/each}
+          </div>
         </div>
         <div class="draft-history">
           <button disabled={saving || !draftUndoLabel} title={draftUndoLabel || "No draft edits"} onclick={() => travelHistory("undo")}>Undo draft</button>
@@ -878,16 +895,18 @@
               </div>
             {/if}
           </div>
-          {#each ["expression", "percussion"] as kind (kind)}
-            <LibraryMaps
-              {kind}
-              library={{ id: editorLibId, name: editorLibName, vendor: editorLibVendor }}
-              maps={libraryMaps}
-              saved={editorLibrarySaved}
-              instruments={allDoricoInstruments}
-            />
-          {/each}
         </div>
+        {#each ["expression", "percussion"] as kind (kind)}
+          <LibraryMaps
+            {kind}
+            library={{ id: editorLibId, name: editorLibName, vendor: editorLibVendor }}
+            maps={libraryMaps}
+            saved={editorLibrarySaved}
+            instruments={allDoricoInstruments}
+            open={mapsPane === kind}
+            onclose={() => { mapsPane = ""; }}
+          />
+        {/each}
       </div>
 
       <!-- Editor footer -->
@@ -1159,6 +1178,19 @@
     border-bottom: 1px solid #44446c;
   }
   .editor-top-left { display: flex; align-items: center; gap: 8px; }
+  .maps-pane-buttons { display: flex; gap: 8px; margin-left: 24px; }
+  .maps-pane-buttons button {
+    display: flex; align-items: center; gap: 7px;
+    background: transparent; border: 1px solid #555582; border-radius: 4px;
+    color: #d5d1ff; padding: 5px 10px; font: inherit; font-size: .75rem; cursor: pointer;
+  }
+  .maps-pane-buttons button:hover:not(:disabled) { border-color: #95a9ff; background: #292863; }
+  .maps-pane-buttons button.active { border-color: #95a9ff; background: #2b3a8f; color: #fff; }
+  .maps-pane-buttons button:disabled { opacity: .4; cursor: default; }
+  .maps-pane-count {
+    min-width: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px;
+    background: rgba(149,169,255,.18); color: #c0ccff; font-size: .68rem; text-align: center;
+  }
   .editor-top-title {
     font-family: "Inter",sans-serif; font-size: .72rem; font-weight: 600;
     letter-spacing: .1em; text-transform: uppercase; color: #e5e3ff;
@@ -1169,7 +1201,7 @@
     transition: color .15s;
   }
   .editor-close:hover { color: #e5e3ff; }
-  .editor-body { flex: 1; display: flex; overflow: hidden; }
+  .editor-body { flex: 1; min-height: 0; display: flex; overflow: hidden; position: relative; }
 
   /* ── Ensembles sidebar ────────────────────────────── */
   .ens-sidebar {
