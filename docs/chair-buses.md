@@ -259,6 +259,11 @@ sibling compensation remain one undo step, as now.
   match that by ID, so their output and sends stay on the layer record and
   migrate back exactly.
 - Migration is `migrateChairRouting` in `ChairBusMigration.h`.
+- At startup the layers come from the session database, which has no buses.
+  `ProjectRestoreService::restoreBusRouting` restores the audio buses and
+  chair buses of the version Fiddle starts on, and migrates its layer
+  routing. Dorico reconnecting to the same version doesn't restore it again,
+  so before this fix a restart left the mixer with no audio buses or routing.
 
 ## Implementation phases
 

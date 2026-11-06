@@ -1362,6 +1362,8 @@ void MainComponent::initPluginsAndStrips() {
     }
   }
 
+  restoreStartupBusRouting();
+
   pushMixerState(false);
 
   projectRestoreReady_ = true;
@@ -2048,7 +2050,27 @@ void MainComponent::restoreStripAudio(MixerStrip &strip,
                     publishWhenLoaded);
 }
 
-bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
+void MainComponent::restoreStartupBusRouting() {
+  // Layers come back from the session database, but audio buses and chair
+  // routing are saved only in versions. Take them from the version Fiddle
+  // starts on. Dorico reconnecting to that same version doesn't restore it
+  // again (restoreDoricoProject), so without this they would be missing.
+  if (!versionStore_ || currentVersionId_.empty())
+    return;
+  const auto version = versionStore_->getVersion(currentVersionId_);
+  const auto state = version ? versionStore_->getState(version->stateHash) : std::nullopt;
+  if (!state)
+    return;
+  const auto result = projectRestoreService().restoreBusRouting(*state);
+  if (!result.accepted) {
+    pushLogMessage("<b>[Restore]</b> Could not restore audio buses: " + juce::String(result.error), true);
+    return;
+  }
+  reportInexactChairRouting(result.inexactChairRouting);
+  pushGroupBusState();
+}
+
+ProjectRestoreService &MainComponent::projectRestoreService() {
   if (!projectRestoreService_) {
     ProjectRestoreService::Callbacks callbacks;
     callbacks.findInstrument = [this](int uid) -> std::optional<juce::PluginDescription> {
@@ -2082,7 +2104,25 @@ bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
     projectRestoreService_ = std::make_unique<ProjectRestoreService>(
         mixer_, *versionStore_, db_.getLibraryRoutingRepository(), std::move(callbacks));
   }
-  const auto result = projectRestoreService_->restore(state);
+  return *projectRestoreService_;
+}
+
+void MainComponent::reportInexactChairRouting(const std::vector<std::string> &chairs) {
+  if (chairs.empty())
+    return;
+  juce::StringArray names;
+  for (const auto &name : chairs)
+    names.add(juce::String(name));
+  pushLogMessage("<b>[Restore]</b> This version predates chair buses. Each chair's layers now share "
+                 "one output and set of sends. These chairs' layers had different outputs or sends, "
+                 "so check them: " + names.joinIntoString(", "), true);
+  broadcastMessage("layerOperationResult",
+      "Each chair now has one output and set of sends. Check " + names.joinIntoString(", ") +
+      ": its layers were routed differently.");
+}
+
+bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
+  const auto result = projectRestoreService().restore(state);
   if (!result.accepted) {
     pushLogMessage("<b>[Restore]</b> Failed: " + juce::String(result.error), true);
     return false;
@@ -2105,17 +2145,7 @@ bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
     pushLibraryMaps();
     pushLibraryLayerStatus();
   }
-  if (!result.inexactChairRouting.empty()) {
-    juce::StringArray names;
-    for (const auto &name : result.inexactChairRouting)
-      names.add(juce::String(name));
-    pushLogMessage("<b>[Restore]</b> This version predates chair buses. Each chair's layers now share "
-                   "one output and set of sends. These chairs' layers had different outputs or sends, "
-                   "so check them: " + names.joinIntoString(", "), true);
-    broadcastMessage("layerOperationResult",
-        "Each chair now has one output and set of sends. Check " + names.joinIntoString(", ") +
-        ": its layers were routed differently.");
-  }
+  reportInexactChairRouting(result.inexactChairRouting);
   pushMixerState(false);
   pushGroupBusState();
   pushMasterAudioState();

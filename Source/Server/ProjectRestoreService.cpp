@@ -10,6 +10,53 @@
 
 namespace fiddle {
 
+namespace {
+
+/// Check that a version's audio buses, chair buses and legacy layer routing
+/// are well formed and only name saved audio buses. Fills each saved chair
+/// bus's sends.
+std::optional<std::string> validateBusRouting(
+    const versioning::FiddleState &state,
+    const std::map<std::string, versioning::StripBlob> &blobs,
+    std::map<std::string, std::vector<AudioSend>> &chairSends) {
+  std::set<std::string> busIds;
+  for (const auto &bus : state.globalState.groupBuses)
+    if (bus.id.empty() || !busIds.insert(bus.id).second)
+      return "Invalid or duplicate audio bus ID";
+  for (const auto &[hash, blob] : blobs) {
+    if (!blob.directOutputBusId.empty() && !busIds.count(blob.directOutputBusId))
+      return "A saved audio bus destination is missing";
+    std::vector<AudioSend> sends;
+    if (!blob.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(blob.sendsJson), sends))
+      return "Invalid saved post-fader sends";
+    for (const auto &send : sends)
+      if (!busIds.count(send.busId.toStdString()))
+        return "A saved send destination is missing";
+  }
+  for (const auto &chair : state.globalState.chairBuses) {
+    if (chair.chairId.empty() || chairSends.count(chair.chairId))
+      return "Invalid or duplicate chair bus";
+    auto &sends = chairSends[chair.chairId];
+    if (!chair.directOutputBusId.empty() && !busIds.count(chair.directOutputBusId))
+      return "A saved chair output is missing";
+    if (!chair.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(chair.sendsJson), sends))
+      return "Invalid saved chair sends";
+    for (const auto &send : sends)
+      if (!busIds.count(send.busId.toStdString()))
+        return "A saved chair send destination is missing";
+  }
+  return std::nullopt;
+}
+
+LegacyLayerRouting legacyRoutingOf(const versioning::StripBlob &blob) {
+  LegacyLayerRouting routing{blob.directOutputBusId, {}};
+  if (!blob.sendsJson.empty())
+    audioSendsFromJson(juce::JSON::parse(blob.sendsJson), routing.sends);
+  return routing;
+}
+
+} // namespace
+
 struct ProjectRestoreService::Session {
   bool cancelled = false;
   bool finished = false;
@@ -96,33 +143,9 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     if (!fetch(layer.stripHash))
       return {false, false, "A saved layer blob is missing"};
 
-  std::set<std::string> busIds;
-  for (const auto &bus : state.globalState.groupBuses)
-    if (bus.id.empty() || !busIds.insert(bus.id).second)
-      return {false, false, "Invalid or duplicate audio bus ID"};
-  std::map<std::string, std::vector<AudioSend>> sendsByHash;
-  for (const auto &[hash, blob] : blobs) {
-    if (!blob.directOutputBusId.empty() && busIds.find(blob.directOutputBusId) == busIds.end())
-      return {false, false, "A saved audio bus destination is missing"};
-    if (!blob.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(blob.sendsJson), sendsByHash[hash]))
-      return {false, false, "Invalid saved post-fader sends"};
-    for (const auto &send : sendsByHash[hash])
-      if (!busIds.count(send.busId.toStdString()))
-        return {false, false, "A saved send destination is missing"};
-  }
   std::map<std::string, std::vector<AudioSend>> chairSends;
-  for (const auto &chair : state.globalState.chairBuses) {
-    if (chair.chairId.empty() || chairSends.count(chair.chairId))
-      return {false, false, "Invalid or duplicate chair bus"};
-    auto &sends = chairSends[chair.chairId];
-    if (!chair.directOutputBusId.empty() && !busIds.count(chair.directOutputBusId))
-      return {false, false, "A saved chair output is missing"};
-    if (!chair.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(chair.sendsJson), sends))
-      return {false, false, "Invalid saved chair sends"};
-    for (const auto &send : sends)
-      if (!busIds.count(send.busId.toStdString()))
-        return {false, false, "A saved chair send destination is missing"};
-  }
+  if (auto error = validateBusRouting(state, blobs, chairSends))
+    return {false, false, *error};
 
   std::vector<ChairRow> chairs;
   std::vector<LayerRow> layers;
@@ -170,12 +193,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   if ((topology || convertLegacy) && !repository_->replaceTopology(chairs, layers))
     return {false, false, "Could not restore chair/layer topology"};
 
-  if (session_)
-    session_->cancelled = true;
-  auto session = std::make_shared<Session>();
-  session_ = session;
-  session->mixer = &mixer_;
-  session->callbacks = callbacks_;
+  auto session = beginSession();
   mixer_.clear();
   // Also invalidate session verification when restoring an identical registry.
   if (mixer_.onBridgeMapsChanged)
@@ -183,47 +201,10 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   mixer_.setProjectSettings(state.globalState.projectSettings);
   mixer_.masterAudio().clear(false);
 
-  auto restoreRack = [&](StripAudioEngine &engine,
-                         const std::vector<uint8_t> &bytes) {
-    if (bytes.empty())
-      return;
-    const auto snapshot = deserializeStripAudioSnapshot(bytes.data(), bytes.size());
-    engine.setBalance(snapshot.balance);
-    auto insertRack = [&](const auto &rack, StripInsertPosition position) {
-      for (int i = 0; i < static_cast<int>(rack.size()); ++i) {
-        auto done = Session::completion(session);
-        if (!engine.insert(rack[static_cast<size_t>(i)], position, i,
-                           mixer_.getFormatManager(), done, false))
-          done(false, "Insert rejected");
-      }
-    };
-    insertRack(snapshot.preFaderInserts, StripInsertPosition::preFader);
-    insertRack(snapshot.postFaderInserts, StripInsertPosition::postFader);
+  auto restoreRack = [&](StripAudioEngine &engine, const std::vector<uint8_t> &bytes) {
+    restoreAudioRack(engine, bytes, session);
   };
-
-  for (const auto &saved : state.globalState.groupBuses) {
-    auto bus = std::make_unique<GroupBus>();
-    bus->id = saved.id;
-    bus->name = saved.name;
-    bus->setGainDb(saved.gainDb);
-    bus->setMuted(saved.muted);
-    bus->setSoloed(saved.soloed);
-    auto *restored = bus.get();
-    mixer_.insertGroupBusAt(std::move(bus), static_cast<int>(mixer_.getAllGroupBuses().size()));
-    if (callbacks_.busCreated)
-      callbacks_.busCreated(*restored);
-    restoreRack(restored->audioEngine(), saved.audioInsertState);
-  }
-
-  for (const auto &saved : state.globalState.chairBuses) {
-    auto *chair = mixer_.ensureChairBus(juce::String(saved.chairId));
-    chair->setGainDb(saved.gainDb);
-    chair->setMuted(saved.muted);
-    chair->setSoloed(saved.soloed);
-    chair->directOutputBusId = saved.directOutputBusId;
-    chair->sends = chairSends.at(saved.chairId);
-    restoreRack(chair->audioEngine(), saved.audioInsertState);
-  }
+  restoreBuses(state, chairSends, session);
 
   // Versions saved before chair buses kept outputs and sends on each layer.
   // Gather them per chair; they move to the chair bus once all layers exist.
@@ -238,11 +219,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     strip->setSoloed(blob.soloed);
     strip->setGainDb(blob.gainDb);
     strip->pluginUid = blob.pluginUid;
-    LegacyLayerRouting routing{blob.directOutputBusId, {}};
-    if (!blob.sendsJson.empty())
-      audioSendsFromJson(juce::JSON::parse(blob.sendsJson), routing.sends);
     const auto key = MixerModel::chairBusKey(*strip);
-    legacyRouting[key].push_back(std::move(routing));
+    legacyRouting[key].push_back(legacyRoutingOf(blob));
     if (!chairNames.count(key))
       chairNames[key] = strip->layerName.isNotEmpty() ? strip->layerName : strip->library;
     mixer_.insertStripAt(std::move(strip), mixer_.size());
@@ -340,20 +318,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     }
   }
 
-  std::vector<std::string> inexactChairRouting;
-  for (const auto &[key, layers] : legacyRouting) {
-    if (chairSends.count(key.toStdString()) ||
-        std::all_of(layers.begin(), layers.end(), [](const auto &layer) {
-          return layer.output.isEmpty() && layer.sends.empty();
-        }))
-      continue;
-    const auto migrated = migrateChairRouting(layers, [] { return juce::Uuid().toString(); });
-    auto *chair = mixer_.ensureChairBus(key);
-    chair->directOutputBusId = migrated.output;
-    chair->sends = migrated.sends;
-    if (!migrated.exact)
-      inexactChairRouting.push_back(chairNames[key].toStdString());
-  }
+  auto inexactChairRouting = migrateLegacyRouting(legacyRouting, chairSends, chairNames);
 
   auto &master = mixer_.masterAudio();
   master.setGainDb(state.globalState.masterGainDb, false);
@@ -379,6 +344,125 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   Session::complete(session);
   return {true, topology || convertLegacy, {}, std::move(generatedLibraries),
           std::move(inexactChairRouting)};
+}
+
+std::shared_ptr<ProjectRestoreService::Session> ProjectRestoreService::beginSession() {
+  if (session_)
+    session_->cancelled = true;
+  auto session = std::make_shared<Session>();
+  session_ = session;
+  session->mixer = &mixer_;
+  session->callbacks = callbacks_;
+  return session;
+}
+
+void ProjectRestoreService::restoreAudioRack(StripAudioEngine &engine,
+                                             const std::vector<uint8_t> &bytes,
+                                             const std::shared_ptr<Session> &session) {
+  if (bytes.empty())
+    return;
+  const auto snapshot = deserializeStripAudioSnapshot(bytes.data(), bytes.size());
+  engine.setBalance(snapshot.balance);
+  auto insertRack = [&](const auto &rack, StripInsertPosition position) {
+    for (int i = 0; i < static_cast<int>(rack.size()); ++i) {
+      auto done = Session::completion(session);
+      if (!engine.insert(rack[static_cast<size_t>(i)], position, i,
+                         mixer_.getFormatManager(), done, false))
+        done(false, "Insert rejected");
+    }
+  };
+  insertRack(snapshot.preFaderInserts, StripInsertPosition::preFader);
+  insertRack(snapshot.postFaderInserts, StripInsertPosition::postFader);
+}
+
+void ProjectRestoreService::restoreBuses(
+    const versioning::FiddleState &state,
+    const std::map<std::string, std::vector<AudioSend>> &chairSends,
+    const std::shared_ptr<Session> &session) {
+  for (const auto &saved : state.globalState.groupBuses) {
+    auto bus = std::make_unique<GroupBus>();
+    bus->id = saved.id;
+    bus->name = saved.name;
+    bus->setGainDb(saved.gainDb);
+    bus->setMuted(saved.muted);
+    bus->setSoloed(saved.soloed);
+    auto *restored = bus.get();
+    mixer_.insertGroupBusAt(std::move(bus), static_cast<int>(mixer_.getAllGroupBuses().size()));
+    if (callbacks_.busCreated)
+      callbacks_.busCreated(*restored);
+    restoreAudioRack(restored->audioEngine(), saved.audioInsertState, session);
+  }
+
+  for (const auto &saved : state.globalState.chairBuses) {
+    auto *chair = mixer_.ensureChairBus(juce::String(saved.chairId));
+    chair->setGainDb(saved.gainDb);
+    chair->setMuted(saved.muted);
+    chair->setSoloed(saved.soloed);
+    chair->directOutputBusId = saved.directOutputBusId;
+    chair->sends = chairSends.at(saved.chairId);
+    restoreAudioRack(chair->audioEngine(), saved.audioInsertState, session);
+  }
+}
+
+std::vector<std::string> ProjectRestoreService::migrateLegacyRouting(
+    const std::map<juce::String, std::vector<LegacyLayerRouting>> &legacyRouting,
+    const std::map<std::string, std::vector<AudioSend>> &chairSends,
+    const std::map<juce::String, juce::String> &chairNames) {
+  std::vector<std::string> inexactChairRouting;
+  for (const auto &[key, layers] : legacyRouting) {
+    if (chairSends.count(key.toStdString()) ||
+        std::all_of(layers.begin(), layers.end(), [](const auto &layer) {
+          return layer.output.isEmpty() && layer.sends.empty();
+        }))
+      continue;
+    const auto migrated = migrateChairRouting(layers, [] { return juce::Uuid().toString(); });
+    auto *chair = mixer_.ensureChairBus(key);
+    chair->directOutputBusId = migrated.output;
+    chair->sends = migrated.sends;
+    if (!migrated.exact) {
+      const auto name = chairNames.find(key);
+      inexactChairRouting.push_back(
+          (name != chairNames.end() ? name->second : key).toStdString());
+    }
+  }
+  return inexactChairRouting;
+}
+
+ProjectRestoreService::Result
+ProjectRestoreService::restoreBusRouting(const versioning::FiddleState &state) {
+  std::map<std::string, versioning::StripBlob> blobs;
+  for (const auto &layer : state.routingState.layers) {
+    auto blob = versions_.getStripBlob(layer.stripHash);
+    if (!blob)
+      return {false, false, "A saved layer blob is missing"};
+    blobs.emplace(layer.stripHash, std::move(*blob));
+  }
+  std::map<std::string, std::vector<AudioSend>> chairSends;
+  if (auto error = validateBusRouting(state, blobs, chairSends))
+    return {false, false, *error};
+
+  auto session = beginSession();
+  for (auto *bus : mixer_.getAllGroupBuses()) {
+    const auto id = bus->id;
+    mixer_.removeGroupBus(id);
+  }
+  restoreBuses(state, chairSends, session);
+
+  // Layers already in the mixer whose saved record still carries routing
+  // (a version saved before chair buses) move it to their chair bus.
+  std::map<juce::String, std::vector<LegacyLayerRouting>> legacyRouting;
+  for (const auto &layer : state.routingState.layers)
+    if (auto *strip = mixer_.getStrip(juce::String(layer.id)))
+      legacyRouting[MixerModel::chairBusKey(*strip)].push_back(
+          legacyRoutingOf(blobs.at(layer.stripHash)));
+  std::map<juce::String, juce::String> chairNames;
+  for (const auto &chair : state.routingState.chairs)
+    chairNames[juce::String(chair.id)] = juce::String(chair.name);
+  auto inexactChairRouting = migrateLegacyRouting(legacyRouting, chairSends, chairNames);
+
+  mixer_.refreshAudioRouting();
+  Session::complete(session);
+  return {true, false, {}, {}, std::move(inexactChairRouting)};
 }
 
 } // namespace fiddle

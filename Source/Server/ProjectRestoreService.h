@@ -1,10 +1,12 @@
 #pragma once
 
+#include "ChairBusMigration.h"
 #include "MixerModel.h"
 #include "LibraryRoutingRepository.h"
 #include "VersionStore.h"
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -44,10 +46,26 @@ public:
                         LibraryRoutingRepository *, Callbacks);
   ~ProjectRestoreService();
   Result restore(const versioning::FiddleState &);
+  /// Restore only a version's audio buses and chair buses onto the layers
+  /// already in the mixer, replacing any audio buses, and move a pre-chair-bus
+  /// version's layer routing to its chair buses. At startup the layers come
+  /// from the session database, but buses and routing are kept only in
+  /// versions.
+  Result restoreBusRouting(const versioning::FiddleState &);
   bool isLoading() const;
 
 private:
   struct Session;
+  std::shared_ptr<Session> beginSession();
+  void restoreAudioRack(StripAudioEngine &, const std::vector<uint8_t> &,
+                        const std::shared_ptr<Session> &);
+  void restoreBuses(const versioning::FiddleState &,
+                    const std::map<std::string, std::vector<AudioSend>> &chairSends,
+                    const std::shared_ptr<Session> &);
+  std::vector<std::string> migrateLegacyRouting(
+      const std::map<juce::String, std::vector<LegacyLayerRouting>> &,
+      const std::map<std::string, std::vector<AudioSend>> &chairSends,
+      const std::map<juce::String, juce::String> &chairNames);
   MixerModel &mixer_;
   versioning::VersionStore &versions_;
   LibraryRoutingRepository *repository_;

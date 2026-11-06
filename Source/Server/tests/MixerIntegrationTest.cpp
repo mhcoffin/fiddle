@@ -3215,6 +3215,52 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(f.mixer.stripSends(ids[1]).size() == 1 &&
             f.mixer.stripSends(ids[1]).front().id == "old-send");
     REQUIRE(f.mixer.chairBusForStrip(ids[2])->gainDb() == 0.0f); // Default chair bus.
+
+    // Startup: the layers come back from the session database, without buses.
+    // The buses and chair routing come from the version Fiddle starts on.
+    MixerFixture g;
+    auto startupFormat = std::make_unique<TestPluginFormat>();
+    g.mixer.getFormatManager().addFormat(std::move(startupFormat));
+    for (int i = 0; i < 3; ++i) {
+      auto *strip = g.mixer.getStrip(g.instrument(0.1f * (i + 1), i + 1));
+      strip->id = ids[static_cast<size_t>(i)];
+      for (const auto &layer : saved->routingState.layers)
+        if (layer.id == strip->id.toStdString())
+          strip->chairId = layer.chairId;
+    }
+    REQUIRE(g.mixer.getAllGroupBuses().empty());
+    int startupFinished = 0;
+    fiddle::ProjectRestoreService startup(g.mixer, versions, nullptr,
+                                          restoreCallbacks(startupFinished));
+    const auto busRouting = startup.restoreBusRouting(*saved);
+    REQUIRE(busRouting.accepted && busRouting.inexactChairRouting.empty());
+    pumpUntil([&] { return !startup.isLoading(); });
+    REQUIRE(startupFinished == 1);
+    REQUIRE(g.mixer.getAllGroupBuses().size() == 2);
+    REQUIRE(g.mixer.getGroupBus(busId)->gainDb() == -3.0f);
+    REQUIRE(g.mixer.getGroupBus(busId)->audioEngine().balance() == 0.375f);
+    REQUIRE(g.mixer.getGroupBus(busId)->audioEngine().snapshot("bus-post").has_value());
+    REQUIRE(g.mixer.stripOutputBusId(ids[0]).toStdString() == busId);
+    REQUIRE(g.mixer.stripSends(ids[0]).size() == 1 &&
+            g.mixer.stripSends(ids[0]).front().id == "saved-send");
+    REQUIRE(g.mixer.chairBusForStrip(ids[2])->gainDb() == -4.0f);
+    REQUIRE(g.mixer.chairBusForStrip(ids[2])->audioEngine().snapshot("chair-fx").has_value());
+    REQUIRE(g.mixer.size() == 3); // Layers are left alone.
+
+    // Starting on a version saved before chair buses moves its layer routing
+    // to their chair buses, and replaces the buses rather than adding more.
+    const auto startupMigrated = startup.restoreBusRouting(old);
+    REQUIRE(startupMigrated.accepted);
+    pumpUntil([&] { return !startup.isLoading(); });
+    REQUIRE(g.mixer.getAllGroupBuses().size() == 2);
+    REQUIRE(g.mixer.stripOutputBusId(ids[0]).toStdString() == busId);
+    REQUIRE(g.mixer.stripSends(ids[0]).size() == 1 &&
+            g.mixer.stripSends(ids[0]).front().id == "old-send");
+
+    auto broken = *saved;
+    broken.globalState.chairBuses.front().directOutputBusId = "missing-bus";
+    REQUIRE(!startup.restoreBusRouting(broken).accepted);
+    REQUIRE(g.mixer.getAllGroupBuses().size() == 2); // Rejected before any change.
   }
 }
 

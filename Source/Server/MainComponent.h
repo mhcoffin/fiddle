@@ -380,6 +380,9 @@ private:
 
   /// Restore a versioned mixer snapshot and its plug-in state.
   bool applyVersionState(const versioning::FiddleState &state);
+  ProjectRestoreService &projectRestoreService();
+  void restoreStartupBusRouting();
+  void reportInexactChairRouting(const std::vector<std::string> &chairs);
 
   /// Load one stored version. Dorico may select an older version and still
   /// associate it with its saved branch; History checkouts remain detached.
