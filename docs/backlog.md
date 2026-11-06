@@ -82,7 +82,7 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 2 — finish and deliver complex mixes
 
-- **Chair buses — design for review (2026-11-06).** Each chair gets its own
+- **Chair buses — design agreed (2026-11-06), not started.** Each chair gets its own
   bus with inserts, sends and an output; layers always feed it, and the chair
   fader sets its level. The lock becomes "Keep blend level". See
   [Chair buses](chair-buses.md).

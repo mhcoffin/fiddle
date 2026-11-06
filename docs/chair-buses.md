@@ -1,6 +1,7 @@
 # Chair buses
 
-Status: design for review, 2026-11-06. Nothing is implemented yet.
+Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Nothing is
+implemented yet.
 
 ## Summary
 
@@ -44,6 +45,9 @@ It adds:
   the chair's name.
 - `directOutputBusId`: empty for Master, or an audio bus ID.
 - `sends`: the same `AudioSend` list layers have today, pre- or post-fader.
+
+Its fader runs from −∞ to +6 dB, the same as layer faders (audio buses go to
++12 dB).
 
 Every chair owns exactly one chair bus, created with the chair and deleted
 with it. A chair with no layers keeps its bus (silent, not rendered), so its
@@ -260,12 +264,13 @@ Phases 2 and 3 are mostly UI.
   chairs proves a problem.
 - Audio bus → audio bus routing (nested buses, in the backlog).
 
-## Open questions
+## Decisions
 
-1. **Chair strip position.** Right of the layers (proposed, follows the
-   signal) or left, where the thin chair fader is today?
-2. **Chair fader range.** +6 dB like layers and today's chair fader
-   (proposed), or +12 dB like audio buses?
-3. **One-layer chairs.** A full-width chair strip for every chair (proposed
-   for the first version), or a narrow form for one-layer chairs from the
-   start?
+Agreed on 2026-11-06:
+
+1. **Chair strip position:** to the right of the layers.
+2. **Chair fader range:** tops out at +6 dB, like layer faders, so levels are
+   easy to compare.
+3. **One-layer chairs:** every chair gets the full-width chair strip for now,
+   because it's simplest. A narrower form can come later (see
+   [Later](#later-not-in-this-design)).
