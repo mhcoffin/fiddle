@@ -1411,7 +1411,8 @@
     background: rgba(3, 3, 20, .72); backdrop-filter: blur(2px);
   }
   .instrument-chooser {
-    width: min(760px, 88vw); max-height: min(680px, 82vh);
+    /* Fixed height, so search results never resize it while you type. */
+    width: min(760px, 88vw); height: min(680px, 82vh);
     display: flex; flex-direction: column; overflow: hidden;
     background: #11103e; border: 1px solid #66659c; border-radius: 8px;
     box-shadow: 0 20px 70px rgba(0, 0, 0, .65);
@@ -1440,7 +1441,7 @@
     flex: 1; border: 0; outline: 0; background: transparent; color: #f0efff;
     font: 500 .82rem "Inter", sans-serif;
   }
-  .instrument-results { min-height: 180px; overflow-y: auto; padding: 0 20px 14px; }
+  .instrument-results { flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 14px; }
   .instrument-result {
     width: 100%; display: flex; align-items: center; justify-content: space-between;
     gap: 20px; padding: 11px 12px; border: 0; border-bottom: 1px solid #292850;

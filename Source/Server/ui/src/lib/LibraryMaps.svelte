@@ -370,14 +370,15 @@
   .lmap-empty { padding: 14px; border: 1px dashed #44446c; border-radius: 4px; color: #a8a7d5; font-size: .8rem; text-align: center; }
   .lmap-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
     background: rgba(0,0,0,.55); }
-  .lmap-dialog { width: 680px; max-width: 94vw; max-height: 90vh; display: flex; flex-direction: column;
+  /* Fixed height, so search results never resize it while you type. */
+  .lmap-dialog { width: 680px; max-width: 94vw; height: min(820px, 90vh); display: flex; flex-direction: column;
     background: #0e0d38; border: 1px solid #44446c; border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.5); color: #e5e3ff; }
   .lmap-editor { width: 1100px; }
   .lmap-dialog header, .lmap-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; }
   .lmap-dialog header { border-bottom: 1px solid #44446c; }
   .lmap-dialog footer { justify-content: flex-end; border-top: 1px solid #44446c; }
   .lmap-dialog h2 { margin: 0; font-family: "Sora","Inter",sans-serif; font-size: 1rem; }
-  .lmap-dialog-body { padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+  .lmap-dialog-body { flex: 1; min-height: 0; padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
   .lmap-search { font-size: .85rem; }
   .lmap-fields { display: grid; grid-template-columns: 2fr 2fr 90px; gap: 12px; }
   label { display: flex; flex-direction: column; gap: 4px; }

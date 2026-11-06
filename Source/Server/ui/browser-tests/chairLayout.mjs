@@ -1191,6 +1191,20 @@ try {
     }
     await libraryPage.keyboard.press("Escape");
     assert.equal(await libraryEditor.locator(".lmap").count(), 0, "Escape closes the maps pane");
+    // Classify Patch keeps its height while search results come and go.
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setDoricoInstruments", data:
+        ["Flute", "Alto Flute", "Bass Flute", "Oboe", "Clarinet", "Bassoon", "Horn", "Trumpet", "Trombone", "Tuba",
+            "Violin", "Viola", "Cello", "Contrabass", "Harp", "Timpani"]
+            .map(name => ({ name, entityID: `instrument.test.${name.toLowerCase().replace(" ", "-")}` })) }));
+    await linked.getByRole("button", { name: "Classify Linked patch", exact: true }).click();
+    const chooser = libraryEditor.getByRole("dialog", { name: "Classify Patch", exact: true });
+    const chooserHeights = [];
+    for (const query of ["", "fl", "flute", "a", "zzz"]) {
+        await chooser.getByPlaceholder("Search Dorico instruments…").fill(query);
+        chooserHeights.push(await chooser.evaluate(dialog => dialog.getBoundingClientRect().height));
+    }
+    assert.equal(new Set(chooserHeights).size, 1, `Classify Patch resizes while searching: ${chooserHeights}`);
+    await chooser.getByRole("button", { name: "Cancel", exact: true }).click();
     assert.ok(await libraryEditor.isVisible(), "Escape on a maps pane leaves the editor open");
     // Layers pull library changes (Update from Library); the library never pushes.
     assert.equal(await libraryEditor.getByRole("button", { name: "Update Layers", exact: true }).count(), 0);

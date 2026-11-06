@@ -341,7 +341,7 @@
     .add-heading { justify-content:space-between; margin-bottom:20px; }
     .add-dialog > label { margin:14px 0 7px; color:#cbd5e1; font-size:.82rem; font-weight:650; }
     .search { width:100%; min-height:46px; padding:10px 12px; border:1px solid #475569; border-radius:6px; background:#09121f; color:#f8fafc; }
-    .search-results { min-height:180px; max-height:360px; margin-top:10px; overflow-y:auto; border:1px solid #26364d; border-radius:7px; background:#09121f; }
+    .search-results { height:360px; flex:0 1 auto; min-height:120px; margin-top:10px; overflow-y:auto; border:1px solid #26364d; border-radius:7px; background:#09121f; }
     .search-hint { padding:24px; color:#64748b; text-align:center; }
     .instrument-choice { width:100%; min-height:58px; display:flex; flex-direction:column; align-items:flex-start; gap:3px; border:0; border-bottom:1px solid #1e293b; border-radius:0; background:transparent; text-align:left; }
     .instrument-choice span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#94a3b8; font-size:.76rem; }
