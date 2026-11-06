@@ -47,14 +47,23 @@ class MixerModel : public juce::Timer {
     size_t destinationIndex = 0;
     bool preFader = false;
   };
+  // Every layer feeds its chair bus; layers of one chair share the chair's
+  // downstream latency, so no delay is needed between them and the bus.
   struct StripRoute {
     MixerStrip *strip = nullptr;
-    GroupBus *destination = nullptr; // nullptr means Master
+    size_t chairIndex = 0; // into ActiveAudioGraph::chairRoutes
     juce::AudioBuffer<float> scratch; // allocated only when publishing a graph
-    juce::AudioBuffer<float> preFaderScratch; // only allocated for pre-fader routes
+    int downstreamLatency = 0; // chair bus rack + everything after it
+  };
+  // A chair bus with at least one layer: its output (Master or an audio bus)
+  // and sends, with the delays that align them.
+  struct ChairRoute {
+    GroupBus *bus = nullptr;
+    GroupBus *destination = nullptr; // nullptr means Master
+    juce::AudioBuffer<float> preFaderScratch; // only allocated for pre-fader sends
     std::shared_ptr<RouteDelay> delay;
     std::vector<SendRoute> sends;
-    int downstreamLatency = 0;
+    int downstreamLatency = 0; // after the chair bus rack
   };
 
   struct ActiveAudioGraph {
@@ -67,6 +76,7 @@ class MixerModel : public juce::Timer {
     // destinations without making the audio thread inspect mutable strings.
     std::vector<MixerStrip *> strips;
     std::vector<StripRoute> stripRoutes;
+    std::vector<ChairRoute> chairRoutes;
     std::vector<GroupBus *> groupBuses;
     std::vector<bool> busAudible;
   };
@@ -109,7 +119,7 @@ public:
   /// Restore/undo a fully constructed bus at a stable order position.
   void insertGroupBusAt(std::shared_ptr<GroupBus> bus, int index);
 
-  /// Remove a group bus and repair every affected strip route to Master.
+  /// Remove a group bus and repair every affected chair route to Master.
   bool removeGroupBus(const juce::String &id);
 
   /// Remove a bus without destroying it, for exact undo restoration. Routes
@@ -124,14 +134,39 @@ public:
   bool setGroupBusMute(const juce::String &id, bool muted);
   bool setGroupBusSolo(const juce::String &id, bool soloed);
 
+  /// Any bus by ID: an audio bus or a chair bus.
   GroupBus *getGroupBus(const juce::String &id);
+  /// Audio buses (the Audio Buses bank) only, in display order.
   std::vector<GroupBus *> getAllGroupBuses();
+  /// Chair buses only.
+  std::vector<GroupBus *> getAllChairBuses();
+  /// Audio buses then chair buses, for housekeeping that covers every rack.
+  std::vector<GroupBus *> getAllBuses();
+  [[nodiscard]] bool isAudioBus(const juce::String &id) const;
 
-  /// Route a strip to a group bus, or to Master when busId is empty.
-  /// Missing bus IDs are rejected without changing the existing route.
+  /// The chair bus key of a layer: its chair ID, or "strip:<id>" for a layer
+  /// without a chair (tests and old free-standing strips).
+  static juce::String chairBusKey(const MixerStrip &strip);
+  static juce::String chairBusId(const juce::String &key) { return "chair:" + key; }
+  /// The chair bus for a key, created (at 0 dB, routed to Master) if missing.
+  /// A chair bus outlives its last layer, so its settings survive re-adding one.
+  GroupBus *ensureChairBus(const juce::String &key);
+  GroupBus *chairBusForStrip(const juce::String &stripId);
+  /// Called on the message thread whenever a chair bus is created.
+  std::function<void(GroupBus &)> onChairBusCreated;
+
+  /// Route a chair bus to an audio bus, or to Master when busId is empty.
+  /// Missing audio buses are rejected without changing the existing route.
+  bool setChairBusOutput(const juce::String &chairBusId, const juce::String &busId);
+  bool setChairBusSends(const juce::String &chairBusId, std::vector<AudioSend> sends);
+
+  /// Layer forms of the above: they act on the layer's chair bus, so every
+  /// layer of the chair follows. (The mixer UI still shows them per layer.)
   bool setStripDirectOutput(const juce::String &stripId,
                             const juce::String &busId);
   bool setStripSends(const juce::String &stripId, std::vector<AudioSend> sends);
+  [[nodiscard]] juce::String stripOutputBusId(const juce::String &stripId) const;
+  [[nodiscard]] std::vector<AudioSend> stripSends(const juce::String &stripId) const;
 
   /// Republish routing and downstream latency after a bus rack changes.
   void refreshAudioRouting();
@@ -269,6 +304,10 @@ private:
   mutable std::mutex stripsMutex_;
   std::vector<std::shared_ptr<MixerStrip>> strips_;
   std::vector<std::shared_ptr<GroupBus>> groupBuses_;
+  std::vector<std::shared_ptr<GroupBus>> chairBuses_;
+  GroupBus *findChairBusLocked(const juce::String &key) const;
+  GroupBus *ensureChairBusLocked(const juce::String &key);
+  GroupBus *findAnyBusLocked(const juce::String &id) const;
 
   RealtimeObjectPublisher<ActiveAudioGraph> audioGraph_;
 

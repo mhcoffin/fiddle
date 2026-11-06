@@ -1,5 +1,10 @@
 # Pre- and post-fader sends
 
+Sends leave from a chair's bus, not from each layer (see
+[chair buses](chair-buses.md)): a pre-fader send taps the chair bus after its
+pre-fader effects. Until the chair strip exists, the sends shown on a layer
+are its chair's, and editing them on one layer edits the whole chair.
+
 ## Quick smoke test
 
 1. In the **Audio Buses** header, click **+ Add Bus** and name it Reverb. Leave

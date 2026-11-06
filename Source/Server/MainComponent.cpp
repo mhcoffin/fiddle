@@ -56,6 +56,8 @@ MainComponent::MainComponent()
     : webViewBridge_(jsRouter_,
                      [this](std::function<void()> f) { safeCallAsync(f); }),
       libraryPatchPreviewHost_(mixer_.getFormatManager()) {
+  // Chair buses appear as layers are added; watch their effect racks too.
+  mixer_.onChairBusCreated = [this](GroupBus &bus) { setupGroupBusAudioCallbacks(bus); };
   setupJsHandlers();
   webViewBridge_.setup();
 
@@ -1794,7 +1796,7 @@ bool MainComponent::shouldSuppressPluginChanges(uint32_t now) {
     mixer_.masterAudio().captureParameterFingerprints();
     // captureStripPluginFingerprints already covers strip inserts. Bus inserts
     // also need a new baseline before unsuppressed polling resumes.
-    for (auto *bus : mixer_.getAllGroupBuses())
+    for (auto *bus : mixer_.getAllBuses())
       bus->audioEngine().captureParameterFingerprints();
     pluginChangesWereSuppressed_ = false;
     return true;
@@ -2103,6 +2105,17 @@ bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
     pushLibraryMaps();
     pushLibraryLayerStatus();
   }
+  if (!result.inexactChairRouting.empty()) {
+    juce::StringArray names;
+    for (const auto &name : result.inexactChairRouting)
+      names.add(juce::String(name));
+    pushLogMessage("<b>[Restore]</b> This version predates chair buses. Each chair's layers now share "
+                   "one output and set of sends. These chairs' layers had different outputs or sends, "
+                   "so check them: " + names.joinIntoString(", "), true);
+    broadcastMessage("layerOperationResult",
+        "Each chair now has one output and set of sends. Check " + names.joinIntoString(", ") +
+        ": its layers were routed differently.");
+  }
   pushMixerState(false);
   pushGroupBusState();
   pushMasterAudioState();
@@ -2356,7 +2369,7 @@ juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
   layer->setProperty("family", strip.family);
   layer->setProperty("chairId", strip.chairId);
   layer->setProperty("patchId", strip.patchId);
-  layer->setProperty("directOutputBusId", strip.directOutputBusId);
+  layer->setProperty("directOutputBusId", mixer_.stripOutputBusId(strip.id));
   layer->setProperty("active", state.active);
   layer->setProperty("muted", state.muted);
   layer->setProperty("soloed", state.soloed);
@@ -3444,7 +3457,7 @@ void MainComponent::timerCallback() {
     }
   }
   bool busLatencyChanged = false;
-  for (auto *bus : mixer_.getAllGroupBuses()) {
+  for (auto *bus : mixer_.getAllBuses()) {
     externalFxEdit |= bus->audioEngine().consumePluginChanges(suppressPlaybackChanges);
     busLatencyChanged |= bus->audioEngine().consumeLatencyDisplayChange();
   }
@@ -3458,7 +3471,7 @@ void MainComponent::timerCallback() {
       externalFxEdit |= mixer_.masterAudio().refreshPluginStateCaches();
       for (auto *strip : mixer_.getAllStrips())
         externalFxEdit |= strip->audioEngine().refreshPluginStateCaches();
-      for (auto *bus : mixer_.getAllGroupBuses())
+      for (auto *bus : mixer_.getAllBuses())
         externalFxEdit |= bus->audioEngine().refreshPluginStateCaches();
     }
   }
@@ -3977,7 +3990,7 @@ void MainComponent::setupJsHandlers() {
       else if (kind == "master") mixer_.masterAudio().meter().resetClips();
       else if (kind == "all") {
         for (auto *strip : mixer_.getAllStrips()) strip->meter().resetClips();
-        for (auto *bus : mixer_.getAllGroupBuses()) bus->meter().resetClips();
+        for (auto *bus : mixer_.getAllBuses()) bus->meter().resetClips();
         mixer_.masterAudio().meter().resetClips();
       }
       pushMixerMeters(); // Meter resets are not project edits or Undo actions.
@@ -4055,7 +4068,7 @@ void MainComponent::setupJsHandlers() {
       }
       if (!changes.empty()) actions.push_back(std::make_unique<SetMixerControlsAction>(
           mixer_, std::move(changes), "Clear layer solos"));
-      for (auto *bus : mixer_.getAllGroupBuses())
+      for (auto *bus : mixer_.getAllBuses())
         if (bus->isSoloed()) actions.push_back(std::make_unique<SetGroupBusSoloAction>(
             mixer_, bus->id, true, false));
       if (undoManager_.perform(std::make_unique<CompoundAction>("Clear solos", std::move(actions)))) {
@@ -4120,7 +4133,7 @@ void MainComponent::setupJsHandlers() {
             safeCallAsync(std::move(task));
           },
           [this] {
-            for (auto *bus : mixer_.getAllGroupBuses())
+            for (auto *bus : mixer_.getAllBuses())
               setupGroupBusAudioCallbacks(*bus);
             pushGroupBusState();
             pushMixerState(true);

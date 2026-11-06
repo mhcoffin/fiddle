@@ -2,6 +2,7 @@
 #include "LuaPlugin.h"
 #include "BridgeMapDocument.h"
 #include "LegacyStripConversion.h"
+#include "ChairBusMigration.h"
 
 #include <map>
 #include <set>
@@ -109,6 +110,19 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
       if (!busIds.count(send.busId.toStdString()))
         return {false, false, "A saved send destination is missing"};
   }
+  std::map<std::string, std::vector<AudioSend>> chairSends;
+  for (const auto &chair : state.globalState.chairBuses) {
+    if (chair.chairId.empty() || chairSends.count(chair.chairId))
+      return {false, false, "Invalid or duplicate chair bus"};
+    auto &sends = chairSends[chair.chairId];
+    if (!chair.directOutputBusId.empty() && !busIds.count(chair.directOutputBusId))
+      return {false, false, "A saved chair output is missing"};
+    if (!chair.sendsJson.empty() && !audioSendsFromJson(juce::JSON::parse(chair.sendsJson), sends))
+      return {false, false, "Invalid saved chair sends"};
+    for (const auto &send : sends)
+      if (!busIds.count(send.busId.toStdString()))
+        return {false, false, "A saved chair send destination is missing"};
+  }
 
   std::vector<ChairRow> chairs;
   std::vector<LayerRow> layers;
@@ -201,6 +215,20 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     restoreRack(restored->audioEngine(), saved.audioInsertState);
   }
 
+  for (const auto &saved : state.globalState.chairBuses) {
+    auto *chair = mixer_.ensureChairBus(juce::String(saved.chairId));
+    chair->setGainDb(saved.gainDb);
+    chair->setMuted(saved.muted);
+    chair->setSoloed(saved.soloed);
+    chair->directOutputBusId = saved.directOutputBusId;
+    chair->sends = chairSends.at(saved.chairId);
+    restoreRack(chair->audioEngine(), saved.audioInsertState);
+  }
+
+  // Versions saved before chair buses kept outputs and sends on each layer.
+  // Gather them per chair; they move to the chair bus once all layers exist.
+  std::map<juce::String, std::vector<LegacyLayerRouting>> legacyRouting;
+  std::map<juce::String, juce::String> chairNames;
   auto restoreStrip = [&](std::unique_ptr<MixerStrip> strip,
                           const versioning::StripBlob &blob) {
     auto *current = strip.get();
@@ -210,9 +238,13 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     strip->setSoloed(blob.soloed);
     strip->setGainDb(blob.gainDb);
     strip->pluginUid = blob.pluginUid;
-    strip->directOutputBusId = blob.directOutputBusId;
+    LegacyLayerRouting routing{blob.directOutputBusId, {}};
     if (!blob.sendsJson.empty())
-      audioSendsFromJson(juce::JSON::parse(blob.sendsJson), strip->sends);
+      audioSendsFromJson(juce::JSON::parse(blob.sendsJson), routing.sends);
+    const auto key = MixerModel::chairBusKey(*strip);
+    legacyRouting[key].push_back(std::move(routing));
+    if (!chairNames.count(key))
+      chairNames[key] = strip->layerName.isNotEmpty() ? strip->layerName : strip->library;
     mixer_.insertStripAt(std::move(strip), mixer_.size());
     if (callbacks_.stripCreated)
       callbacks_.stripCreated(*current);
@@ -275,6 +307,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
       layerHashes.emplace(saved.id, saved.stripHash);
     // Repository ordering is the same as ordinary chair/layer materialization.
     for (const auto &chair : repository_->listChairs()) {
+      chairNames[juce::String(chair.id)] = juce::String(chair.name);
       for (const auto &layer : repository_->listLayers(chair.id)) {
         const auto patch = repository_->getPatch(layer.patchId);
         auto strip = std::make_unique<MixerStrip>();
@@ -307,6 +340,21 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
     }
   }
 
+  std::vector<std::string> inexactChairRouting;
+  for (const auto &[key, layers] : legacyRouting) {
+    if (chairSends.count(key.toStdString()) ||
+        std::all_of(layers.begin(), layers.end(), [](const auto &layer) {
+          return layer.output.isEmpty() && layer.sends.empty();
+        }))
+      continue;
+    const auto migrated = migrateChairRouting(layers, [] { return juce::Uuid().toString(); });
+    auto *chair = mixer_.ensureChairBus(key);
+    chair->directOutputBusId = migrated.output;
+    chair->sends = migrated.sends;
+    if (!migrated.exact)
+      inexactChairRouting.push_back(chairNames[key].toStdString());
+  }
+
   auto &master = mixer_.masterAudio();
   master.setGainDb(state.globalState.masterGainDb, false);
   for (const auto &saved : state.globalState.masterInserts) {
@@ -329,7 +377,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   }
   mixer_.refreshAudioRouting();
   Session::complete(session);
-  return {true, topology || convertLegacy, {}, std::move(generatedLibraries)};
+  return {true, topology || convertLegacy, {}, std::move(generatedLibraries),
+          std::move(inexactChairRouting)};
 }
 
 } // namespace fiddle

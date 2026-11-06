@@ -96,6 +96,24 @@ std::string serializeGroupBuses(const std::vector<GroupBusBlob> &buses) {
   return result;
 }
 
+std::string serializeChairBuses(const std::vector<ChairBusBlob> &buses) {
+  std::string result;
+  appendU32(result, static_cast<uint32_t>(buses.size()));
+  for (const auto &bus : buses) {
+    appendString(result, bus.chairId);
+    appendFloat(result, bus.gainDb);
+    result.push_back(bus.muted ? '\1' : '\0');
+    result.push_back(bus.soloed ? '\1' : '\0');
+    appendString(result, bus.directOutputBusId);
+    appendString(result, bus.sendsJson);
+    appendU32(result, static_cast<uint32_t>(bus.audioInsertState.size()));
+    if (!bus.audioInsertState.empty())
+      result.append(reinterpret_cast<const char *>(bus.audioInsertState.data()),
+                    bus.audioInsertState.size());
+  }
+  return result;
+}
+
 bool readBytes(const uint8_t *&cursor, const uint8_t *end, void *destination,
                std::size_t size) {
   if (cursor > end || static_cast<std::size_t>(end - cursor) < size)
@@ -252,6 +270,36 @@ std::vector<GroupBusBlob> deserializeGroupBuses(const void *data, int size) {
   return cursor == end ? result : std::vector<GroupBusBlob>{};
 }
 
+std::vector<ChairBusBlob> deserializeChairBuses(const void *data, int size) {
+  std::vector<ChairBusBlob> result;
+  if (!data || size <= 0)
+    return result;
+  const auto *cursor = static_cast<const uint8_t *>(data);
+  const auto *end = cursor + size;
+  uint32_t count = 0;
+  if (!readU32(cursor, end, count) || count > 65536)
+    return {};
+  result.reserve(count);
+  for (uint32_t index = 0; index < count; ++index) {
+    ChairBusBlob bus;
+    if (!readString(cursor, end, bus.chairId) ||
+        !readFloat(cursor, end, bus.gainDb) || end - cursor < 2)
+      return {};
+    bus.muted = *cursor++ != 0;
+    bus.soloed = *cursor++ != 0;
+    uint32_t stateSize = 0;
+    if (!readString(cursor, end, bus.directOutputBusId) ||
+        !readString(cursor, end, bus.sendsJson) ||
+        !readU32(cursor, end, stateSize) ||
+        static_cast<std::size_t>(end - cursor) < stateSize)
+      return {};
+    bus.audioInsertState.assign(cursor, cursor + stateSize);
+    cursor += stateSize;
+    result.push_back(std::move(bus));
+  }
+  return cursor == end ? result : std::vector<ChairBusBlob>{};
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -345,6 +393,8 @@ void SqliteVersionStorage::prepareStatements() {
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN project_settings TEXT",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE fiddle_states ADD COLUMN chair_bus_state BLOB",
+               nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN sends_json TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN percussion_map_source TEXT NOT NULL DEFAULT ''",
@@ -376,10 +426,11 @@ void SqliteVersionStorage::prepareStatements() {
   // FiddleState
   prep("INSERT OR REPLACE INTO fiddle_states "
        "(hash, master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state, group_bus_state, project_settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+       "routing_state, group_bus_state, project_settings, chair_bus_state) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutFiddleState_);
   prep("SELECT master_gain, strip_hashes, audio_schema, master_state, "
-       "routing_state, group_bus_state, project_settings "
+       "routing_state, group_bus_state, project_settings, chair_bus_state "
        "FROM fiddle_states WHERE hash = ?",
        &stmtGetFiddleState_);
   prep("SELECT 1 FROM fiddle_states WHERE hash = ?", &stmtHasFiddleState_);
@@ -609,6 +660,9 @@ void SqliteVersionStorage::putFiddleState(const Hash &hash,
                     static_cast<int>(groupBusState.size()), SQLITE_TRANSIENT);
   const auto settings = state.globalState.projectSettings.serialize();
   sqlite3_bind_text(stmtPutFiddleState_, 8, settings.c_str(), -1, SQLITE_TRANSIENT);
+  const auto chairBusState = serializeChairBuses(state.globalState.chairBuses);
+  sqlite3_bind_blob(stmtPutFiddleState_, 9, chairBusState.data(),
+                    static_cast<int>(chairBusState.size()), SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutFiddleState_);
 }
@@ -645,6 +699,9 @@ SqliteVersionStorage::getFiddleState(const Hash &hash) const {
     if (const auto *settings = sqlite3_column_text(stmtGetFiddleState_, 6))
       state.globalState.projectSettings = ProjectSettings::deserialize(
           reinterpret_cast<const char *>(settings));
+    state.globalState.chairBuses = deserializeChairBuses(
+        sqlite3_column_blob(stmtGetFiddleState_, 7),
+        sqlite3_column_bytes(stmtGetFiddleState_, 7));
     return state;
   }
   return std::nullopt;

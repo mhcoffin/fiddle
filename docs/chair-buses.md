@@ -1,7 +1,8 @@
 # Chair buses
 
-Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Nothing is
-implemented yet.
+Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Phase 1
+(engine, saving and migration) is implemented; the chair strip (phase 2) and
+the lock (phase 3) are not. See [Phase 1 as built](#phase-1-as-built).
 
 ## Summary
 
@@ -209,9 +210,10 @@ both.
 ## Persistence and migration
 
 The project version gains a chair bus record per chair: gain, balance, mute,
-solo, inserts (with plug-in state), sends and direct output. Layer records
-drop `directOutputBusId` and `sends`. Lock state stays in project settings
-(`lockedChairIds`, `chairLevels`).
+solo, inserts (with plug-in state), sends and direct output. Only chair buses
+that differ from a new one are saved, so a project that never routed anything
+keeps its version hashes. Layer records drop `directOutputBusId` and `sends`.
+Lock state stays in project settings (`lockedChairIds`, `chairLevels`).
 
 Opening a version saved before chair buses:
 
@@ -222,8 +224,9 @@ Opening a version saved before chair buses:
   sends to that destination agree, it copies them. Otherwise it takes the
   loudest enabled send's level and tap.
 - Layer inserts, gains and lock targets are unchanged.
-- Chairs whose routing or sends couldn't be carried over exactly are listed
-  once in a notice, so you can check them. Nothing else changes until you save.
+- Chairs whose routing or sends couldn't be carried over exactly are named in
+  a mixer notice and in the Debug log, so you can check them. Nothing is
+  saved until you save.
 
 Fiddle doesn't attempt a sample-exact match for mixed routings: one chair bus
 can't send only part of a chair.
@@ -233,6 +236,29 @@ can't send only part of a chair.
 Every chair bus edit (gain, balance, mute, solo, inserts, sends, output) goes
 through the existing bus command and undo paths. A locked layer edit and its
 sibling compensation remain one undo step, as now.
+
+## Phase 1 as built
+
+- `GroupBus` serves both kinds of bus. A chair bus has `chairKey` (its chair
+  ID), `directOutputBusId` and `sends`, ID `chair:<chair ID>`, and a +6 dB
+  fader limit. `MixerModel` keeps chair buses apart from the audio buses:
+  `getAllGroupBuses()` lists audio buses only, `getAllBuses()` both, and
+  `getGroupBus(id)` finds either, so the bus gain, mute, solo, balance and
+  insert commands already work on chair buses by ID.
+- A chair bus is created the first time a layer of its chair appears and
+  lasts until the project is cleared.
+- The render graph sums layers into chair buses, then routes each chair bus
+  with the delay rules layers used to have. A layer's MIDI lead covers its
+  chair bus rack and everything after it.
+- **Interim UI, until phase 2:** each layer still shows an Output selector and
+  sends, but they read and edit its chair bus. Changing them on one layer
+  changes every layer of that chair. Chair fader, inserts, mute and solo have
+  no controls yet. Chair meters are in the meter feed as `stereoChairs`.
+- Layers without a chair (tests and free-standing strips in very old
+  versions) get a private chair bus keyed `strip:<layer ID>`. A restore can't
+  match that by ID, so their output and sends stay on the layer record and
+  migrate back exactly.
+- Migration is `migrateChairRouting` in `ChairBusMigration.h`.
 
 ## Implementation phases
 

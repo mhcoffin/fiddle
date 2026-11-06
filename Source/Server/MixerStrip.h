@@ -60,10 +60,8 @@ struct MixerStrip {
   juce::String layerName;
   bool missingPatchReference = false;
 
-  /// Empty means the strip feeds Master directly. The message thread owns the
-  /// string; MixerModel resolves it to a pointer in each published graph.
-  juce::String directOutputBusId;
-  std::vector<AudioSend> sends;
+  // A layer always feeds its chair bus, which owns the output and sends
+  // (MixerModel::chairBusForStrip, docs/chair-buses.md).
 
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {

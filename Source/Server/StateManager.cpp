@@ -1,5 +1,6 @@
 #include "StateManager.h"
 #include <iostream>
+#include <set>
 
 namespace fiddle {
 
@@ -54,6 +55,37 @@ versioning::GlobalState makeGlobalState(const MasterAudioSnapshot &master,
     result.groupBuses.push_back(std::move(saved));
   }
   return result;
+}
+
+// Save the chair buses of current chairs that differ from a new chair bus, in
+// a stable order (docs/chair-buses.md). Chairless layers keep their routing on
+// the layer record instead.
+void appendChairBuses(versioning::FiddleState &state, MixerModel &mixer,
+                      bool captureLiveState) {
+  std::set<std::string> keys;
+  for (const auto &chair : state.routingState.chairs)
+    keys.insert(chair.id);
+  for (auto *bus : mixer.getAllChairBuses()) {
+    if (bus->hasDefaultChairSettings() || !keys.count(bus->chairKey.toStdString()))
+      continue;
+    versioning::ChairBusBlob saved;
+    saved.chairId = bus->chairKey.toStdString();
+    saved.gainDb = bus->gainDb();
+    saved.muted = bus->isMuted();
+    saved.soloed = bus->isSoloed();
+    saved.directOutputBusId = bus->directOutputBusId.toStdString();
+    if (!bus->sends.empty())
+      saved.sendsJson = juce::JSON::toString(audioSendsToJson(bus->sends), true).toStdString();
+    const auto audio = serializeStripAudioSnapshot(
+        bus->audioEngine().snapshotAll(captureLiveState));
+    if (!audio.isEmpty()) {
+      const auto *data = static_cast<const uint8_t *>(audio.getData());
+      saved.audioInsertState.assign(data, data + audio.getSize());
+    }
+    state.globalState.chairBuses.push_back(std::move(saved));
+  }
+  std::sort(state.globalState.chairBuses.begin(), state.globalState.chairBuses.end(),
+            [](const auto &a, const auto &b) { return a.chairId < b.chairId; });
 }
 
 void appendMasterState(juce::MemoryBlock &blob,
@@ -258,9 +290,15 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
-    sb.directOutputBusId = strip->directOutputBusId.toStdString();
-    if (!strip->sends.empty())
-      sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();
+    if (strip->chairId.isEmpty()) {
+      // A layer without a chair has a private chair bus that a restore can't
+      // find by ID, so its routing stays on the layer record (as in versions
+      // saved before chair buses) and migrates back exactly.
+      sb.directOutputBusId = mixer.stripOutputBusId(strip->id).toStdString();
+      const auto sends = mixer.stripSends(strip->id);
+      if (!sends.empty())
+        sb.sendsJson = juce::JSON::toString(audioSendsToJson(sends), true).toStdString();
+    }
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();
@@ -281,6 +319,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
   }
 
   captureRoutingState(state, stripHashesById, false);
+  appendChairBuses(state, mixer, captureLiveState);
 
   std::string stateHash = state.computeHash();
   std::vector<std::string> ancestorVersionIds;
@@ -436,9 +475,15 @@ versioning::FiddleState StateManager::captureCurrentState(
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
-    sb.directOutputBusId = strip->directOutputBusId.toStdString();
-    if (!strip->sends.empty())
-      sb.sendsJson = juce::JSON::toString(audioSendsToJson(strip->sends), true).toStdString();
+    if (strip->chairId.isEmpty()) {
+      // A layer without a chair has a private chair bus that a restore can't
+      // find by ID, so its routing stays on the layer record (as in versions
+      // saved before chair buses) and migrates back exactly.
+      sb.directOutputBusId = mixer.stripOutputBusId(strip->id).toStdString();
+      const auto sends = mixer.stripSends(strip->id);
+      if (!sends.empty())
+        sb.sendsJson = juce::JSON::toString(audioSendsToJson(sends), true).toStdString();
+    }
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
 
     const auto &cached = strip->cachedPluginState();
@@ -460,6 +505,7 @@ versioning::FiddleState StateManager::captureCurrentState(
   }
 
   captureRoutingState(state, stripHashesById, true);
+  appendChairBuses(state, mixer, captureLiveState);
 
   return state;
 }

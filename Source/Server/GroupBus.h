@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioSend.h"
 #include "StripAudioEngine.h"
 #include "StereoMeter.h"
 
@@ -9,7 +10,11 @@
 
 namespace fiddle {
 
-/// A stereo submix destination for instrument-strip direct outputs.
+/// A stereo submix: an audio bus (the Audio Buses bank) or a chair bus.
+///
+/// Every chair owns a chair bus that all its layers feed (docs/chair-buses.md).
+/// A chair bus has an output (Master or an audio bus) and sends to audio
+/// buses; an audio bus always feeds Master.
 ///
 /// GroupBus owns its effect rack and preallocated summing buffer. The message
 /// thread changes identity and routing; the audio thread reads only atomics and
@@ -24,6 +29,18 @@ public:
 
   juce::String id;
   juce::String name;
+
+  /// Chair buses only: the owning chair's ID (or "strip:<id>" for a layer
+  /// without a chair), its output (empty = Master) and its sends. Message
+  /// thread state; the renderer uses the published graph.
+  juce::String chairKey;
+  juce::String directOutputBusId;
+  std::vector<AudioSend> sends;
+  [[nodiscard]] bool isChairBus() const noexcept { return chairKey.isNotEmpty(); }
+  /// Chair faders top out at +6 dB like layer faders; audio buses at +12 dB.
+  [[nodiscard]] float maximumGainDb() const noexcept { return isChairBus() ? 6.0f : 12.0f; }
+  /// True when nothing about the bus differs from a new chair bus.
+  [[nodiscard]] bool hasDefaultChairSettings() const;
 
   [[nodiscard]] float gainDb() const noexcept;
   void setGainDb(float gain) noexcept;
@@ -54,6 +71,13 @@ public:
   /// add it to Master. A silent block is still processed so effect tails decay.
   void processTo(juce::AudioBuffer<float> &destination, bool audible,
                  juce::AudioBuffer<float> *printOutput = nullptr) noexcept;
+
+  /// Process the summed input in place (inserts, fader, balance, meter) and
+  /// leave the result in inputBuffer() for the caller to route. The optional
+  /// pre-fader tap is cleared, then filled after pre-fader inserts when the
+  /// bus is audible. Returns whether the fader passes audio.
+  bool processInPlace(int numSamples, bool audible,
+                      juce::AudioBuffer<float> *preFaderTap = nullptr) noexcept;
 
   StripAudioEngine &audioEngine() noexcept { return audioEngine_; }
   const StripAudioEngine &audioEngine() const noexcept { return audioEngine_; }

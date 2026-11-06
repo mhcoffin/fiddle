@@ -77,9 +77,10 @@ struct StripBlob {
   std::string expressionMapSourceXml;
   /// The library percussion map the layer plays (its definition XML), or empty.
   std::string percussionMapSourceXml;
-  /// Empty routes directly to Master; otherwise references a GroupBusBlob ID.
+  /// Versions saved before chair buses only: the layer's output (empty =
+  /// Master, else a GroupBusBlob ID) and sends. Restoring moves them to the
+  /// chair bus (ChairBusMigration.h); new saves leave them empty.
   std::string directOutputBusId;
-  /// Ordered post-fader send definitions; empty for pre-send projects.
   std::string sendsJson;
 
   /// Binary VST3 plugin state. Stored separately in the blob for efficiency.
@@ -190,12 +191,38 @@ struct GroupBusBlob {
   }
 };
 
+/// A chair bus's settings (docs/chair-buses.md). Only chair buses that differ
+/// from a new one (0 dB, centred, Master, no sends or inserts) are saved.
+struct ChairBusBlob {
+  std::string chairId; ///< Chair ID, or "strip:<layer id>" for a chairless layer.
+  float gainDb = 0.0f;
+  bool muted = false;
+  bool soloed = false;
+  std::string directOutputBusId; ///< Empty = Master, else a GroupBusBlob ID.
+  std::string sendsJson;
+  std::vector<uint8_t> audioInsertState; ///< Balance and insert racks.
+
+  std::string serializeForHash() const {
+    std::ostringstream os;
+    os << chairId << '\0' << std::fixed << std::setprecision(6) << gainDb << '\0'
+       << (muted ? '1' : '0') << '\0' << (soloed ? '1' : '0') << '\0'
+       << directOutputBusId << '\0' << sendsJson << '\0'
+       << audioInsertState.size() << '\0';
+    auto data = os.str();
+    if (!audioInsertState.empty())
+      data.append(reinterpret_cast<const char *>(audioInsertState.data()),
+                  audioInsertState.size());
+    return data;
+  }
+};
+
 struct GlobalState {
   ProjectSettings projectSettings;
   int audioSchemaVersion = 2;
   float masterGainDb = 0.0f;
   std::vector<PluginSlotBlob> masterInserts;
   std::vector<GroupBusBlob> groupBuses;
+  std::vector<ChairBusBlob> chairBuses;
 
   std::string serializeForHash() const {
     std::ostringstream os;
@@ -214,6 +241,16 @@ struct GlobalState {
       data.append(std::to_string(serialized.size()));
       data.push_back('\0');
       data.append(serialized);
+    }
+    // Projects whose chair buses are all default keep their hashes.
+    if (!chairBuses.empty()) {
+      data.append("\0chair-buses\0", 13);
+      for (const auto &bus : chairBuses) {
+        const auto serialized = bus.serializeForHash();
+        data.append(std::to_string(serialized.size()));
+        data.push_back('\0');
+        data.append(serialized);
+      }
     }
     // Keep existing hashes valid for older/default project settings.
     if (!(projectSettings == ProjectSettings{})) {

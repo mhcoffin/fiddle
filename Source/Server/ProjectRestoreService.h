@@ -35,6 +35,9 @@ public:
     std::string error;
     /// Libraries made or extended for a version saved before chairs existed.
     std::vector<std::string> generatedLibraries;
+    /// Chairs of a version saved before chair buses whose layers had different
+    /// outputs or sends, so their combined chair routing is not exact.
+    std::vector<std::string> inexactChairRouting;
   };
 
   ProjectRestoreService(MixerModel &, versioning::VersionStore &,

@@ -177,6 +177,18 @@ void testMasterAudioRoundTripsThroughSqlite() {
     bus.audioInsertState = {7, 6, 5, 4};
     state.globalState.groupBuses.push_back(bus);
 
+    fiddle::versioning::ChairBusBlob chairBus;
+    chairBus.chairId = "chair-1";
+    chairBus.gainDb = -4.0f;
+    chairBus.soloed = true;
+    chairBus.directOutputBusId = "strings-bus";
+    chairBus.sendsJson = R"([{"id":"s","busId":"strings-bus","gainDb":-6,"enabled":true}])";
+    chairBus.audioInsertState = {1, 2, 3};
+    const auto hashWithoutChairBuses = state.globalState.computeHash();
+    state.globalState.chairBuses.push_back(chairBus);
+    // Default chair buses aren't saved, so older projects keep their hashes.
+    CHECK(state.globalState.computeHash() != hashWithoutChairBuses);
+
     state.routingState.schemaVersion = 1;
     fiddle::versioning::ChairSnapshot chair;
     chair.id = "chair-1";
@@ -224,6 +236,16 @@ void testMasterAudioRoundTripsThroughSqlite() {
     CHECK(restored &&
           restored->globalState.groupBuses.front().audioInsertState ==
               bus.audioInsertState);
+    CHECK(restored && restored->globalState.chairBuses.size() == 1);
+    if (restored && restored->globalState.chairBuses.size() == 1) {
+      const auto &chairRestored = restored->globalState.chairBuses.front();
+      CHECK(chairRestored.chairId == "chair-1" && chairRestored.gainDb == -4.0f);
+      CHECK(chairRestored.soloed && !chairRestored.muted);
+      CHECK(chairRestored.directOutputBusId == "strings-bus");
+      CHECK(chairRestored.sendsJson == chairBus.sendsJson);
+      CHECK(chairRestored.audioInsertState == chairBus.audioInsertState);
+      CHECK(restored->globalState.computeHash() == state.globalState.computeHash());
+    }
     CHECK(restored && restored->routingState.schemaVersion == 1);
     CHECK(restored && restored->routingState.chairs.size() == 1);
     CHECK(restored && !restored->routingState.chairs.front().isSolo);

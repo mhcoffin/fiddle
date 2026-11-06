@@ -30,26 +30,26 @@ private:
   float before_, after_;
 };
 
-class SetStripSendsAction final : public UndoableAction {
+class SetChairBusSendsAction final : public UndoableAction {
 public:
-  SetStripSendsAction(MixerModel &mixer, juce::String stripId,
-                      std::vector<AudioSend> before, std::vector<AudioSend> after,
-                      juce::String gainGesture = {})
-      : mixer_(mixer), stripId_(std::move(stripId)), before_(std::move(before)),
+  SetChairBusSendsAction(MixerModel &mixer, juce::String chairBusId,
+                         std::vector<AudioSend> before, std::vector<AudioSend> after,
+                         juce::String gainGesture = {})
+      : mixer_(mixer), chairBusId_(std::move(chairBusId)), before_(std::move(before)),
         after_(std::move(after)), gainGesture_(std::move(gainGesture)) {}
-  void execute() override { success_ = mixer_.setStripSends(stripId_, after_); }
-  void undo() override { mixer_.setStripSends(stripId_, before_); }
+  void execute() override { success_ = mixer_.setChairBusSends(chairBusId_, after_); }
+  void undo() override { mixer_.setChairBusSends(chairBusId_, before_); }
   bool succeeded() const override { return success_; }
   juce::String getDescription() const override { return "Change sends"; }
   juce::String getCoalesceId() const override {
-    return gainGesture_.isEmpty() ? juce::String{} : "send-gain:" + stripId_ + ":" + gainGesture_;
+    return gainGesture_.isEmpty() ? juce::String{} : "send-gain:" + chairBusId_ + ":" + gainGesture_;
   }
   void coalesceWith(const UndoableAction &other) override {
-    after_ = static_cast<const SetStripSendsAction &>(other).after_;
+    after_ = static_cast<const SetChairBusSendsAction &>(other).after_;
   }
 private:
   MixerModel &mixer_;
-  juce::String stripId_;
+  juce::String chairBusId_;
   std::vector<AudioSend> before_, after_;
   juce::String gainGesture_;
   bool success_ = false;
@@ -57,12 +57,15 @@ private:
 
 class AddGroupBusAction final : public UndoableAction {
 public:
+  /// Routes the chairs of the given layers to the new bus.
   AddGroupBusAction(MixerModel &mixer, juce::String name,
-                    std::vector<juce::String> stripIds)
-      : mixer_(mixer), name_(std::move(name)), stripIds_(std::move(stripIds)) {
-    for (const auto &id : stripIds_)
-      if (auto *strip = mixer_.getStrip(id))
-        previousOutputs_.push_back({id, strip->directOutputBusId});
+                    const std::vector<juce::String> &stripIds)
+      : mixer_(mixer), name_(std::move(name)) {
+    for (const auto &id : stripIds)
+      if (auto *chair = mixer_.chairBusForStrip(id))
+        if (std::none_of(previousOutputs_.begin(), previousOutputs_.end(),
+                         [&](const auto &item) { return item.first == chair->id; }))
+          previousOutputs_.push_back({chair->id, chair->directOutputBusId});
   }
 
   void execute() override {
@@ -72,13 +75,15 @@ public:
       busId_ = mixer_.addGroupBus(name_);
       index_ = mixer_.groupBusIndex(busId_);
     }
-    for (const auto &id : stripIds_)
-      mixer_.setStripDirectOutput(id, busId_);
+    for (const auto &[id, output] : previousOutputs_) {
+      (void)output;
+      mixer_.setChairBusOutput(id, busId_);
+    }
   }
 
   void undo() override {
     for (const auto &[id, output] : previousOutputs_)
-      mixer_.setStripDirectOutput(id, output);
+      mixer_.setChairBusOutput(id, output);
     index_ = mixer_.groupBusIndex(busId_);
     removedBus_ = mixer_.removeGroupBusKeepAlive(busId_);
   }
@@ -89,7 +94,6 @@ private:
   MixerModel &mixer_;
   juce::String name_;
   juce::String busId_;
-  std::vector<juce::String> stripIds_;
   std::vector<std::pair<juce::String, juce::String>> previousOutputs_;
   std::shared_ptr<GroupBus> removedBus_;
   int index_ = 0;
@@ -103,12 +107,12 @@ public:
   void execute() override {
     affectedRoutes_.clear();
     affectedSends_.clear();
-    for (auto *strip : mixer_.getAllStrips()) {
-      if (strip->directOutputBusId == busId_)
-        affectedRoutes_.push_back(strip->id);
-      if (std::any_of(strip->sends.begin(), strip->sends.end(),
+    for (auto *chair : mixer_.getAllChairBuses()) {
+      if (chair->directOutputBusId == busId_)
+        affectedRoutes_.push_back(chair->id);
+      if (std::any_of(chair->sends.begin(), chair->sends.end(),
                       [&](const auto &send) { return send.busId == busId_; }))
-        affectedSends_.push_back({strip->id, strip->sends});
+        affectedSends_.push_back({chair->id, chair->sends});
     }
     index_ = mixer_.groupBusIndex(busId_);
     removedBus_ = mixer_.removeGroupBusKeepAlive(busId_);
@@ -118,10 +122,10 @@ public:
     if (!removedBus_)
       return;
     mixer_.insertGroupBusAt(std::move(removedBus_), index_);
-    for (const auto &stripId : affectedRoutes_)
-      mixer_.setStripDirectOutput(stripId, busId_);
-    for (const auto &[stripId, sends] : affectedSends_)
-      mixer_.setStripSends(stripId, sends);
+    for (const auto &chairId : affectedRoutes_)
+      mixer_.setChairBusOutput(chairId, busId_);
+    for (const auto &[chairId, sends] : affectedSends_)
+      mixer_.setChairBusSends(chairId, sends);
   }
 
   juce::String getDescription() const override { return "Remove group bus"; }
@@ -135,19 +139,19 @@ private:
   int index_ = 0;
 };
 
-class SetStripOutputAction final : public UndoableAction {
+class SetChairBusOutputAction final : public UndoableAction {
 public:
-  SetStripOutputAction(MixerModel &mixer, juce::String stripId,
-                       juce::String oldOutput, juce::String newOutput)
-      : mixer_(mixer), stripId_(std::move(stripId)),
+  SetChairBusOutputAction(MixerModel &mixer, juce::String chairBusId,
+                          juce::String oldOutput, juce::String newOutput)
+      : mixer_(mixer), chairBusId_(std::move(chairBusId)),
         oldOutput_(std::move(oldOutput)), newOutput_(std::move(newOutput)) {}
-  void execute() override { mixer_.setStripDirectOutput(stripId_, newOutput_); }
-  void undo() override { mixer_.setStripDirectOutput(stripId_, oldOutput_); }
-  juce::String getDescription() const override { return "Change strip output"; }
+  void execute() override { mixer_.setChairBusOutput(chairBusId_, newOutput_); }
+  void undo() override { mixer_.setChairBusOutput(chairBusId_, oldOutput_); }
+  juce::String getDescription() const override { return "Change chair output"; }
 
 private:
   MixerModel &mixer_;
-  juce::String stripId_, oldOutput_, newOutput_;
+  juce::String chairBusId_, oldOutput_, newOutput_;
 };
 
 class SetGroupStripOutputAction final : public UndoableAction {
@@ -161,19 +165,19 @@ public:
         newOutput_(std::move(newOutput)) {}
 
   void execute() override {
-    for (const auto &[stripId, oldOutput] : previousOutputs_) {
+    for (const auto &[chairBusId, oldOutput] : previousOutputs_) {
       (void)oldOutput;
-      mixer_.setStripDirectOutput(stripId, newOutput_);
+      mixer_.setChairBusOutput(chairBusId, newOutput_);
     }
   }
 
   void undo() override {
-    for (const auto &[stripId, oldOutput] : previousOutputs_)
-      mixer_.setStripDirectOutput(stripId, oldOutput);
+    for (const auto &[chairBusId, oldOutput] : previousOutputs_)
+      mixer_.setChairBusOutput(chairBusId, oldOutput);
   }
 
   juce::String getDescription() const override {
-    return "Change selected strip outputs";
+    return "Change selected chair outputs";
   }
 
 private:

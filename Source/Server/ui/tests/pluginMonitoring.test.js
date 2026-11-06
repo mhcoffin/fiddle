@@ -22,7 +22,7 @@ test("post-playback baseline includes instruments, strip inserts, master and bus
     const resume = source.match(/if \(pluginChangesWereSuppressed_\) \{([\s\S]*?)\n  \}/)?.[1];
     assert.match(resume, /captureStripPluginFingerprints\(\)/);
     assert.match(resume, /masterAudio\(\).captureParameterFingerprints\(\)/);
-    assert.match(resume, /getAllGroupBuses\(\)/);
+    assert.match(resume, /getAllBuses\(\)/);
     assert.match(resume, /bus->audioEngine\(\).captureParameterFingerprints\(\)/);
     assert.doesNotMatch(resume, /getAllStrips\(\)/); // no duplicate strip scan
     const capture = source.match(/void MainComponent::captureStripPluginFingerprints\(\) \{([\s\S]*?)\n\}/)?.[1];

@@ -27,6 +27,9 @@ void MixerModel::clear() {
     std::lock_guard<std::mutex> lock(stripsMutex_);
     localStrips.swap(strips_);
     localBuses.swap(groupBuses_);
+    for (auto &bus : chairBuses_)
+      localBuses.push_back(std::move(bus));
+    chairBuses_.clear();
     commitAudioGraph();
   }
 
@@ -128,8 +131,10 @@ StripSnapshot MixerModel::snapshotStrip(const juce::String &id) const {
       snap.gainDb = state.gainDb;
       snap.expressionMapEntityID =
           s->expressionMap ? s->expressionMap->entityID : "";
-      snap.directOutputBusId = s->directOutputBusId;
-      snap.sends = s->sends;
+      if (const auto *bus = findChairBusLocked(chairBusKey(*s))) {
+        snap.directOutputBusId = bus->directOutputBusId;
+        snap.sends = bus->sends;
+      }
       snap.index = i;
       break;
     }
@@ -194,10 +199,10 @@ MixerModel::removeGroupBusKeepAlive(const juce::String &id) {
       [&id](const auto &bus) { return bus->id == id; });
   if (found == groupBuses_.end())
     return nullptr;
-  for (auto &strip : strips_) {
-    if (strip->directOutputBusId == id)
-      strip->directOutputBusId.clear();
-    auto &sends = strip->sends;
+  for (auto &chair : chairBuses_) {
+    if (chair->directOutputBusId == id)
+      chair->directOutputBusId.clear();
+    auto &sends = chair->sends;
     sends.erase(std::remove_if(sends.begin(), sends.end(),
                               [&](const auto &send) { return send.busId == id; }), sends.end());
   }
@@ -275,10 +280,83 @@ bool MixerModel::setGroupBusSolo(const juce::String &id, bool soloed) {
 
 GroupBus *MixerModel::getGroupBus(const juce::String &id) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
+  return findAnyBusLocked(id);
+}
+
+GroupBus *MixerModel::findAnyBusLocked(const juce::String &id) const {
   for (auto &bus : groupBuses_)
     if (bus->id == id)
       return bus.get();
+  for (auto &bus : chairBuses_)
+    if (bus->id == id)
+      return bus.get();
   return nullptr;
+}
+
+bool MixerModel::isAudioBus(const juce::String &id) const {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  return std::any_of(groupBuses_.begin(), groupBuses_.end(),
+                     [&](const auto &bus) { return bus->id == id; });
+}
+
+juce::String MixerModel::chairBusKey(const MixerStrip &strip) {
+  return strip.chairId.isNotEmpty() ? strip.chairId : "strip:" + strip.id;
+}
+
+GroupBus *MixerModel::findChairBusLocked(const juce::String &key) const {
+  for (auto &bus : chairBuses_)
+    if (bus->chairKey == key)
+      return bus.get();
+  return nullptr;
+}
+
+GroupBus *MixerModel::ensureChairBusLocked(const juce::String &key) {
+  if (auto *found = findChairBusLocked(key))
+    return found;
+  auto bus = std::make_shared<GroupBus>();
+  bus->chairKey = key;
+  bus->id = chairBusId(key);
+  bus->prepareIfNeeded(currentSampleRate_, currentBlockSize_);
+  auto *created = bus.get();
+  chairBuses_.push_back(std::move(bus));
+  if (onChairBusCreated)
+    onChairBusCreated(*created);
+  return created;
+}
+
+GroupBus *MixerModel::ensureChairBus(const juce::String &key) {
+  if (key.isEmpty())
+    return nullptr;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  return ensureChairBusLocked(key);
+}
+
+GroupBus *MixerModel::chairBusForStrip(const juce::String &stripId) {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (auto &strip : strips_)
+    if (strip->id == stripId)
+      return ensureChairBusLocked(chairBusKey(*strip));
+  return nullptr;
+}
+
+std::vector<GroupBus *> MixerModel::getAllChairBuses() {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  std::vector<GroupBus *> result;
+  result.reserve(chairBuses_.size());
+  for (auto &bus : chairBuses_)
+    result.push_back(bus.get());
+  return result;
+}
+
+std::vector<GroupBus *> MixerModel::getAllBuses() {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  std::vector<GroupBus *> result;
+  result.reserve(groupBuses_.size() + chairBuses_.size());
+  for (auto &bus : groupBuses_)
+    result.push_back(bus.get());
+  for (auto &bus : chairBuses_)
+    result.push_back(bus.get());
+  return result;
 }
 
 std::vector<GroupBus *> MixerModel::getAllGroupBuses() {
@@ -290,26 +368,43 @@ std::vector<GroupBus *> MixerModel::getAllGroupBuses() {
   return result;
 }
 
-bool MixerModel::setStripDirectOutput(const juce::String &stripId,
-                                      const juce::String &busId) {
+bool MixerModel::setChairBusOutput(const juce::String &chairBusId,
+                                   const juce::String &busId) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
-  auto strip = std::find_if(strips_.begin(), strips_.end(),
-                            [&stripId](const auto &item) {
-                              return item->id == stripId;
-                            });
-  if (strip == strips_.end())
+  auto *chair = findAnyBusLocked(chairBusId);
+  if (!chair || !chair->isChairBus())
     return false;
-  if (busId.isNotEmpty()) {
-    const auto bus = std::find_if(groupBuses_.begin(), groupBuses_.end(),
-                                  [&busId](const auto &item) {
-                                    return item->id == busId;
-                                  });
-    if (bus == groupBuses_.end())
-      return false;
-  }
-  (*strip)->directOutputBusId = busId;
+  if (busId.isNotEmpty() &&
+      std::none_of(groupBuses_.begin(), groupBuses_.end(),
+                   [&busId](const auto &item) { return item->id == busId; }))
+    return false;
+  chair->directOutputBusId = busId;
   commitAudioGraph();
   return true;
+}
+
+bool MixerModel::setStripDirectOutput(const juce::String &stripId,
+                                      const juce::String &busId) {
+  auto *chair = chairBusForStrip(stripId);
+  return chair && setChairBusOutput(chair->id, busId);
+}
+
+juce::String MixerModel::stripOutputBusId(const juce::String &stripId) const {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &strip : strips_)
+    if (strip->id == stripId)
+      if (const auto *chair = findChairBusLocked(chairBusKey(*strip)))
+        return chair->directOutputBusId;
+  return {};
+}
+
+std::vector<AudioSend> MixerModel::stripSends(const juce::String &stripId) const {
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &strip : strips_)
+    if (strip->id == stripId)
+      if (const auto *chair = findChairBusLocked(chairBusKey(*strip)))
+        return chair->sends;
+  return {};
 }
 
 void MixerModel::refreshAudioRouting() {
@@ -318,10 +413,14 @@ void MixerModel::refreshAudioRouting() {
 }
 
 bool MixerModel::setStripSends(const juce::String &stripId, std::vector<AudioSend> sends) {
+  auto *chair = chairBusForStrip(stripId);
+  return chair && setChairBusSends(chair->id, std::move(sends));
+}
+
+bool MixerModel::setChairBusSends(const juce::String &chairBusId, std::vector<AudioSend> sends) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
-  const auto strip = std::find_if(strips_.begin(), strips_.end(),
-      [&](const auto &s) { return s->id == stripId; });
-  if (strip == strips_.end()) return false;
+  auto *chair = findAnyBusLocked(chairBusId);
+  if (!chair || !chair->isChairBus()) return false;
   std::set<juce::String> ids, destinations;
   for (const auto &send : sends) {
     if (send.id.isEmpty() || !ids.insert(send.id).second ||
@@ -330,11 +429,11 @@ bool MixerModel::setStripSends(const juce::String &stripId, std::vector<AudioSen
         std::none_of(groupBuses_.begin(), groupBuses_.end(),
                      [&](const auto &b) { return b->id == send.busId; })) return false;
   }
-  if ((*strip)->sends == sends) return false;
-  const bool audioChanged = (*strip)->sends.size() != sends.size() ||
-      !std::equal(sends.begin(), sends.end(), (*strip)->sends.begin(),
+  if (chair->sends == sends) return false;
+  const bool audioChanged = chair->sends.size() != sends.size() ||
+      !std::equal(sends.begin(), sends.end(), chair->sends.begin(),
                    [](const auto &a, const auto &b) { return a.sameAudioRoute(b); });
-  (*strip)->sends = std::move(sends);
+  chair->sends = std::move(sends);
   if (audioChanged) commitAudioGraph(); // A presentation-only edit must not touch DSP.
   return true;
 }
@@ -359,8 +458,18 @@ int MixerModel::size() const {
 juce::String MixerModel::toJson() const {
   juce::Array<juce::var> arr;
   std::lock_guard<std::mutex> lock(stripsMutex_);
-  for (const auto &s : strips_)
-    arr.add(s->toJson());
+  for (const auto &s : strips_) {
+    auto json = s->toJson();
+    // Until the chair strip exists (chair buses phase 2), each layer shows its
+    // chair's output and sends.
+    if (auto *object = json.getDynamicObject()) {
+      const auto *chair = findChairBusLocked(chairBusKey(*s));
+      object->setProperty("directOutputBusId", chair ? chair->directOutputBusId : juce::String{});
+      object->setProperty("sends", audioSendsToJson(chair ? chair->sends : std::vector<AudioSend>{}));
+      object->setProperty("chairBusId", chairBusId(chairBusKey(*s)));
+    }
+    arr.add(json);
+  }
   return juce::JSON::toString(juce::var(arr), true);
 }
 
@@ -372,6 +481,8 @@ juce::var MixerModel::meterLevels() const {
   auto *stereoBuses = new juce::DynamicObject();
   result->setProperty("stereoStrips", juce::var(stereoStrips));
   result->setProperty("stereoBuses", juce::var(stereoBuses));
+  auto *stereoChairs = new juce::DynamicObject();
+  result->setProperty("stereoChairs", juce::var(stereoChairs));
   result->setProperty("master", masterAudio_.meter().toJson());
   result->setProperty("loudness", masterAudio_.loudness().toJson());
   result->setProperty("strips", juce::var(strips));
@@ -392,6 +503,9 @@ juce::var MixerModel::meterLevels() const {
     buses->setProperty(bus->id, juce::var(levels));
     stereoBuses->setProperty(bus->id, bus->meter().toJson());
   }
+  // Chair bus meters, by chair bus ID, for the chair strip.
+  for (const auto &bus : chairBuses_)
+    stereoChairs->setProperty(bus->id, bus->meter().toJson());
   result->setProperty("masterPeakDb", static_cast<double>(masterAudio_.peakDb()));
   return juce::var(result);
 }
@@ -407,6 +521,8 @@ juce::var MixerModel::pluginTimings(double now) {
   }
   for (const auto &bus : groupBuses_)
     bus->audioEngine().appendPluginTimings(rows, "Bus: " + bus->name, now);
+  for (const auto &bus : chairBuses_)
+    bus->audioEngine().appendPluginTimings(rows, "Chair bus: " + bus->chairKey, now);
   masterAudio_.appendPluginTimings(rows, now);
   return juce::var(rows);
 }
@@ -432,6 +548,8 @@ void MixerModel::capturePluginStateCachesForSave() {
     strip->audioEngine().capturePluginStateCaches();
   }
   for (const auto &bus : groupBuses_)
+    bus->audioEngine().capturePluginStateCaches();
+  for (const auto &bus : chairBuses_)
     bus->audioEngine().capturePluginStateCaches();
   masterAudio_.capturePluginStateCaches();
 }
@@ -463,6 +581,11 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
     bus->beginBlock(audioBuffer.getNumSamples());
     anyBusSoloed |= bus->isSoloed();
   }
+  bool anyChairSoloed = false;
+  for (auto &chair : graph->chairRoutes) {
+    chair.bus->beginBlock(audioBuffer.getNumSamples());
+    anyChairSoloed |= chair.bus->isSoloed();
+  }
 
   if (renderPool_.count() > 1 && graph->stripRoutes.size() > 1) {
     struct Block {
@@ -476,8 +599,7 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       auto &route = b.graph.stripRoutes[index];
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2, b.frames);
       scratch.clear();
-      route.strip->processBlock(scratch, b.time, b.anySoloed, true,
-          route.preFaderScratch.getNumChannels() ? &route.preFaderScratch : nullptr);
+      route.strip->processBlock(scratch, b.time, b.anySoloed, true, nullptr);
     };
     const auto helperPluginMs = renderPool_.process(graph->stripRoutes.size(), &block,
                                                    renderStrip, render);
@@ -487,25 +609,40 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2,
                                        audioBuffer.getNumSamples());
       scratch.clear();
-      route.strip->processBlock(scratch, currentTime, anySoloed, true,
-          route.preFaderScratch.getNumChannels() ? &route.preFaderScratch : nullptr);
+      route.strip->processBlock(scratch, currentTime, anySoloed, true, nullptr);
     }
   }
 
-  // Render an instrument once, then fan out in stable strip order. Soloing a
-  // group keeps its sends audible (solo-safe returns); soloing a return alone
-  // auditions its wet signal. Other groups cannot leak through shared returns.
+  // Layers sum into their chair bus in stable strip order.
+  const int frames = audioBuffer.getNumSamples();
+  for (const auto &route : graph->stripRoutes) {
+    auto &input = graph->chairRoutes[route.chairIndex].bus->inputBuffer();
+    for (int channel = 0; channel < 2; ++channel)
+      input.addFrom(channel, 0, route.scratch, channel, 0, frames);
+  }
+
+  // Each chair bus then fans out to its output and sends. Soloing an audio bus
+  // keeps the sends of chairs routed to it audible (solo-safe returns);
+  // soloing a return alone auditions its wet signal. Other chairs cannot leak
+  // through shared returns.
   for (size_t i = 0; i < graph->groupBuses.size(); ++i)
     graph->busAudible[i] = !anyBusSoloed || graph->groupBuses[i]->isSoloed();
-  for (const auto &route : graph->stripRoutes) {
-    const bool selectedSource = route.destination && route.destination->isSoloed();
+  for (auto &chair : graph->chairRoutes) {
+    const bool chairAudible = !anyChairSoloed || chair.bus->isSoloed();
+    auto *preFaderTap = chair.preFaderScratch.getNumChannels() ? &chair.preFaderScratch : nullptr;
+    juce::AudioBuffer<float> tap;
+    if (preFaderTap)
+      tap.setDataToReferTo(preFaderTap->getArrayOfWritePointers(), 2, frames);
+    chair.bus->processInPlace(frames, chairAudible, preFaderTap ? &tap : nullptr);
+    const auto &output = chair.bus->inputBuffer();
+    const bool selectedSource = chair.destination && chair.destination->isSoloed();
     const bool directAudible = !anyBusSoloed || selectedSource;
-    auto &destination = route.destination ? route.destination->inputBuffer() : audioBuffer;
-    route.delay->addTo(destination, route.scratch, audioBuffer.getNumSamples(), directAudible ? 1.0f : 0.0f);
-    for (const auto &send : route.sends) {
+    auto &destination = chair.destination ? chair.destination->inputBuffer() : audioBuffer;
+    chair.delay->addTo(destination, output, frames, directAudible ? 1.0f : 0.0f);
+    for (const auto &send : chair.sends) {
       const bool audible = send.enabled && (!anyBusSoloed || selectedSource || send.destination->isSoloed());
-      send.delay->addTo(send.destination->inputBuffer(), send.preFader ? route.preFaderScratch : route.scratch,
-                        audioBuffer.getNumSamples(), audible ? send.gain : 0.0f);
+      send.delay->addTo(send.destination->inputBuffer(), send.preFader ? tap : output,
+                        frames, audible ? send.gain : 0.0f);
       if (audible)
         graph->busAudible[send.destinationIndex] = true;
     }
@@ -531,6 +668,8 @@ void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
     strip->prepareToPlay(sampleRate, blockSize);
   }
   for (auto &bus : groupBuses_)
+    bus->prepareToPlay(sampleRate, blockSize);
+  for (auto &bus : chairBuses_)
     bus->prepareToPlay(sampleRate, blockSize);
   masterAudio_.prepareToPlay(sampleRate, blockSize);
   commitAudioGraph(true); // Device changes also reset compensation histories.
@@ -1195,30 +1334,39 @@ void MixerModel::commitAudioGraph(bool resetDelays) {
     busById.emplace(bus->id, bus.get());
   }
   current->busAudible.resize(current->groupBuses.size());
+  for (auto &s : strips_)
+    ensureChairBusLocked(chairBusKey(*s));
+  current->busOwners.insert(current->busOwners.end(), chairBuses_.begin(), chairBuses_.end());
+
+  auto reuse = [](int samples, const std::shared_ptr<RouteDelay> &delay) {
+    return delay && delay->samples() == samples ? delay : std::make_shared<RouteDelay>(samples);
+  };
+  // Chair buses with at least one layer, in order of their first layer.
+  std::map<GroupBus *, size_t> chairIndex;
   for (auto &s : strips_) {
-    current->strips.push_back(s.get());
+    auto *bus = findChairBusLocked(chairBusKey(*s));
+    if (chairIndex.count(bus)) continue;
+    chairIndex.emplace(bus, current->chairRoutes.size());
     GroupBus *destination = nullptr;
-    if (s->directOutputBusId.isNotEmpty()) {
-      const auto found = busById.find(s->directOutputBusId);
+    if (bus->directOutputBusId.isNotEmpty()) {
+      const auto found = busById.find(bus->directOutputBusId);
       if (found != busById.end())
         destination = found->second;
       else
-        s->directOutputBusId.clear();
+        bus->directOutputBusId.clear();
     }
-    StripRoute route;
-    route.strip = s.get();
+    ChairRoute route;
+    route.bus = bus;
     route.destination = destination;
-    route.scratch.setSize(2, currentBlockSize_);
     const int directLatency = destination ? destination->audioEngine().latencySamples() : 0;
-    const int postLatency = s->audioEngine().postFaderLatencySamples();
+    const int postLatency = bus->audioEngine().postFaderLatencySamples();
     route.downstreamLatency = directLatency;
-    for (const auto &send : s->sends) {
+    for (const auto &send : bus->sends) {
       const auto found = busById.find(send.busId);
       if (found == busById.end()) continue;
       // Keep disabled sends in the latency topology: enabling a send must not
-      // retime the dry path or flush its delay line.
-      // MIDI lead is expressed relative to the full strip rack. A pre-fader
-      // path skips post FX, so subtract those samples when finding the lead.
+      // retime the dry path or flush its delay line. A pre-fader tap skips the
+      // chair's post-fader FX, so those samples are added back as delay.
       route.downstreamLatency = std::max(route.downstreamLatency,
           found->second->audioEngine().latencySamples() - (send.preFader ? postLatency : 0));
       route.sends.push_back({send.id, found->second,
@@ -1226,15 +1374,12 @@ void MixerModel::commitAudioGraph(bool resetDelays) {
     }
     if (std::any_of(route.sends.begin(), route.sends.end(), [](const auto &send) { return send.preFader; }))
       route.preFaderScratch.setSize(2, currentBlockSize_);
-    const StripRoute *old = nullptr;
+    const ChairRoute *old = nullptr;
     if (!resetDelays && previous.get())
-      for (const auto &candidate : previous.get()->stripRoutes)
-        if (candidate.strip == s.get()) { old = &candidate; break; }
-    auto reuse = [](int samples, const std::shared_ptr<RouteDelay> &delay) {
-      return delay && delay->samples() == samples ? delay : std::make_shared<RouteDelay>(samples);
-    };
+      for (const auto &candidate : previous.get()->chairRoutes)
+        if (candidate.bus == bus) { old = &candidate; break; }
     route.delay = reuse(route.downstreamLatency - directLatency,
-                         old && old->destination == destination ? old->delay : nullptr);
+                        old && old->destination == destination ? old->delay : nullptr);
     for (auto &send : route.sends) {
       send.destinationIndex = static_cast<size_t>(std::distance(current->groupBuses.begin(),
           std::find(current->groupBuses.begin(), current->groupBuses.end(), send.destination)));
@@ -1246,6 +1391,18 @@ void MixerModel::commitAudioGraph(bool resetDelays) {
       send.delay = reuse(route.downstreamLatency + (send.preFader ? postLatency : 0)
                           - send.destination->audioEngine().latencySamples(), oldDelay);
     }
+    current->chairRoutes.push_back(std::move(route));
+  }
+
+  for (auto &s : strips_) {
+    current->strips.push_back(s.get());
+    StripRoute route;
+    route.strip = s.get();
+    route.chairIndex = chairIndex.at(findChairBusLocked(chairBusKey(*s)));
+    route.scratch.setSize(2, currentBlockSize_);
+    const auto &chair = current->chairRoutes[route.chairIndex];
+    // MIDI lead covers the layer's own rack; downstream is everything after it.
+    route.downstreamLatency = chair.bus->audioEngine().latencySamples() + chair.downstreamLatency;
     s->setDownstreamLatencySamples(route.downstreamLatency);
     current->stripRoutes.push_back(std::move(route));
   }

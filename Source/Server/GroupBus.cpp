@@ -10,8 +10,16 @@ float GroupBus::gainDb() const noexcept {
 }
 
 void GroupBus::setGainDb(float gain) noexcept {
-  gainDb_.store(juce::jlimit(-120.0f, 12.0f, gain),
+  gainDb_.store(juce::jlimit(-120.0f, maximumGainDb(), gain),
                 std::memory_order_relaxed);
+}
+
+bool GroupBus::hasDefaultChairSettings() const {
+  return gainDb() == 0.0f && !isMuted() && !isSoloed() &&
+         directOutputBusId.isEmpty() && sends.empty() &&
+         audioEngine_.balance() == 0.0f &&
+         audioEngine_.insertCount(StripInsertPosition::preFader) == 0 &&
+         audioEngine_.insertCount(StripInsertPosition::postFader) == 0;
 }
 
 bool GroupBus::isMuted() const noexcept {
@@ -55,6 +63,21 @@ void GroupBus::beginBlock(int numSamples) noexcept {
   inputBuffer_.clear();
 }
 
+bool GroupBus::processInPlace(int numSamples, bool audible,
+                              juce::AudioBuffer<float> *preFaderTap) noexcept {
+  if (preFaderTap) preFaderTap->clear();
+  if (numSamples <= 0 || numSamples > inputBuffer_.getNumSamples())
+    return false;
+  const float db = gainDb_.load(std::memory_order_relaxed);
+  const bool busAudible = audible && !isMuted();
+  const bool faderAudible = busAudible && db > -120.0f;
+  const float effectiveGain =
+      faderAudible ? juce::Decibels::decibelsToGain(db, -120.0f) : 0.0f;
+  audioEngine_.processBlock(inputBuffer_, effectiveGain, busAudible ? preFaderTap : nullptr);
+  meter_.process(faderAudible ? &inputBuffer_ : nullptr, numSamples, sampleRate_.load());
+  return faderAudible;
+}
+
 void GroupBus::processTo(juce::AudioBuffer<float> &destination,
                          bool audible, juce::AudioBuffer<float> *printOutput) noexcept {
   if (printOutput) printOutput->clear();
@@ -84,7 +107,12 @@ juce::var GroupBus::toJson() const {
   auto *object = new juce::DynamicObject();
   object->setProperty("id", id);
   object->setProperty("name", name);
-  object->setProperty("role", "group");
+  object->setProperty("role", isChairBus() ? "chair" : "group");
+  if (isChairBus()) {
+    object->setProperty("chairId", chairKey);
+    object->setProperty("directOutputBusId", directOutputBusId);
+    object->setProperty("sends", audioSendsToJson(sends));
+  }
   object->setProperty("gainDb", static_cast<double>(gainDb()));
   object->setProperty("muted", isMuted());
   object->setProperty("soloed", isSoloed());
