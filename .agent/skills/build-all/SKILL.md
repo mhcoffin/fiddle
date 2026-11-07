@@ -36,6 +36,11 @@ Only restart the user's app when requested. Save work and quit normally before
 running `./fiddle.sh open`; opening a running app will not reload a new binary.
 Do not force-kill Fiddle or delete WebView caches as a routine build step.
 
+If a launched Fiddle seems hung while loading plug-ins, macOS is probably
+asking for folder access, and the user has to answer the prompt. The build
+signs FiddleServer with a stable certificate so that permission lasts across
+builds; see `docs/code-signing.md`.
+
 The plugin is built separately with:
 
 ```sh

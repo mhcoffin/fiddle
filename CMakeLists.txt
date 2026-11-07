@@ -1481,6 +1481,16 @@ add_custom_target(FiddleScoreTests ALL
     COMMENT "Syncing score tests to FiddleServer bundle")
 add_dependencies(FiddleServer FiddleScoreTests)
 
+# Sign the executable with a stable certificate so macOS keeps its folder
+# permissions across builds (docs/code-signing.md). Declared after every other
+# FiddleServer post-build step so it runs last.
+add_custom_command(TARGET FiddleServer POST_BUILD
+    COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/sign-app.sh"
+        "$<TARGET_FILE:FiddleServer>"
+        "$<TARGET_PROPERTY:FiddleServer,JUCE_BUNDLE_ID>"
+    COMMENT "Signing FiddleServer"
+    VERBATIM)
+
 # One build target for local testing and CI. New *Test executables are included
 # automatically, so the workflow cannot silently retain an obsolete target list.
 get_property(fiddle_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
