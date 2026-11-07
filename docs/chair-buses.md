@@ -28,9 +28,11 @@ What changes for the user:
 
 - **Layer strips lose their Output selector and sends.** A layer always feeds
   its chair. It keeps its instrument, inserts, balance, fader, mute and solo.
+- **The chair's Output selector is in its header**, above its layers.
 - **A chair strip sits next to the layers.** It replaces today's thin chair
-  fader and is shown for every chair, including chairs with one layer (whose
-  routing now lives there).
+  fader. A chair with one layer has none unless its chair bus has settings
+  you can hear; its layer strip shows the chair's sends (see [One-layer
+  chairs](#one-layer-chairs)).
 - **The chair fader sets the chair bus level.** Moving it no longer rewrites
   layer gains.
 - **The lock stays, as "Keep blend level".** It still lets you rebalance layers
@@ -186,19 +188,40 @@ section, so every fader still aligns:
 | Fader | layer fader, meter | chair fader, meter |
 | Below fader | gain value | gain value, `Σ` blend readout, lock |
 | M/S | M S | M S |
-| Bottom | Edit details… | Output selector |
+| Bottom | Edit details… | (blank) |
 
 Removing the Output row from every strip gives back about 68 px of height,
 which goes to the faders.
+
+### Chair header
+
+The header above a chair's strips has the chair's name and port on its first
+line. Its second line has the chair's Output selector (Master or an audio
+bus) and a "+" button that adds a layer. A chair without layers has no chair
+bus yet, so its header has only "+".
+
+### One-layer chairs
+
+With one layer, a chair strip mostly repeats the layer: its fader, balance,
+mute and solo act in series with the layer's, and its inserts follow the
+layer's. So a one-layer chair shows no chair strip unless its chair bus has
+settings you can hear: a level other than 0 dB, mute, solo, balance, or
+inserts. Then the strip appears, so nothing audible is hidden; set them back
+and it goes away (not while you drag its fader).
+
+Without a chair strip, the layer strip shows the chair's promoted sends in its
+Pre-fader and Post-fader sections; they are still the chair's sends. The
+layer's Channel Audio has a **Chair Audio…** button for the chair's inserts and
+sends.
 
 The chair strip has its own Audio FX panel (the same panel buses use, with
 sends) opened from its Pre-fader and Post-fader sections.
 
 ### Selection
 
-Selecting a chair strip selects the chair. Changing the Output of a selected
-chair applies to every selected chair, as the layer Output selector does now
-for selected layers.
+Selecting a chair strip selects the chair, and selecting a layer counts as
+selecting its chair. Changing the Output of a selected chair applies to every
+selected chair, as the layer Output selector did for selected layers.
 
 Add Bus's "Route the selected layers" becomes "Route the N selected chairs"
 (selecting a layer counts as selecting its chair).
@@ -277,12 +300,17 @@ sibling compensation remain one undo step, as now.
   chairs. Fader, balance, mute, solo and inserts use the bus commands with the
   chair bus ID. Chair plug-in windows are named after the chair.
 - **Chair strip:** as in [Chair strip](#chair-strip), shown for every chair
-  with layers. The VSTi row is blank. The `Σ` readout takes the `-∞` tick's
+  with two or more layers, and for a one-layer chair whose chair bus has
+  settings (see [One-layer chairs](#one-layer-chairs), added 2026-11-07). The
+  VSTi and bottom rows are blank. The `Σ` readout takes the `-∞` tick's
   line and the lock sits beside the chair level, so the chair strip needs no
   extra height and every fader aligns. The chair fader is gold; layer faders
   are blue.
-- **Layers** have no Output row and no sends. Removing the Output row gave
-  74 px to every fader. Channel Audio says the layer feeds its chair.
+- **Chair header:** the chair's Output selector and a "+" Add Layer button
+  share its second line; the port moved up beside the name.
+- **Layers** have no Output row and no sends of their own. Removing the Output
+  row gave 74 px to every fader. Channel Audio says the layer feeds its chair
+  and opens Chair Audio.
 - **Chair Audio** is the bus audio panel in chair mode: inserts, then sends.
 - **Mute and solo:** a muted chair, or one silenced by another chair's solo,
   dims its chair strip and layers. Clear Solos appears for chair solos too.
@@ -295,7 +323,8 @@ sibling compensation remain one undo step, as now.
   ignore selected chairs.
 - **Tests:** `MixerIntegrationTest` covers the chair-ID commands;
   `browser-tests/chairLayout.mjs` covers chair strip width and alignment at
-  every strip size, sends on the chair strip, multi-chair Output and Add Bus,
+  every strip size, the header Output and "+", one-layer chairs (sends on the
+  layer, the strip appearing with settings), multi-chair Output and Add Bus,
   chair fader/mute/solo messages, chair inserts and the locked blend.
 
 ## Implementation phases
@@ -324,8 +353,6 @@ Phases 2 and 3 are mostly UI.
 ## Later, not in this design
 
 - Chair buses as stem-printing sources.
-- Collapsing a chair strip to a narrow tab, if the extra width on one-layer
-  chairs proves a problem.
 - Audio bus → audio bus routing (nested buses, in the backlog).
 
 ## Decisions
@@ -336,5 +363,7 @@ Agreed on 2026-11-06:
 2. **Chair fader range:** tops out at +6 dB, like layer faders, so levels are
    easy to compare.
 3. **One-layer chairs:** every chair gets the full-width chair strip for now,
-   because it's simplest. A narrower form can come later (see
-   [Later](#later-not-in-this-design)).
+   because it's simplest. Revised 2026-11-07: the extra strip took too much
+   width, so a one-layer chair shows it only when its chair bus has settings,
+   and the Output selector moved to the chair header (see [One-layer
+   chairs](#one-layer-chairs)).

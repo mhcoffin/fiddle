@@ -21,6 +21,7 @@
         addStripRange,
         flattenVisualStripOrder,
         selectedChairBusIds,
+        chairHasSettings,
     } from "./mixerSelection.js";
     import {
         FAMILY_ORDER,
@@ -435,7 +436,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     };
     /** Route a chair, or every selected chair when this one is selected. */
     const setChairOutput = (chairBusId, busId) => {
-        const chairsToRoute = selectedIds.has(chairBusId) ? selectedChairs() : [];
+        const chosen = selectedChairs();
+        const chairsToRoute = chosen.includes(chairBusId) ? chosen : [];
         if (chairsToRoute.length > 1) {
             dispatchCpp("setChairsOutput", JSON.stringify(chairsToRoute), busId);
             return;
@@ -1034,12 +1036,25 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         }
         return groups;
     });
-    let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips));
+    // A chair with one layer shows no chair strip unless its chair bus has
+    // settings you can hear (level, mute, solo, balance, inserts); its layer
+    // strip shows the chair's sends instead. The output is in the header.
+    // A strip being dragged stays until the drag ends.
+    let draggingChairId = $state("");
+    const showsChairStrip = (instrGroup) => {
+        const bus = chairBusById.get(instrGroup.chairBusId);
+        if (!bus || instrGroup.strips.length === 0) return false;
+        return instrGroup.strips.length > 1 || chairHasSettings(bus) || draggingChairId === bus.id;
+    };
+    let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips, showsChairStrip));
     // Every rendered strip shares the same send band; cap its height, not the
     // number of promoted sends. Longer lists scroll without consuming faders.
-    // Only chair strips have sends.
+    // Sends belong to chairs: on the chair strip, or on the layer strip of a
+    // one-layer chair without one.
     const sendsAt = (bus, location) => (bus?.sends || []).filter((send) => !!send.preFader === (location === "Pre"));
-    let renderedChairBuses = $derived(flatStripOrder.map((id) => chairBusById.get(id)).filter(Boolean));
+    let renderedChairBuses = $derived(groupedStrips.flatMap((group) => group.instrGroups)
+        .filter((instrGroup) => instrGroup.strips.length > 0)
+        .map((instrGroup) => chairBusById.get(instrGroup.chairBusId)).filter(Boolean));
     let sendRows = $derived(Object.fromEntries(["Pre", "Post"].map((location) => [location,
         Math.min(2, Math.max(0, ...renderedChairBuses
             .map((bus) => sendsAt(bus, location).filter((send) => send.showOnStrip).length)))])));
@@ -1211,22 +1226,41 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                 )}
                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                {@const groupChairBus = instrGroup.strips.length > 0 ? chairBusById.get(instrGroup.chairBusId) : undefined}
+                                {@const showChairStrip = showsChairStrip(instrGroup)}
                                 <div
                                     class="inst-group"
                                     style="--accent: {group.colors.accent};"
                                     onclick={(e) => e.stopPropagation()}
                                 >
-                                    <!-- Bridge header: same height for every group (1 or N strips) -->
+                                    <!-- Bridge header: the chair's name, port, output and Add Layer.
+                                         Same height for every group (1 or N strips). -->
                                     <div
                                         class="bridge-header"
                                         class:bridge-multi={instrGroup.strips.length > 1}
                                     >
-                                        <div class="bridge-identity" title={instrGroup.label}>
+                                        <div class="bridge-identity" title={instrGroup.portLabel ? `${instrGroup.label} · ${instrGroup.portLabel}` : instrGroup.label}>
                                             <span class="bridge-icon">{(instrGroup.chair?.role === "solo" || instInput?.isSolo) ? "👤" : "👥"}</span>
                                             <span class="bridge-label">{instrGroup.label}</span>
+                                            {#if instrGroup.portLabel}
+                                                <span class="bridge-port">{instrGroup.portLabel}</span>
+                                            {/if}
                                         </div>
-                                        {#if instrGroup.portLabel}
-                                            <span class="bridge-port" title={instrGroup.portLabel}>{instrGroup.portLabel}</span>
+                                        {#if groupChairBus}
+                                            {@const chosenChairs = selectedChairs()}
+                                            {@const routesSelection = chosenChairs.length > 1 && chosenChairs.includes(groupChairBus.id)}
+                                            <select
+                                                class="bridge-output"
+                                                aria-label={`Output for ${instrGroup.label} chair`}
+                                                title={`Output: ${groupBuses.find((bus) => bus.id === groupChairBus.directOutputBusId)?.name || "Master"}${routesSelection ? ` · routes all ${chosenChairs.length} selected chairs` : ""}`}
+                                                value={groupChairBus.directOutputBusId || ""}
+                                                onchange={(event) => setChairOutput(groupChairBus.id, event.currentTarget.value)}
+                                            >
+                                                <option value="">Master</option>
+                                                {#each groupBuses as bus (bus.id)}
+                                                    <option value={bus.id}>{bus.name}</option>
+                                                {/each}
+                                            </select>
                                         {/if}
                                         {#if instrGroup.chairId}
                                             <button
@@ -1234,7 +1268,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 title={`Add a layer to ${instrGroup.label}`}
                                                 aria-label={`Add a layer to ${instrGroup.label}`}
                                                 onclick={() => { layerPickerChair = instrGroup.chair; }}
-                                            >{stripSize === "compact" ? "+ Layer" : "Add Layer"}</button>
+                                            >+</button>
                                         {/if}
                                     </div>
                                     <!-- inst-body: the layers, then the chair strip -->
@@ -1247,6 +1281,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                             </div>
                                         {/if}
                                         {#each instrGroup.strips as strip (strip.id)}
+                                            {@const layerShowsChairSends = Boolean(groupChairBus) && !showChairStrip}
                                             <!-- svelte-ignore a11y_click_events_have_key_events -->
                                             <!-- svelte-ignore a11y_no_static_element_interactions -->
                                             <div
@@ -1307,6 +1342,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 <div class="ch-fx-zone">
                                                     {#each ["Pre", "Post"] as location}
                                                         {@const inserts = visibleStripInserts(strip).filter((insert) => insert.location === location)}
+                                                        {@const layerSendCount = layerShowsChairSends ? sendsAt(groupChairBus, location).length : 0}
                                                         {@const activeInserts = inserts.filter((insert) => !insert.bypassed && insert.status === "loaded").length}
                                                         {@const insertSummary = insertSummaryOf(inserts)}
                                                         <section class="ch-strip-section ch-fx-section" class:post-fader={location === "Post"}
@@ -1315,10 +1351,12 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                         <span class="ch-section-title">{location}-fader</span>
                                                         <button
                                                             class="ch-audio-fx"
-                                                            class:has-effects={inserts.length > 0}
+                                                            class:has-effects={inserts.length > 0 || layerSendCount > 0}
                                                             onclick={() => openChannelAudio(strip)}
                                                             aria-label={`Manage ${location.toLowerCase()}-fader effects — ${insertSummary}`}
-                                                            title={`${location}-fader: ${insertSummary} — manage`}
+                                                            title={layerShowsChairSends
+                                                                ? `${location}-fader: ${insertSummary}, ${layerSendCount} chair send${layerSendCount === 1 ? "" : "s"} — manage`
+                                                                : `${location}-fader: ${insertSummary} — manage`}
                                                         >{#if inserts.length > 0}<span class="ch-insert-count" class:active={activeInserts > 0} aria-hidden="true">{inserts.length}{stripSize === "compact" ? "" : " FX"}</span>{/if}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h12m4 0h2M11 3v6M7 9v6M17 15v6" /></svg></button>
                                                         </div>
                                                         {#if stripSize === "large"}
@@ -1347,6 +1385,11 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                                 <div class="ch-fx-empty">No inserts</div>
                                                             {/if}
                                                         </div>
+                                                        {/if}
+                                                        {#if layerShowsChairSends && sendRows[location] > 0}
+                                                            <PromotedSends chair={groupChairBus} chairName={instrGroup.label} buses={groupBuses}
+                                                                horizontal={stripSize === "large"}
+                                                                preFader={location === "Pre"} rows={sendRows[location]} />
                                                         {/if}
                                                         </section>
                                                     {/each}
@@ -1450,8 +1493,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 ></div>
                                             </div>
                                         {/each}
-                                        {#if instrGroup.strips.length > 0 && chairBusById.has(instrGroup.chairBusId)}
-                                            {@const chairBus = chairBusById.get(instrGroup.chairBusId)}
+                                        {#if showChairStrip}
+                                            {@const chairBus = groupChairBus}
                                             {@const chairLabel = instrGroup.label}
                                             {@const multiLayer = instrGroup.strips.length > 1}
                                             {@const locked = multiLayer && getGroupMaster(instrGroup.key).lockSum}
@@ -1460,7 +1503,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                             {@const offTarget = locked && Math.abs(blendDb - blendTargetDb) > 0.05}
                                             {@const faderKey = `chair:${chairBus.id}`}
                                             {@const chairFaderPos = Math.round(dbToPos(chairGainDb(chairBus)) * 1000)}
-                                            {@const chosenChairs = selectedIds.has(chairBus.id) ? selectedChairs().length : 0}
                                             <!-- The chair strip: all the chair's layers mix into its bus. -->
                                             <!-- svelte-ignore a11y_click_events_have_key_events -->
                                             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -1561,7 +1603,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                                 step="1"
                                                                 aria-label={`${chairLabel} chair level`}
                                                                 value={getFaderPos(faderKey, chairFaderPos)}
-                                                                onpointerdown={() => { faderAnchor[faderKey] = getFaderPos(faderKey, chairFaderPos); }}
+                                                                onpointerdown={() => { faderAnchor[faderKey] = getFaderPos(faderKey, chairFaderPos); draggingChairId = chairBus.id; }}
                                                                 oninput={(e) => {
                                                                     faderDragging.add(faderKey);
                                                                     const rawPos = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
@@ -1569,10 +1611,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                                     snapFaderTo(faderKey, effectivePos);
                                                                     setChairGain(chairBus, Math.round(posToDB(effectivePos / 1000) * 10) / 10);
                                                                 }}
-                                                                onpointerup={() => { faderDragging.delete(faderKey); delete faderAnchor[faderKey]; }}
-                                                                onpointercancel={() => { faderDragging.delete(faderKey); }}
+                                                                onpointerup={() => { faderDragging.delete(faderKey); delete faderAnchor[faderKey]; draggingChairId = ""; }}
+                                                                onpointercancel={() => { faderDragging.delete(faderKey); draggingChairId = ""; }}
                                                                 onkeyup={() => { faderDragging.delete(faderKey); }}
-                                                                onblur={() => { faderDragging.delete(faderKey); }}
+                                                                onblur={() => { faderDragging.delete(faderKey); draggingChairId = ""; }}
                                                                 onpointerleave={() => { faderDragging.delete(faderKey); delete faderAnchor[faderKey]; }}
                                                                 ondblclick={() => setChairGain(chairBus, 0)}
                                                             />
@@ -1638,18 +1680,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                     >
                                                 </div>
 
-                                                <select
-                                                    class="ch-chair-output"
-                                                    aria-label={`Output for ${chairLabel} chair`}
-                                                    title={chosenChairs > 1 ? `Output: routes all ${chosenChairs} selected chairs` : "Output: where the chair goes"}
-                                                    value={chairBus.directOutputBusId || ""}
-                                                    onchange={(event) => setChairOutput(chairBus.id, event.currentTarget.value)}
-                                                >
-                                                    <option value="">→ Master</option>
-                                                    {#each groupBuses as bus (bus.id)}
-                                                        <option value={bus.id}>→ {bus.name}</option>
-                                                    {/each}
-                                                </select>
+                                                <!-- Layers have Edit details here; the chair's output is in the header. -->
+                                                <div class="ch-chair-bottom-blank" aria-hidden="true"></div>
                                                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                                                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                                                 <div
@@ -1724,6 +1756,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 audio={channelAudio || channelStrip.audio}
                 instrumentName={getPluginName(channelStrip)}
                 plugins={scannedPlugins}
+                onOpenChairAudio={chairBusById.has(channelStrip.chairBusId)
+                    ? () => { chairAudioBusId = channelStrip.chairBusId; channelAudioStripId = ""; channelAudio = null; }
+                    : null}
                 onClose={() => { channelAudioStripId = ""; channelAudio = null; }}
             />
         {/if}
@@ -2307,27 +2342,11 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         min-height: 28px;
         padding: 2px;
     }
-    .ch-chair-output {
-        width: 100%;
+    /* Same height as the layers' Edit details, so the faders line up. */
+    .ch-chair-bottom-blank {
         height: 32px;
         min-height: 32px;
         flex-shrink: 0;
-        box-sizing: border-box;
-        overflow: hidden;
-        padding: 2px 3px;
-        border: 1px solid #3d4c62;
-        border-radius: 4px;
-        background: #111c2e;
-        color: #cbd5e1;
-        font: inherit;
-        font-size: 0.7rem;
-        font-weight: 600;
-        text-overflow: ellipsis;
-        cursor: pointer;
-    }
-    .ch-chair-output:hover {
-        border-color: #7dd3fc;
-        color: #e0f2fe;
     }
     .sum-lock-btn {
         background: none;
@@ -2415,28 +2434,53 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         flex: 1;
     }
     .bridge-port {
-        grid-column: 1;
-        grid-row: 2;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
         font-size: 0.65rem;
         color: #94a3b8;
+        white-space: nowrap;
         flex-shrink: 0;
+    }
+    .bridge-output {
+        grid-column: 1;
+        grid-row: 2;
+        width: 100%;
+        min-width: 0;
+        height: 28px;
+        box-sizing: border-box;
+        overflow: hidden;
+        /* A slim caret instead of the native arrow leaves room for "Master"
+           in a one-layer chair's compact header. */
+        appearance: none;
+        -webkit-appearance: none;
+        padding: 2px 11px 2px 4px;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #111c2e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4'%3E%3Cpath d='M0 0h7L3.5 4z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 3px center;
+        color: #cbd5e1;
+        font: inherit;
+        font-size: 0.7rem;
+        font-weight: 600;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        cursor: pointer;
+    }
+    .bridge-output:hover {
+        border-color: #7dd3fc;
+        color: #e0f2fe;
     }
     .bridge-add-layer {
         grid-column: 2;
         grid-row: 2;
+        width: 28px;
         min-height: 28px;
-        padding: 4px 6px;
+        padding: 0;
         border: 1px solid rgba(52, 211, 153, 0.55);
         border-radius: 5px;
         background: rgba(20, 83, 45, 0.5);
         color: #a7f3d0;
         cursor: pointer;
         font: inherit;
-        font-size: 0.7rem;
+        font-size: 1rem;
+        line-height: 1;
         font-weight: 650;
         white-space: nowrap;
     }

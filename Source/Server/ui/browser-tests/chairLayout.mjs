@@ -350,16 +350,18 @@ try {
     assert.equal(await busBalance.inputValue(), "R50");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.slice(-3)[1]),
         { type: "setGroupBusBalance", payload: ["bus-strings", 0.5] });
-    // A layer's Channel Audio has no sends: they belong to its chair.
+    // A layer's Channel Audio has no sends: they belong to its chair. Flute 1
+    // has one layer and a plain chair bus, so it has no chair strip; Channel
+    // Audio opens its Chair Audio.
+    assert.equal(await page.getByRole("group", { name: "Flute 1 chair", exact: true }).count(), 0);
     await page.locator(".channel-strip:not(.chair-strip) .ch-audio-fx").first().click();
     const layerAudio = page.getByRole("dialog", { name: /Channel Audio for/ });
     assert.equal(await layerAudio.getByLabel("New send destination", { exact: true }).count(), 0);
     assert.match(await layerAudio.innerText(), /feeds its chair/);
-    await layerAudio.getByRole("button", { name: "Close", exact: true }).click();
+    await layerAudio.getByRole("button", { name: "Chair Audio…", exact: true }).click();
+    assert.equal(await layerAudio.count(), 0, "Chair Audio replaces Channel Audio");
     // Exercise send controls through the real built Svelte UI, echoing model
     // snapshots just as the native backend does after successful commands.
-    const firstChairStrip = page.getByRole("group", { name: "Flute 1 chair", exact: true });
-    await firstChairStrip.locator(".ch-audio-fx").first().click();
     const channelAudio = page.getByRole("dialog", { name: "Audio effects for Flute 1", exact: true });
     assert.match(await channelAudio.innerText(), /Chair Audio[\s\S]*Flute 1 · feeds Master/);
     await channelAudio.getByLabel("New send destination", { exact: true }).selectOption("bus-strings");
@@ -376,6 +378,8 @@ try {
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "setChairSendVisible", payload: ["chair:chair-0", "test-send", true] });
     assert.equal(await page.locator(".promoted-send").count(), 1);
+    assert.equal(await page.locator(".inst-group").first().locator(".channel-strip:not(.chair-strip) .promoted-send").count(), 1,
+        "a one-layer chair without a chair strip shows its sends on the layer");
     assert.equal(await sendRow.getByLabel("Send tap", { exact: true }).inputValue(), "postFader");
     await sendRow.getByLabel("Send tap", { exact: true }).selectOption("preFader");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
@@ -579,6 +583,16 @@ try {
                         const button = group.querySelector(".bridge-add-layer").getBoundingClientRect();
                         return button.left >= rect.left && button.right <= rect.right;
                     })(),
+                    addLayerText: group.querySelector(".bridge-add-layer").textContent.trim(),
+                    // The chair's output sits in the header, left of "+".
+                    output: (() => {
+                        const select = group.querySelector(".bridge-output");
+                        if (!select) return null;
+                        const box = select.getBoundingClientRect();
+                        const button = group.querySelector(".bridge-add-layer").getBoundingClientRect();
+                        return { width: box.width, height: box.height,
+                            fits: box.left >= rect.left && box.right <= button.left };
+                    })(),
                 };
             }),
             audioFaders: [...document.querySelectorAll(".bank .channel")].map(channel => {
@@ -597,6 +611,13 @@ try {
                 `${size}: chair width must follow strips, not header content`);
             assert.ok(group.headerOverflow <= 1, `${size}: header must not overflow`);
             assert.ok(group.buttonFits, `${size}: Add Layer button must fit`);
+            assert.equal(group.addLayerText, "+");
+        }
+        for (const [index, group] of measured.groups.entries()) {
+            if (index === 9) { assert.equal(group.output, null, "an empty chair has no output"); continue; }
+            assert.ok(group.output?.fits, `${size}: chair ${index} output fits its header`);
+            assert.ok(group.output.width >= 44, `${size}: chair ${index} output is wide enough to read (${group.output.width}px)`);
+            assert.equal(group.output.height, 28);
         }
         const heights = measured.groups.map(group => group.headerHeight);
         assert.ok(Math.max(...heights) - Math.min(...heights) <= 1, "headers must align");
@@ -634,7 +655,10 @@ try {
             `all fader bottoms must align: ${allBottoms.join(", ")}`);
         const firstChair = page.locator(".inst-group").first();
         const firstStrip = firstChair.locator(".channel-strip:not(.chair-strip)");
-        const firstChairStrip = firstChair.locator(".chair-strip");
+        // Flute 1 has one layer and a plain chair bus: no chair strip.
+        assert.equal(await firstChair.locator(".chair-strip").count(), 0, `${size}: a plain one-layer chair has no chair strip`);
+        const multiChair = page.locator(".inst-group").nth(8);
+        const multiChairStrip = multiChair.locator(".chair-strip");
         const balanceFits = await firstStrip.evaluate(strip => {
             const rect = strip.getBoundingClientRect();
             return [...strip.querySelectorAll(".balance-control button, .balance-control input, .balance-control .knob")]
@@ -643,8 +667,8 @@ try {
         assert.ok(balanceFits, `${size}: balance controls fit the strip`);
         // The chair strip is one layer-strip wide, right of its layers, and
         // its level, lock and output fit at every size.
-        const chairGeometry = await firstChair.evaluate(group => {
-            const layer = group.querySelector(".channel-strip:not(.chair-strip)").getBoundingClientRect();
+        const chairGeometry = await multiChair.evaluate(group => {
+            const layer = [...group.querySelectorAll(".channel-strip:not(.chair-strip)")].at(-1).getBoundingClientRect();
             const chair = group.querySelector(".chair-strip");
             const box = chair.getBoundingClientRect();
             const inside = selector => [...chair.querySelectorAll(selector)].every(element => {
@@ -652,12 +676,15 @@ try {
                 return r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
             });
             return { layerWidth: layer.width, chairWidth: box.width, right: box.left >= layer.right - 1,
-                fits: inside(".ch-chair-gain-row > *, .ch-chair-output, .balance-control .knob, .ms-btn") };
+                fits: inside(".ch-chair-gain-row > *, .balance-control .knob, .ms-btn"),
+                blankBottom: chair.querySelector(".ch-chair-bottom-blank").getBoundingClientRect().height,
+                details: group.querySelector(".ch-details-btn").getBoundingClientRect().height };
         });
         assert.ok(Math.abs(chairGeometry.layerWidth - chairGeometry.chairWidth) <= 1, `${size}: chair strip is one layer wide`);
         assert.ok(chairGeometry.right, `${size}: chair strip is right of its layers`);
         assert.ok(chairGeometry.fits, `${size}: chair controls fit the chair strip`);
-        assert.match(await firstChairStrip.locator(".ch-strip-identity").innerText(), /Flute 1\s*Chair/i);
+        assert.equal(chairGeometry.blankBottom, chairGeometry.details, `${size}: the chair strip's blank row matches Edit details`);
+        assert.match(await multiChairStrip.locator(".ch-strip-identity").innerText(), /Flute 9\s*Chair/i);
         assert.equal(await firstStrip.getByText("Flute 1", { exact: true }).count(), 0,
             "chair name must not be repeated as a patch label");
         assert.equal(await firstStrip.locator(".ch-strip-identity").innerText(), "SY WW");
@@ -686,16 +713,14 @@ try {
         const controlHeights = await firstChair.evaluate(group => ({
             vst: group.querySelector(".ch-instrument-summary button").getBoundingClientRect().height,
             fx: group.querySelector(".ch-audio-fx").getBoundingClientRect().height,
-            output: group.querySelector(".ch-chair-output").getBoundingClientRect().height,
             details: group.querySelector(".ch-details-btn").getBoundingClientRect().height,
         }));
         assert.equal(controlHeights.vst, 32);
         assert.equal(controlHeights.fx, 24, "FX management uses a compact header button");
-        assert.equal(controlHeights.output, controlHeights.vst, "output and VSTi controls must have equal height");
-        assert.equal(controlHeights.output, controlHeights.details, "chair output and layer details share a row");
+        assert.equal(controlHeights.details, controlHeights.vst);
         assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader'],
             "layers have no Output row");
-        assert.deepEqual(await firstChairStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader']);
+        assert.deepEqual(await multiChairStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader']);
         const headingsFit = await firstStrip.locator('.ch-section-heading').evaluateAll((headings) => headings.every((heading) => {
             const text = heading.querySelector('.ch-section-title').getBoundingClientRect();
             const button = heading.querySelector('button').getBoundingClientRect();
@@ -768,7 +793,8 @@ try {
         const geometry = await page.evaluate(() => {
             const tracks = [...document.querySelectorAll(".fader-track")].map((e) => e.getBoundingClientRect());
             const sends = document.querySelector(".post-fader .promoted-sends");
-            const strip = document.querySelector(".chair-strip");
+            // Flute 1 has no chair strip, so its layer strip shows its sends.
+            const strip = sends.closest(".channel-strip");
             const pre = strip.querySelector('.ch-fx-section:not(.post-fader)');
             const post = strip.querySelector('.ch-fx-section.post-fader');
             const label = sends.querySelector('.destination').getBoundingClientRect();
@@ -777,10 +803,11 @@ try {
             const readout = sends.querySelector('.readout').getBoundingClientRect();
             return { tops: tracks.map((r) => r.top), bottoms: tracks.map((r) => r.bottom),
                 bandHeight: sends.clientHeight, scrollHeight: sends.scrollHeight,
-                ordered: strip.querySelector('.ch-chair-blank').getBoundingClientRect().bottom <= pre.getBoundingClientRect().top
+                layerShowsSends: !strip.classList.contains('chair-strip'),
+                ordered: strip.querySelector('.ch-instrument-section').getBoundingClientRect().bottom <= pre.getBoundingClientRect().top
                     && pre.getBoundingClientRect().bottom <= post.getBoundingClientRect().top
                     && post.getBoundingClientRect().bottom <= strip.querySelector('.balance-control').getBoundingClientRect().top
-                    && strip.querySelector('.ch-mute-solo').getBoundingClientRect().bottom <= strip.querySelector('.ch-chair-output').getBoundingClientRect().top,
+                    && strip.querySelector('.ch-mute-solo').getBoundingClientRect().bottom <= strip.querySelector('.ch-details-btn').getBoundingClientRect().top,
                 sendsInPost: post.contains(sends),
                 preSendCount: pre.querySelectorAll('.promoted-send').length,
                 preBandHeight: pre.querySelector('.promoted-sends').clientHeight,
@@ -793,7 +820,7 @@ try {
                     s.querySelector('.post-fader').getBoundingClientRect().top,
                     s.querySelector('.balance-control').getBoundingClientRect().top,
                     s.querySelector('.ch-mute-solo').getBoundingClientRect().top,
-                    s.querySelector('.ch-chair-output, .ch-details-btn').getBoundingClientRect().top,
+                    s.querySelector('.ch-chair-bottom-blank, .ch-details-btn').getBoundingClientRect().top,
                 ]),
                 fieldsFit: [...document.querySelectorAll(".promoted-sends .knob-control")].every((control) => {
                     const a = control.getBoundingClientRect(), b = control.closest(".promoted-sends").getBoundingClientRect();
@@ -803,7 +830,8 @@ try {
         assert.ok(Math.max(...geometry.tops) - Math.min(...geometry.tops) <= 1, `${size}: promoted fader tops align`);
         assert.ok(Math.max(...geometry.bottoms) - Math.min(...geometry.bottoms) <= 1, `${size}: promoted fader bottoms align`);
         assert.equal(geometry.bandHeight, size === "large" ? 72 : 104);
-        assert.ok(geometry.ordered, `${size}: blank VSTi row, pre FX, post FX, balance … output order`);
+        assert.ok(geometry.layerShowsSends, `${size}: Flute 1's sends are on its layer strip`);
+        assert.ok(geometry.ordered, `${size}: VSTi row, pre FX, post FX, balance … details order`);
         assert.ok(geometry.sendsInPost, `${size}: promoted sends are inside post-fader effects`);
         assert.equal(geometry.preSendCount, 3, `${size}: pre-fader sends are in the pre-fader section`);
         assert.equal(geometry.preBandHeight, geometry.bandHeight);
@@ -819,8 +847,10 @@ try {
         assert.equal(await headings.nth(1).locator('.ch-insert-count.active').count(), 0);
         assert.match(await headings.nth(1).locator('button').getAttribute('aria-label'), /12 inserts, all bypassed/);
         assert.equal(await headings.nth(2).locator('.ch-insert-count.active').count(), 0, 'missing is not active');
-        assert.equal(await chairHeadings.nth(8).locator('.ch-insert-count').count(), 0, 'sends alone do not count as inserts');
-        assert.match(await chairHeadings.nth(8).locator('button').getAttribute('title'), /0 inserts, 1 send/);
+        assert.equal(await chairHeadings.count(), 1, 'only Flute 9 has a chair strip');
+        assert.equal(await chairHeadings.nth(0).locator('.ch-insert-count').count(), 0, 'sends alone do not count as inserts');
+        assert.match(await chairHeadings.nth(0).locator('button').getAttribute('title'), /0 inserts, 1 send/);
+        assert.match(await headings.nth(0).locator('button').getAttribute('title'), /1 insert, 1 active, 3 chair sends/);
         assert.ok(await headings.evaluateAll((rows) => rows.every((row) => {
             const text = row.querySelector('.ch-section-title').getBoundingClientRect();
             const button = row.querySelector('button').getBoundingClientRect();
@@ -879,25 +909,28 @@ try {
         ] });
     });
     // Selecting a chair strip selects the chair; a selected layer stands for
-    // its chair. A selected chair's Output routes every selected chair.
+    // its chair. A selected chair's Output, in its header, routes every
+    // selected chair.
     const routedChair = page.locator(".inst-group").nth(8);
     const cmdClick = (locator) => locator.evaluate(element => element.dispatchEvent(new MouseEvent("click", {
         bubbles: true, metaKey: true,
     })));
-    await page.locator(".inst-group").nth(1).locator(".chair-strip .select-bar-top").click();
+    await page.locator(".inst-group").nth(1).locator(".channel-strip:not(.chair-strip) .select-bar-top").click();
     await cmdClick(page.locator(".inst-group").nth(2).locator(".channel-strip:not(.chair-strip) .select-bar-top"));
     await cmdClick(routedChair.locator(".chair-strip .select-bar-top"));
     await cmdClick(routedChair.locator(".channel-strip:not(.chair-strip) .select-bar-top").first());
     assert.equal(await page.locator(".selection-badge").innerText(), "4 selected");
-    assert.match(await routedChair.locator(".ch-chair-output").getAttribute("title"), /all 3 selected chairs/);
+    assert.match(await routedChair.locator(".bridge-output").getAttribute("title"), /all 3 selected chairs/);
+    assert.match(await page.locator(".inst-group").nth(1).locator(".bridge-output").getAttribute("title"), /all 3 selected chairs/,
+        "a chair selected through its layer routes the selection too");
     await page.evaluate(() => { window.fixtureMessages = []; });
-    await routedChair.locator(".ch-chair-output").selectOption("bus-strings");
+    await routedChair.locator(".bridge-output").selectOption("bus-strings");
     const routeMessage = await page.evaluate(() => window.fixtureMessages.at(-1));
     assert.equal(routeMessage.type, "setChairsOutput");
     assert.deepEqual(JSON.parse(routeMessage.payload[0]), ["chair:chair-1", "chair:chair-2", "chair:chair-8"]);
     assert.equal(routeMessage.payload[1], "bus-strings");
     // An unselected chair routes alone; selected layers don't make it a group edit.
-    await page.locator(".inst-group").nth(3).locator(".ch-chair-output").selectOption("bus-strings");
+    await page.locator(".inst-group").nth(3).locator(".bridge-output").selectOption("bus-strings");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "setChairOutput", payload: ["chair:chair-3", "bus-strings"] });
     // The bank counts chairs, not layers: chair 8 has two layers.
@@ -908,6 +941,8 @@ try {
         window.publishChairBuses();
     });
     assert.equal(await page.locator(".bank .bus-header span").first().innerText(), "3 direct · 1 sends");
+    assert.equal(await routedChair.locator(".bridge-output option:checked").innerText(), "Strings");
+    assert.equal(await page.locator(".inst-group").nth(0).locator(".bridge-output option:checked").innerText(), "Master");
     await page.evaluate(() => {
         window.fixtureChairBuses.forEach((bus) => { bus.directOutputBusId = ""; bus.sends = []; });
         window.publishChairBuses();
@@ -950,6 +985,28 @@ try {
         { type: "setGroupBusInsertBypassed", payload: ["chair:chair-8", "chair-comp", true] });
     await chairAudio.getByRole("button", { name: "Close", exact: true }).click();
     await page.evaluate(() => { window.fixtureChairBuses[8].audio.postFaderInserts = []; window.publishChairBuses(); });
+    // A one-layer chair shows its chair strip only while its chair bus has
+    // settings you can hear, so nothing audible is hidden.
+    const flute1 = page.locator(".inst-group").first();
+    for (const [change, label] of [
+        [{ gainDb: -4 }, "level"], [{ muted: true }, "mute"], [{ soloed: true }, "solo"],
+        [{ audio: { balance: 0.5, preFaderInserts: [], postFaderInserts: [] } }, "balance"],
+        [{ audio: { balance: 0, preFaderInserts: [{ id: "eq", name: "EQ", status: "loaded" }], postFaderInserts: [] } }, "inserts"],
+        [{ sends: [{ id: "s", busId: "bus-strings", gainDb: -12, enabled: true, showOnStrip: true }] }, null],
+    ]) {
+        await page.evaluate((change) => {
+            Object.assign(window.fixtureChairBuses[0], change);
+            window.publishChairBuses();
+        }, change);
+        assert.equal(await flute1.locator(".chair-strip").count(), label ? 1 : 0,
+            label ? `a one-layer chair with ${label} shows its chair strip` : "sends alone don't show the chair strip");
+        await page.evaluate(() => {
+            Object.assign(window.fixtureChairBuses[0], { gainDb: 0, muted: false, soloed: false, sends: [],
+                audio: { balance: 0, preFaderInserts: [], postFaderInserts: [] } });
+            window.publishChairBuses();
+        });
+        assert.equal(await flute1.locator(".chair-strip").count(), 0);
+    }
     // Exercise real DOM gestures and bridge payloads, not source-text matches.
     await page.evaluate(() => {
         window.__dispatchFromCpp({ type: "setProjectSettings", data: {

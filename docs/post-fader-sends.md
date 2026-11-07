@@ -3,7 +3,8 @@
 Sends leave from a chair's bus, not from each layer (see
 [chair buses](chair-buses.md)): a pre-fader send taps the chair bus after its
 pre-fader effects. Sends live on the chair strip, to the right of the chair's
-layers; layers have none.
+layers; layers have none of their own. A one-layer chair usually has no chair
+strip, so its layer strip shows the chair's sends.
 
 ## Quick smoke test
 
@@ -11,7 +12,9 @@ layers; layers have none.
    "Route the selected chairs" off (routing changes those chairs' outputs).
 2. In the **Audio Buses** bank, open that bus's Audio FX panel, add a reverb,
    and set the plug-in's mix to **100% wet**.
-3. Open a chair strip's **Post-fader** settings button (Chair Audio). Under
+3. Open a chair strip's **Post-fader** settings button (Chair Audio). For a
+   one-layer chair without a chair strip, open the layer's Post-fader settings
+   button and click **Chair Audio…**. Under
    Sends, choose Reverb and Add send. New sends start enabled at −12 dB with a
    **Post-fader** tap.
 4. Play in Dorico. Adjust the send level: the dry sound remains, while the
@@ -48,14 +51,15 @@ the panel supplies its gain curve, formatting, change callback, and history
 boundaries.
 
 Check **Show on strip** beside a send in Chair Audio to promote its destination
-name, knob, and editable level into the chair strip. Unchecking hides only the
+name, knob, and editable level into the chair strip (or a one-layer chair's
+layer strip). Unchecking hides only the
 shortcut; it does not disable the send. Promotion is saved with the project and
 supports Undo/Redo, and survives destination/level changes and bus-deletion Undo.
 Destination names follow bus renames; disabled sends are marked `(off)`.
 
 A layer strip groups controls into Instrument, Pre-fader and Post-fader
 sections, each on a subtle lighter background; a chair strip has the same
-Pre-fader and Post-fader sections and its Output selector at the bottom. Small
+Pre-fader and Post-fader sections. The chair's Output selector is in its header. Small
 settings buttons beside the Pre-fader/Post-fader headings open Channel Audio
 (a layer) or Chair Audio (a chair). In Large mode,
 insert names are editor buttons with a separate bypass control; empty racks

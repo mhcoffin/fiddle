@@ -7,6 +7,7 @@
         audio = { latencyMs: 0, preFaderInserts: [], postFaderInserts: [] },
         instrumentName = "",
         plugins = [],
+        onOpenChairAudio = null,
         onClose = () => {},
     } = $props();
 
@@ -36,10 +37,13 @@
         <header>
             <div>
                 <h2>Channel Audio</h2>
-                <p>{strip.layerName || strip.library || "Instrument strip"} · feeds its chair, whose strip has the output and sends</p>
+                <p>{strip.layerName || strip.library || "Instrument strip"} · feeds its chair, which has the output and sends</p>
             </div>
             <div class="header-status">
                 <span>{Number(audio.latencyMs || 0).toFixed(1)} ms latency</span>
+                {#if onOpenChairAudio}
+                    <button onclick={onOpenChairAudio} title="The chair's effects and sends">Chair Audio…</button>
+                {/if}
                 <button class="close" onclick={onClose}>Close</button>
             </div>
         </header>

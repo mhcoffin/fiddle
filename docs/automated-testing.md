@@ -111,9 +111,11 @@ receiver. It never connects to the running Fiddle server or its database.
 
 The test changes the actual strip-size selector, measures single/multiple/empty
 chair widths, verifies that headers, layer faders and chair strip faders align
-(the chair strip is one layer wide, right of its layers), and clicks Add Layer
-and Cancel at every size. It also checks sends on the chair strip, chair Output
-for several selected chairs, Add Bus routing chairs, chair fader, mute and
+(the chair strip is one layer wide, right of its layers), that each chair's
+header Output and "+" fit, and clicks Add Layer and Cancel at every size. It
+also checks that a one-layer chair shows a chair strip only when its chair bus
+has settings, its sends on the layer strip and Chair Audio from Channel Audio,
+chair Output for several selected chairs, Add Bus routing chairs, chair fader, mute and
 solo messages, and the locked blend's `Σ` readout. Long names must not widen chairs. This optional test
 also checks loaded/unassigned/missing instrument controls, editor and assignment
 messages, library visibility, and the selector-to-editor transition. It

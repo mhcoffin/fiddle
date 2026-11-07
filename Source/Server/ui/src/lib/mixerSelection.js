@@ -1,15 +1,30 @@
 /**
  * Return strip IDs in the order the mixer renders them: each chair's layers,
- * then its chair strip (by chair bus ID) when the chair has layers.
+ * then its chair strip (by chair bus ID) when the chair has layers and
+ * `showsChairStrip(instrumentGroup)` says the strip is shown.
  */
-export const flattenVisualStripOrder = (groups) =>
+export const flattenVisualStripOrder = (groups, showsChairStrip = () => true) =>
     groups.flatMap((group) =>
         group.instrGroups.flatMap((instrumentGroup) => [
             ...instrumentGroup.strips.map((strip) => strip.id),
             ...(instrumentGroup.strips.length && instrumentGroup.chairBusId
+                && showsChairStrip(instrumentGroup)
                 ? [instrumentGroup.chairBusId] : []),
         ]),
     );
+
+/**
+ * True when a chair bus has settings you can hear: a level other than 0 dB,
+ * mute, solo, balance, or inserts. A one-layer chair shows its chair strip
+ * only then, so nothing audible is hidden. Sends don't count; a one-layer
+ * chair's layer strip shows them.
+ */
+export const chairHasSettings = (bus) => Boolean(bus && (
+    Math.abs(bus.gainDb ?? 0) > 0.05
+    || bus.muted || bus.soloed
+    || Math.abs(bus.audio?.balance ?? 0) > 0.001
+    || (bus.audio?.preFaderInserts?.length ?? 0) > 0
+    || (bus.audio?.postFaderInserts?.length ?? 0) > 0));
 
 /**
  * The chair bus IDs a selection stands for: selected chair strips, and the

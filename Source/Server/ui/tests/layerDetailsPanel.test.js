@@ -18,7 +18,8 @@ test("every strip reserves the same operational space around its fader", () => {
     // beside the level, so chair and layer faders align.
     assert.match(mixerSource, /fader-tick fader-bot blend-level/);
     assert.match(mixerSource, /class="ch-chair-gain-row"/);
-    assert.match(mixerSource, /\.ch-chair-output\s*\{[\s\S]*?height: 32px/);
+    // The chair strip keeps a blank row where layers have Edit details.
+    assert.match(mixerSource, /\.ch-chair-bottom-blank\s*\{[\s\S]*?height: 32px/);
     assert.doesNotMatch(mixerSource, /master-strip/);
 });
 
@@ -27,7 +28,9 @@ test("strip effects are grouped by signal position; only chairs have an output",
     assert.match(mixerSource, /insert\.location === location/);
     assert.match(mixerSource, /sendRows\[location\] > 0/);
     assert.match(mixerSource, /preFader=\{location === "Pre"\}/);
-    assert.ok(mixerSource.indexOf("<PromotedSends chair={chairBus}") < mixerSource.indexOf('class="ch-chair-output"'));
+    assert.match(mixerSource, /<PromotedSends chair=\{chairBus\}/);
+    // A one-layer chair without a chair strip shows its sends on the layer.
+    assert.match(mixerSource, /<PromotedSends chair=\{groupChairBus\}/);
     assert.doesNotMatch(mixerSource, /ch-output-routing/);
     assert.match(mixerSource, /horizontal=\{stripSize === "large"\}/);
     assert.match(mixerSource, /\.ch-strip-section\s*\{[^}]*background: #1b283b/);
@@ -61,7 +64,7 @@ test("section headings count inserts independently of sends and show active stat
 test("operational instrument and effect controls remain on large strips", () => {
     assert.match(mixerSource, /ch-instrument-summary/);
     assert.match(mixerSource, /ch-fx-summary-actions/);
-    assert.match(mixerSource, /class="ch-chair-output"/);
+    assert.match(mixerSource, /class="bridge-output"/);
     assert.match(mixerSource, /setStripInsertBypassed/);
     assert.match(mixerSource, /toggleStripInsertEditor/);
 });

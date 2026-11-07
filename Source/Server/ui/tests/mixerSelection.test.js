@@ -5,6 +5,7 @@ import {
     addStripRange,
     flattenVisualStripOrder,
     selectedChairBusIds,
+    chairHasSettings,
 } from "../src/lib/mixerSelection.js";
 
 test("visual strip order follows rendered family and instrument groups", () => {
@@ -39,6 +40,29 @@ test("each chair strip follows its layers; empty chairs have none", () => {
     }];
     assert.deepEqual(flattenVisualStripOrder(groups),
         ["flute-a", "flute-b", "chair:fl", "clarinet", "chair:cl"]);
+});
+
+test("a hidden chair strip drops out of the visual order", () => {
+    const groups = [{
+        instrGroups: [
+            { chairBusId: "chair:fl", strips: [{ id: "flute-a" }, { id: "flute-b" }] },
+            { chairBusId: "chair:cl", strips: [{ id: "clarinet" }] },
+        ],
+    }];
+    assert.deepEqual(flattenVisualStripOrder(groups, (group) => group.strips.length > 1),
+        ["flute-a", "flute-b", "chair:fl", "clarinet"]);
+});
+
+test("a chair has settings when anything audible differs from a plain 0 dB bus", () => {
+    const plain = { gainDb: 0, muted: false, soloed: false, audio: { balance: 0, preFaderInserts: [], postFaderInserts: [] }, sends: [{ busId: "rev" }] };
+    assert.equal(chairHasSettings(plain), false, "sends alone don't count");
+    assert.equal(chairHasSettings({ ...plain, gainDb: 0.04 }), false);
+    assert.equal(chairHasSettings({ ...plain, gainDb: -4 }), true);
+    assert.equal(chairHasSettings({ ...plain, muted: true }), true);
+    assert.equal(chairHasSettings({ ...plain, soloed: true }), true);
+    assert.equal(chairHasSettings({ ...plain, audio: { ...plain.audio, balance: -0.3 } }), true);
+    assert.equal(chairHasSettings({ ...plain, audio: { ...plain.audio, postFaderInserts: [{ id: "eq" }] } }), true);
+    assert.equal(chairHasSettings(undefined), false);
 });
 
 test("a selected layer stands for its chair, once", () => {

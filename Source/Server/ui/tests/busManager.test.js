@@ -31,10 +31,10 @@ test("each bus has Edit details… for rename and delete", () => {
     assert.doesNotMatch(detailsSource, /window\.confirm/);
 });
 
-test("chairs route from the chair strip; layers always feed their chair", () => {
+test("chairs route from the chair header; layers always feed their chair", () => {
     assert.doesNotMatch(layerDetailsSource, /Audio output/);
-    assert.match(mixerSource, /class="ch-chair-output"/);
-    assert.match(mixerSource, /Output for \$\{chairLabel\} chair/);
+    assert.match(mixerSource, /class="bridge-output"/);
+    assert.match(mixerSource, /Output for \$\{instrGroup\.label\} chair/);
     assert.match(mixerSource, /dispatchCpp\("setChairOutput", chairBusId, busId\)/);
     assert.match(mixerSource, /dispatchCpp\("setChairsOutput", JSON\.stringify\(chairsToRoute\), busId\)/);
     assert.doesNotMatch(mixerSource, /StripDirectOutput/);
