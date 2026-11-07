@@ -286,13 +286,13 @@ void testChairBusesShareLayers(int workers) {
   f.mixer.getStrip(a)->chairId = "violins";
   f.mixer.getStrip(b)->chairId = "violins";
   f.mixer.refreshAudioRouting();
-  auto *chair = f.mixer.chairBusForStrip(a);
-  REQUIRE(chair == f.mixer.chairBusForStrip(b) && chair != f.mixer.chairBusForStrip(c));
+  auto *chair = f.mixer.chairBusFor(a);
+  REQUIRE(chair == f.mixer.chairBusFor(b) && chair != f.mixer.chairBusFor(c));
   REQUIRE(chair->id == "chair:violins" && chair->isChairBus());
   REQUIRE(f.mixer.getAllGroupBuses().empty()); // Chair buses are not audio buses.
   const auto strings = f.mixer.addGroupBus("Strings");
   addEffect(f.mixer.getGroupBus(strings)->audioEngine(), "double", 2.0f);
-  REQUIRE(f.commands.setStripDirectOutput(b, strings)); // Routes the whole chair.
+  REQUIRE(f.commands.setChairOutput(b, strings)); // Routes the whole chair.
   REQUIRE(f.mixer.stripOutputBusId(a) == strings);
   for (int channel : {1, 2, 3})
     f.noteOn(channel);
@@ -317,16 +317,30 @@ void testChairBusesShareLayers(int workers) {
   f.mixer.getStrip(a)->setSoloed(false);
   REQUIRE(f.commands.setGroupBusSolo(chair->id, false)); f.expectLevel(1.0f);
   // Selected layers on one chair change it once; undo restores it.
-  REQUIRE(f.commands.setGroupStripDirectOutput({a, b, c}, ""));
+  REQUIRE(f.commands.setChairsOutput({a, b, c}, ""));
   REQUIRE(f.mixer.stripOutputBusId(a).isEmpty() && f.mixer.stripOutputBusId(c).isEmpty());
   f.expectLevel(0.7f);
+  REQUIRE(f.undo.undo() && f.mixer.stripOutputBusId(b) == strings);
+  f.expectLevel(1.0f);
+  // The chair strip addresses its chair by the chair bus ID.
+  REQUIRE(!f.commands.setChairOutput(chair->id, strings)); // Unchanged: no undo step.
+  REQUIRE(f.commands.setChairOutput(chair->id, ""));
+  REQUIRE(f.mixer.stripOutputBusId(a).isEmpty());
+  REQUIRE(f.commands.setChairsOutput({chair->id, c}, strings));
+  REQUIRE(f.mixer.stripOutputBusId(a) == strings && f.mixer.stripOutputBusId(c) == strings);
+  REQUIRE(f.undo.undo() && f.mixer.stripOutputBusId(c).isEmpty());
+  REQUIRE(f.undo.undo() && f.mixer.stripOutputBusId(a) == strings);
+  REQUIRE(f.commands.addChairSend(chair->id, strings) && chair->sends.size() == 1);
+  REQUIRE(f.commands.removeChairSend(chair->id, chair->sends.front().id) && chair->sends.empty());
+  REQUIRE(f.commands.addGroupBus("Winds", {chair->id}));
+  REQUIRE(f.mixer.stripOutputBusId(b) != strings && f.mixer.stripOutputBusId(b).isNotEmpty());
   REQUIRE(f.undo.undo() && f.mixer.stripOutputBusId(b) == strings);
   f.expectLevel(1.0f);
   // A chair bus is neither an audio bus to manage nor a destination.
   REQUIRE(!f.commands.removeGroupBus(chair->id));
   REQUIRE(!f.commands.renameGroupBus(chair->id, "Renamed"));
-  REQUIRE(!f.commands.setStripDirectOutput(c, chair->id));
-  REQUIRE(!f.commands.addStripSend(c, chair->id));
+  REQUIRE(!f.commands.setChairOutput(c, chair->id));
+  REQUIRE(!f.commands.addChairSend(c, chair->id));
   // The chair bus outlives its layers, keeping its settings.
   f.mixer.removeStrip(a);
   f.mixer.removeStrip(b);
@@ -339,11 +353,11 @@ void testChairBusLatencyAlignsChairs(int workers) {
   f.mixer.setRenderWorkerCount(workers);
   const auto a = f.instrument(0.1f, 1);
   f.instrument(0.4f, 2);
-  auto *chair = f.mixer.chairBusForStrip(a);
+  auto *chair = f.mixer.chairBusFor(a);
   addEffect(chair->audioEngine(), "look-ahead", 1.0f, 40);
   const auto strings = f.mixer.addGroupBus("Strings");
   addEffect(f.mixer.getGroupBus(strings)->audioEngine(), "bus-fx", 1.0f, 8);
-  REQUIRE(f.commands.setStripDirectOutput(a, strings));
+  REQUIRE(f.commands.setChairOutput(a, strings));
   f.mixer.refreshAudioRouting();
   REQUIRE(std::abs(f.mixer.maximumPathLatencyMs() - 1000.0 * 48 / 48000) < 1e-6);
   f.noteOn(1, 10);
@@ -509,7 +523,7 @@ void testProductionRoutingAndAudibility() {
   for (int channel = 1; channel <= 3; ++channel)
     f.noteOn(channel);
   f.expectLevel(1.0f); // (0.1 + 0.2) * 2 + 0.4: no duplicate direct path.
-  REQUIRE(f.commands.setGroupStripDirectOutput({a, b}, ""));
+  REQUIRE(f.commands.setChairsOutput({a, b}, ""));
   REQUIRE(f.mixer.stripOutputBusId(a).isEmpty());
   REQUIRE(f.mixer.stripOutputBusId(b).isEmpty());
   f.expectLevel(0.7f);
@@ -521,10 +535,10 @@ void testProductionRoutingAndAudibility() {
   f.expectLevel(0.7f);
   REQUIRE(f.undo.undo());
   f.expectLevel(1.0f);
-  REQUIRE(!f.commands.setGroupStripDirectOutput({a, "missing"}, ""));
-  REQUIRE(!f.commands.setGroupStripDirectOutput({a, a}, ""));
+  REQUIRE(!f.commands.setChairsOutput({a, "missing"}, ""));
+  REQUIRE(!f.commands.setChairsOutput({a, a}, ""));
   REQUIRE(f.mixer.stripOutputBusId(a) == bus);
-  REQUIRE(!f.commands.setStripDirectOutput(a, "nonexistent"));
+  REQUIRE(!f.commands.setChairOutput(a, "nonexistent"));
   REQUIRE(f.mixer.stripOutputBusId(a) == bus);
   REQUIRE(f.commands.setGroupBusMute(bus, true));
   f.expectLevel(0.4f);
@@ -585,24 +599,24 @@ void testPostFaderSends(int workers) {
   const auto a = f.instrument(0.1f, 1), b = f.instrument(0.2f, 2);
   const auto group = f.mixer.addGroupBus("Strings");
   const auto reverb = f.mixer.addGroupBus("Reverb");
-  REQUIRE(f.commands.setStripDirectOutput(a, group));
+  REQUIRE(f.commands.setChairOutput(a, group));
   addEffect(f.mixer.getGroupBus(reverb)->audioEngine(), "wet", 2.0f);
   addEffect(f.mixer.getStrip(a)->audioEngine(), "post", 2.0f, 0, fiddle::StripInsertPosition::postFader);
   auto *strip = f.mixer.getStrip(a);
   strip->setGainDb(juce::Decibels::gainToDecibels(0.5f));
-  REQUIRE(f.router.handleMessage("addStripSend", juce::var(juce::Array<juce::var>{a, reverb})));
+  REQUIRE(f.router.handleMessage("addChairSend", juce::var(juce::Array<juce::var>{a, reverb})));
   const auto send = f.mixer.stripSends(a).front().id;
   REQUIRE(!f.mixer.stripSends(a).front().showOnStrip);
-  REQUIRE(!f.commands.setStripSendVisible(a, "missing", true));
-  REQUIRE(f.commands.setStripSendVisible(a, send, true));
+  REQUIRE(!f.commands.setChairSendVisible(a, "missing", true));
+  REQUIRE(f.commands.setChairSendVisible(a, send, true));
   REQUIRE(f.mixer.stripSends(a).front().showOnStrip);
   REQUIRE(f.undo.undo() && !f.mixer.stripSends(a).front().showOnStrip);
   REQUIRE(f.undo.redo() && f.mixer.stripSends(a).front().showOnStrip);
-  REQUIRE(!f.commands.setStripSendVisible(a, send, true));
-  REQUIRE(f.commands.updateStripSend(a, send, reverb, 0, true));
+  REQUIRE(!f.commands.setChairSendVisible(a, send, true));
+  REQUIRE(f.commands.updateChairSend(a, send, reverb, 0, true));
   REQUIRE(f.mixer.stripSends(a).front().showOnStrip);
-  REQUIRE(f.commands.addStripSend(b, reverb));
-  REQUIRE(f.commands.updateStripSend(b, f.mixer.stripSends(b).front().id, reverb, 0, true));
+  REQUIRE(f.commands.addChairSend(b, reverb));
+  REQUIRE(f.commands.updateChairSend(b, f.mixer.stripSends(b).front().id, reverb, 0, true));
   f.noteOn(1); f.noteOn(2);
   f.expectLevel(0.9f); // dry .1 + .2, wet (.1 + .2) * 2; strip FX applied once.
   REQUIRE(f.commands.setGroupBusSolo(group, true));
@@ -617,7 +631,7 @@ void testPostFaderSends(int workers) {
   strip->setMuted(false);
   strip->setActive(false); f.expectLevel(0.6f);
   strip->setActive(true);
-  REQUIRE(f.commands.updateStripSend(a, send, reverb, 0, false));
+  REQUIRE(f.commands.updateChairSend(a, send, reverb, 0, false));
   f.expectLevel(0.7f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
   REQUIRE(f.undo.redo()); f.expectLevel(0.7f);
@@ -631,19 +645,19 @@ void testPostFaderSends(int workers) {
   REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
   REQUIRE(f.mixer.stripSends(a).front().id == send);
   REQUIRE(f.mixer.stripSends(a).front().showOnStrip);
-  REQUIRE(!f.commands.addStripSend(a, reverb));
-  REQUIRE(!f.commands.addStripSend(a, "missing"));
-  REQUIRE(!f.commands.updateStripSend(a, send, "missing", 0, true));
-  REQUIRE(!f.commands.updateStripSend(a, send, reverb, std::numeric_limits<float>::quiet_NaN(), true));
-  REQUIRE(!f.commands.updateStripSend(a, send, reverb, 13, true));
-  REQUIRE(!f.commands.removeStripSend(a, "missing"));
-  REQUIRE(f.commands.removeStripSend(a, send)); f.expectLevel(0.7f);
+  REQUIRE(!f.commands.addChairSend(a, reverb));
+  REQUIRE(!f.commands.addChairSend(a, "missing"));
+  REQUIRE(!f.commands.updateChairSend(a, send, "missing", 0, true));
+  REQUIRE(!f.commands.updateChairSend(a, send, reverb, std::numeric_limits<float>::quiet_NaN(), true));
+  REQUIRE(!f.commands.updateChairSend(a, send, reverb, 13, true));
+  REQUIRE(!f.commands.removeChairSend(a, "missing"));
+  REQUIRE(f.commands.removeChairSend(a, send)); f.expectLevel(0.7f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
-  REQUIRE(f.commands.updateStripSend(a, send, group, -120, true)); f.expectLevel(0.7f);
+  REQUIRE(f.commands.updateChairSend(a, send, group, -120, true)); f.expectLevel(0.7f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.9f);
   f.undo.clear();
-  REQUIRE(f.commands.updateStripSend(a, send, reverb, -4, true));
-  REQUIRE(f.commands.updateStripSend(a, send, reverb, -9, true));
+  REQUIRE(f.commands.updateChairSend(a, send, reverb, -4, true));
+  REQUIRE(f.commands.updateChairSend(a, send, reverb, -9, true));
   REQUIRE(f.undo.undo() && f.mixer.stripSends(a).front().gainDb == 0);
   REQUIRE(!f.undo.canUndo());
 }
@@ -655,9 +669,9 @@ void testPreFaderSends(int workers) {
   // Sends belong to the chair bus, so the pre-fader tap is after the chair's
   // pre-fader FX and before its fader and post-fader FX.
   auto *strip = f.mixer.getStrip(a);
-  auto *chair = f.mixer.chairBusForStrip(a);
+  auto *chair = f.mixer.chairBusFor(a);
   const auto group = f.mixer.addGroupBus("Dry"), aux = f.mixer.addGroupBus("Aux");
-  REQUIRE(f.commands.setStripDirectOutput(a, group));
+  REQUIRE(f.commands.setChairOutput(a, group));
   addEffect(chair->audioEngine(), "pre", 2);
   addEffect(chair->audioEngine(), "post", 3, 0, fiddle::StripInsertPosition::postFader);
   addEffect(f.mixer.getGroupBus(aux)->audioEngine(), "return", 2);
@@ -667,14 +681,14 @@ void testPreFaderSends(int workers) {
   f.noteOn(1); f.noteOn(2);
   f.expectLevel(1.1f); // Post: .3 dry + .6 wet + .2 other.
   REQUIRE(!chair->sends.front().preFader);
-  REQUIRE(f.router.handleMessage("setStripSendPreFader", juce::var(juce::Array<juce::var>{a, "send", true})));
+  REQUIRE(f.router.handleMessage("setChairSendPreFader", juce::var(juce::Array<juce::var>{a, "send", true})));
   REQUIRE(chair->sends.front().preFader && chair->sends.front().showOnStrip);
   f.expectLevel(0.9f); // Pre: .3 dry + .4 wet + .2 other.
   REQUIRE(f.undo.undo()); f.expectLevel(1.1f);
   REQUIRE(f.undo.redo()); f.expectLevel(0.9f);
-  REQUIRE(!f.commands.setStripSendPreFader(a, "send", true));
-  REQUIRE(!f.commands.setStripSendPreFader(a, "missing", true));
-  REQUIRE(!f.commands.setStripSendPreFader("missing", "send", true));
+  REQUIRE(!f.commands.setChairSendPreFader(a, "send", true));
+  REQUIRE(!f.commands.setChairSendPreFader(a, "missing", true));
+  REQUIRE(!f.commands.setChairSendPreFader("missing", "send", true));
   chair->setGainDb(-120); f.expectLevel(0.6f); // Pre tap survives fader silence.
   chair->setMuted(true); f.expectLevel(0.2f); // A muted chair sends nothing.
   chair->setMuted(false); f.expectLevel(0.6f);
@@ -690,12 +704,12 @@ void testPreFaderSends(int workers) {
   REQUIRE(f.commands.setGroupBusSolo(aux, false));
   REQUIRE(f.commands.setGroupBusMute(aux, true)); f.expectLevel(0.2f);
   REQUIRE(f.commands.setGroupBusMute(aux, false));
-  REQUIRE(f.commands.updateStripSend(a, "send", aux, 0, false)); f.expectLevel(0.2f);
+  REQUIRE(f.commands.updateChairSend(a, "send", aux, 0, false)); f.expectLevel(0.2f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
   REQUIRE(f.commands.removeGroupBus(aux)); f.expectLevel(0.2f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
   REQUIRE(chair->sends.front().preFader && chair->sends.front().showOnStrip);
-  REQUIRE(f.commands.updateStripSend(a, "send", group, 0, true));
+  REQUIRE(f.commands.updateChairSend(a, "send", group, 0, true));
   REQUIRE(chair->sends.front().preFader && chair->sends.front().showOnStrip);
   f.expectLevel(0.4f);
   REQUIRE(f.undo.undo()); f.expectLevel(0.6f);
@@ -709,10 +723,10 @@ void testBalanceRoutingAndHistory(int workers) {
   const auto id = f.instrument(0.2f, 1);
   f.instrument(0.0f, 2); // Keep multiple independent strips in the parallel path.
   const auto dry = f.mixer.addGroupBus("Dry"), pre = f.mixer.addGroupBus("Pre"), post = f.mixer.addGroupBus("Post");
-  REQUIRE(f.commands.setStripDirectOutput(id, dry));
+  REQUIRE(f.commands.setChairOutput(id, dry));
   REQUIRE(f.mixer.setStripSends(id, {{"pre", pre, 0, true, false, true}, {"post", post, 0, true}}));
   // Sends leave from the chair bus: its balance follows the pre-fader tap.
-  const auto chair = f.mixer.chairBusForStrip(id)->id;
+  const auto chair = f.mixer.chairBusFor(id)->id;
   f.noteOn(1);
   const auto check = [&](float left, float right) {
     for (int i = 0; i < 16; ++i) f.render(); // Complete the 10 ms control ramp.
@@ -757,10 +771,10 @@ void testPreFaderSendLatency(int workers, int preBusLatency) {
   const auto a = f.instrument(0.1f, 1);
   f.instrument(0.4f, 2);
   const auto dry = f.mixer.addGroupBus("Dry"), pre = f.mixer.addGroupBus("Pre"), post = f.mixer.addGroupBus("Post");
-  REQUIRE(f.commands.setStripDirectOutput(a, dry));
+  REQUIRE(f.commands.setChairOutput(a, dry));
   // The pre-fader tap is on the chair bus: after its pre-fader FX, before its
   // fader and post-fader FX.
-  auto *chair = f.mixer.chairBusForStrip(a);
+  auto *chair = f.mixer.chairBusFor(a);
   addEffect(chair->audioEngine(), "pre-fx", 2, 4);
   addEffect(chair->audioEngine(), "post-fx", 3, 20, fiddle::StripInsertPosition::postFader);
   addEffect(f.mixer.getGroupBus(dry)->audioEngine(), "dry-fx", 1, 8);
@@ -825,7 +839,7 @@ void testSendLatencyAndContinuity(int workers) {
   const auto dry = f.mixer.addGroupBus("Dry");
   const auto slow = f.mixer.addGroupBus("Slow");
   const auto fast = f.mixer.addGroupBus("Fast");
-  REQUIRE(f.commands.setStripDirectOutput(a, dry));
+  REQUIRE(f.commands.setChairOutput(a, dry));
   addEffect(f.mixer.getStrip(a)->audioEngine(), "strip-delay", 1, 4);
   addEffect(f.mixer.getGroupBus(dry)->audioEngine(), "dry-delay", 1, 8);
   addEffect(f.mixer.getGroupBus(slow)->audioEngine(), "slow-delay", 2, 120);
@@ -855,7 +869,7 @@ void testSendReturnTails() {
   REQUIRE(f.mixer.setStripSends(a, {{"send", bus, 0, true}}));
   f.noteOn(1);
   f.render(); // 64 samples now inside the return effect
-  REQUIRE(f.commands.updateStripSend(a, "send", bus, 0, false));
+  REQUIRE(f.commands.updateChairSend(a, "send", bus, 0, false));
   f.render();
   const auto tail = f.render();
   // Already-fed return samples are processed even after disabling the send.
@@ -3059,7 +3073,7 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     f.mixer.getStrip(ids[1])->setGainDb(-6.0f);
     f.mixer.getStrip(ids[2])->setMuted(true);
     // A chair bus with its own fader and effect is saved and restored too.
-    auto *chairBus = f.mixer.chairBusForStrip(ids[2]);
+    auto *chairBus = f.mixer.chairBusFor(ids[2]);
     chairBus->setGainDb(-4.0f);
     addEffect(chairBus->audioEngine(), "chair-fx", 0.5f);
     fiddle::MasterInsertSnapshot master;
@@ -3117,8 +3131,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(f.mixer.getStrip(ids[0])->missingPatchReference);
     REQUIRE(f.mixer.getStrip(ids[2])->realtimeState().muted);
     REQUIRE(saved->globalState.chairBuses.size() == 3);
-    REQUIRE(f.mixer.chairBusForStrip(ids[2])->gainDb() == -4.0f);
-    REQUIRE(f.mixer.chairBusForStrip(ids[2])->audioEngine().snapshot("chair-fx").has_value());
+    REQUIRE(f.mixer.chairBusFor(ids[2])->gainDb() == -4.0f);
+    REQUIRE(f.mixer.chairBusFor(ids[2])->audioEngine().snapshot("chair-fx").has_value());
     for (const auto &hash : saved->stripHashes) // Layers no longer carry routing.
       REQUIRE(versions.getStripBlob(hash)->directOutputBusId.empty() &&
               versions.getStripBlob(hash)->sendsJson.empty());
@@ -3210,11 +3224,11 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(migrated.accepted);
     pumpUntil([&] { return !restore.isLoading(); });
     REQUIRE(migrated.inexactChairRouting == std::vector<std::string>{chairName});
-    REQUIRE(f.mixer.chairBusForStrip(ids[0]) == f.mixer.chairBusForStrip(ids[1]));
+    REQUIRE(f.mixer.chairBusFor(ids[0]) == f.mixer.chairBusFor(ids[1]));
     REQUIRE(f.mixer.stripOutputBusId(ids[1]).isEmpty()); // A tie goes to Master.
     REQUIRE(f.mixer.stripSends(ids[1]).size() == 1 &&
             f.mixer.stripSends(ids[1]).front().id == "old-send");
-    REQUIRE(f.mixer.chairBusForStrip(ids[2])->gainDb() == 0.0f); // Default chair bus.
+    REQUIRE(f.mixer.chairBusFor(ids[2])->gainDb() == 0.0f); // Default chair bus.
 
     // Startup: the layers come back from the session database, without buses.
     // The buses and chair routing come from the version Fiddle starts on.
@@ -3243,8 +3257,8 @@ void testRestoreRecreatesAudioAfterDatabaseReopen() {
     REQUIRE(g.mixer.stripOutputBusId(ids[0]).toStdString() == busId);
     REQUIRE(g.mixer.stripSends(ids[0]).size() == 1 &&
             g.mixer.stripSends(ids[0]).front().id == "saved-send");
-    REQUIRE(g.mixer.chairBusForStrip(ids[2])->gainDb() == -4.0f);
-    REQUIRE(g.mixer.chairBusForStrip(ids[2])->audioEngine().snapshot("chair-fx").has_value());
+    REQUIRE(g.mixer.chairBusFor(ids[2])->gainDb() == -4.0f);
+    REQUIRE(g.mixer.chairBusFor(ids[2])->audioEngine().snapshot("chair-fx").has_value());
     REQUIRE(g.mixer.size() == 3); // Layers are left alone.
 
     // Starting on a version saved before chair buses moves its layer routing

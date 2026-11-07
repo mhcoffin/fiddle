@@ -131,7 +131,7 @@ Sources: [MixerPanel](/Users/mhc/fiddle/Source/Server/ui/src/lib/MixerPanel.svel
 | Choose / clear xmap: `loadExpressionMap`, `clearExpressionMap`, `setGroupExpressionMap` | Partial | Commands exist, including compound batch assignment. Undo reloads the old entity from today's catalog and discards the file path; cannot faithfully restore an imported/non-catalog map. Retain old/new map data and provenance. |
 | Import xmap file: `loadExpressionMapFromFile` | Gap | File chooser/parsing is external/read-only; assigning the parsed result is a project edit but directly mutates the strip. Cancel should create no history. |
 | Add/remove Lua processor: `addStripLuaPlugin`, `removeStripLuaPlugin` | Connected with qualifications | Undo/Redo reloads script files by name rather than retaining source/runtime; changing/deleting a file changes behavior. Failed loads can still occupy history. Define whether source contents or only references belong to project state; do not promise restoration of arbitrary evolving Lua runtime state. |
-| Change direct output: `setStripDirectOutput` | Connected | Records old/new bus ID. Needs interleaved bus/layer deletion tests and exact persistence verification. |
+| Change a chair's output: `setChairOutput`, `setChairsOutput` (selected chairs, one step) | Connected | Records old/new bus ID. Needs interleaved bus/layer deletion tests and exact persistence verification. |
 | Edit/hide instrument: `showStripEditor`, `toggleStripEditor` | Excluded | Window visibility is not a musical edit; preserve normal plugin-editor-local keyboard handling. |
 | Open/hide MIDI inspector | Excluded | View state; it does not change routing. |
 | Strip delete/group delete: `removeMixerStrip`, `removeGroupStrips` | Partial; legacy helpers | Keep-alive removal. Old endpoints must not mutate chair layers without their repository rows. Free-standing strips are gone: Add, Duplicate and the library label were removed (docs/library-map-import.md). |
@@ -149,7 +149,7 @@ underlying services; multiple entry points still need equivalence tests.
 
 | Gesture / message | Current status | Details |
 |---|---|---|
-| Add bus, optionally routing selected strips: `addGroupBus` | Connected; integration-tested | One command captures prior routes; retains bus across Undo/Redo. |
+| Add bus, optionally routing selected chairs: `addGroupBus` | Connected; integration-tested | One command captures prior routes; retains bus across Undo/Redo. |
 | Remove bus: `removeGroupBus` | Connected; integration-tested | Restores bus, position and affected routes. |
 | Rename / reorder bus: `renameGroupBus`, `moveGroupBus` | Connected | Native actions exist; add UI commit/Undo/Redo tests, including no-op moves/names. |
 | Bus gain: `setGroupBusGain` | Partial | Scalar command works; shared coalescing/savepoint defects apply to drag/typed/reset. |

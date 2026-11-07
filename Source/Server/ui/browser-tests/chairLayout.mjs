@@ -62,7 +62,7 @@ try {
         }));
         const strips = chairs.flatMap((chair, index) => index === 9 ? [] :
             Array.from({ length: index === 8 ? 2 : 1 }, (_, layer) => ({
-                id: `${chair.id}-${layer}`, chairId: chair.id, inputPort: 0,
+                id: `${chair.id}-${layer}`, chairId: chair.id, chairBusId: `chair:${chair.id}`, inputPort: 0,
                 inputChannel: index, library: "SY WW", layerName: chair.name, family: "wind",
                 isSolo: true, active: true, gainDb: 0, muted: false, soloed: false,
                 pluginUid: index === 2 ? 404 : (index % 2 === 0 ? 101 : 0),
@@ -70,6 +70,14 @@ try {
             })));
         window.fixtureStrips = strips;
         window.fixtureChairs = chairs;
+        // Every chair with layers has a chair bus: its fader, sends and output.
+        window.fixtureChairBuses = chairs.slice(0, 9).map((chair) => ({
+            id: `chair:${chair.id}`, role: "chair", chairId: chair.id, gainDb: 0, muted: false, soloed: false,
+            directOutputBusId: "", sends: [], audio: { balance: 0, preFaderInserts: [], postFaderInserts: [] },
+        }));
+        window.publishChairBuses = () => window.__dispatchFromCpp({ type: "setChairBusState",
+            data: structuredClone(window.fixtureChairBuses) });
+        const chairBus = (id) => window.fixtureChairBuses.find((bus) => bus.id === id);
         window.fixtureMessages = [];
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
             const message = request.params[0];
@@ -86,25 +94,29 @@ try {
                     { id, name: "Strings", gainDb: 0, audio: { balance } },
                 ] }));
             }
-            if (message.type === "updateStripSend") {
-                const [stripId, id, busId, gainDb, enabled] = message.payload;
-                const strip = window.fixtureStrips.find((s) => s.id === stripId);
-                if (strip?.sends) {
-                    strip.sends = strip.sends.map((s) => s.id === id ? { ...s, id, busId, gainDb, enabled } : s);
-                    queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+            if (message.type === "updateChairSend") {
+                const [busId, id, destination, gainDb, enabled] = message.payload;
+                const bus = chairBus(busId);
+                if (bus) {
+                    bus.sends = bus.sends.map((s) => s.id === id ? { ...s, id, busId: destination, gainDb, enabled } : s);
+                    queueMicrotask(window.publishChairBuses);
                 }
             }
-            if (message.type === "setStripSendVisible") {
-                const [stripId, id, showOnStrip] = message.payload;
-                const strip = window.fixtureStrips.find((s) => s.id === stripId);
-                strip.sends = strip.sends.map((s) => s.id === id ? { ...s, showOnStrip } : s);
-                queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+            if (message.type === "setChairSendVisible") {
+                const [busId, id, showOnStrip] = message.payload;
+                const bus = chairBus(busId);
+                bus.sends = bus.sends.map((s) => s.id === id ? { ...s, showOnStrip } : s);
+                queueMicrotask(window.publishChairBuses);
             }
-            if (message.type === "setStripSendPreFader") {
-                const [stripId, id, preFader] = message.payload;
-                const strip = window.fixtureStrips.find((s) => s.id === stripId);
-                strip.sends = strip.sends.map((s) => s.id === id ? { ...s, preFader } : s);
-                queueMicrotask(() => window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips }));
+            if (message.type === "setChairSendPreFader") {
+                const [busId, id, preFader] = message.payload;
+                const bus = chairBus(busId);
+                bus.sends = bus.sends.map((s) => s.id === id ? { ...s, preFader } : s);
+                queueMicrotask(window.publishChairBuses);
+            }
+            if (message.type === "setGroupBusGain" && chairBus(message.payload[0])) {
+                chairBus(message.payload[0]).gainDb = message.payload[1];
+                queueMicrotask(window.publishChairBuses);
             }
             if (message.type === "showView" && ["inspector", "audio-bank"].includes(message.payload[0]))
                 queueMicrotask(() => window.__dispatchFromCpp({ type: "showMixerView", data: message.payload[0] }));
@@ -119,6 +131,7 @@ try {
         window.__dispatchFromCpp({ type: "setGroupBusState", data: [
             { id: "bus-strings", name: "Strings", gainDb: 0, muted: false, soloed: false },
         ] });
+        window.publishChairBuses();
     });
     await page.waitForSelector(".channel-strip");
     await page.evaluate(() => window.__dispatchFromCpp({ type: "setMixerMeters", data: {
@@ -337,35 +350,43 @@ try {
     assert.equal(await busBalance.inputValue(), "R50");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.slice(-3)[1]),
         { type: "setGroupBusBalance", payload: ["bus-strings", 0.5] });
+    // A layer's Channel Audio has no sends: they belong to its chair.
+    await page.locator(".channel-strip:not(.chair-strip) .ch-audio-fx").first().click();
+    const layerAudio = page.getByRole("dialog", { name: /Channel Audio for/ });
+    assert.equal(await layerAudio.getByLabel("New send destination", { exact: true }).count(), 0);
+    assert.match(await layerAudio.innerText(), /feeds its chair/);
+    await layerAudio.getByRole("button", { name: "Close", exact: true }).click();
     // Exercise send controls through the real built Svelte UI, echoing model
     // snapshots just as the native backend does after successful commands.
-    await page.locator(".ch-audio-fx").first().click();
-    const channelAudio = page.getByRole("dialog", { name: /Channel Audio for/ });
+    const firstChairStrip = page.getByRole("group", { name: "Flute 1 chair", exact: true });
+    await firstChairStrip.locator(".ch-audio-fx").first().click();
+    const channelAudio = page.getByRole("dialog", { name: "Audio effects for Flute 1", exact: true });
+    assert.match(await channelAudio.innerText(), /Chair Audio[\s\S]*Flute 1 · feeds Master/);
     await channelAudio.getByLabel("New send destination", { exact: true }).selectOption("bus-strings");
     await channelAudio.getByRole("button", { name: "Add send", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "addStripSend", payload: ["chair-0-0", "bus-strings"] });
+        { type: "addChairSend", payload: ["chair:chair-0", "bus-strings"] });
     await page.evaluate(() => {
-        window.fixtureStrips[0].sends = [{ id: "test-send", busId: "bus-strings", gainDb: -12, enabled: true }];
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends = [{ id: "test-send", busId: "bus-strings", gainDb: -12, enabled: true }];
+        window.publishChairBuses();
     });
     const sendRow = channelAudio.locator(".send-row");
     assert.equal(await sendRow.locator(".knob svg path.value").count(), 1, "send level retains its indicator ring");
     await sendRow.getByRole("checkbox", { name: "Show on strip" }).check();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "setStripSendVisible", payload: ["chair-0-0", "test-send", true] });
+        { type: "setChairSendVisible", payload: ["chair:chair-0", "test-send", true] });
     assert.equal(await page.locator(".promoted-send").count(), 1);
     assert.equal(await sendRow.getByLabel("Send tap", { exact: true }).inputValue(), "postFader");
     await sendRow.getByLabel("Send tap", { exact: true }).selectOption("preFader");
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "setStripSendPreFader", payload: ["chair-0-0", "test-send", true] });
+        { type: "setChairSendPreFader", payload: ["chair:chair-0", "test-send", true] });
     assert.equal(await page.locator('.ch-fx-section:not(.post-fader) .promoted-send').count(), 1);
     assert.equal(await page.locator('.post-fader .promoted-send').count(), 0);
     assert.equal(await sendRow.getByLabel("Send level in dB").inputValue(), "-12.0");
     // An authoritative Undo snapshot moves the shortcut back without changing its level.
     await page.evaluate(() => {
-        window.fixtureStrips[0].sends[0].preFader = false;
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends[0].preFader = false;
+        window.publishChairBuses();
     });
     assert.equal(await sendRow.getByLabel("Send tap", { exact: true }).inputValue(), "postFader");
     assert.equal(await page.locator('.post-fader .promoted-send').count(), 1);
@@ -376,8 +397,8 @@ try {
     await sendRow.getByRole("checkbox", { name: "Show on strip" }).check();
     await sendRow.getByLabel("Send level in dB").fill("-6");
     await sendRow.getByLabel("Send level in dB").press("Tab");
-    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.filter((m) => m.type === "updateStripSend").at(-1)),
-        { type: "updateStripSend", payload: ["chair-0-0", "test-send", "bus-strings", -6, true] });
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.filter((m) => m.type === "updateChairSend").at(-1)),
+        { type: "updateChairSend", payload: ["chair:chair-0", "test-send", "bus-strings", -6, true] });
     const sendKnob = sendRow.getByRole("slider", { name: "Send level", exact: true });
     assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-6");
     await page.evaluate(() => { window.fixtureMessages = []; });
@@ -397,8 +418,8 @@ try {
     assert.ok(normalGain > -6);
     // Undo/backend snapshots update both knob and readout.
     const resetSendGain = async (gainDb) => page.evaluate((gainDb) => {
-        window.fixtureStrips[0].sends[0].gainDb = gainDb;
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends[0].gainDb = gainDb;
+        window.publishChairBuses();
     }, gainDb);
     await resetSendGain(-6);
     await page.keyboard.down("Shift");
@@ -427,26 +448,26 @@ try {
     assert.equal(await sendKnob.getAttribute("aria-valuenow"), "-120");
     await sendText.fill("-6"); await sendText.press("Enter");
     await page.evaluate(() => {
-        window.fixtureStrips[0].sends[0].gainDb = -6;
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends[0].gainDb = -6;
+        window.publishChairBuses();
     });
     await sendRow.getByRole("checkbox", { name: "Enabled" }).uncheck();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "updateStripSend", payload: ["chair-0-0", "test-send", "bus-strings", -6, false] });
+        { type: "updateChairSend", payload: ["chair:chair-0", "test-send", "bus-strings", -6, false] });
     // Snapshot echo is authoritative, including undo/redo and deleted buses.
     await page.evaluate(() => {
-        window.fixtureStrips[0].sends[0].enabled = false;
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends[0].enabled = false;
+        window.publishChairBuses();
     });
     assert.equal(await sendRow.getByRole("checkbox", { name: "Enabled" }).isChecked(), false);
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "post-fader-sends.png") });
     await sendRow.getByRole("button", { name: "Remove", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
-        { type: "removeStripSend", payload: ["chair-0-0", "test-send"] });
+        { type: "removeChairSend", payload: ["chair:chair-0", "test-send"] });
     await page.evaluate(() => {
-        window.fixtureStrips[0].sends = [];
-        window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.fixtureChairBuses[0].sends = [];
+        window.publishChairBuses();
     });
     assert.equal(await sendRow.count(), 0);
     assert.equal(await page.locator(".promoted-sends").count(), 0, "no reserved band without promoted sends");
@@ -546,7 +567,7 @@ try {
             groups: [...document.querySelectorAll(".inst-group")].map(group => {
                 const rect = group.getBoundingClientRect();
                 const header = group.querySelector(".bridge-header");
-                const children = [...group.querySelectorAll(".channel-strip, .master-strip, .empty-chair")];
+                const children = [...group.querySelectorAll(".channel-strip, .empty-chair")];
                 return {
                     width: rect.width,
                     contentWidth: children.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0),
@@ -612,14 +633,32 @@ try {
         assert.ok(Math.max(...allBottoms) - Math.min(...allBottoms) <= 1,
             `all fader bottoms must align: ${allBottoms.join(", ")}`);
         const firstChair = page.locator(".inst-group").first();
-        const firstStrip = firstChair.locator(".channel-strip");
+        const firstStrip = firstChair.locator(".channel-strip:not(.chair-strip)");
+        const firstChairStrip = firstChair.locator(".chair-strip");
         const balanceFits = await firstStrip.evaluate(strip => {
             const rect = strip.getBoundingClientRect();
             return [...strip.querySelectorAll(".balance-control button, .balance-control input, .balance-control .knob")]
                 .every(control => { const r = control.getBoundingClientRect(); return r.left >= rect.left && r.right <= rect.right; });
         });
         assert.ok(balanceFits, `${size}: balance controls fit the strip`);
-        assert.equal(await firstChair.getByText("Flute 1", { exact: true }).count(), 1,
+        // The chair strip is one layer-strip wide, right of its layers, and
+        // its level, lock and output fit at every size.
+        const chairGeometry = await firstChair.evaluate(group => {
+            const layer = group.querySelector(".channel-strip:not(.chair-strip)").getBoundingClientRect();
+            const chair = group.querySelector(".chair-strip");
+            const box = chair.getBoundingClientRect();
+            const inside = selector => [...chair.querySelectorAll(selector)].every(element => {
+                const r = element.getBoundingClientRect();
+                return r.left >= box.left - 0.5 && r.right <= box.right + 0.5;
+            });
+            return { layerWidth: layer.width, chairWidth: box.width, right: box.left >= layer.right - 1,
+                fits: inside(".ch-chair-gain-row > *, .ch-chair-output, .balance-control .knob, .ms-btn") };
+        });
+        assert.ok(Math.abs(chairGeometry.layerWidth - chairGeometry.chairWidth) <= 1, `${size}: chair strip is one layer wide`);
+        assert.ok(chairGeometry.right, `${size}: chair strip is right of its layers`);
+        assert.ok(chairGeometry.fits, `${size}: chair controls fit the chair strip`);
+        assert.match(await firstChairStrip.locator(".ch-strip-identity").innerText(), /Flute 1\s*Chair/i);
+        assert.equal(await firstStrip.getByText("Flute 1", { exact: true }).count(), 0,
             "chair name must not be repeated as a patch label");
         assert.equal(await firstStrip.locator(".ch-strip-identity").innerText(), "SY WW");
         assert.equal(await firstStrip.locator(".ch-instrument-summary select").count(), 0);
@@ -644,16 +683,19 @@ try {
         await firstStrip.getByRole("button", { name: "Edit VSTi", exact: true }).waitFor();
         assert.equal(await page.locator(".save-btn").isDisabled(), true,
             "editor visibility must not enable Save");
-        const controlHeights = await firstStrip.evaluate(strip => ({
-            vst: strip.querySelector(".ch-instrument-summary button").getBoundingClientRect().height,
-            fx: strip.querySelector(".ch-audio-fx").getBoundingClientRect().height,
-            output: strip.querySelector(".ch-output-routing select").getBoundingClientRect().height,
+        const controlHeights = await firstChair.evaluate(group => ({
+            vst: group.querySelector(".ch-instrument-summary button").getBoundingClientRect().height,
+            fx: group.querySelector(".ch-audio-fx").getBoundingClientRect().height,
+            output: group.querySelector(".ch-chair-output").getBoundingClientRect().height,
+            details: group.querySelector(".ch-details-btn").getBoundingClientRect().height,
         }));
         assert.equal(controlHeights.vst, 32);
         assert.equal(controlHeights.fx, 24, "FX management uses a compact header button");
         assert.equal(controlHeights.output, controlHeights.vst, "output and VSTi controls must have equal height");
-        assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(),
-            ['Pre-fader', 'Post-fader', 'Output']);
+        assert.equal(controlHeights.output, controlHeights.details, "chair output and layer details share a row");
+        assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader'],
+            "layers have no Output row");
+        assert.deepEqual(await firstChairStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader']);
         const headingsFit = await firstStrip.locator('.ch-section-heading').evaluateAll((headings) => headings.every((heading) => {
             const text = heading.querySelector('.ch-section-title').getBoundingClientRect();
             const button = heading.querySelector('button').getBoundingClientRect();
@@ -661,7 +703,7 @@ try {
         }));
         assert.ok(headingsFit, `${size}: labels and settings buttons do not overlap`);
 
-        const secondStrip = page.locator(".inst-group").nth(1).locator(".channel-strip");
+        const secondStrip = page.locator(".inst-group").nth(1).locator(".channel-strip:not(.chair-strip)");
         const selector = secondStrip.getByRole("combobox", { name: "Choose VSTi" });
         assert.equal(await selector.inputValue(), "0", "empty player must display a prompt, not a blank selection");
         assert.match(await selector.locator("option:checked").innerText(), /VSTi/);
@@ -700,7 +742,7 @@ try {
             id, name: i === 0 ? "Strings" : i === 1 ? "A very long hall reverb destination" : "Delay", gainDb: 0,
         }));
         window.__dispatchFromCpp({ type: "setGroupBusState", data: buses });
-        window.fixtureStrips[0].sends = buses.map((bus, i) => ({
+        window.fixtureChairBuses[0].sends = buses.map((bus, i) => ({
             id: `promoted-${i}`, busId: bus.id, gainDb: -12, enabled: i !== 1, showOnStrip: true, preFader: i >= 3,
         }));
         window.fixtureStrips[0].audio = {
@@ -714,10 +756,11 @@ try {
         window.fixtureStrips[2].audio = {
             preFaderInserts: [{ id: 'missing-fx', name: 'Missing FX', status: 'missing', bypassed: false }],
         };
-        window.fixtureStrips.find((s) => s.id === "chair-8-0").sends = [
+        window.fixtureChairBuses[8].sends = [
             { id: "one-send", busId: buses[0].id, gainDb: -18, enabled: true, showOnStrip: true, preFader: true },
         ];
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.publishChairBuses();
     });
     for (const size of ["compact", "comfortable", "large"]) {
         await viewButton.click(); await page.locator("#strip-size-select").selectOption(size);
@@ -725,7 +768,7 @@ try {
         const geometry = await page.evaluate(() => {
             const tracks = [...document.querySelectorAll(".fader-track")].map((e) => e.getBoundingClientRect());
             const sends = document.querySelector(".post-fader .promoted-sends");
-            const strip = document.querySelector(".channel-strip");
+            const strip = document.querySelector(".chair-strip");
             const pre = strip.querySelector('.ch-fx-section:not(.post-fader)');
             const post = strip.querySelector('.ch-fx-section.post-fader');
             const label = sends.querySelector('.destination').getBoundingClientRect();
@@ -734,9 +777,10 @@ try {
             const readout = sends.querySelector('.readout').getBoundingClientRect();
             return { tops: tracks.map((r) => r.top), bottoms: tracks.map((r) => r.bottom),
                 bandHeight: sends.clientHeight, scrollHeight: sends.scrollHeight,
-                ordered: strip.querySelector('.ch-instrument-summary').getBoundingClientRect().bottom <= pre.getBoundingClientRect().top
+                ordered: strip.querySelector('.ch-chair-blank').getBoundingClientRect().bottom <= pre.getBoundingClientRect().top
                     && pre.getBoundingClientRect().bottom <= post.getBoundingClientRect().top
-                    && post.getBoundingClientRect().bottom <= strip.querySelector('.ch-output-routing').getBoundingClientRect().top,
+                    && post.getBoundingClientRect().bottom <= strip.querySelector('.balance-control').getBoundingClientRect().top
+                    && strip.querySelector('.ch-mute-solo').getBoundingClientRect().bottom <= strip.querySelector('.ch-chair-output').getBoundingClientRect().top,
                 sendsInPost: post.contains(sends),
                 preSendCount: pre.querySelectorAll('.promoted-send').length,
                 preBandHeight: pre.querySelector('.promoted-sends').clientHeight,
@@ -747,7 +791,9 @@ try {
                 sectionTops: [...document.querySelectorAll('.channel-strip')].map((s) => [
                     s.querySelector('.ch-fx-section').getBoundingClientRect().top,
                     s.querySelector('.post-fader').getBoundingClientRect().top,
-                    s.querySelector('.ch-output-routing').getBoundingClientRect().top,
+                    s.querySelector('.balance-control').getBoundingClientRect().top,
+                    s.querySelector('.ch-mute-solo').getBoundingClientRect().top,
+                    s.querySelector('.ch-chair-output, .ch-details-btn').getBoundingClientRect().top,
                 ]),
                 fieldsFit: [...document.querySelectorAll(".promoted-sends .knob-control")].every((control) => {
                     const a = control.getBoundingClientRect(), b = control.closest(".promoted-sends").getBoundingClientRect();
@@ -757,7 +803,7 @@ try {
         assert.ok(Math.max(...geometry.tops) - Math.min(...geometry.tops) <= 1, `${size}: promoted fader tops align`);
         assert.ok(Math.max(...geometry.bottoms) - Math.min(...geometry.bottoms) <= 1, `${size}: promoted fader bottoms align`);
         assert.equal(geometry.bandHeight, size === "large" ? 72 : 104);
-        assert.ok(geometry.ordered, `${size}: VSTi, pre FX, post FX, output order`);
+        assert.ok(geometry.ordered, `${size}: blank VSTi row, pre FX, post FX, balance … output order`);
         assert.ok(geometry.sendsInPost, `${size}: promoted sends are inside post-fader effects`);
         assert.equal(geometry.preSendCount, 3, `${size}: pre-fader sends are in the pre-fader section`);
         assert.equal(geometry.preBandHeight, geometry.bandHeight);
@@ -765,14 +811,16 @@ try {
         assert.ok(geometry.horizontalReadout, `${size}: knob and readout are side by side`);
         assert.equal(geometry.dialWidth, 26);
         assert.equal(geometry.arrow, "→");
-        const headings = page.locator('.channel-strip .ch-fx-section:not(.post-fader) .ch-section-heading');
+        const headings = page.locator('.channel-strip:not(.chair-strip) .ch-fx-section:not(.post-fader) .ch-section-heading');
+        const chairHeadings = page.locator('.chair-strip .ch-fx-section:not(.post-fader) .ch-section-heading');
         assert.equal(await headings.nth(0).locator('.ch-insert-count').innerText(), size === 'compact' ? '1' : '1 FX');
         assert.equal(await headings.nth(1).locator('.ch-insert-count').innerText(), size === 'compact' ? '12' : '12 FX');
         assert.equal(await headings.nth(0).locator('.ch-insert-count.active').count(), 1);
         assert.equal(await headings.nth(1).locator('.ch-insert-count.active').count(), 0);
         assert.match(await headings.nth(1).locator('button').getAttribute('aria-label'), /12 inserts, all bypassed/);
         assert.equal(await headings.nth(2).locator('.ch-insert-count.active').count(), 0, 'missing is not active');
-        assert.equal(await headings.nth(8).locator('.ch-insert-count').count(), 0, 'sends alone do not count as inserts');
+        assert.equal(await chairHeadings.nth(8).locator('.ch-insert-count').count(), 0, 'sends alone do not count as inserts');
+        assert.match(await chairHeadings.nth(8).locator('button').getAttribute('title'), /0 inserts, 1 send/);
         assert.ok(await headings.evaluateAll((rows) => rows.every((row) => {
             const text = row.querySelector('.ch-section-title').getBoundingClientRect();
             const button = row.querySelector('button').getBoundingClientRect();
@@ -781,9 +829,9 @@ try {
             return text.right <= button.left + 1 && button.right <= bounds.right + 1
                 && (!badge || badge.right <= bounds.right + 1);
         })), `${size}: insert counts fit without overlapping headings`);
-        for (let section = 0; section < 3; ++section) {
+        for (let section = 0; section < 5; ++section) {
             const tops = geometry.sectionTops.map((s) => s[section]);
-            assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `${size}: section ${section} aligns across layers`);
+            assert.ok(Math.max(...tops) - Math.min(...tops) <= 1, `${size}: section ${section} aligns across layers and chairs`);
         }
         if (size === "large") {
             assert.equal(await page.locator('.ch-fx-section:not(.post-fader) .ch-fx-summary-name').first().innerText(), "Pre EQ");
@@ -822,24 +870,86 @@ try {
     ] }));
     assert.equal(await promoted.locator(".destination").first().innerText(), "Renamed return");
     await page.evaluate(() => {
-        window.fixtureStrips.forEach((s) => { s.sends = []; delete s.audio; });
+        window.fixtureStrips.forEach((s) => { delete s.audio; });
+        window.fixtureChairBuses.forEach((bus) => { bus.sends = []; });
         window.__dispatchFromCpp({ type: "setMixerState", data: window.fixtureStrips });
+        window.publishChairBuses();
         window.__dispatchFromCpp({ type: "setGroupBusState", data: [
             { id: "bus-strings", name: "Strings", gainDb: 0, muted: false, soloed: false },
         ] });
     });
+    // Selecting a chair strip selects the chair; a selected layer stands for
+    // its chair. A selected chair's Output routes every selected chair.
     const routedChair = page.locator(".inst-group").nth(8);
-    for (const bar of await routedChair.locator(".select-bar-top").all())
-        await bar.evaluate(element => element.dispatchEvent(new MouseEvent("click", {
-            bubbles: true, metaKey: true,
-        })));
+    const cmdClick = (locator) => locator.evaluate(element => element.dispatchEvent(new MouseEvent("click", {
+        bubbles: true, metaKey: true,
+    })));
+    await page.locator(".inst-group").nth(1).locator(".chair-strip .select-bar-top").click();
+    await cmdClick(page.locator(".inst-group").nth(2).locator(".channel-strip:not(.chair-strip) .select-bar-top"));
+    await cmdClick(routedChair.locator(".chair-strip .select-bar-top"));
+    await cmdClick(routedChair.locator(".channel-strip:not(.chair-strip) .select-bar-top").first());
+    assert.equal(await page.locator(".selection-badge").innerText(), "4 selected");
+    assert.match(await routedChair.locator(".ch-chair-output").getAttribute("title"), /all 3 selected chairs/);
     await page.evaluate(() => { window.fixtureMessages = []; });
-    await routedChair.locator(".ch-output-routing select").first().selectOption("bus-strings");
+    await routedChair.locator(".ch-chair-output").selectOption("bus-strings");
     const routeMessage = await page.evaluate(() => window.fixtureMessages.at(-1));
-    assert.equal(routeMessage.type, "setGroupStripDirectOutput");
-    assert.deepEqual(JSON.parse(routeMessage.payload[0]), ["chair-8-0", "chair-8-1"]);
+    assert.equal(routeMessage.type, "setChairsOutput");
+    assert.deepEqual(JSON.parse(routeMessage.payload[0]), ["chair:chair-1", "chair:chair-2", "chair:chair-8"]);
     assert.equal(routeMessage.payload[1], "bus-strings");
-    await routedChair.locator(".select-bar-top").first().click();
+    // An unselected chair routes alone; selected layers don't make it a group edit.
+    await page.locator(".inst-group").nth(3).locator(".ch-chair-output").selectOption("bus-strings");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setChairOutput", payload: ["chair:chair-3", "bus-strings"] });
+    // The bank counts chairs, not layers: chair 8 has two layers.
+    await page.evaluate(() => {
+        for (const id of ["chair:chair-1", "chair:chair-2", "chair:chair-8"])
+            window.fixtureChairBuses.find((bus) => bus.id === id).directOutputBusId = "bus-strings";
+        window.fixtureChairBuses[0].sends = [{ id: "s", busId: "bus-strings", gainDb: -12, enabled: true }];
+        window.publishChairBuses();
+    });
+    assert.equal(await page.locator(".bank .bus-header span").first().innerText(), "3 direct · 1 sends");
+    await page.evaluate(() => {
+        window.fixtureChairBuses.forEach((bus) => { bus.directOutputBusId = ""; bus.sends = []; });
+        window.publishChairBuses();
+    });
+    await routedChair.locator(".chair-strip .select-bar-top").click();
+    await routedChair.locator(".chair-strip .select-bar-top").click({ modifiers: ["Meta"] });
+    // The chair fader is the chair bus gain: it never rewrites layer gains.
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    const chairLevel = routedChair.getByRole("spinbutton", { name: "Flute 9 chair level in decibels", exact: true });
+    await chairLevel.fill("-4.5");
+    await chairLevel.press("Tab");
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.filter((m) => !/HistoryGesture$/.test(m.type))),
+        [{ type: "setGroupBusGain", payload: ["chair:chair-8", -4.5] }]);
+    assert.equal(await chairLevel.inputValue(), "-4.5");
+    await routedChair.getByRole("slider", { name: "Flute 9 chair level", exact: true }).dblclick();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setGroupBusGain", payload: ["chair:chair-8", 0] });
+    // Chair mute and solo address the chair bus; a muted chair dims its layers.
+    await routedChair.getByRole("button", { name: "Mute Flute 9 chair", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setGroupBusMute", payload: ["chair:chair-8", true] });
+    await page.evaluate(() => { window.fixtureChairBuses[8].muted = true; window.publishChairBuses(); });
+    assert.equal(await routedChair.locator(".channel-strip.suppressed").count(), 3);
+    await page.evaluate(() => { window.fixtureChairBuses[8].muted = false; window.fixtureChairBuses[0].soloed = true; window.publishChairBuses(); });
+    assert.equal(await routedChair.locator(".channel-strip.suppressed").count(), 3, "another chair's solo silences this one");
+    await page.getByRole("button", { name: "Clear Solos", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)), { type: "clearSolos", payload: [] });
+    await page.evaluate(() => { window.fixtureChairBuses[0].soloed = false; window.publishChairBuses(); });
+    assert.equal(await routedChair.locator(".channel-strip.suppressed").count(), 0);
+    // The chair's inserts open in Chair Audio, with bus insert commands.
+    await page.evaluate(() => {
+        window.fixtureChairBuses[8].audio.postFaderInserts = [{ id: "chair-comp", name: "Chair compressor", status: "loaded" }];
+        window.publishChairBuses();
+    });
+    await routedChair.locator(".chair-strip .post-fader .ch-audio-fx").click();
+    const chairAudio = page.getByRole("dialog", { name: "Audio effects for Flute 9", exact: true });
+    assert.match(await chairAudio.innerText(), /Chair compressor/);
+    await chairAudio.getByRole("button", { name: "Bypass", exact: true }).click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setGroupBusInsertBypassed", payload: ["chair:chair-8", "chair-comp", true] });
+    await chairAudio.getByRole("button", { name: "Close", exact: true }).click();
+    await page.evaluate(() => { window.fixtureChairBuses[8].audio.postFaderInserts = []; window.publishChairBuses(); });
     // Exercise real DOM gestures and bridge payloads, not source-text matches.
     await page.evaluate(() => {
         window.__dispatchFromCpp({ type: "setProjectSettings", data: {
@@ -991,7 +1101,7 @@ try {
         await busBank.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "bus-bank.png") });
     await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
     addBus = page.getByRole("dialog", { name: "Add Audio Bus", exact: true });
-    const routeSelected = addBus.getByRole("checkbox", { name: "Route the 1 selected layer to this bus", exact: true });
+    const routeSelected = addBus.getByRole("checkbox", { name: "Route the selected chair to this bus", exact: true });
     assert.ok(await routeSelected.isChecked());
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR) {
         await page.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "add-bus.png") });
@@ -1003,7 +1113,7 @@ try {
     assert.equal(routedAdd.payload[0], "Selected submix");
     const routedIds = JSON.parse(routedAdd.payload[1]);
     assert.equal(routedIds.length, 1);
-    assert.ok(await page.evaluate((id) => window.fixtureStrips.some((strip) => strip.id === id), routedIds[0]));
+    assert.deepEqual(routedIds, ["chair:chair-0"], "a selected layer routes its chair");
     await busBank.getByRole("button", { name: "+ Add Bus", exact: true }).click();
     await routeSelected.uncheck();
     await addBus.getByRole("textbox", { name: "New bus name", exact: true }).fill("Unrouted");
@@ -1085,9 +1195,10 @@ try {
     await page.getByRole("button", { name: "Settings…", exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
         { type: "showView", payload: ["settings"] });
-    // A locked three-layer chair: cross the target, restore from a serialized
-    // snapshot while siblings are silent, then lower the layer and recover the blend.
-    // The fixture only applies bridge messages; all compensation runs in the UI.
+    // A locked three-layer chair ("Keep blend level"): cross the blend target,
+    // restore from a serialized snapshot while siblings are silent, then lower
+    // the layer and recover the blend. The fixture only applies bridge
+    // messages; all compensation runs in the UI. The chair fader is separate.
     const installLockFixture = async (targetPage, snapshot) => targetPage.evaluate(snapshot => {
         window.lockFixture = snapshot;
         window.fixtureMessages = [];
@@ -1095,10 +1206,15 @@ try {
             window.__dispatchFromCpp({ type: "setChairState", data: [snapshot.chair] });
             window.__dispatchFromCpp({ type: "setProjectSettings", data: structuredClone(snapshot.settings) });
             window.__dispatchFromCpp({ type: "setMixerState", data: structuredClone(snapshot.strips) });
+            window.__dispatchFromCpp({ type: "setChairBusState", data: [structuredClone(snapshot.chairBus)] });
         };
         window.__JUCE__ = { backend: { emitEvent: (_event, request) => {
             const message = request.params[0];
             window.fixtureMessages.push(message);
+            if (message.type === "setGroupBusGain") {
+                snapshot.chairBus.gainDb = message.payload[1];
+                queueMicrotask(publish);
+            }
             if (message.type !== "setMixerControls") return;
             const [changes, , levels = []] = message.payload;
             snapshot.strips = snapshot.strips.map(s => ({ ...s, ...changes.find(c => c.id === s.id) }));
@@ -1109,8 +1225,10 @@ try {
     }, snapshot);
     const lockedSnapshot = {
         chair: { id: "locked", name: "Locked blend", family: "wind", role: "solo", port: 0, channel: 0, ordinal: 1, flatIndex: 0 },
+        chairBus: { id: "chair:locked", role: "chair", chairId: "locked", gainDb: 0, muted: false, soloed: false,
+            directOutputBusId: "", sends: [], audio: { balance: 0 } },
         strips: [0.5, 0.3, 0.2].map((power, i) => ({
-            id: `blend-${i}`, chairId: "locked", family: "wind", layerName: `Layer ${i + 1}`,
+            id: `blend-${i}`, chairId: "locked", chairBusId: "chair:locked", family: "wind", layerName: `Layer ${i + 1}`,
             library: "Blend", inputPort: 0, inputChannel: 0, gainDb: 10 * Math.log10(power),
             active: true, muted: false, soloed: false, pluginUid: 0,
         })),
@@ -1118,13 +1236,19 @@ try {
             chairLevels: { locked: { targetDb: 0, weights: { "blend-0": 0.5, "blend-1": 0.3, "blend-2": 0.2 } } } },
     };
     await installLockFixture(page, lockedSnapshot);
-    const targetSlider = page.getByRole("slider", { name: "Target level for Locked blend", exact: true });
-    const targetPosition = await targetSlider.inputValue();
+    const chairSlider = page.getByRole("slider", { name: "Locked blend chair level", exact: true });
+    const chairPosition = await chairSlider.inputValue();
+    const blendLevel = page.locator(".chair-strip .blend-level");
+    const lockButton = page.getByRole("button", { name: "Keep blend level for Locked blend", exact: true });
+    assert.equal(await lockButton.getAttribute("aria-pressed"), "true");
+    assert.equal(await blendLevel.innerText(), "Σ +0.0");
     const layerGain = page.locator('.channel-strip input[type="number"]').first();
     await layerGain.fill("3");
     await layerGain.press("Enter");
-    assert.equal(await targetSlider.inputValue(), targetPosition);
-    assert.match(await page.locator(".combined-level-marker").getAttribute("aria-label"), /Combined gain \+3.0 dB; target \+0.0 dB/);
+    assert.equal(await chairSlider.inputValue(), chairPosition, "layer edits never move the chair fader");
+    assert.equal(await blendLevel.innerText(), "Σ +3.0");
+    assert.ok(await blendLevel.evaluate((element) => element.classList.contains("off-target")));
+    assert.match(await blendLevel.getAttribute("title"), /\+3.0 dB can't reach its locked level \+0.0 dB/);
     const savedExcess = await page.evaluate(() => JSON.parse(JSON.stringify(window.lockFixture)));
     assert.deepEqual(savedExcess.strips.slice(1).map(s => s.gainDb), [-120, -120]);
     assert.equal(savedExcess.settings.chairLevels.locked.targetDb, 0);
@@ -1133,21 +1257,34 @@ try {
     await page.reload();
     await page.waitForSelector(".mixer-container");
     await installLockFixture(page, savedExcess);
-    assert.equal(await targetSlider.inputValue(), targetPosition);
+    assert.equal(await chairSlider.inputValue(), chairPosition);
     await layerGain.fill("-3");
     await layerGain.press("Enter");
-    assert.equal(await page.locator(".combined-level-marker").count(), 0);
+    assert.equal(await page.locator(".blend-level.off-target").count(), 0);
+    assert.equal(await blendLevel.innerText(), "Σ +0.0");
     const recovered = await page.evaluate(() => window.lockFixture);
     const powers = recovered.strips.map(s => Math.pow(10, s.gainDb / 10));
     assert.ok(Math.abs(powers.reduce((a, b) => a + b, 0) - 1) < 1e-9);
     assert.ok(Math.abs(powers[1] / powers[2] - 1.5) < 1e-9);
-    await targetSlider.focus();
-    await page.keyboard.press("PageUp");
-    assert.ok((await page.evaluate(() => window.lockFixture.settings.chairLevels.locked.targetDb)) > 0);
-    // Authoritative Undo state replaces the keyboard-edited target and shadow gains.
-    await installLockFixture(page, recovered);
-    assert.equal(await targetSlider.inputValue(), targetPosition);
-    assert.equal(await page.locator(".combined-level-marker").count(), 0);
+    // The chair fader raises the whole chair after the blend: layer gains and
+    // the blend target stay put.
+    const gainsBefore = recovered.strips.map((strip) => strip.gainDb);
+    await page.evaluate(() => { window.fixtureMessages = []; });
+    await chairSlider.focus();
+    await page.keyboard.press("PageDown");
+    await chairSlider.blur();
+    const afterFader = await page.evaluate(() => window.lockFixture);
+    assert.ok(afterFader.chairBus.gainDb < 0);
+    assert.deepEqual(afterFader.strips.map((strip) => strip.gainDb), gainsBefore);
+    assert.equal(afterFader.settings.chairLevels.locked.targetDb, 0);
+    assert.equal(await page.evaluate(() => window.fixtureMessages.filter((m) => m.type === "setMixerControls").length), 0);
+    // Authoritative Undo state replaces the fader shadow.
+    await installLockFixture(page, { ...recovered, chairBus: { ...recovered.chairBus, gainDb: 0 } });
+    assert.equal(await chairSlider.inputValue(), chairPosition);
+    assert.equal(await page.locator(".blend-level.off-target").count(), 0);
+    await lockButton.click();
+    assert.deepEqual(await page.evaluate(() => window.fixtureMessages.at(-1)),
+        { type: "setChairLevelLock", payload: ["locked", false] });
 
     // The standalone Debug window must render from index.html and honor both
     // its initial tab and later native focus requests.

@@ -1,8 +1,10 @@
 # Chair buses
 
-Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Phase 1
-(engine, saving and migration) is implemented; the chair strip (phase 2) and
-the lock (phase 3) are not. See [Phase 1 as built](#phase-1-as-built).
+Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Phases 1
+(engine, saving and migration), 2 (the chair strip) and 3 (the lock) are
+implemented; phase 4 (docs and the live smoke test) is not. See
+[Phase 1 as built](#phase-1-as-built) and [Phases 2 and 3 as
+built](#phases-2-and-3-as-built).
 
 ## Summary
 
@@ -250,10 +252,7 @@ sibling compensation remain one undo step, as now.
 - The render graph sums layers into chair buses, then routes each chair bus
   with the delay rules layers used to have. A layer's MIDI lead covers its
   chair bus rack and everything after it.
-- **Interim UI, until phase 2:** each layer still shows an Output selector and
-  sends, but they read and edit its chair bus. Changing them on one layer
-  changes every layer of that chair. Chair fader, inserts, mute and solo have
-  no controls yet. Chair meters are in the meter feed as `stereoChairs`.
+- Chair meters are in the meter feed as `stereoChairs`.
 - Layers without a chair (tests and free-standing strips in very old
   versions) get a private chair bus keyed `strip:<layer ID>`. A restore can't
   match that by ID, so their output and sends stay on the layer record and
@@ -264,6 +263,40 @@ sibling compensation remain one undo step, as now.
   chair buses of the version Fiddle starts on, and migrates its layer
   routing. Dorico reconnecting to the same version doesn't restore it again,
   so before this fix a restart left the mixer with no audio buses or routing.
+
+## Phases 2 and 3 as built
+
+- **Native state:** `setChairBusState` carries every chair bus (ID
+  `chair:<chair ID>`, `chairId`, gain, mute, solo, output, sends, rack),
+  pushed with `setGroupBusState` and after a new chair bus appears. Layer
+  records in `setMixerState` carry only `chairBusId`.
+- **Commands:** the routing commands are chair commands that take a chair bus
+  ID (or a layer ID, standing for its chair): `setChairOutput`,
+  `setChairsOutput`, `addChairSend`, `updateChairSend`, `removeChairSend`,
+  `setChairSendVisible`, `setChairSendPreFader`, and `addGroupBus`'s routed
+  chairs. Fader, balance, mute, solo and inserts use the bus commands with the
+  chair bus ID. Chair plug-in windows are named after the chair.
+- **Chair strip:** as in [Chair strip](#chair-strip), shown for every chair
+  with layers. The VSTi row is blank. The `Σ` readout takes the `-∞` tick's
+  line and the lock sits beside the chair level, so the chair strip needs no
+  extra height and every fader aligns. The chair fader is gold; layer faders
+  are blue.
+- **Layers** have no Output row and no sends. Removing the Output row gave
+  74 px to every fader. Channel Audio says the layer feeds its chair.
+- **Chair Audio** is the bus audio panel in chair mode: inserts, then sends.
+- **Mute and solo:** a muted chair, or one silenced by another chair's solo,
+  dims its chair strip and layers. Clear Solos appears for chair solos too.
+- **The lock** ("Keep blend level") replaced the thin chair fader: there is
+  no way to edit the blend target directly; the chair fader does that job.
+  [gain.md](gain.md) describes it.
+- **Selection:** clicking a chair strip's select bar selects the chair (its
+  chair bus ID joins the selection). A selected chair's Output routes every
+  chair the selection stands for; Add Bus routes those chairs. Layer commands
+  ignore selected chairs.
+- **Tests:** `MixerIntegrationTest` covers the chair-ID commands;
+  `browser-tests/chairLayout.mjs` covers chair strip width and alignment at
+  every strip size, sends on the chair strip, multi-chair Output and Add Bus,
+  chair fader/mute/solo messages, chair inserts and the locked blend.
 
 ## Implementation phases
 

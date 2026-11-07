@@ -10,23 +10,29 @@ const panelSource = readFileSync(
     new URL("../src/lib/ChannelAudioPanel.svelte", import.meta.url),
     "utf8",
 );
+const busPanelSource = readFileSync(
+    new URL("../src/lib/BusAudioPanel.svelte", import.meta.url),
+    "utf8",
+);
 
 test("instrument strips expose one spacious Audio FX panel", () => {
-    assert.match(mixerSource, /Manage \$\{location.toLowerCase\(\)\}-fader effects and sends/);
+    assert.match(mixerSource, /Manage \$\{location.toLowerCase\(\)\}-fader effects — /);
+    assert.match(mixerSource, /Manage \$\{chairLabel\} chair \$\{location.toLowerCase\(\)\}-fader effects and sends/);
     assert.match(mixerSource, /requestStripAudioState/);
     assert.match(mixerSource, /<ChannelAudioPanel/);
 });
 
-test("channel audio exposes pre/post-fader sends with destinations and levels", () => {
-    assert.match(panelSource, /aria-label="Send tap"/);
-    assert.match(panelSource, /<option value="preFader">Pre-fader/);
-    assert.match(panelSource, /<option value="postFader">Post-fader/);
-    for (const command of ["addStripSend", "updateStripSend", "removeStripSend", "setStripSendPreFader"])
-        assert.ok(panelSource.includes(command));
-    assert.match(panelSource, /<Knob label="Send level" unit="dB"/);
-    assert.match(panelSource, /Show on strip/);
-    assert.match(panelSource, /setStripSendVisible/);
-    assert.match(mixerSource, /<PromotedSends/);
+test("chair audio has the pre/post-fader sends; layers have none", () => {
+    assert.match(busPanelSource, /aria-label="Send tap"/);
+    assert.match(busPanelSource, /<option value="preFader">Pre-fader/);
+    assert.match(busPanelSource, /<option value="postFader">Post-fader/);
+    for (const command of ["addChairSend", "updateChairSend", "removeChairSend", "setChairSendPreFader", "setChairSendVisible"])
+        assert.ok(busPanelSource.includes(command));
+    assert.match(busPanelSource, /<Knob label="Send level" unit="dB"/);
+    assert.match(busPanelSource, /Show on strip/);
+    assert.match(busPanelSource, /\{#if isChair\}/);
+    assert.doesNotMatch(panelSource, /Send/);
+    assert.match(mixerSource, /<PromotedSends chair=\{chairBus\}/);
     assert.match(mixerSource, /buses=\{groupBuses\}/);
 });
 

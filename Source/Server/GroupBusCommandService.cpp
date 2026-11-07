@@ -9,13 +9,13 @@
 
 namespace fiddle {
 
-// Layer send commands edit the layer's chair bus: every layer of the chair
-// shares its sends (docs/chair-buses.md).
+// Sends and output belong to the chair bus; every layer of the chair shares
+// them (docs/chair-buses.md). Commands take a chair bus ID or a layer ID.
 namespace {
 template <typename Edit>
-bool editChairSends(MixerModel &mixer, UndoManager &undo, const juce::String &stripId,
+bool editChairSends(MixerModel &mixer, UndoManager &undo, const juce::String &chairId,
                     Edit &&edit, juce::String gesture = {}) {
-  auto *chair = mixer.chairBusForStrip(stripId);
+  auto *chair = mixer.chairBusFor(chairId);
   if (!chair) return false;
   auto sends = chair->sends;
   if (!edit(sends, gesture)) return false;
@@ -24,19 +24,19 @@ bool editChairSends(MixerModel &mixer, UndoManager &undo, const juce::String &st
 }
 } // namespace
 
-bool GroupBusCommandService::addStripSend(const juce::String &stripId, const juce::String &busId) {
+bool GroupBusCommandService::addChairSend(const juce::String &chairId, const juce::String &busId) {
   if (!mixer_.isAudioBus(busId)) return false;
-  return editChairSends(mixer_, undoManager_, stripId, [&](auto &sends, auto &) {
+  return editChairSends(mixer_, undoManager_, chairId, [&](auto &sends, auto &) {
     if (std::any_of(sends.begin(), sends.end(), [&](const auto &s) { return s.busId == busId; })) return false;
     sends.push_back({juce::Uuid().toString(), busId, -12.0f, true});
     return true;
   });
 }
 
-bool GroupBusCommandService::updateStripSend(const juce::String &stripId, const juce::String &sendId,
+bool GroupBusCommandService::updateChairSend(const juce::String &chairId, const juce::String &sendId,
                                             const juce::String &busId, float gainDb, bool enabled) {
   if (!mixer_.isAudioBus(busId) || !std::isfinite(gainDb) || gainDb < -120 || gainDb > 12) return false;
-  auto *chair = mixer_.chairBusForStrip(stripId);
+  auto *chair = mixer_.chairBusFor(chairId);
   if (!chair) return false;
   auto sends = chair->sends;
   const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
@@ -49,16 +49,16 @@ bool GroupBusCommandService::updateStripSend(const juce::String &stripId, const 
       mixer_, chair->id, chair->sends, std::move(sends), gesture));
 }
 
-bool GroupBusCommandService::removeStripSend(const juce::String &stripId, const juce::String &sendId) {
-  return editChairSends(mixer_, undoManager_, stripId, [&](auto &sends, auto &) {
+bool GroupBusCommandService::removeChairSend(const juce::String &chairId, const juce::String &sendId) {
+  return editChairSends(mixer_, undoManager_, chairId, [&](auto &sends, auto &) {
     sends.erase(std::remove_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; }), sends.end());
     return true;
   });
 }
 
-bool GroupBusCommandService::setStripSendVisible(const juce::String &stripId,
+bool GroupBusCommandService::setChairSendVisible(const juce::String &chairId,
                                                 const juce::String &sendId, bool visible) {
-  return editChairSends(mixer_, undoManager_, stripId, [&](auto &sends, auto &) {
+  return editChairSends(mixer_, undoManager_, chairId, [&](auto &sends, auto &) {
     const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
     if (found == sends.end()) return false;
     found->showOnStrip = visible;
@@ -66,9 +66,9 @@ bool GroupBusCommandService::setStripSendVisible(const juce::String &stripId,
   });
 }
 
-bool GroupBusCommandService::setStripSendPreFader(const juce::String &stripId,
+bool GroupBusCommandService::setChairSendPreFader(const juce::String &chairId,
                                                  const juce::String &sendId, bool preFader) {
-  return editChairSends(mixer_, undoManager_, stripId, [&](auto &sends, auto &) {
+  return editChairSends(mixer_, undoManager_, chairId, [&](auto &sends, auto &) {
     const auto found = std::find_if(sends.begin(), sends.end(), [&](const auto &s) { return s.id == sendId; });
     if (found == sends.end()) return false;
     found->preFader = preFader;
@@ -82,11 +82,11 @@ GroupBusCommandService::GroupBusCommandService(MixerModel &mixer,
     : mixer_(mixer), scanner_(scanner), undoManager_(undoManager) {}
 
 bool GroupBusCommandService::addGroupBus(
-    const juce::String &name, const std::vector<juce::String> &stripIds) {
+    const juce::String &name, const std::vector<juce::String> &chairIds) {
   if (name.trim().isEmpty())
     return false;
   undoManager_.perform(
-      std::make_unique<AddGroupBusAction>(mixer_, name, stripIds));
+      std::make_unique<AddGroupBusAction>(mixer_, name, chairIds));
   return true;
 }
 
@@ -219,34 +219,43 @@ bool GroupBusCommandService::setGroupBusInsertBypassed(
 bool GroupBusCommandService::toggleGroupBusInsertEditor(
     const juce::String &busId, const juce::String &slotId) {
   auto *bus = mixer_.getGroupBus(busId);
-  return bus && bus->audioEngine().toggleEditor(slotId, bus->name + " bus");
+  if (!bus)
+    return false;
+  // A chair bus has no name of its own; its window is named after the chair.
+  auto title = bus->name + " bus";
+  if (bus->isChairBus()) {
+    const auto name = chairName ? chairName(bus->chairKey) : juce::String{};
+    title = (name.isNotEmpty() ? name : juce::String("Chair")) + " chair";
+  }
+  return bus->audioEngine().toggleEditor(slotId, title);
 }
 
-bool GroupBusCommandService::setStripDirectOutput(
-    const juce::String &stripId, const juce::String &busId) {
-  auto *chair = mixer_.chairBusForStrip(stripId);
-  if (!chair || (busId.isNotEmpty() && !mixer_.isAudioBus(busId)))
+bool GroupBusCommandService::setChairOutput(
+    const juce::String &chairId, const juce::String &busId) {
+  auto *chair = mixer_.chairBusFor(chairId);
+  if (!chair || (busId.isNotEmpty() && !mixer_.isAudioBus(busId)) ||
+      chair->directOutputBusId == busId)
     return false;
   undoManager_.perform(std::make_unique<SetChairBusOutputAction>(
       mixer_, chair->id, chair->directOutputBusId, busId));
   return true;
 }
 
-bool GroupBusCommandService::setGroupStripDirectOutput(
-    const std::vector<juce::String> &stripIds, const juce::String &busId) {
-  if (stripIds.empty() ||
+bool GroupBusCommandService::setChairsOutput(
+    const std::vector<juce::String> &chairIds, const juce::String &busId) {
+  if (chairIds.empty() ||
       (busId.isNotEmpty() && !mixer_.isAudioBus(busId)))
     return false;
 
   // Several selected layers may share a chair; each chair changes once.
-  std::set<juce::String> uniqueIds, chairIds;
+  std::set<juce::String> uniqueIds, chairBusIds;
   std::vector<SetGroupStripOutputAction::PreviousOutput> previousOutputs;
-  previousOutputs.reserve(stripIds.size());
-  for (const auto &stripId : stripIds) {
-    auto *chair = mixer_.chairBusForStrip(stripId);
-    if (!chair || !uniqueIds.insert(stripId).second)
+  previousOutputs.reserve(chairIds.size());
+  for (const auto &id : chairIds) {
+    auto *chair = mixer_.chairBusFor(id);
+    if (!chair || !uniqueIds.insert(id).second)
       return false;
-    if (chairIds.insert(chair->id).second && chair->directOutputBusId != busId)
+    if (chairBusIds.insert(chair->id).second && chair->directOutputBusId != busId)
       previousOutputs.push_back({chair->id, chair->directOutputBusId});
   }
 

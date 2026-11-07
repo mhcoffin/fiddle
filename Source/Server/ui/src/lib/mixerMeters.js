@@ -22,6 +22,7 @@ export function parseMixerMeters(packet) {
         masterPeakDb: level(packet?.masterPeakDb),
         stereoStrips: stereoBank(packet?.stereoStrips),
         stereoBuses: stereoBank(packet?.stereoBuses),
+        stereoChairs: stereoBank(packet?.stereoChairs),
         master: stereoLevel(packet?.master),
         loudness: {
             valid: packet?.loudness?.valid === true,

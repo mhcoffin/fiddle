@@ -65,37 +65,37 @@ void GroupBusJsHandlers::registerHandlers() {
       });
     });
   }
-  router_.registerHandler("setStripSendPreFader", [this](const juce::var &payload) {
+  router_.registerHandler("setChairSendPreFader", [this](const juce::var &payload) {
     const auto a = args(payload);
     if (a.size() != 3 || !a[0].isString() || !a[1].isString() || !a[2].isBool()) return;
     const auto strip = a[0].toString(), send = a[1].toString();
     const bool preFader = bool(a[2]);
-    dispatch([this, strip, send, preFader] { notify(commands_.setStripSendPreFader(strip, send, preFader)); });
+    dispatch([this, strip, send, preFader] { notify(commands_.setChairSendPreFader(strip, send, preFader)); });
   });
-  router_.registerHandler("setStripSendVisible", [this](const juce::var &payload) {
+  router_.registerHandler("setChairSendVisible", [this](const juce::var &payload) {
     const auto a = args(payload);
     if (a.size() != 3 || !a[0].isString() || !a[1].isString() || !a[2].isBool()) return;
     const auto strip = a[0].toString(), send = a[1].toString();
     const bool visible = bool(a[2]);
-    dispatch([this, strip, send, visible] { notify(commands_.setStripSendVisible(strip, send, visible)); });
+    dispatch([this, strip, send, visible] { notify(commands_.setChairSendVisible(strip, send, visible)); });
   });
-  router_.registerHandler("addStripSend", [this](const juce::var &payload) {
+  router_.registerHandler("addChairSend", [this](const juce::var &payload) {
     const auto a = args(payload); if (a.size() != 2 || !a[0].isString() || !a[1].isString()) return;
     const auto strip = a[0].toString(), bus = a[1].toString();
-    dispatch([this, strip, bus] { notify(commands_.addStripSend(strip, bus)); });
+    dispatch([this, strip, bus] { notify(commands_.addChairSend(strip, bus)); });
   });
-  router_.registerHandler("updateStripSend", [this](const juce::var &payload) {
+  router_.registerHandler("updateChairSend", [this](const juce::var &payload) {
     const auto a = args(payload);
     if (a.size() != 5 || !a[0].isString() || !a[1].isString() || !a[2].isString() ||
         !(a[3].isDouble() || a[3].isInt() || a[3].isInt64()) || !a[4].isBool()) return;
     const auto strip = a[0].toString(), send = a[1].toString(), bus = a[2].toString();
     const float gain = static_cast<float>(double(a[3])); const bool enabled = bool(a[4]);
-    dispatch([this, strip, send, bus, gain, enabled] { notify(commands_.updateStripSend(strip, send, bus, gain, enabled)); });
+    dispatch([this, strip, send, bus, gain, enabled] { notify(commands_.updateChairSend(strip, send, bus, gain, enabled)); });
   });
-  router_.registerHandler("removeStripSend", [this](const juce::var &payload) {
+  router_.registerHandler("removeChairSend", [this](const juce::var &payload) {
     const auto a = args(payload); if (a.size() != 2 || !a[0].isString() || !a[1].isString()) return;
     const auto strip = a[0].toString(), send = a[1].toString();
-    dispatch([this, strip, send] { notify(commands_.removeStripSend(strip, send)); });
+    dispatch([this, strip, send] { notify(commands_.removeChairSend(strip, send)); });
   });
   router_.registerHandler("requestGroupBusState", [this](const juce::var &) {
     dispatch([this] {
@@ -184,18 +184,18 @@ void GroupBusJsHandlers::registerHandlers() {
         callbacks_.requested();
     });
   });
-  router_.registerHandler("setStripDirectOutput", [this](const juce::var &payload) {
+  router_.registerHandler("setChairOutput", [this](const juce::var &payload) {
     const auto a = args(payload); if (a.size() < 2) return;
     const auto strip = a[0].toString(), bus = a[1].toString();
-    dispatch([this, strip, bus] { notify(commands_.setStripDirectOutput(strip, bus)); });
+    dispatch([this, strip, bus] { notify(commands_.setChairOutput(strip, bus)); });
   });
-  router_.registerHandler("setGroupStripDirectOutput", [this](const juce::var &payload) {
+  router_.registerHandler("setChairsOutput", [this](const juce::var &payload) {
     const auto a = args(payload); if (a.size() < 2) return;
     const auto strips = stripIds(a[0]);
     const auto bus = a[1].toString();
     if (strips.empty()) return;
     dispatch([this, strips, bus] {
-      notify(commands_.setGroupStripDirectOutput(strips, bus));
+      notify(commands_.setChairsOutput(strips, bus));
     });
   });
 }

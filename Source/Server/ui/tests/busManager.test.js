@@ -15,8 +15,9 @@ test("buses are added from the bank header with a name dialog", () => {
     assert.doesNotMatch(bankSource, />Manage</);
     assert.match(bankSource, /event\.stopPropagation\(\); onAddBus\(\);/);
     assert.match(mixerSource, /<AddBusDialog/);
-    assert.match(mixerSource, /dispatchCpp\("addGroupBus", name, JSON\.stringify\(routeSelection \? selectedLayerIds\(\) : \[\]\)\)/);
-    assert.match(addSource, /Route the \{selectedCount\} selected/);
+    // Selecting a layer counts as selecting its chair.
+    assert.match(mixerSource, /dispatchCpp\("addGroupBus", name, JSON\.stringify\(routeSelection \? selectedChairs\(\) : \[\]\)\)/);
+    assert.match(addSource, /selected chairs/);
     assert.match(addSource, /already exists/);
 });
 
@@ -30,10 +31,12 @@ test("each bus has Edit details… for rename and delete", () => {
     assert.doesNotMatch(detailsSource, /window\.confirm/);
 });
 
-test("direct-output routing is visible on every mixer strip", () => {
+test("chairs route from the chair strip; layers always feed their chair", () => {
     assert.doesNotMatch(layerDetailsSource, /Audio output/);
-    assert.match(mixerSource, /ch-output-routing/);
-    assert.match(mixerSource, /Audio output for/);
-    assert.match(mixerSource, /setStripDirectOutput/);
-    assert.match(mixerSource, /setGroupStripDirectOutput/);
+    assert.match(mixerSource, /class="ch-chair-output"/);
+    assert.match(mixerSource, /Output for \$\{chairLabel\} chair/);
+    assert.match(mixerSource, /dispatchCpp\("setChairOutput", chairBusId, busId\)/);
+    assert.match(mixerSource, /dispatchCpp\("setChairsOutput", JSON\.stringify\(chairsToRoute\), busId\)/);
+    assert.doesNotMatch(mixerSource, /StripDirectOutput/);
+    assert.match(bankSource, /chairBuses\.filter\(\(chair\) => chair\.directOutputBusId === busId\)/);
 });

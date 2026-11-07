@@ -20,6 +20,7 @@
     import {
         addStripRange,
         flattenVisualStripOrder,
+        selectedChairBusIds,
     } from "./mixerSelection.js";
     import {
         FAMILY_ORDER,
@@ -35,7 +36,7 @@
         readLibraryBarVisible,
         writeLibraryBarVisible,
     } from "./uiPreferences.js";
-import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from "./lockedGroupGain.js";
+    import { captureChairLevel, planLockedLayerChange } from "./lockedGroupGain.js";
     import { projectSaveButton } from "./projectSaveUi.js";
 
     let meters = $state(parseMixerMeters(null));
@@ -64,6 +65,11 @@ import { captureChairLevel, planLockedLayerChange, planChairTargetChange } from 
     });
     let masterAudioOpen = $state(false);
     let groupBuses = $state([]);
+    // Every chair's bus (docs/chair-buses.md): the chair strip's fader,
+    // inserts, sends and output. Keyed by chair bus ID.
+    let chairBuses = $state([]);
+    let chairBusById = $derived(new Map(chairBuses.map((bus) => [bus.id, bus])));
+    let chairAudioBusId = $state("");
     let busAudioBusId = $state("");
     let addBusOpen = $state(false);
     let busDetailsId = $state("");
@@ -176,6 +182,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             busAudioBusId = "";
         if (busDetailsId && !groupBuses.some((bus) => bus.id === busDetailsId))
             busDetailsId = "";
+    });
+    onFromCpp("setChairBusState", (data) => {
+        chairBuses = Array.isArray(data) ? data : [];
+        if (faderDragging.size === 0)
+            for (const id of Object.keys(chairGainShadow)) delete chairGainShadow[id];
+        if (chairAudioBusId && !chairBuses.some((bus) => bus.id === chairAudioBusId))
+            chairAudioBusId = "";
     });
     onFromCpp("setStripAudioState", (data) => {
         if (!data || typeof data !== "object" || !data.stripId) return;
@@ -318,11 +331,14 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         selectedIds = new Set();
         lastClickedId = null;
     };
-    /** Selected IDs that are still layers in the mixer (Add Bus routes them). */
+    // The selection holds layer IDs and chair bus IDs (chair strips).
+    /** Selected IDs that are still layers in the mixer. */
     const selectedLayerIds = () => [...selectedIds].filter((id) => strips.some((strip) => strip.id === id));
+    /** The chairs the selection stands for; a selected layer counts as its chair. */
+    const selectedChairs = () => selectedChairBusIds(selectedIds, strips, new Set(chairBusById.keys()));
 
-    /** JSON-encode the selected strip IDs for group native calls */
-    const selectedIdsJson = () => JSON.stringify([...selectedIds]);
+    /** JSON-encode the selected layer IDs for group native calls */
+    const selectedIdsJson = () => JSON.stringify(selectedLayerIds());
 
     onMount(() => {
         dispatchCpp("requestBranches");
@@ -344,6 +360,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             else if (busDetailsId) busDetailsId = "";
             else if (layerDetailsStripId) layerDetailsStripId = "";
             else if (channelAudioStripId) channelAudioStripId = "";
+            else if (chairAudioBusId) chairAudioBusId = "";
             else if (busAudioBusId) busAudioBusId = "";
             else if (masterAudioOpen) masterAudioOpen = false;
             else clearSelection();
@@ -416,12 +433,14 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         channelAudio = null;
         layerDetailsStripId = strip.id;
     };
-    const setDirectOutput = (stripId, busId) => {
-        if (isMultiSelected && selectedIds.has(stripId)) {
-            dispatchCpp("setGroupStripDirectOutput", selectedIdsJson(), busId);
+    /** Route a chair, or every selected chair when this one is selected. */
+    const setChairOutput = (chairBusId, busId) => {
+        const chairsToRoute = selectedIds.has(chairBusId) ? selectedChairs() : [];
+        if (chairsToRoute.length > 1) {
+            dispatchCpp("setChairsOutput", JSON.stringify(chairsToRoute), busId);
             return;
         }
-        dispatchCpp("setStripDirectOutput", stripId, busId);
+        dispatchCpp("setChairOutput", chairBusId, busId);
     };
     const loadExpressionMap = (stripId, entityID) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
@@ -460,7 +479,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     // ── Fader display smoothing ─────────────────────────────
     // Display positions ease toward target values via requestAnimationFrame.
-    // Key = stripId or "master:<groupKey>". Value = current display pos (0-1000).
+    // Key = stripId or "chair:<chair bus ID>". Value = current display pos (0-1000).
     // When a fader is being user-dragged, smoothing is bypassed.
     const EASE_MS = 120;
     let faderDisplayPos = $state(/** @type {Record<string, number>} */ ({}));
@@ -553,16 +572,13 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         }
     }
 
-    /** Ease all faders in a group (strips + master) to new computed positions.
+    /** Ease a chair's layer faders to new computed positions.
      *  Call AFTER setting gains/mute so computed positions are correct. */
     const easeGroupFaders = (instrGroup) => {
         for (const s of instrGroup.strips) {
             const db = gainShadow[s.id] ?? gainShadowRaw[s.id] ?? s.gainDb ?? 0;
             easeFaderTo(s.id, Math.round(dbToPos(db) * 1000));
         }
-        const masterKey = `master:${instrGroup.key}`;
-        const masterDb = getMasterDb(instrGroup);
-        easeFaderTo(masterKey, Math.round(dbToPos(masterDb) * 1000));
     };
 
     const setGain = (stripId, db) => {
@@ -665,7 +681,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         if (!strip) return;
         const newVal = !strip.muted;
         if (isMultiSelected && selectedIds.has(stripId)) {
-            for (const id of selectedIds) {
+            for (const id of selectedLayerIds()) {
                 queueMixerControl(id, { muted: newVal });
             }
         } else {
@@ -716,7 +732,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         if (!strip) return;
         const newVal = !strip.soloed;
         if (isMultiSelected && selectedIds.has(stripId)) {
-            for (const id of selectedIds) {
+            for (const id of selectedLayerIds()) {
                 queueMixerControl(id, { soloed: newVal });
             }
         } else {
@@ -746,7 +762,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         if (isNaN(v)) v = 0;
         v = Math.max(-120, Math.min(6, v));
         if (isMultiSelected && selectedIds.has(strip.id)) {
-            for (const id of selectedIds) setGain(id, v);
+            for (const id of selectedLayerIds()) setGain(id, v);
         } else {
             const group = groupedStrips.flatMap(g => g.instrGroups).find(g => g.strips.some(s => s.id === strip.id));
             if (group) handleGroupFaderInput(group, strip, dbToPos(v));
@@ -788,8 +804,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         const gm = getGroupMaster(group.key);
         return Number.isFinite(gm.targetDb) ? gm : captureChairLevel(groupGainState(group), anySoloed);
     };
-    const getMasterDb = (group) => getGroupMaster(group.key).lockSum
-        ? getChairLevel(group).targetDb : getGroupDb(group);
     const rememberChairLevel = (group, state) => {
         chairLevelShadow[group.key] = { lockSum: true, ...state };
         pendingChairLevels.set(group.key, { id: group.key, targetDb: state.targetDb, weights: state.weights });
@@ -812,24 +826,20 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         return dbFromGain(Math.sqrt(gp));
     };
 
-    /**
-     * Master fader drag → scale all unmuted strip powers proportionally.
-     * newGroupPower / oldGroupPower gives the scale factor for each strip's power.
-     */
-    const handleMasterFaderInput = (instrGroup, pos) => batchMixerEdit("Adjust layer gains", () => {
-        const newGroupDb = Math.round(posToDB(pos) * 10) / 10;
-        const locked = getGroupMaster(instrGroup.key).lockSum;
-        const plan = planChairTargetChange(groupGainState(instrGroup), newGroupDb,
-            locked ? getChairLevel(instrGroup) : captureChairLevel(groupGainState(instrGroup), anySoloed),
-            anySoloed);
-        if (locked) rememberChairLevel(instrGroup, plan.state);
-        for (const change of plan.changes) setGainRaw(change.id, change.gainDb);
-    });
-
-    /** Double-click master fader → same effect as sliding to 0 dB */
-    const handleMasterFaderReset = (instrGroup) => {
-        handleMasterFaderInput(instrGroup, dbToPos(0));
+    // ── Chair bus fader ───────────────────────────────────────
+    // The chair fader is a plain gain after the layers are summed; it never
+    // changes layer gains. The shadow holds the dragged value until native
+    // state catches up.
+    const chairGainShadow = $state({});
+    const chairGainDb = (bus) => chairGainShadow[bus.id] ?? bus.gainDb ?? 0;
+    const setChairGain = (bus, db) => {
+        const clamped = Math.max(FADER_MIN, Math.min(FADER_MAX, db));
+        chairGainShadow[bus.id] = clamped;
+        dispatchCpp("setGroupBusGain", bus.id, clamped);
     };
+    let anyChairSoloed = $derived(chairBuses.some((bus) => bus.soloed));
+    /** A muted chair, or one silenced by another chair's solo. */
+    const chairSilenced = (bus) => Boolean(bus && (bus.muted || (anyChairSoloed && !bus.soloed)));
 
     /**
      * Individual strip fader drag within a group.
@@ -842,7 +852,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         const newDb = Math.round(posToDB(pos) * 10) / 10;
         if (isMultiSelected && selectedIds.has(strip.id)) {
             const delta = newDb - (gainShadow[strip.id] ?? strip.gainDb ?? 0);
-            for (const id of selectedIds) {
+            for (const id of selectedLayerIds()) {
                 const selected = strips.find(s => s.id === id);
                 if (selected) setGainRaw(id, (gainShadow[id] ?? selected.gainDb ?? 0) + delta);
             }
@@ -939,6 +949,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 group.instrGroups.push({
                     key: chair.id,
                     chairId: chair.id,
+                    chairBusId: `chair:${chair.id}`,
                     chair,
                     label: chair.name,
                     portLabel: `P${chair.port + 1}.${chair.channel + 1}`,
@@ -994,11 +1005,12 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 return instrumentScoreOrder(inputA?.entityID) - instrumentScoreOrder(inputB?.entityID);
             });
 
-            // Second-level grouping: by inputPort:inputChannel (instrument groups)
+            // Second-level grouping: one group per chair bus (layers without
+            // a chair each have their own).
             const instrMap = new Map();
             const instrOrder = []; // preserve the sort order above
             for (const strip of g.strips) {
-                const key = `${strip.inputPort}:${strip.inputChannel}`;
+                const key = strip.chairBusId || `${strip.inputPort}:${strip.inputChannel}`;
                 if (!instrMap.has(key)) {
                     const input = availableInputs.find(
                         (i) => i.port === strip.inputPort && i.channel === strip.inputChannel,
@@ -1009,6 +1021,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                             : "";
                     instrMap.set(key, {
                         key,
+                        chairBusId: strip.chairBusId || "",
                         label: input ? (input.label || input.name) : (portLabel || "—"),
                         portLabel,
                         strips: [],
@@ -1022,12 +1035,25 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         return groups;
     });
     let flatStripOrder = $derived(flattenVisualStripOrder(groupedStrips));
-    // Every rendered layer shares the same send band; cap its height, not the
+    // Every rendered strip shares the same send band; cap its height, not the
     // number of promoted sends. Longer lists scroll without consuming faders.
-    const sendsAt = (strip, location) => (strip.sends || []).filter((send) => !!send.preFader === (location === "Pre"));
+    // Only chair strips have sends.
+    const sendsAt = (bus, location) => (bus?.sends || []).filter((send) => !!send.preFader === (location === "Pre"));
+    let renderedChairBuses = $derived(flatStripOrder.map((id) => chairBusById.get(id)).filter(Boolean));
     let sendRows = $derived(Object.fromEntries(["Pre", "Post"].map((location) => [location,
-        Math.min(2, Math.max(0, ...strips.filter((strip) => flatStripOrder.includes(strip.id))
-            .map((strip) => sendsAt(strip, location).filter((send) => send.showOnStrip).length)))])));
+        Math.min(2, Math.max(0, ...renderedChairBuses
+            .map((bus) => sendsAt(bus, location).filter((send) => send.showOnStrip).length)))])));
+    const chairInserts = (bus) => [
+        ...(bus?.audio?.preFaderInserts || []).map((insert) => ({ ...insert, location: "Pre" })),
+        ...(bus?.audio?.postFaderInserts || []).map((insert) => ({ ...insert, location: "Post" })),
+    ];
+    const insertSummaryOf = (inserts) => {
+        const active = inserts.filter((insert) => !insert.bypassed && insert.status === "loaded").length;
+        return `${inserts.length} insert${inserts.length === 1 ? "" : "s"}${inserts.length ? active ? `, ${active} active`
+            : inserts.every((insert) => insert.bypassed) ? ", all bypassed" : ", none active" : ""}`;
+    };
+    const chairNameOf = (busId) => groupedStrips.flatMap((group) => group.instrGroups)
+        .find((instrGroup) => instrGroup.chairBusId === busId)?.label || "";
     let sendRowHeight = $derived(stripSize === "large" ? 36 : 52);
     const sendSpan = (rows) => rows ? rows * sendRowHeight + 5 : 0;
 
@@ -1036,7 +1062,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 <div
     class="mixer-container"
     class:compact-strips={stripSize === "compact"}
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 380 : 310}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 306 : 236}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1060,7 +1086,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             {#if selectedIds.size > 1}
                 <span class="selection-badge">{selectedIds.size} selected</span>
             {/if}
-            {#if anySoloed || anyBusSoloed}
+            {#if anySoloed || anyBusSoloed || anyChairSoloed}
                 <button class="toolbar-btn solo-clear" onclick={clearSolos}>Clear Solos</button>
             {/if}
         </div>
@@ -1211,80 +1237,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                             >{stripSize === "compact" ? "+ Layer" : "Add Layer"}</button>
                                         {/if}
                                     </div>
-                                    <!-- inst-body: master-strip + strips-row side by side -->
+                                    <!-- inst-body: the layers, then the chair strip -->
                                     <div class="inst-body">
-                                    <!-- Master strip: only for multi-strip groups -->
-                                    {#if instrGroup.strips.length > 1}
-                                        {@const gm = getGroupMaster(instrGroup.key)}
-                                        {@const masterDb = getMasterDb(instrGroup)}
-                                        {@const combinedDb = getGroupDb(instrGroup)}
-                                        {@const offTarget = gm.lockSum && Math.abs(combinedDb - masterDb) > 0.05}
-                                        <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                        <!-- svelte-ignore a11y_no_static_element_interactions -->
-                                        <div class="master-strip" onclick={(e) => e.stopPropagation()}>
-                                            <!-- Top spacer: matches .select-bar height so fader starts at same Y -->
-                                            <div class="master-strip-top-spacer"></div>
-                                            <!-- Fader section: flex:1 so it takes same span as .ch-fader -->
-                                            <div class="ch-fader" style="flex:1;min-height:0">
-                                                <span class="fader-tick fader-top">+6</span>
-                                                <div class="fader-meter-row">
-                                                    <div class="fader-track master-track">
-                                                        {#if offTarget}
-                                                            <span class="combined-level-marker"
-                                                                style:bottom={`calc(8px + (100% - 16px) * ${dbToPos(combinedDb)})`}
-                                                                role="img" aria-label={`Combined gain ${formatDb(combinedDb)} dB; target ${formatDb(masterDb)} dB`}
-                                                                title={`Combined gain: ${formatDb(combinedDb)} dB — target: ${formatDb(masterDb)} dB (gain estimate, not measured loudness)`}></span>
-                                                        {/if}
-                                                        <input
-                                                            class="fader-slider master-slider"
-                                                            aria-label={gm.lockSum ? `Target level for ${instrGroup.label}` : `Combined level for ${instrGroup.label}`}
-                                                            type="range"
-                                                            min="0"
-                                                            max="1000"
-                                                            step="1"
-                                                            value={getFaderPos(`master:${instrGroup.key}`, Math.round(dbToPos(masterDb) * 1000))}
-                                                            onpointerdown={() => {
-                                                                const mk = `master:${instrGroup.key}`;
-                                                                const cur = getFaderPos(mk, Math.round(dbToPos(masterDb) * 1000));
-                                                                faderAnchor[mk] = cur;
-                                                            }}
-                                                            oninput={(e) => {
-                                                                const mk = `master:${instrGroup.key}`;
-                                                                faderDragging.add(mk);
-                                                                const rawPos = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
-                                                                const effectivePos = fineFaderPos(mk, rawPos, e.shiftKey);
-                                                                snapFaderTo(mk, effectivePos);
-                                                                handleMasterFaderInput(instrGroup, effectivePos / 1000);
-                                                            }}
-                                                            onpointerup={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
-                                                            onpointercancel={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
-                                                            onkeyup={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
-                                                            onblur={() => { faderDragging.delete(`master:${instrGroup.key}`); }}
-                                                            onpointerleave={() => { faderDragging.delete(`master:${instrGroup.key}`); delete faderAnchor[`master:${instrGroup.key}`]; }}
-                                                            ondblclick={() => handleMasterFaderReset(instrGroup)}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <span class="fader-tick fader-bot">-∞</span>
-                                                <div class="master-db" class:off-target={offTarget}
-                                                    title={gm.lockSum ? `Locked target: ${formatDb(masterDb)} dB; combined: ${formatDb(combinedDb)} dB` : "Combined layer gain"}>
-                                                    <span>{formatDb(masterDb)}</span>
-                                                    {#if offTarget}<span class="combined-db">Σ {formatDb(combinedDb)}</span>{/if}
-                                                </div>
-                                            </div>
-                                            <!-- Bottom spacer: matches mute-solo + xmap + plugin rows -->
-                                            <div class="master-strip-bot-spacer">
-                                                <button
-                                                    class="sum-lock-btn"
-                                                    class:sum-lock-active={gm.lockSum}
-                                                    title={gm.lockSum
-                                                        ? "Sum Lock ON — fader sets the target; amber marker shows any difference in combined gain"
-                                                        : "Sum Lock OFF — master tracks sum of all faders"}
-                                                    onclick={() => dispatchCpp("setChairLevelLock", instrGroup.key, !gm.lockSum)}
-                                                >{gm.lockSum ? '🔒' : '🔓'}</button>
-                                            </div>
-                                        </div>
-                                    {/if}
                                     <div class="strips-row">
                                         {#if instrGroup.chairId && instrGroup.strips.length === 0}
                                             <div class="empty-chair">
@@ -1298,7 +1252,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                             <div
                                                 class="channel-strip"
                                                 class:selected={selectedIds.has(strip.id)}
-                                                class:suppressed={!isAudible(strip)}
+                                                class:suppressed={!isAudible(strip) || chairSilenced(chairBusById.get(instrGroup.chairBusId))}
                                                 class:inactive={strip.active === false}
                                                 onclick={(e) => e.stopPropagation()}
                                             >
@@ -1354,17 +1308,17 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                     {#each ["Pre", "Post"] as location}
                                                         {@const inserts = visibleStripInserts(strip).filter((insert) => insert.location === location)}
                                                         {@const activeInserts = inserts.filter((insert) => !insert.bypassed && insert.status === "loaded").length}
-                                                        {@const insertSummary = `${inserts.length} insert${inserts.length === 1 ? "" : "s"}${inserts.length ? activeInserts ? `, ${activeInserts} active` : inserts.every((insert) => insert.bypassed) ? ", all bypassed" : ", none active" : ""}`}
+                                                        {@const insertSummary = insertSummaryOf(inserts)}
                                                         <section class="ch-strip-section ch-fx-section" class:post-fader={location === "Post"}
                                                             aria-label={`${location}-fader effects`}>
                                                         <div class="ch-section-heading">
                                                         <span class="ch-section-title">{location}-fader</span>
                                                         <button
                                                             class="ch-audio-fx"
-                                                            class:has-effects={inserts.length > 0 || sendsAt(strip, location).length > 0}
+                                                            class:has-effects={inserts.length > 0}
                                                             onclick={() => openChannelAudio(strip)}
-                                                            aria-label={`Manage ${location.toLowerCase()}-fader effects and sends — ${insertSummary}`}
-                                                            title={`${location}-fader: ${insertSummary}, ${sendsAt(strip, location).length} sends — manage`}
+                                                            aria-label={`Manage ${location.toLowerCase()}-fader effects — ${insertSummary}`}
+                                                            title={`${location}-fader: ${insertSummary} — manage`}
                                                         >{#if inserts.length > 0}<span class="ch-insert-count" class:active={activeInserts > 0} aria-hidden="true">{inserts.length}{stripSize === "compact" ? "" : " FX"}</span>{/if}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h12m4 0h2M11 3v6M7 9v6M17 15v6" /></svg></button>
                                                         </div>
                                                         {#if stripSize === "large"}
@@ -1394,32 +1348,9 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                             {/if}
                                                         </div>
                                                         {/if}
-                                                        {#if sendRows[location] > 0}
-                                                            <PromotedSends {strip} buses={groupBuses} horizontal={stripSize === "large"}
-                                                                preFader={location === "Pre"} rows={sendRows[location]} />
-                                                        {/if}
                                                         </section>
                                                     {/each}
                                                 </div>
-
-                                                <label
-                                                    class="ch-strip-section ch-output-routing"
-                                                    title={isMultiSelected && selectedIds.has(strip.id)
-                                                        ? `Route all ${selectedIds.size} selected strips`
-                                                        : "Audio output destination"}
-                                                >
-                                                    <span class="ch-section-title">Output</span>
-                                                    <select
-                                                        aria-label={`Audio output for ${strip.layerName || strip.library || "layer"}`}
-                                                        value={strip.directOutputBusId || ""}
-                                                        onchange={(event) => setDirectOutput(strip.id, event.currentTarget.value)}
-                                                    >
-                                                        <option value="">Master</option>
-                                                        {#each groupBuses as bus}
-                                                            <option value={bus.id}>{bus.name}</option>
-                                                        {/each}
-                                                    </select>
-                                                </label>
 
                                                 <BalanceControl value={strip.audio?.balance ?? 0}
                                                     label={`${strip.layerName || strip.library || "Layer"} stereo balance`}
@@ -1519,6 +1450,218 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 ></div>
                                             </div>
                                         {/each}
+                                        {#if instrGroup.strips.length > 0 && chairBusById.has(instrGroup.chairBusId)}
+                                            {@const chairBus = chairBusById.get(instrGroup.chairBusId)}
+                                            {@const chairLabel = instrGroup.label}
+                                            {@const multiLayer = instrGroup.strips.length > 1}
+                                            {@const locked = multiLayer && getGroupMaster(instrGroup.key).lockSum}
+                                            {@const blendDb = getGroupDb(instrGroup)}
+                                            {@const blendTargetDb = locked ? getChairLevel(instrGroup).targetDb : blendDb}
+                                            {@const offTarget = locked && Math.abs(blendDb - blendTargetDb) > 0.05}
+                                            {@const faderKey = `chair:${chairBus.id}`}
+                                            {@const chairFaderPos = Math.round(dbToPos(chairGainDb(chairBus)) * 1000)}
+                                            {@const chosenChairs = selectedIds.has(chairBus.id) ? selectedChairs().length : 0}
+                                            <!-- The chair strip: all the chair's layers mix into its bus. -->
+                                            <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+                                            <div
+                                                class="channel-strip chair-strip"
+                                                class:selected={selectedIds.has(chairBus.id)}
+                                                class:suppressed={chairSilenced(chairBus)}
+                                                role="group"
+                                                aria-label={`${chairLabel} chair`}
+                                                onclick={(e) => e.stopPropagation()}
+                                            >
+                                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                                <div
+                                                    class="select-bar select-bar-top"
+                                                    style="background: {group.colors.accent};"
+                                                    onclick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStripClick(chairBus.id, e);
+                                                    }}
+                                                ></div>
+
+                                                <div class="ch-strip-identity" title={`${chairLabel}: the chair's layers mix here`}>
+                                                    <strong>{chairLabel}</strong>
+                                                    <span class="ch-chair-kind">Chair</span>
+                                                </div>
+
+                                                <!-- Layers have their instrument here; a chair has none. -->
+                                                <div class="ch-instrument-section ch-chair-blank" aria-hidden="true"></div>
+
+                                                <div class="ch-fx-zone">
+                                                    {#each ["Pre", "Post"] as location}
+                                                        {@const inserts = chairInserts(chairBus).filter((insert) => insert.location === location)}
+                                                        {@const activeInserts = inserts.filter((insert) => !insert.bypassed && insert.status === "loaded").length}
+                                                        {@const insertSummary = insertSummaryOf(inserts)}
+                                                        {@const sendCount = sendsAt(chairBus, location).length}
+                                                        <section class="ch-strip-section ch-fx-section" class:post-fader={location === "Post"}
+                                                            aria-label={`${chairLabel} chair ${location.toLowerCase()}-fader effects`}>
+                                                        <div class="ch-section-heading">
+                                                        <span class="ch-section-title">{location}-fader</span>
+                                                        <button
+                                                            class="ch-audio-fx"
+                                                            class:has-effects={inserts.length > 0 || sendCount > 0}
+                                                            onclick={() => { chairAudioBusId = chairBus.id; }}
+                                                            aria-label={`Manage ${chairLabel} chair ${location.toLowerCase()}-fader effects and sends — ${insertSummary}`}
+                                                            title={`${location}-fader: ${insertSummary}, ${sendCount} send${sendCount === 1 ? "" : "s"} — manage`}
+                                                        >{#if inserts.length > 0}<span class="ch-insert-count" class:active={activeInserts > 0} aria-hidden="true">{inserts.length}{stripSize === "compact" ? "" : " FX"}</span>{/if}<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h12m4 0h2M11 3v6M7 9v6M17 15v6" /></svg></button>
+                                                        </div>
+                                                        {#if stripSize === "large"}
+                                                        <div class="ch-fx-summary" aria-label={`${chairLabel} chair ${location.toLowerCase()}-fader audio effect inserts`}>
+                                                            {#if inserts.length > 0}
+                                                                {#each inserts as insert (insert.id)}
+                                                                    <div class="ch-fx-summary-row" class:bypassed={insert.bypassed}>
+                                                                        <button class="ch-fx-summary-name"
+                                                                            onclick={() => dispatchCpp("toggleGroupBusInsertEditor", chairBus.id, insert.id)}
+                                                                            disabled={insert.status !== "loaded"}
+                                                                            aria-label={`${insert.editorOpen ? "Hide" : "Edit"} ${insert.name || "audio effect"}`}
+                                                                            aria-pressed={Boolean(insert.editorOpen)}
+                                                                            title={`${insert.editorOpen ? "Hide" : "Edit"} ${insert.name || "Unavailable plug-in"}`}>
+                                                                            <strong>{insert.name || "Unavailable plug-in"}</strong>
+                                                                        </button>
+                                                                        <div class="ch-fx-summary-actions">
+                                                                            <button
+                                                                                class:active={insert.bypassed}
+                                                                                onclick={() => dispatchCpp("setGroupBusInsertBypassed", chairBus.id, insert.id, !insert.bypassed)}
+                                                                                title={insert.bypassed ? `Enable ${insert.name}` : `Bypass ${insert.name}`}
+                                                                            >{insert.bypassed ? "Enable" : "Bypass"}</button>
+                                                                        </div>
+                                                                    </div>
+                                                                {/each}
+                                                            {:else}
+                                                                <div class="ch-fx-empty">No inserts</div>
+                                                            {/if}
+                                                        </div>
+                                                        {/if}
+                                                        {#if sendRows[location] > 0}
+                                                            <PromotedSends chair={chairBus} chairName={chairLabel} buses={groupBuses}
+                                                                horizontal={stripSize === "large"}
+                                                                preFader={location === "Pre"} rows={sendRows[location]} />
+                                                        {/if}
+                                                        </section>
+                                                    {/each}
+                                                </div>
+
+                                                <BalanceControl value={chairBus.audio?.balance ?? 0}
+                                                    label={`${chairLabel} chair stereo balance`}
+                                                    command="setGroupBusBalance" id={chairBus.id} />
+
+                                                <div class="ch-fader">
+                                                    <span class="fader-tick fader-top">+6</span>
+                                                    <div class="fader-meter-row">
+                                                        <div class="fader-track">
+                                                            <input
+                                                                class="fader-slider chair-slider"
+                                                                type="range"
+                                                                min="0"
+                                                                max="1000"
+                                                                step="1"
+                                                                aria-label={`${chairLabel} chair level`}
+                                                                value={getFaderPos(faderKey, chairFaderPos)}
+                                                                onpointerdown={() => { faderAnchor[faderKey] = getFaderPos(faderKey, chairFaderPos); }}
+                                                                oninput={(e) => {
+                                                                    faderDragging.add(faderKey);
+                                                                    const rawPos = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+                                                                    const effectivePos = fineFaderPos(faderKey, rawPos, e.shiftKey);
+                                                                    snapFaderTo(faderKey, effectivePos);
+                                                                    setChairGain(chairBus, Math.round(posToDB(effectivePos / 1000) * 10) / 10);
+                                                                }}
+                                                                onpointerup={() => { faderDragging.delete(faderKey); delete faderAnchor[faderKey]; }}
+                                                                onpointercancel={() => { faderDragging.delete(faderKey); }}
+                                                                onkeyup={() => { faderDragging.delete(faderKey); }}
+                                                                onblur={() => { faderDragging.delete(faderKey); }}
+                                                                onpointerleave={() => { faderDragging.delete(faderKey); delete faderAnchor[faderKey]; }}
+                                                                ondblclick={() => setChairGain(chairBus, 0)}
+                                                            />
+                                                        </div>
+                                                        <StereoMeter levels={meters.stereoChairs[chairBus.id]}
+                                                            label={`${chairLabel} chair`} kind="bus" id={chairBus.id} />
+                                                    </div>
+                                                    {#if multiLayer}
+                                                        <!-- Σ: the layers' combined (blend) level, before the chair fader. -->
+                                                        <span class="fader-tick fader-bot blend-level" class:off-target={offTarget}
+                                                            title={offTarget
+                                                                ? `Blend level ${formatDb(blendDb)} dB can't reach its locked level ${formatDb(blendTargetDb)} dB (a gain estimate, not measured loudness)`
+                                                                : locked ? `Blend level, kept at ${formatDb(blendTargetDb)} dB` : "Blend level: the layers' combined gain, before the chair fader"}
+                                                        >Σ {formatDb(blendDb)}</span>
+                                                    {:else}
+                                                        <span class="fader-tick fader-bot">-∞</span>
+                                                    {/if}
+                                                    <div class="ch-chair-gain-row">
+                                                        <input
+                                                            class="fader-value"
+                                                            type="number"
+                                                            min="-120"
+                                                            max="6"
+                                                            step="0.1"
+                                                            aria-label={`${chairLabel} chair level in decibels`}
+                                                            value={Math.round(chairGainDb(chairBus) * 10) / 10}
+                                                            onchange={(e) => {
+                                                                const value = parseFloat(/** @type {HTMLInputElement} */ (e.target).value);
+                                                                setChairGain(chairBus, Number.isFinite(value) ? value : 0);
+                                                            }}
+                                                        />
+                                                        {#if multiLayer}
+                                                            <button
+                                                                class="sum-lock-btn"
+                                                                class:sum-lock-active={locked}
+                                                                aria-pressed={locked}
+                                                                aria-label={`Keep blend level for ${chairLabel}`}
+                                                                title={locked
+                                                                    ? "Keep blend level is on: changing one layer adjusts the others, so the layers' combined level stays put. Click to turn off."
+                                                                    : "Keep blend level: hold the layers' combined level, so changing one layer adjusts the others"}
+                                                                onclick={() => dispatchCpp("setChairLevelLock", instrGroup.key, !locked)}
+                                                            >{locked ? '🔒' : '🔓'}</button>
+                                                        {/if}
+                                                    </div>
+                                                </div>
+
+                                                <div class="ch-mute-solo">
+                                                    <button
+                                                        class="ms-btn mute-btn"
+                                                        class:active={chairBus.muted}
+                                                        aria-label={`${chairBus.muted ? "Unmute" : "Mute"} ${chairLabel} chair`}
+                                                        title={chairBus.muted ? "Unmute the chair" : "Mute the chair"}
+                                                        onclick={() => dispatchCpp("setGroupBusMute", chairBus.id, !chairBus.muted)}
+                                                        >M</button
+                                                    >
+                                                    <button
+                                                        class="ms-btn solo-btn"
+                                                        class:active={chairBus.soloed}
+                                                        aria-label={`${chairBus.soloed ? "Unsolo" : "Solo"} ${chairLabel} chair`}
+                                                        title={chairBus.soloed ? "Unsolo the chair" : "Solo the chair"}
+                                                        onclick={() => dispatchCpp("setGroupBusSolo", chairBus.id, !chairBus.soloed)}
+                                                        >S</button
+                                                    >
+                                                </div>
+
+                                                <select
+                                                    class="ch-chair-output"
+                                                    aria-label={`Output for ${chairLabel} chair`}
+                                                    title={chosenChairs > 1 ? `Output: routes all ${chosenChairs} selected chairs` : "Output: where the chair goes"}
+                                                    value={chairBus.directOutputBusId || ""}
+                                                    onchange={(event) => setChairOutput(chairBus.id, event.currentTarget.value)}
+                                                >
+                                                    <option value="">→ Master</option>
+                                                    {#each groupBuses as bus (bus.id)}
+                                                        <option value={bus.id}>→ {bus.name}</option>
+                                                    {/each}
+                                                </select>
+                                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                                                <div
+                                                    class="select-bar select-bar-bottom"
+                                                    style="background: {group.colors.accent};"
+                                                    onclick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleStripClick(chairBus.id, e);
+                                                    }}
+                                                ></div>
+                                            </div>
+                                        {/if}
                                     </div> <!-- /strips-row -->
                                     </div> <!-- /inst-body -->
                                 </div> <!-- /inst-group -->
@@ -1529,7 +1672,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             {/each}
             <AudioBusBank
                 buses={groupBuses}
-                strips={strips}
+                {chairBuses}
                 master={masterAudio}
                 busMeters={meters.stereoBuses}
                 masterMeters={meters.master}
@@ -1578,7 +1721,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         {#if channelStrip}
             <ChannelAudioPanel
                 strip={channelStrip}
-                buses={groupBuses}
                 audio={channelAudio || channelStrip.audio}
                 instrumentName={getPluginName(channelStrip)}
                 plugins={scannedPlugins}
@@ -1596,12 +1738,24 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             />
         {/if}
     {/if}
+    {#if chairAudioBusId}
+        {@const chairAudioBus = chairBusById.get(chairAudioBusId)}
+        {#if chairAudioBus}
+            <BusAudioPanel
+                bus={chairAudioBus}
+                buses={groupBuses}
+                chairName={chairNameOf(chairAudioBus.id)}
+                plugins={scannedPlugins}
+                onClose={() => { chairAudioBusId = ""; }}
+            />
+        {/if}
+    {/if}
     {#if addBusOpen}
         <AddBusDialog
             buses={groupBuses}
-            selectedCount={selectedLayerIds().length}
+            selectedCount={selectedChairs().length}
             onAdd={(name, routeSelection) => {
-                dispatchCpp("addGroupBus", name, JSON.stringify(routeSelection ? selectedLayerIds() : []));
+                dispatchCpp("addGroupBus", name, JSON.stringify(routeSelection ? selectedChairs() : []));
                 addBusOpen = false;
             }}
             onClose={() => { addBusOpen = false; }}
@@ -1612,8 +1766,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         {#if detailsBus}
             <BusDetailsPanel
                 bus={detailsBus}
-                routedCount={strips.filter((strip) => strip.directOutputBusId === detailsBus.id).length}
-                sendCount={strips.reduce((count, strip) => count + (strip.sends || []).filter((send) => send.busId === detailsBus.id).length, 0)}
+                routedCount={chairBuses.filter((chair) => chair.directOutputBusId === detailsBus.id).length}
+                sendCount={chairBuses.reduce((count, chair) => count + (chair.sends || []).filter((send) => send.busId === detailsBus.id).length, 0)}
                 onRename={(name) => dispatchCpp("renameGroupBus", detailsBus.id, name)}
                 onDelete={() => {
                     dispatchCpp("removeGroupBus", detailsBus.id);
@@ -2024,7 +2178,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         border-left: 2px solid var(--accent, #334155);
         margin-left: -1px; /* center the 2px divider in the 1px+2px gap between groups */
     }
-    /* Row below the bridge-header: master-strip (if multi) + strips-row side by side */
+    /* Row below the bridge-header: the layers, then the chair strip */
     .inst-body {
         display: flex;
         flex-direction: row;
@@ -2099,69 +2253,81 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         background: #243044;
     }
 
-    /* ── Master strip ────────────────────────────────── */
-    .master-strip {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 6px;
-        width: 46px;
-        min-width: 46px;
-        height: 100%;
+    /* ── Chair strip: the chair bus, to the right of its layers ── */
+    .channel-strip.chair-strip {
+        background: color-mix(in srgb, var(--accent, #334155) 9%, #0c1422);
+        border-left: 1px solid color-mix(in srgb, var(--accent, #334155) 40%, transparent);
+        margin-left: -1px; /* the same outer width as a layer strip */
+    }
+    .channel-strip.chair-strip:hover {
+        background: color-mix(in srgb, var(--accent, #334155) 12%, #101a2c);
+    }
+    .channel-strip.chair-strip.selected {
+        background: color-mix(in srgb, var(--accent, #334155) 14%, #1e293b);
+    }
+    .ch-chair-kind {
+        color: color-mix(in srgb, var(--accent, #94a3b8) 75%, #cbd5e1);
+        font-size: 0.62rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    /* Holds the layers' instrument row height, so every row lines up. */
+    .ch-chair-blank {
         flex-shrink: 0;
-        background: #090f1c;
-        border-right: 1px solid rgba(51, 65, 85, 0.9); /* softer than other separators */
-        /* Match the layer strip's outer height and bottom inset exactly. */
-        box-sizing: border-box;
-        padding: 6px 4px 12px;
-        overflow: hidden;
     }
-    /* Mirrors .select-bar height so the fader starts at the same Y as individual faders */
-    .master-strip-top-spacer {
-        flex-shrink: 0;
-        /* Mirrors the fixed operational area above every channel fader. */
-        height: calc(var(--strip-pre-fader-height, 128px) + var(--strip-send-span, 0px));
-    }
-    /* Mirrors the enlarged controls below each channel fader. */
-    .master-strip-bot-spacer {
-        flex-shrink: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-start;
-        /* Mute/Solo plus the Details button, including their internal gap. */
-        height: 74px;
-        gap: 6px;
-    }
-
-    .master-track {
-        width: 10px !important;
-    }
-    input.fader-slider.master-slider {
+    input.fader-slider.chair-slider {
         accent-color: #d4a017;
     }
-    .combined-level-marker {
-        position: absolute;
-        left: calc(50% + 9px);
-        width: 9px;
-        height: 3px;
-        background: #fbbf24;
-        transform: translateY(50%);
-        z-index: 2;
+    /* Σ replaces the -∞ tick: the same line, so the faders stay aligned. */
+    .fader-tick.blend-level {
+        color: #94a3b8;
+        white-space: nowrap;
     }
-    .combined-db { color: #fbbf24; font-size: .6rem; line-height: 11px; }
-    .master-db.off-target { grid-template-rows: 15px 11px; }
-    .master-db {
-        display: grid;
+    .fader-tick.blend-level.off-target {
+        color: #fbbf24;
+        font-weight: 700;
+    }
+    .ch-chair-gain-row {
+        display: flex;
         width: 100%;
-        min-height: 28px;
-        place-items: center;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: #cbd5e1;
-        text-align: center;
+        gap: 4px;
         flex-shrink: 0;
-        letter-spacing: 0.02em;
+    }
+    .ch-chair-gain-row .fader-value {
+        flex: 1;
+        min-width: 0;
+    }
+    .compact-strips .ch-chair-gain-row .fader-value {
+        padding: 3px 1px;
+        font-size: 0.68rem;
+    }
+    .ch-chair-gain-row .sum-lock-btn {
+        min-width: 26px;
+        min-height: 28px;
+        padding: 2px;
+    }
+    .ch-chair-output {
+        width: 100%;
+        height: 32px;
+        min-height: 32px;
+        flex-shrink: 0;
+        box-sizing: border-box;
+        overflow: hidden;
+        padding: 2px 3px;
+        border: 1px solid #3d4c62;
+        border-radius: 4px;
+        background: #111c2e;
+        color: #cbd5e1;
+        font: inherit;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        cursor: pointer;
+    }
+    .ch-chair-output:hover {
+        border-color: #7dd3fc;
+        color: #e0f2fe;
     }
     .sum-lock-btn {
         background: none;
@@ -2544,30 +2710,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         color: #bae6fd;
     }
     .ch-audio-fx:hover { background: #2b4059; }
-    .ch-output-routing {
-        display: flex;
-        flex-direction: column;
-        height: 68px;
-        gap: 4px;
-    }
-    .ch-output-routing select {
-        min-width: 0;
-        width: 100%;
-        height: var(--strip-control-height, 32px);
-        flex-shrink: 0;
-        box-sizing: border-box;
-        overflow: hidden;
-        padding: 2px 3px;
-        border: 1px solid #3d4c62;
-        border-radius: 4px;
-        background: #111c2e;
-        color: #cbd5e1;
-        font: inherit;
-        font-size: 0.68rem;
-        font-weight: 600;
-        text-overflow: ellipsis;
-        cursor: pointer;
-    }
     .ch-strip-identity {
         display: flex;
         height: 38px;

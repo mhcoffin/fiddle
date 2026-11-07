@@ -2,12 +2,13 @@
     import Knob from "./Knob.svelte";
     import { dispatchCpp } from "./ipc.js";
     import { gainToPosition, positionToGain, formatGain, parseGain } from "./knobMath.js";
-    let { strip, buses = [], horizontal = false, preFader = false, rows = 0 } = $props();
-    let sends = $derived((strip.sends || []).filter((send) => send.showOnStrip && !!send.preFader === preFader));
+    // The sends a chair strip shows ("Show on strip"), for one tap.
+    let { chair, chairName = "", buses = [], horizontal = false, preFader = false, rows = 0 } = $props();
+    let sends = $derived((chair.sends || []).filter((send) => send.showOnStrip && !!send.preFader === preFader));
 </script>
 
 <div class="promoted-sends" class:horizontal style:height={`calc(${rows} * var(--strip-send-row-height))`}
-    aria-label={`${preFader ? "Pre" : "Post"}-fader sends for ${strip.layerName || strip.library || "layer"}`}>
+    aria-label={`${preFader ? "Pre" : "Post"}-fader sends for ${chairName || "chair"}`}>
     {#each sends as send (send.id)}
         {@const name = buses.find((bus) => bus.id === send.busId)?.name || "Missing bus"}
         <div class="promoted-send" class:send-off={!send.enabled}>
@@ -17,7 +18,7 @@
             </span>
             <Knob compact label={`Send to ${name}`} unit="dB" min={-120} max={12} value={send.gainDb}
                 toPosition={gainToPosition} fromPosition={positionToGain} format={formatGain} parse={parseGain}
-                oninput={(gain) => dispatchCpp("updateStripSend", strip.id, send.id, send.busId, gain, send.enabled)}
+                oninput={(gain) => dispatchCpp("updateChairSend", chair.id, send.id, send.busId, gain, send.enabled)}
                 onGestureBegin={() => dispatchCpp("beginHistoryGesture")}
                 onGestureEnd={() => dispatchCpp("endHistoryGesture")} />
         </div>

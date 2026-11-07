@@ -20,17 +20,19 @@ test("meter snapshots only contain levels, never control or plugin state", () =>
         gainDb: 99, inserts: [{ name: "should not be copied" }],
     };
     const meters = parseMixerMeters(packet);
-    assert.deepEqual(Object.keys(meters), ["strips", "buses", "masterPeakDb", "stereoStrips", "stereoBuses", "master", "loudness"]);
+    assert.deepEqual(Object.keys(meters), ["strips", "buses", "masterPeakDb", "stereoStrips", "stereoBuses", "stereoChairs", "master", "loudness"]);
     assert.deepEqual(meters.strips.violin, [-12, -5]);
     assert.deepEqual(meters.buses.strings, [-8, -3]);
     assert.equal(meters.masterPeakDb, -2);
     assert.notEqual(meters.strips.violin, packet.strips.violin);
     assert.deepEqual(parseMixerMeters({ strips: {} }).strips, {}); // removal prunes old IDs
+    assert.deepEqual(parseMixerMeters({ stereoChairs: { "chair:vn": [-6, -3, -12, -9, false, true] } }).stereoChairs,
+        { "chair:vn": [-6, -3, -12, -9, false, true] });
 });
 
 test("absent or invalid levels become silence without poisoning CSS values", () => {
     assert.deepEqual(parseMixerMeters(null), { strips: {}, buses: {}, masterPeakDb: -120,
-        stereoStrips: {}, stereoBuses: {}, master: [-120, -120, -120, -120, false, false],
+        stereoStrips: {}, stereoBuses: {}, stereoChairs: {}, master: [-120, -120, -120, -120, false, false],
         loudness: { valid: false, incomplete: false, seconds: 0, integrated: null, shortTerm: null, truePeakLeft: null, truePeakRight: null } });
     const meters = parseMixerMeters({ strips: { a: [NaN, Infinity], b: "bad" }, masterPeakDb: "bad" });
     assert.deepEqual(meters.strips, { a: [-120, -120] });

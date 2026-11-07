@@ -151,7 +151,9 @@ public:
   /// The chair bus for a key, created (at 0 dB, routed to Master) if missing.
   /// A chair bus outlives its last layer, so its settings survive re-adding one.
   GroupBus *ensureChairBus(const juce::String &key);
-  GroupBus *chairBusForStrip(const juce::String &stripId);
+  /// The chair bus with this ID, or the chair bus of the layer with this ID
+  /// (created if missing). Null when neither exists.
+  GroupBus *chairBusFor(const juce::String &chairBusOrLayerId);
   /// Called on the message thread whenever a chair bus is created.
   std::function<void(GroupBus &)> onChairBusCreated;
 
@@ -161,7 +163,7 @@ public:
   bool setChairBusSends(const juce::String &chairBusId, std::vector<AudioSend> sends);
 
   /// Layer forms of the above: they act on the layer's chair bus, so every
-  /// layer of the chair follows. (The mixer UI still shows them per layer.)
+  /// layer of the chair follows.
   bool setStripDirectOutput(const juce::String &stripId,
                             const juce::String &busId);
   bool setStripSends(const juce::String &stripId, std::vector<AudioSend> sends);
@@ -171,7 +173,10 @@ public:
   /// Republish routing and downstream latency after a bus rack changes.
   void refreshAudioRouting();
 
+  /// Audio buses (the Audio Buses bank), in bank order.
   [[nodiscard]] juce::String groupBusesToJson() const;
+  /// Chair buses: each with its chair ID, output, sends and rack.
+  [[nodiscard]] juce::String chairBusesToJson() const;
 
   /// Get the shared format manager (for plugin loading).
   juce::AudioPluginFormatManager &getFormatManager();

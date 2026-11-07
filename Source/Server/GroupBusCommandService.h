@@ -2,6 +2,8 @@
 
 #include "GroupBusCommands.h"
 
+#include <functional>
+
 namespace fiddle {
 class MixerModel;
 class PluginScanner;
@@ -11,14 +13,14 @@ class GroupBusCommandService final : public GroupBusCommands {
 public:
   GroupBusCommandService(MixerModel &mixer, PluginScanner &scanner,
                          UndoManager &undoManager);
-  bool addStripSend(const juce::String &stripId, const juce::String &busId) override;
-  bool updateStripSend(const juce::String &stripId, const juce::String &sendId,
+  bool addChairSend(const juce::String &chairId, const juce::String &busId) override;
+  bool updateChairSend(const juce::String &chairId, const juce::String &sendId,
                        const juce::String &busId, float gainDb, bool enabled) override;
-  bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override;
-  bool setStripSendVisible(const juce::String &stripId, const juce::String &sendId, bool visible) override;
-  bool setStripSendPreFader(const juce::String &stripId, const juce::String &sendId, bool preFader) override;
+  bool removeChairSend(const juce::String &chairId, const juce::String &sendId) override;
+  bool setChairSendVisible(const juce::String &chairId, const juce::String &sendId, bool visible) override;
+  bool setChairSendPreFader(const juce::String &chairId, const juce::String &sendId, bool preFader) override;
   bool addGroupBus(const juce::String &name,
-                   const std::vector<juce::String> &stripIds) override;
+                   const std::vector<juce::String> &chairIds) override;
   bool removeGroupBus(const juce::String &busId) override;
   bool renameGroupBus(const juce::String &busId,
                       const juce::String &name) override;
@@ -41,10 +43,12 @@ public:
                                  bool bypassed) override;
   bool toggleGroupBusInsertEditor(const juce::String &busId,
                                   const juce::String &slotId) override;
-  bool setStripDirectOutput(const juce::String &stripId,
-                            const juce::String &busId) override;
-  bool setGroupStripDirectOutput(const std::vector<juce::String> &stripIds,
-                                 const juce::String &busId) override;
+  bool setChairOutput(const juce::String &chairId,
+                      const juce::String &busId) override;
+  bool setChairsOutput(const std::vector<juce::String> &chairIds,
+                       const juce::String &busId) override;
+  /// Names a chair (by its chair ID) for plug-in editor window titles.
+  std::function<juce::String(const juce::String &chairId)> chairName;
 private:
   MixerModel &mixer_;
   PluginScanner &scanner_;

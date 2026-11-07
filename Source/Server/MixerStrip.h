@@ -61,7 +61,7 @@ struct MixerStrip {
   bool missingPatchReference = false;
 
   // A layer always feeds its chair bus, which owns the output and sends
-  // (MixerModel::chairBusForStrip, docs/chair-buses.md).
+  // (MixerModel::chairBusFor, docs/chair-buses.md).
 
   /// Immutable copy of the values shared with the audio thread.
   struct RealtimeState {

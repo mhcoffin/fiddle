@@ -23,11 +23,11 @@ public:
   float gain = 0.0f;
   bool flag = false;
   bool result = true;
-  bool addStripSend(const juce::String &stripId, const juce::String &busId) override { call="addSend"; id=stripId; value=busId; return result; }
-  bool updateStripSend(const juce::String &stripId, const juce::String &, const juce::String &busId, float gainDb, bool enabled) override { call="updateSend"; id=stripId; value=busId; gain=gainDb; flag=enabled; return result; }
-  bool removeStripSend(const juce::String &stripId, const juce::String &sendId) override { call="removeSend"; id=stripId; value=sendId; return result; }
-  bool setStripSendVisible(const juce::String &stripId, const juce::String &sendId, bool visible) override { call="showSend"; id=stripId; value=sendId; flag=visible; return result; }
-  bool setStripSendPreFader(const juce::String &stripId, const juce::String &sendId, bool preFader) override { call="sendTap"; id=stripId; value=sendId; flag=preFader; return result; }
+  bool addChairSend(const juce::String &stripId, const juce::String &busId) override { call="addSend"; id=stripId; value=busId; return result; }
+  bool updateChairSend(const juce::String &stripId, const juce::String &, const juce::String &busId, float gainDb, bool enabled) override { call="updateSend"; id=stripId; value=busId; gain=gainDb; flag=enabled; return result; }
+  bool removeChairSend(const juce::String &stripId, const juce::String &sendId) override { call="removeSend"; id=stripId; value=sendId; return result; }
+  bool setChairSendVisible(const juce::String &stripId, const juce::String &sendId, bool visible) override { call="showSend"; id=stripId; value=sendId; flag=visible; return result; }
+  bool setChairSendPreFader(const juce::String &stripId, const juce::String &sendId, bool preFader) override { call="sendTap"; id=stripId; value=sendId; flag=preFader; return result; }
   bool addGroupBus(const juce::String &name, const std::vector<juce::String> &stripIds) override { call="add"; value=name; ids=stripIds; return result; }
   bool removeGroupBus(const juce::String &busId) override { call="remove"; id=busId; return result; }
   bool renameGroupBus(const juce::String &busId, const juce::String &name) override { call="rename"; id=busId; value=name; return result; }
@@ -42,8 +42,8 @@ public:
   bool moveGroupBusInsert(const juce::String &busId, const juce::String &slotId, fiddle::StripInsertPosition position, int newIndex) override { call="moveInsert"; id=busId; value=slotId; insertPosition=position; index=newIndex; return result; }
   bool setGroupBusInsertBypassed(const juce::String &busId, const juce::String &slotId, bool bypassed) override { call="bypassInsert"; id=busId; value=slotId; flag=bypassed; return result; }
   bool toggleGroupBusInsertEditor(const juce::String &busId, const juce::String &slotId) override { call="toggleEditor"; id=busId; value=slotId; return result; }
-  bool setStripDirectOutput(const juce::String &stripId, const juce::String &busId) override { call="output"; id=stripId; value=busId; return result; }
-  bool setGroupStripDirectOutput(const std::vector<juce::String> &stripIds, const juce::String &busId) override { call="groupOutput"; ids=stripIds; value=busId; return result; }
+  bool setChairOutput(const juce::String &stripId, const juce::String &busId) override { call="output"; id=stripId; value=busId; return result; }
+  bool setChairsOutput(const std::vector<juce::String> &stripIds, const juce::String &busId) override { call="groupOutput"; ids=stripIds; value=busId; return result; }
   fiddle::StripInsertPosition insertPosition = fiddle::StripInsertPosition::preFader;
 };
 
@@ -78,44 +78,44 @@ void run() {
   CHECK(commands.call == "removeInsert");
   CHECK(router.handleMessage("toggleGroupBusInsertEditor", payload({"bus", "slot"})));
   CHECK(commands.call == "toggleEditor" && requested == 2);
-  CHECK(router.handleMessage("setStripDirectOutput", payload({"strip", "bus"})));
+  CHECK(router.handleMessage("setChairOutput", payload({"strip", "bus"})));
   CHECK(commands.call == "output" && commands.id == "strip" && commands.value == "bus");
-  CHECK(router.handleMessage("setGroupStripDirectOutput",
+  CHECK(router.handleMessage("setChairsOutput",
                              payload({R"(["a","b"])", "bus"})));
   CHECK(commands.call == "groupOutput" && commands.ids.size() == 2 &&
         commands.ids[1] == "b" && commands.value == "bus");
   CHECK(router.handleMessage("removeGroupBus", payload({"bus"})));
   CHECK(commands.call == "remove");
   CHECK(changed == 13);
-  CHECK(router.handleMessage("addStripSend", payload({"strip", "bus"})));
+  CHECK(router.handleMessage("addChairSend", payload({"strip", "bus"})));
   CHECK(commands.call == "addSend" && commands.id == "strip" && commands.value == "bus");
-  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", -6.0, false})));
+  CHECK(router.handleMessage("updateChairSend", payload({"strip", "send", "bus", -6.0, false})));
   CHECK(commands.call == "updateSend" && commands.gain == -6 && !commands.flag);
-  CHECK(router.handleMessage("removeStripSend", payload({"strip", "send"})));
+  CHECK(router.handleMessage("removeChairSend", payload({"strip", "send"})));
   CHECK(commands.call == "removeSend" && commands.value == "send");
   CHECK(changed == 16);
-  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", "oops", true})));
-  CHECK(router.handleMessage("updateStripSend", payload({"strip", "send", "bus", -6.0, "false"})));
+  CHECK(router.handleMessage("updateChairSend", payload({"strip", "send", "bus", "oops", true})));
+  CHECK(router.handleMessage("updateChairSend", payload({"strip", "send", "bus", -6.0, "false"})));
   CHECK(changed == 16);
   commands.result = false;
   CHECK(router.handleMessage("removeGroupBus", payload({"missing"})));
   CHECK(changed == 16);
   commands.result = true;
-  CHECK(router.handleMessage("setStripSendVisible", payload({"strip", "send", true})));
+  CHECK(router.handleMessage("setChairSendVisible", payload({"strip", "send", true})));
   CHECK(commands.call == "showSend" && commands.id == "strip" && commands.value == "send" && commands.flag);
   CHECK(changed == 17);
-  CHECK(router.handleMessage("setStripSendPreFader", payload({"strip", "send", true})));
+  CHECK(router.handleMessage("setChairSendPreFader", payload({"strip", "send", true})));
   CHECK(commands.call == "sendTap" && commands.id == "strip" && commands.value == "send" && commands.flag);
   CHECK(changed == 18);
   for (const auto &bad : {payload({"strip", "send", "true"}), payload({"strip", "send", 1}),
                            payload({"strip", "send"}), payload({1, "send", true})})
-    CHECK(router.handleMessage("setStripSendPreFader", bad));
+    CHECK(router.handleMessage("setChairSendPreFader", bad));
   CHECK(changed == 18);
   commands.result = false;
-  CHECK(router.handleMessage("setStripSendPreFader", payload({"missing", "send", false})));
+  CHECK(router.handleMessage("setChairSendPreFader", payload({"missing", "send", false})));
   CHECK(changed == 18);
   commands.result = true;
-  CHECK(router.handleMessage("setStripSendVisible", payload({"strip", "send", "false"})));
+  CHECK(router.handleMessage("setChairSendVisible", payload({"strip", "send", "false"})));
   CHECK(changed == 18);
   CHECK(router.handleMessage("setStripBalance", payload({"strip", -0.5})));
   CHECK(commands.call == "strip-balance" && commands.id == "strip" && commands.gain == -0.5f);

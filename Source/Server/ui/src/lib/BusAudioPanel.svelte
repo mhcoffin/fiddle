@@ -1,12 +1,28 @@
 <script>
     import { dispatchCpp } from "./ipc.js";
     import { groupEffects } from "./masterAudioUi.js";
+    import Knob from "./Knob.svelte";
+    import { gainToPosition, positionToGain, formatGain, parseGain } from "./knobMath.js";
 
+    // Serves audio buses and chair buses. A chair bus is named after its
+    // chair (`chairName`), has an output, and sends to the audio buses.
     let {
         bus,
         plugins = [],
+        buses = [],
+        chairName = "",
         onClose = () => {},
     } = $props();
+    let isChair = $derived(bus.role === "chair");
+    let displayName = $derived(isChair ? chairName || "Chair" : bus.name);
+    let outputName = $derived(isChair && bus.directOutputBusId
+        ? buses.find((item) => item.id === bus.directOutputBusId)?.name || "Missing bus" : "Master");
+    let sendDestination = $state("");
+    let availableBuses = $derived(buses.filter((item) => !(bus.sends || []).some((send) => send.busId === item.id)));
+    const updateSend = (send, change) => {
+        const next = { ...send, ...change };
+        dispatchCpp("updateChairSend", bus.id, next.id, next.busId, Number(next.gainDb), next.enabled);
+    };
 
     let addingPosition = $state("");
     let query = $state("");
@@ -15,13 +31,13 @@
         {
             key: "preFader",
             title: "Pre-fader inserts",
-            description: "Shared processing before the bus level control",
+            description: isChair ? "Process the chair's summed layers before its fader" : "Shared processing before the bus level control",
             items: bus.audio?.preFaderInserts || [],
         },
         {
             key: "postFader",
             title: "Post-fader inserts",
-            description: "Processing after the bus level control, before Master",
+            description: isChair ? `Process the chair after its fader, before ${outputName}` : "Processing after the bus level control, before Master",
             items: bus.audio?.postFaderInserts || [],
         },
     ]);
@@ -36,11 +52,11 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={(event) => event.target === event.currentTarget && onClose()}>
-    <dialog class="panel" aria-label={`Audio effects for ${bus.name}`} open>
+    <dialog class="panel" aria-label={`Audio effects for ${displayName}`} open>
         <header>
             <div>
-                <h2>Bus Audio</h2>
-                <p>{bus.name} · feeds Master</p>
+                <h2>{isChair ? "Chair Audio" : "Bus Audio"}</h2>
+                <p>{displayName} · feeds {outputName}</p>
             </div>
             <div class="header-status">
                 <span>{Number(bus.audio?.latencyMs || 0).toFixed(1)} ms latency</span>
@@ -135,6 +151,57 @@
                     </div>
                 </section>
             {/each}
+            {#if isChair}
+                <section aria-label="Sends">
+                    <div class="section-heading">
+                        <div>
+                            <h3>Sends</h3>
+                            <p>Post-fader follows the chair fader and all chair effects. Pre-fader taps after pre-fader effects, independently of the chair fader.</p>
+                        </div>
+                    </div>
+                    <p class="note">Use an audio bus for shared reverb or delay; set its effect to 100% wet. Soloed sources keep their returns. The output stays connected. Mute and solo suppression silence both kinds of send. Change the tap while stopped if effects add latency.</p>
+                    <div class="send-add">
+                        <select aria-label="New send destination" bind:value={sendDestination}>
+                            <option value="">Choose audio bus…</option>
+                            {#each availableBuses as item (item.id)}
+                                <option value={item.id}>{item.name}</option>
+                            {/each}
+                        </select>
+                        <button class="primary" disabled={!availableBuses.some((item) => item.id === sendDestination)}
+                            onclick={() => { dispatchCpp("addChairSend", bus.id, sendDestination); sendDestination = ""; }}>Add send</button>
+                    </div>
+                    {#if !buses.length}
+                        <p class="note">Add an audio bus in the Audio Buses bank first.</p>
+                    {/if}
+                    <div class="insert-list">
+                        {#each bus.sends || [] as send (send.id)}
+                            <div class="send-row" class:bypassed={!send.enabled}>
+                                <label class="send-enable"><input type="checkbox" checked={send.enabled}
+                                    onchange={(event) => updateSend(send, { enabled: event.currentTarget.checked })} /> Enabled</label>
+                                <label class="send-enable"><input type="checkbox" checked={!!send.showOnStrip}
+                                    onchange={(event) => dispatchCpp("setChairSendVisible", bus.id, send.id, event.currentTarget.checked)} /> Show on strip</label>
+                                <select aria-label="Send destination" value={send.busId}
+                                    onchange={(event) => updateSend(send, { busId: event.currentTarget.value })}>
+                                    {#each buses as item (item.id)}
+                                        <option value={item.id} disabled={(bus.sends || []).some((other) => other.id !== send.id && other.busId === item.id)}>{item.name}</option>
+                                    {/each}
+                                </select>
+                                <select aria-label="Send tap" value={send.preFader ? "preFader" : "postFader"}
+                                    onchange={(event) => dispatchCpp("setChairSendPreFader", bus.id, send.id, event.currentTarget.value === "preFader")}>
+                                    <option value="postFader">Post-fader</option>
+                                    <option value="preFader">Pre-fader</option>
+                                </select>
+                                <Knob label="Send level" unit="dB" min={-120} max={12} value={send.gainDb}
+                                    toPosition={gainToPosition} fromPosition={positionToGain} format={formatGain} parse={parseGain}
+                                    oninput={(gainDb) => updateSend(send, { gainDb })}
+                                    onGestureBegin={() => dispatchCpp("beginHistoryGesture")}
+                                    onGestureEnd={() => dispatchCpp("endHistoryGesture")} />
+                                <button class="danger" onclick={() => dispatchCpp("removeChairSend", bus.id, send.id)}>Remove</button>
+                            </div>
+                        {/each}
+                    </div>
+                </section>
+            {/if}
         </div>
     </dialog>
 </div>
@@ -179,6 +246,13 @@
     .row-actions { justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
     .row-actions button { min-height: 34px; font-size: .76rem; }
     .danger { color: #fecaca; border-color: #7f1d1d; }
+    .note { margin-top: 12px; line-height: 1.45; }
+    .send-add, .send-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .send-add { margin-top: 16px; }
+    .send-row { padding: 12px; border: 1px solid #334155; border-radius: 8px; }
+    .send-row.bypassed { opacity: .65; }
+    .send-enable { display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: .85rem; }
+    select { min-height: 36px; padding: 6px 10px; border: 1px solid #475569; border-radius: 6px; background: #172337; color: #e2e8f0; font: inherit; }
     .empty-inserts, .empty-picker { padding: 22px; border: 1px dashed #334155; border-radius: 8px; color: #94a3b8; text-align: center; line-height: 1.5; }
     @media (max-width: 780px) { .panel { width: calc(100% - 24px); } .insert-row { grid-template-columns: 38px 1fr; } .row-actions { grid-column: 1 / -1; justify-content: flex-start; } }
 </style>

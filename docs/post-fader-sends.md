@@ -2,36 +2,38 @@
 
 Sends leave from a chair's bus, not from each layer (see
 [chair buses](chair-buses.md)): a pre-fader send taps the chair bus after its
-pre-fader effects. Until the chair strip exists, the sends shown on a layer
-are its chair's, and editing them on one layer edits the whole chair.
+pre-fader effects. Sends live on the chair strip, to the right of the chair's
+layers; layers have none.
 
 ## Quick smoke test
 
 1. In the **Audio Buses** header, click **+ Add Bus** and name it Reverb. Leave
-   "Route the selected layers" off (routing changes those layers' direct outputs).
+   "Route the selected chairs" off (routing changes those chairs' outputs).
 2. In the **Audio Buses** bank, open that bus's Audio FX panel, add a reverb,
    and set the plug-in's mix to **100% wet**.
-3. Open an instrument strip's **Post-fader** settings button. Under Sends, choose Reverb
-   and Add send. New sends start enabled at −12 dB with a **Post-fader** tap.
+3. Open a chair strip's **Post-fader** settings button (Chair Audio). Under
+   Sends, choose Reverb and Add send. New sends start enabled at −12 dB with a
+   **Post-fader** tap.
 4. Play in Dorico. Adjust the send level: the dry sound remains, while the
-   reverb changes. Lower the strip fader: both dry sound and the new signal
+   reverb changes. Lower the chair fader: both dry sound and the new signal
    feeding the reverb decrease. Disable the send: the dry path remains and
    already-fed reverb tails decay.
-5. Try strip solo, return solo, strip mute, and return mute. Try Undo/Redo,
-   deleting the return and undoing, then saving and reopening the project.
+5. Try chair solo, layer solo, return solo, chair mute, and return mute. Try
+   Undo/Redo, deleting the return and undoing, then saving and reopening the
+   project.
 
 ### Pre-fader smoke test
 
 1. While stopped, change a send's **Send tap** selector to **Pre-fader**.
-2. Play and lower the strip fader to −∞. Its dry output disappears but the
-   send continues at the level set by the send knob. Raising/lowering the strip
+2. Play and lower the chair fader to −∞. Its dry output disappears but the
+   send continues at the level set by the send knob. Raising/lowering the chair
    fader must not affect that send.
-3. Mute the strip: new input to the return stops (existing return tails may
-   decay). Unmute and check strip solo/return solo as with post-fader sends.
+3. Mute the chair: new input to the return stops (existing return tails may
+   decay). Unmute and check chair solo/return solo as with post-fader sends.
 4. Check **Show on strip**, then change the tap while stopped. The promoted
    control moves between the pre/post sections; its level, destination, enabled
    state, and promotion are retained. Undo/Redo and save/reopen retain the tap.
-5. If practical, put an obvious effect in the strip's post-fader rack: a pre
+5. If practical, put an obvious effect in the chair's post-fader rack: a pre
    send excludes it, while a post send includes it. Pre-fader effects affect
    both. Automated tests cover sample-level compensation with delayed effects,
    so this does not need to be judged by ear.
@@ -45,15 +47,17 @@ commit is one Undo step. The reusable `Knob.svelte` has no native/IPC dependency
 the panel supplies its gain curve, formatting, change callback, and history
 boundaries.
 
-Check **Show on strip** beside a send in Channel Audio to promote its destination
-name, knob, and editable level into the mixer strip. Unchecking hides only the
+Check **Show on strip** beside a send in Chair Audio to promote its destination
+name, knob, and editable level into the chair strip. Unchecking hides only the
 shortcut; it does not disable the send. Promotion is saved with the project and
 supports Undo/Redo, and survives destination/level changes and bus-deletion Undo.
 Destination names follow bus renames; disabled sends are marked `(off)`.
 
-The strip groups controls into labeled Instrument, Pre-fader, Post-fader, and
-Output sections, each on a subtle lighter background. Small settings buttons
-beside the Pre-fader/Post-fader headings open Channel Audio. In Large mode,
+A layer strip groups controls into Instrument, Pre-fader and Post-fader
+sections, each on a subtle lighter background; a chair strip has the same
+Pre-fader and Post-fader sections and its Output selector at the bottom. Small
+settings buttons beside the Pre-fader/Post-fader headings open Channel Audio
+(a layer) or Chair Audio (a chair). In Large mode,
 insert names are editor buttons with a separate bypass control; empty racks
 show quiet “No inserts” text instead of a dashed box.
 The settings buttons show an insert count (e.g. “2 FX”, or just “2” in Compact
@@ -65,30 +69,31 @@ sit side by side. Large strips put the destination on that same row; narrower
 strips put it above the control pair so names and numbers have room.
 
 The mixer reserves matching pre- and post-fader send-band heights across layers,
-chair sum strips, audio buses and Master, keeping the faders aligned. Each band
-is absent when none of the displayed layers has a promoted send at that tap.
+chair strips, audio buses and Master, keeping the faders aligned. Each band
+is absent when none of the displayed chairs has a promoted send at that tap.
 Up to two send rows per section are shown at once; longer lists scroll within
 that space. Inserts are not promotable.
 
 ## Signal and control semantics
 
-- Path: instrument → pre-fader inserts → **pre-fader sends** → strip fader →
-  post-fader inserts → direct output **and post-fader sends**. Sends copy the
-  signal without consuming it or processing the instrument a second time.
-- Pre-fader sends are independent of the strip gain, including −∞. They do
-  not bypass strip mute, inactive-layer state, or strip-solo suppression.
-- Each strip has at most one send to any given bus. Destination, enable, and
+- Path: layers (each: instrument → inserts → fader) → chair bus → pre-fader
+  inserts → **pre-fader sends** → chair fader → post-fader inserts → output
+  **and post-fader sends**. Sends copy the signal without consuming it or
+  processing it a second time.
+- Pre-fader sends are independent of the chair fader, including −∞. They do
+  not bypass chair mute or chair-solo suppression, and carry only the layers
+  that are audible (not muted, inactive or solo-suppressed).
+- Each chair has at most one send to any given bus. Destination, enable, and
   gain (−120 to +12 dB; −120 is silence), and pre/post tap are independently
   editable. Changing the destination preserves the other settings.
-- Sends are strip-to-bus only; buses feed Master. No bus-to-bus feedback or
+- Sends are chair-to-bus only; buses feed Master. No bus-to-bus feedback or
   nested routing is introduced. Existing buses work both as submixes and FX
   returns; dedicated wet-only buses are usually easiest to manage.
-- Strip mute, inactive layers, and strip-solo suppression stop new input to
+- Chair and layer mute, inactive layers, and solo suppression stop new input to
   both dry and send paths. A return's mute/fader affects its output, not the
   source's dry signal. Return processors keep processing, so their tails can
   decay when a send is disabled or removed.
-- Soloing a group retains sends from sources whose direct output is that
-  group. Contributions from other groups are suppressed, even on a shared
+- Soloing an audio bus retains sends from chairs whose output is that bus. Contributions from other groups are suppressed, even on a shared
   return. Soloing a return alone auditions its wet mix. Previously accumulated
   tails inside a shared effect cannot be separated by source.
 - Existing stopped-transport idle policy is unchanged: it may suspend DSP

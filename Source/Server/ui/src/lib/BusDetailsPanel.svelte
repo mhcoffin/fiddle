@@ -19,7 +19,7 @@
     };
     let consequences = $derived([
         sendCount ? `its ${plural(sendCount, "send")} are removed` : "",
-        routedCount ? `${plural(routedCount, "layer")} routed to it go back to Master` : "",
+        routedCount ? `${plural(routedCount, "chair")} routed to it go back to Master` : "",
     ].filter(Boolean));
 </script>
 
@@ -43,7 +43,7 @@
                         onchange={rename}
                         onkeydown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
                 </label>
-                <p class="usage">{plural(routedCount, "layer")} routed directly · {plural(sendCount, "send")} · Output: Master</p>
+                <p class="usage">{plural(routedCount, "chair")} routed directly · {plural(sendCount, "send")} · Output: Master</p>
             </section>
 
             <section class="danger-zone">

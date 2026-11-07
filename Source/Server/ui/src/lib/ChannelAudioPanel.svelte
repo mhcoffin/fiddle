@@ -1,30 +1,21 @@
 <script>
     import { dispatchCpp } from "./ipc.js";
     import { groupEffects } from "./masterAudioUi.js";
-    import Knob from "./Knob.svelte";
-    import { gainToPosition, positionToGain, formatGain, parseGain } from "./knobMath.js";
 
     let {
         strip,
         audio = { latencyMs: 0, preFaderInserts: [], postFaderInserts: [] },
         instrumentName = "",
         plugins = [],
-        buses = [],
         onClose = () => {},
     } = $props();
 
     let addingPosition = $state("");
     let query = $state("");
-    let sendDestination = $state("");
-    let availableBuses = $derived(buses.filter((bus) => !(strip.sends || []).some((send) => send.busId === bus.id)));
-    const updateSend = (send, change) => {
-        const next = { ...send, ...change };
-        dispatchCpp("updateStripSend", strip.id, next.id, next.busId, Number(next.gainDb), next.enabled);
-    };
     let effectGroups = $derived(groupEffects(plugins, query));
     let sections = $derived([
         { key: "preFader", title: "Pre-fader inserts", description: "Process the instrument before its level control", items: audio.preFaderInserts || [] },
-        { key: "postFader", title: "Post-fader inserts", description: "Process the signal after its level control", items: audio.postFaderInserts || [] },
+        { key: "postFader", title: "Post-fader inserts", description: "Process the signal after its level control, before the chair", items: audio.postFaderInserts || [] },
     ]);
 
     const addEffect = (uid, position) => {
@@ -45,7 +36,7 @@
         <header>
             <div>
                 <h2>Channel Audio</h2>
-                <p>{strip.layerName || strip.library || "Instrument strip"}</p>
+                <p>{strip.layerName || strip.library || "Instrument strip"} · feeds its chair, whose strip has the output and sends</p>
             </div>
             <div class="header-status">
                 <span>{Number(audio.latencyMs || 0).toFixed(1)} ms latency</span>
@@ -62,57 +53,6 @@
                 {#if strip.hasPlugin}
                     <button onclick={() => dispatchCpp("showStripEditor", strip.id)}>Edit instrument</button>
                 {/if}
-            </section>
-
-            <section class="insert-section" aria-label="Sends">
-                <div class="section-heading">
-                    <div>
-                        <h3>Sends</h3>
-                        <p>Post-fader follows the strip level and all strip effects. Pre-fader taps after pre-fader effects, independently of the strip level.</p>
-                    </div>
-                </div>
-                <p>Use an audio bus for shared reverb or delay; set its effect to 100% wet. Soloed sources keep their returns.</p>
-                <p>The normal output stays connected. Mute, inactive layers, and solo suppression silence both types of send. Change the tap while stopped if effects add latency.</p>
-                <div class="send-add">
-                    <select aria-label="New send destination" bind:value={sendDestination}>
-                        <option value="">Choose audio bus…</option>
-                        {#each availableBuses as bus (bus.id)}
-                            <option value={bus.id}>{bus.name}</option>
-                        {/each}
-                    </select>
-                    <button class="primary" disabled={!availableBuses.some((bus) => bus.id === sendDestination)}
-                        onclick={() => { dispatchCpp("addStripSend", strip.id, sendDestination); sendDestination = ""; }}>Add send</button>
-                </div>
-                {#if !buses.length}
-                    <p>Create an audio bus in View → Bus Manager first, then add its effects in the Audio Buses bank.</p>
-                {/if}
-                <div class="insert-list">
-                    {#each strip.sends || [] as send (send.id)}
-                        <div class="send-row" class:bypassed={!send.enabled}>
-                            <label class="send-enable"><input type="checkbox" checked={send.enabled}
-                                onchange={(event) => updateSend(send, { enabled: event.currentTarget.checked })} /> Enabled</label>
-                            <label class="send-enable"><input type="checkbox" checked={!!send.showOnStrip}
-                                onchange={(event) => dispatchCpp("setStripSendVisible", strip.id, send.id, event.currentTarget.checked)} /> Show on strip</label>
-                            <select aria-label="Send destination" value={send.busId}
-                                onchange={(event) => updateSend(send, { busId: event.currentTarget.value })}>
-                                {#each buses as bus (bus.id)}
-                                    <option value={bus.id} disabled={(strip.sends || []).some((other) => other.id !== send.id && other.busId === bus.id)}>{bus.name}</option>
-                                {/each}
-                            </select>
-                            <select aria-label="Send tap" value={send.preFader ? "preFader" : "postFader"}
-                                onchange={(event) => dispatchCpp("setStripSendPreFader", strip.id, send.id, event.currentTarget.value === "preFader")}>
-                                <option value="postFader">Post-fader</option>
-                                <option value="preFader">Pre-fader</option>
-                            </select>
-                            <Knob label="Send level" unit="dB" min={-120} max={12} value={send.gainDb}
-                                toPosition={gainToPosition} fromPosition={positionToGain} format={formatGain} parse={parseGain}
-                                oninput={(gainDb) => updateSend(send, { gainDb })}
-                                onGestureBegin={() => dispatchCpp("beginHistoryGesture")}
-                                onGestureEnd={() => dispatchCpp("endHistoryGesture")} />
-                            <button class="danger" onclick={() => dispatchCpp("removeStripSend", strip.id, send.id)}>Remove</button>
-                        </div>
-                    {/each}
-                </div>
             </section>
 
             {#each sections as section (section.key)}
@@ -244,13 +184,6 @@
     .danger { color: #fecaca; border-color: #7f1d1d; }
     .empty-inserts, .empty-picker { padding: 22px; border: 1px dashed #334155; border-radius: 8px; color: #94a3b8; text-align: center; line-height: 1.5; }
     .empty-picker { padding: 18px; }
-    .send-add, .send-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .send-add { margin-top: 16px; }
-    .send-row { padding: 12px; border: 1px solid #334155; border-radius: 8px; }
-    .send-row.bypassed { opacity: 0.65; }
-    select { font: inherit; min-height: 36px; padding: 6px; border: 1px solid #475569; border-radius: 6px; background: #111c2e; color: #e2e8f0; }
-    select { flex: 1; min-width: 140px; max-width: 100%; }
-    .send-enable { display: flex; align-items: center; gap: 6px; color: #cbd5e1; font-size: 0.85rem; }
     @media (max-width: 780px) {
         .panel { width: calc(100% - 24px); }
         .insert-row { grid-template-columns: 38px 1fr; }

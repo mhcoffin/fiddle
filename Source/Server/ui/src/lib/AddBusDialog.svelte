@@ -45,7 +45,7 @@
             {#if selectedCount > 0}
                 <label class="route">
                     <input type="checkbox" bind:checked={routeSelection} />
-                    <span>Route the {selectedCount} selected {selectedCount === 1 ? "layer" : "layers"} to this bus</span>
+                    <span>Route the {selectedCount === 1 ? "selected chair" : `${selectedCount} selected chairs`} to this bus</span>
                 </label>
             {/if}
             <footer>

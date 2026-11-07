@@ -12,26 +12,29 @@ const detailsSource = readFileSync(
 );
 
 test("every strip reserves the same operational space around its fader", () => {
-    assert.match(mixerSource, /--strip-pre-fader-height/);
-    assert.match(mixerSource, /height: calc\(var\(--strip-pre-fader-height.*var\(--strip-send-span/);
+    assert.match(mixerSource, /--strip-pre-fader-height/); // the bus bank mirrors it
     assert.match(mixerSource, /\.ch-fx-zone\s*\{[\s\S]*?height: calc\(var\(--strip-fx-height\).*var\(--strip-send-span/);
-    assert.match(mixerSource, /\.master-strip-bot-spacer\s*\{[\s\S]*?height: 74px/);
-    assert.match(mixerSource, /\.master-strip\s*\{[\s\S]*?box-sizing: border-box/);
-    assert.match(mixerSource, /\.master-db\s*\{[\s\S]*?min-height: 28px/);
+    // The chair strip's Σ readout takes the -∞ tick's line and its lock sits
+    // beside the level, so chair and layer faders align.
+    assert.match(mixerSource, /fader-tick fader-bot blend-level/);
+    assert.match(mixerSource, /class="ch-chair-gain-row"/);
+    assert.match(mixerSource, /\.ch-chair-output\s*\{[\s\S]*?height: 32px/);
+    assert.doesNotMatch(mixerSource, /master-strip/);
 });
 
-test("strip effects are grouped by signal position before the output selector", () => {
+test("strip effects are grouped by signal position; only chairs have an output", () => {
     assert.match(mixerSource, /\["Pre", "Post"\]/);
     assert.match(mixerSource, /insert\.location === location/);
     assert.match(mixerSource, /sendRows\[location\] > 0/);
     assert.match(mixerSource, /preFader=\{location === "Pre"\}/);
-    assert.ok(mixerSource.indexOf("<PromotedSends") < mixerSource.indexOf('class="ch-strip-section ch-output-routing"'));
+    assert.ok(mixerSource.indexOf("<PromotedSends chair={chairBus}") < mixerSource.indexOf('class="ch-chair-output"'));
+    assert.doesNotMatch(mixerSource, /ch-output-routing/);
     assert.match(mixerSource, /horizontal=\{stripSize === "large"\}/);
     assert.match(mixerSource, /\.ch-strip-section\s*\{[^}]*background: #1b283b/);
     // The VSTi control needs no "Instrument" heading (the section keeps its accessible name).
     assert.doesNotMatch(mixerSource, /ch-section-title">Instrument/);
     assert.match(mixerSource, /ch-instrument-section" aria-label="Instrument"/);
-    assert.match(mixerSource, /ch-section-title">Output/);
+    assert.doesNotMatch(mixerSource, /ch-section-title">Output/);
     assert.match(mixerSource, /ch-section-title">\{location\}-fader/);
     assert.match(mixerSource, /ch-fx-empty">No inserts/);
 });
@@ -58,7 +61,7 @@ test("section headings count inserts independently of sends and show active stat
 test("operational instrument and effect controls remain on large strips", () => {
     assert.match(mixerSource, /ch-instrument-summary/);
     assert.match(mixerSource, /ch-fx-summary-actions/);
-    assert.match(mixerSource, /ch-output-routing/);
+    assert.match(mixerSource, /class="ch-chair-output"/);
     assert.match(mixerSource, /setStripInsertBypassed/);
     assert.match(mixerSource, /toggleStripInsertEditor/);
 });

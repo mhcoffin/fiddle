@@ -331,10 +331,13 @@ GroupBus *MixerModel::ensureChairBus(const juce::String &key) {
   return ensureChairBusLocked(key);
 }
 
-GroupBus *MixerModel::chairBusForStrip(const juce::String &stripId) {
+GroupBus *MixerModel::chairBusFor(const juce::String &chairBusOrLayerId) {
   std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (auto &bus : chairBuses_)
+    if (bus->id == chairBusOrLayerId)
+      return bus.get();
   for (auto &strip : strips_)
-    if (strip->id == stripId)
+    if (strip->id == chairBusOrLayerId)
       return ensureChairBusLocked(chairBusKey(*strip));
   return nullptr;
 }
@@ -385,7 +388,7 @@ bool MixerModel::setChairBusOutput(const juce::String &chairBusId,
 
 bool MixerModel::setStripDirectOutput(const juce::String &stripId,
                                       const juce::String &busId) {
-  auto *chair = chairBusForStrip(stripId);
+  auto *chair = chairBusFor(stripId);
   return chair && setChairBusOutput(chair->id, busId);
 }
 
@@ -413,7 +416,7 @@ void MixerModel::refreshAudioRouting() {
 }
 
 bool MixerModel::setStripSends(const juce::String &stripId, std::vector<AudioSend> sends) {
-  auto *chair = chairBusForStrip(stripId);
+  auto *chair = chairBusFor(stripId);
   return chair && setChairBusSends(chair->id, std::move(sends));
 }
 
@@ -446,6 +449,14 @@ juce::String MixerModel::groupBusesToJson() const {
   return juce::JSON::toString(juce::var(values), true);
 }
 
+juce::String MixerModel::chairBusesToJson() const {
+  juce::Array<juce::var> values;
+  std::lock_guard<std::mutex> lock(stripsMutex_);
+  for (const auto &bus : chairBuses_)
+    values.add(bus->toJson());
+  return juce::JSON::toString(juce::var(values), true);
+}
+
 juce::AudioPluginFormatManager &MixerModel::getFormatManager() {
   return formatManager_;
 }
@@ -460,14 +471,9 @@ juce::String MixerModel::toJson() const {
   std::lock_guard<std::mutex> lock(stripsMutex_);
   for (const auto &s : strips_) {
     auto json = s->toJson();
-    // Until the chair strip exists (chair buses phase 2), each layer shows its
-    // chair's output and sends.
-    if (auto *object = json.getDynamicObject()) {
-      const auto *chair = findChairBusLocked(chairBusKey(*s));
-      object->setProperty("directOutputBusId", chair ? chair->directOutputBusId : juce::String{});
-      object->setProperty("sends", audioSendsToJson(chair ? chair->sends : std::vector<AudioSend>{}));
+    // A layer's output and sends are its chair bus's (docs/chair-buses.md).
+    if (auto *object = json.getDynamicObject())
       object->setProperty("chairBusId", chairBusId(chairBusKey(*s)));
-    }
     arr.add(json);
   }
   return juce::JSON::toString(juce::var(arr), true);

@@ -220,6 +220,7 @@ private:
   void changeRenderWorkerCount(int count);
   bool canChangeRenderWorkerCount() const;
   bool meterUpdatePending_ = false; // Message-thread-only, one web evaluation in flight.
+  bool chairBusStatePending_ = false; // A new chair bus awaits pushGroupBusState.
   bool diagnosticsUpdatePending_ = false;
 
   uint64_t lastSampleTime = 0;

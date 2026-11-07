@@ -7,7 +7,7 @@
 
     let {
         buses = [],
-        strips = [],
+        chairBuses = [],
         master = { gainDb: 0, peakDb: -120, inserts: [] },
         busMeters = {},
         masterMeters,
@@ -49,13 +49,14 @@
         (bus.audio?.preFaderInserts?.length || 0) +
         (bus.audio?.postFaderInserts?.length || 0),
     );
+    // Chairs route to audio buses; layers always feed their chair.
     const routeCount = (busId) =>
-        strips.filter((strip) => strip.directOutputBusId === busId).length;
-    const sendCount = (busId) => strips.reduce((count, strip) =>
-        count + (strip.sends || []).filter((send) => send.busId === busId).length, 0);
-    const soloSafeReturn = (busId) => strips.some((strip) =>
-        buses.some((bus) => bus.id === strip.directOutputBusId && bus.soloed) &&
-        (strip.sends || []).some((send) => send.busId === busId && send.enabled));
+        chairBuses.filter((chair) => chair.directOutputBusId === busId).length;
+    const sendCount = (busId) => chairBuses.reduce((count, chair) =>
+        count + (chair.sends || []).filter((send) => send.busId === busId).length, 0);
+    const soloSafeReturn = (busId) => chairBuses.some((chair) =>
+        buses.some((bus) => bus.id === chair.directOutputBusId && bus.soloed) &&
+        (chair.sends || []).some((send) => send.busId === busId && send.enabled));
     const busInserts = (bus) => [
         ...(bus.audio?.preFaderInserts || []).map((insert) => ({ ...insert, location: "Pre" })),
         ...(bus.audio?.postFaderInserts || []).map((insert) => ({ ...insert, location: "Post" })),
@@ -90,7 +91,7 @@
                     <div class="bus-header" title={bus.name}>
                         <div class="identity">
                         <strong>{bus.name}</strong>
-                        <span>{routed} direct · {sendCount(bus.id)} sends</span>
+                        <span title={`${routed} ${routed === 1 ? "chair routes" : "chairs route"} here; ${sendCount(bus.id)} chair ${sendCount(bus.id) === 1 ? "send" : "sends"}`}>{routed} direct · {sendCount(bus.id)} sends</span>
                         </div>
                     </div>
                     <article class="channel" class:suppressed={bus.muted || (anySoloed && !bus.soloed && !soloSafeReturn(bus.id))}>

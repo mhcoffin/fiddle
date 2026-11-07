@@ -57,12 +57,13 @@ private:
 
 class AddGroupBusAction final : public UndoableAction {
 public:
-  /// Routes the chairs of the given layers to the new bus.
+  /// Routes the given chairs to the new bus: chair bus IDs, or layer IDs
+  /// standing for their chairs.
   AddGroupBusAction(MixerModel &mixer, juce::String name,
-                    const std::vector<juce::String> &stripIds)
+                    const std::vector<juce::String> &chairIds)
       : mixer_(mixer), name_(std::move(name)) {
-    for (const auto &id : stripIds)
-      if (auto *chair = mixer_.chairBusForStrip(id))
+    for (const auto &id : chairIds)
+      if (auto *chair = mixer_.chairBusFor(id))
         if (std::none_of(previousOutputs_.begin(), previousOutputs_.end(),
                          [&](const auto &item) { return item.first == chair->id; }))
           previousOutputs_.push_back({chair->id, chair->directOutputBusId});

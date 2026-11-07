@@ -56,8 +56,18 @@ MainComponent::MainComponent()
     : webViewBridge_(jsRouter_,
                      [this](std::function<void()> f) { safeCallAsync(f); }),
       libraryPatchPreviewHost_(mixer_.getFormatManager()) {
-  // Chair buses appear as layers are added; watch their effect racks too.
-  mixer_.onChairBusCreated = [this](GroupBus &bus) { setupGroupBusAudioCallbacks(bus); };
+  // Chair buses appear as layers are added; watch their effect racks too,
+  // and show the new chair strip. This runs with the mixer locked, so the
+  // state is pushed later (once for a burst, such as loading a project).
+  mixer_.onChairBusCreated = [this](GroupBus &bus) {
+    setupGroupBusAudioCallbacks(bus);
+    if (chairBusStatePending_) return;
+    chairBusStatePending_ = true;
+    safeCallAsync([this] {
+      chairBusStatePending_ = false;
+      pushGroupBusState();
+    });
+  };
   setupJsHandlers();
   webViewBridge_.setup();
 
@@ -3010,9 +3020,12 @@ void MainComponent::pushMixerMeters() {
 }
 
 void MainComponent::pushGroupBusState() {
-  if (webViewBridge_.isLoaded())
-    broadcastMessage("setGroupBusState",
-                     juce::JSON::fromString(mixer_.groupBusesToJson()));
+  if (!webViewBridge_.isLoaded())
+    return;
+  broadcastMessage("setGroupBusState",
+                   juce::JSON::fromString(mixer_.groupBusesToJson()));
+  broadcastMessage("setChairBusState",
+                   juce::JSON::fromString(mixer_.chairBusesToJson()));
 }
 
 void MainComponent::masterAudioChanged() {
@@ -4156,6 +4169,12 @@ void MainComponent::setupJsHandlers() {
   groupBusCommandService_ =
       std::make_unique<GroupBusCommandService>(mixer_, pluginScanner_,
                                                 undoManager_);
+  groupBusCommandService_->chairName = [this](const juce::String &chairId) {
+    auto *repository = db_.getLibraryRoutingRepository();
+    const auto chair = repository ? repository->getChair(chairId.toStdString())
+                                  : std::nullopt;
+    return chair ? juce::String::fromUTF8(chair->name.c_str()) : juce::String{};
+  };
   groupBusJsHandlers_ = std::make_unique<GroupBusJsHandlers>(
       jsRouter_, *groupBusCommandService_,
       GroupBusJsHandlers::Callbacks{
