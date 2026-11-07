@@ -613,6 +613,8 @@ try {
             assert.ok(group.buttonFits, `${size}: Add Layer button must fit`);
             assert.equal(group.addLayerText, "+");
         }
+        assert.ok(Math.abs(measured.groups[8].output.width - measured.groups[0].output.width) <= 1,
+            `${size}: a multi-layer chair's output is as wide as a one-layer chair's (${measured.groups[8].output.width}, ${measured.groups[0].output.width})`);
         for (const [index, group] of measured.groups.entries()) {
             if (index === 9) { assert.equal(group.output, null, "an empty chair has no output"); continue; }
             assert.ok(group.output?.fits, `${size}: chair ${index} output fits its header`);

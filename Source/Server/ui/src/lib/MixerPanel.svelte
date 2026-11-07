@@ -2442,8 +2442,12 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     .bridge-output {
         grid-column: 1;
         grid-row: 2;
+        justify-self: start;
         width: 100%;
         min-width: 0;
+        /* As wide as in a one-layer chair's header (strip + its padding, less
+           the header padding, gap and "+"), however many layers the chair has. */
+        max-width: calc(var(--strip-width, 120px) - 23px);
         height: 28px;
         box-sizing: border-box;
         overflow: hidden;
