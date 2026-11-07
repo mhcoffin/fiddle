@@ -27,6 +27,16 @@ has a different version · its notes are muted" (beacon mismatch) and "Not
 checked · its notes are muted" (a schema-1 map without attestation). Its
 tooltip explains the check, gives the received and expected beacon and the
 fix, counts notes not played by reason, and lists the other diagnostics.
+
+Chair Manager also says when Dorico's playback template is out of date.
+Installing records what was installed, one line per chair (identity, MIDI
+destination and pinned map), in `installed-playback-template.json` in Fiddle's
+app data folder. Dorico's template is global, so the record is too: checking
+out another version compares against it. A banner counts new, changed and
+removed chairs, and a new or changed chair's row says "reinstall" in place of
+its bridge-map status. Chairs on the universal map show no status. Until the
+first install after this change, Fiddle has no record and says so in the
+banner. See `PlaybackTemplateRecord.h`.
 The compiler/decoder exists; production Dorico acceptance is still pending.
 
 The manual workspace described below (starting-map buttons, per-port

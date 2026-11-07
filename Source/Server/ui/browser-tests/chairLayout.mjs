@@ -1077,7 +1077,7 @@ try {
     assert.match(await mismatched.getAttribute("title"), /1 stale Offs ignored · 3 early Offs suppressed/);
     assert.match(await chairRow("Flute 5").locator(".bridge").innerText(), /1 note not played \(outside the instrument's range\)/);
     assert.ok(await mismatched.evaluate(e => e.classList.contains("warn")));
-    assert.match(await chairRow("Flute 4").innerText(), /Universal map/);
+    assert.doesNotMatch(await chairRow("Flute 4").innerText(), /Universal map/, "a chair without a bridge map says nothing");
     // The MIDI column has a fixed width, so a short status doesn't shift it.
     const midiLefts = await manager.locator("article.chair-row .midi").evaluateAll((columns) =>
         [...new Set(columns.map((column) => Math.round(column.getBoundingClientRect().left)))]);
@@ -1100,11 +1100,27 @@ try {
     await bridgeMaps.getByRole("button", { name: "Use built-in revision 3", exact: true }).click();
     assert.ok(await chairPage.evaluate(() => window.fixtureMessages.some(m => m.type === "useBuiltInBridgeMaps" && m.payload[0] === "woodwinds")));
     const installTemplate = manager.getByRole("button", { name: "Install Playback Template", exact: true });
-    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setTemplateDirty", data: false }));
+    const templateStatus = (status) => chairPage.evaluate((data) =>
+        window.__dispatchFromCpp({ type: "setTemplateDirty", data }), status);
+    await templateStatus({ known: true, dirty: false, newChairIds: [], changedChairIds: [], removedCount: 0 });
     assert.ok(await installTemplate.isDisabled());
-    // A changed bridge pin arrives through the same dirty-state channel as a
-    // changed chair. Reinstall becomes available without reopening the panel.
-    await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "setTemplateDirty", data: true }));
+    assert.equal(await manager.locator(".template-warning").count(), 0);
+    // Chairs added or changed since the install say so in their row, in place
+    // of their bridge-map status, and a banner says the template is out of date.
+    await templateStatus({ known: true, dirty: true, newChairIds: ["chair-3"], changedChairIds: ["chair-0"], removedCount: 2 });
+    assert.equal(await manager.locator(".template-warning strong").innerText(),
+        "The playback template is out of date: 1 new chair, 1 chair changed, 2 chairs removed");
+    assert.match(await manager.locator(".template-warning").innerText(), /Install Playback Template, then reapply/);
+    assert.match(await chairRow("Flute 4").locator(".midi").innerText(), /Not in the installed template yet · reinstall/);
+    assert.match(await chairRow("Flute 1").locator(".midi").innerText(), /Changed since the template was installed · reinstall/);
+    assert.doesNotMatch(await chairRow("Flute 1").locator(".midi").innerText(), /woodwinds map/);
+    // Without a record of the install, Fiddle says so rather than guessing per chair.
+    await templateStatus({ known: false, dirty: true, newChairIds: [], changedChairIds: [], removedCount: 0 });
+    assert.match(await manager.locator(".template-warning strong").innerText(), /no record of the installed playback template/);
+    assert.match(await chairRow("Flute 1").locator(".midi").innerText(), /woodwinds map/);
+    // A changed bridge pin arrives through the same channel as a changed
+    // chair. Reinstall becomes available without reopening the panel.
+    await templateStatus(true);
     await installTemplate.click();
     assert.equal((await chairPage.evaluate(() => window.fixtureMessages.at(-1))).type, "installChairTemplate");
     await chairPage.evaluate(() => window.__dispatchFromCpp({ type: "chairTemplateResult", data: "Installed playback template. Restart Dorico and apply the Fiddle playback template." }));

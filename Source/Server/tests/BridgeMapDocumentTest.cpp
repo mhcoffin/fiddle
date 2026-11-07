@@ -3,6 +3,7 @@
 #include "NoteStreamTracker.h"
 #include "NoteInspection.h"
 #include "ProjectSettings.h"
+#include "PlaybackTemplateRecord.h"
 #include <functional>
 #include <iostream>
 #include <stdexcept>
@@ -318,7 +319,35 @@ void percussion() {
   CHECK(std::string(BridgeDecoderState::key(BridgeDecoderState::Withheld::OutsideRange)) == "outsideRange");
 }
 
+void testPlaybackTemplateRecord() {
+  // Nothing recorded: the template counts as out of date, with no per-chair detail.
+  PlaybackTemplateRecord record;
+  auto status = record.compare({{"fl", "flute|0"}});
+  CHECK(!status.known && status.dirty && status.added.empty());
+  record.known = true;
+  record.chairs = {{"fl", "flute|0"}, {"ob", "oboe|1"}, {"cl", "clarinet|2"}};
+  status = record.compare(record.chairs);
+  CHECK(status.known && !status.dirty);
+  // A new chair, a moved chair and a deleted chair.
+  status = record.compare({{"fl", "flute|0"}, {"ob", "oboe|5"}, {"fls", "flutes a3|9"}});
+  CHECK(status.dirty && status.added == std::vector<juce::String>{"fls"});
+  CHECK(status.changed == std::vector<juce::String>{"ob"} && status.removed == 1);
+  const auto json = status.toJson();
+  CHECK(json["newChairIds"].size() == 1 && json["changedChairIds"][0].toString() == "ob");
+  CHECK(int(json["removedCount"]) == 1 && bool(json["known"]) && bool(json["dirty"]));
+  // It survives a save and load; a missing or foreign file is "not known".
+  const auto file = juce::File::createTempFile(".json");
+  CHECK(record.save(file));
+  const auto loaded = PlaybackTemplateRecord::load(file);
+  CHECK(loaded.known && loaded.chairs == record.chairs);
+  file.replaceWithText("{\"schema\": 99}");
+  CHECK(!PlaybackTemplateRecord::load(file).known);
+  file.deleteFile();
+  CHECK(!PlaybackTemplateRecord::load(file).known);
+}
+
 void tests() {
+  testPlaybackTemplateRecord();
   juce::String error;
   const auto source = fixture("experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib");
   auto strings = BridgeMapDocument::compile(source, error);

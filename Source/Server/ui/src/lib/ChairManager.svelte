@@ -4,6 +4,7 @@
     import { populateScoreOrder } from "./orchestralOrder.js";
     import { groupChairs, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
     import { bridgeForChair, isPlaying, mapName, statusTitle, verificationText, withheldText } from "./bridgeStatus.js";
+    import { chairTemplateNote, parseTemplateStatus, templateBanner } from "./templateStatus.js";
     import BridgeMaps from "./BridgeMaps.svelte";
 
     let { onClose = () => {} } = $props();
@@ -15,7 +16,9 @@
     let role = $state("section");
     let chairName = $state("");
     let pendingDeleteId = $state("");
-    let templateDirty = $state(true);
+    let templateStatus = $state(parseTemplateStatus(true));
+    let templateDirty = $derived(templateStatus.dirty);
+    let banner = $derived(templateBanner(templateStatus));
     let installing = $state(false);
     let message = $state("");
     let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
@@ -34,7 +37,7 @@
         instruments = Array.isArray(data) ? data : [];
         populateScoreOrder(instruments);
     }));
-    unsubscribers.push(onFromCpp("setTemplateDirty", (data) => { templateDirty = !!data; }));
+    unsubscribers.push(onFromCpp("setTemplateDirty", (data) => { templateStatus = parseTemplateStatus(data); }));
     unsubscribers.push(onFromCpp("setBridgeMapState", (data) => { bridgeState = data || bridgeState; }));
     unsubscribers.push(onFromCpp("chairOperationResult", (data) => {
         message = typeof data === "string" ? data : "The chair could not be changed";
@@ -140,6 +143,13 @@
 
             <BridgeMaps {bridgeState} />
 
+            {#if banner}
+                <div class="template-warning" role="status">
+                    <strong>{banner.title}</strong>
+                    <span>{banner.detail}</span>
+                </div>
+            {/if}
+
             {#if message}
                 <div class:error={message.startsWith("Error") || message.startsWith("Could") || message.startsWith("Add ")} class="message">{message}</div>
             {/if}
@@ -191,11 +201,11 @@
                                         <div class="midi">
                                             <span>MIDI destination</span>
                                             <strong>Port {chair.port + 1} · Channel {chair.channel + 1}</strong>
-                                            {#if bridgeForChair(bridgeState, chair)}
+                                            {#if chairTemplateNote(templateStatus, chair.id)}
+                                                <span class="bridge warn" title="Dorico's playback template doesn't match this chair. With Dorico closed, choose Install Playback Template, then reapply the Fiddle template in open projects.">{chairTemplateNote(templateStatus, chair.id)}</span>
+                                            {:else if bridgeForChair(bridgeState, chair)}
                                                 {@const bridge = bridgeForChair(bridgeState, chair)}
                                                 <span class="bridge" class:warn={!isPlaying(bridge)} title={statusTitle(bridge)}>{`${mapName(bridge)} · ${verificationText(bridge)}${withheldText(bridge)}`}</span>
-                                            {:else}
-                                                <span class="bridge">Universal map</span>
                                             {/if}
                                         </div>
                                         <button
@@ -290,6 +300,9 @@
     .install,.primary { background:#075985; border-color:#38bdf8; color:#f0f9ff; font-weight:650; }
     .content { padding:24px 26px 36px; overflow-y:auto; }
     .intro-row { justify-content:space-between; margin-bottom:18px; }
+    .template-warning { display:flex; flex-direction:column; gap:3px; margin-bottom:16px; padding:13px 15px; border:1px solid rgba(251,191,36,.45); border-radius:7px; background:rgba(251,191,36,.09); }
+    .template-warning strong { color:#fde68a; }
+    .template-warning span { color:#cbd5e1; font-size:.8rem; }
     .message { margin-bottom:16px; padding:10px 13px; border:1px solid rgba(34,197,94,.35); border-radius:6px; background:rgba(34,197,94,.1); color:#86efac; }
     .message.error { border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.1); color:#fca5a5; }
     .empty { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px dashed #334155; border-radius:10px; color:#cbd5e1; text-align:center; }
@@ -308,7 +321,7 @@
     .role-row { display:flex; align-items:center; gap:8px; }
     .chair-role { min-height:30px; padding:4px 26px 4px 8px; border:1px solid #3b4b61; border-radius:5px; background:#0b1422; color:#cbd5e1; font:inherit; font-size:.76rem; }
     .chair-role:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
-    /* Fixed width, so a short status ("Universal map") doesn't shift the column. */
+    /* Fixed width, so a short or missing status doesn't shift the column. */
     .midi { width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:4px; font-variant-numeric:tabular-nums; }
     .midi strong { font-size:.88rem; }
     .midi .bridge { max-width:260px; } .midi .bridge.warn { color:#f8bd9d; }

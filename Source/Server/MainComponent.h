@@ -10,6 +10,7 @@
 #include "ExpressionMapCommandService.h"
 #include "LibraryMaps.h"
 #include "FiddleDatabase.h"
+#include "PlaybackTemplateRecord.h"
 #include "HistoryWindow.h"
 
 #include "InstrumentMapper.h"
@@ -470,14 +471,18 @@ private:
   /// because callback behavior can vary between versions and operations.
   std::set<int> listenerCapableUids_;
 
-  /// Fingerprint of chairs when the template was last installed.
-  /// Used to determine if "Install Playback Template" should be enabled.
-  juce::String lastInstalledFingerprint_;
+  /// The chairs as last installed in Dorico's playback template, saved in the
+  /// app data folder (Dorico's template is global). Loaded on first use.
+  PlaybackTemplateRecord installedTemplate_;
+  bool installedTemplateLoaded_ = false;
+  PlaybackTemplateRecord &installedTemplate();
 
-  /// Compute a fingerprint from the explicit Dorico chairs in the DB.
-  juce::String computeChairFingerprint();
+  /// One line per chair: what the playback template holds for it (identity,
+  /// MIDI destination, pinned bridge map).
+  PlaybackTemplateRecord::Lines chairTemplateLines();
 
-  /// Broadcast whether the playback template is out-of-date to all UIs.
+  /// Broadcast the playback template's status to all UIs: whether it is out
+  /// of date, and which chairs are new or changed since it was installed.
   void broadcastTemplateDirty();
 
   DebugUiFeed debugUiFeed_;

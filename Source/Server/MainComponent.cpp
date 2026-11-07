@@ -6269,38 +6269,55 @@ void MainComponent::installChairPlaybackTemplate() {
       juce::JSON::fromString(masterList_.getSlotsAsJson()));
   pushMixerState();
 
-  lastInstalledFingerprint_ = computeChairFingerprint();
+  auto &record = installedTemplate();
+  record.chairs = chairTemplateLines();
+  record.known = true;
+  if (!record.save(FiddleConfig::getAppDataDir().getChildFile("installed-playback-template.json")))
+    juce::Logger::writeToLog("Could not save the installed playback template record");
   broadcastTemplateDirty();
   broadcastMessage("chairTemplateResult",
                    juce::var("Installed playback template with " +
                              juce::String((int)chairs.size()) + " chairs. Restart Dorico and apply the Fiddle playback template, then verify the assigned maps in Bridge maps."));
 }
 
-juce::String MainComponent::computeChairFingerprint() {
+PlaybackTemplateRecord &MainComponent::installedTemplate() {
+  if (!installedTemplateLoaded_) {
+    installedTemplate_ = PlaybackTemplateRecord::load(
+        FiddleConfig::getAppDataDir().getChildFile("installed-playback-template.json"));
+    installedTemplateLoaded_ = true;
+  }
+  return installedTemplate_;
+}
+
+PlaybackTemplateRecord::Lines MainComponent::chairTemplateLines() {
   auto *repository = db_.getLibraryRoutingRepository();
   const auto chairs = repository ? repository->listChairs()
                                   : std::vector<ChairRow>{};
-  juce::String data;
-  for (const auto &chair : chairs) {
-    data += juce::String(chair.id) + "|" +
-            juce::String(chair.instrumentEntityId) + "|" +
-            juce::String(chair.name) + "|" + juce::String(chair.family) +
-            "|" + (chair.role == DoricoRole::solo ? "S" : "T") + "|" +
-            juce::String(chair.ordinal) + "|" +
-            juce::String(chair.displayOrder) + "|" +
-            juce::String(chair.flatIndex) + "\n";
-  }
   // Draft/unassigned revisions do not change the installed template. Pinned
   // endpoint/revision changes do, including Undo and version checkout.
+  std::map<std::pair<int, int>, juce::String> maps;
   const auto bridgeJson = juce::JSON::parse(juce::String(mixer_.projectSettings().bridgeMapsJson));
-  data += juce::JSON::toString(bridgeJson["assignments"], true);
-  return juce::String(data.hashCode64());
+  if (const auto *routes = bridgeJson["assignments"].getArray())
+    for (const auto &route : *routes)
+      maps[{int(route["port"]), int(route["channel"])}] = route["map"].toString();
+  PlaybackTemplateRecord::Lines lines;
+  for (const auto &chair : chairs) {
+    const auto map = maps.find({chair.flatIndex / 16, chair.flatIndex % 16 + 1});
+    lines[juce::String(chair.id)] =
+        juce::String(chair.instrumentEntityId) + "|" +
+        juce::String(chair.name) + "|" + juce::String(chair.family) +
+        "|" + (chair.role == DoricoRole::solo ? "S" : "T") + "|" +
+        juce::String(chair.ordinal) + "|" +
+        juce::String(chair.displayOrder) + "|" +
+        juce::String(chair.flatIndex) + "|" +
+        (map != maps.end() ? map->second : juce::String());
+  }
+  return lines;
 }
 
 void MainComponent::broadcastTemplateDirty() {
-  juce::String current = computeChairFingerprint();
-  bool dirty = current != lastInstalledFingerprint_;
-  broadcastMessage("setTemplateDirty", juce::var(dirty));
+  broadcastMessage("setTemplateDirty",
+                   installedTemplate().compare(chairTemplateLines()).toJson());
 }
 
 } // namespace fiddle
