@@ -308,7 +308,8 @@
     .role-row { display:flex; align-items:center; gap:8px; }
     .chair-role { min-height:30px; padding:4px 26px 4px 8px; border:1px solid #3b4b61; border-radius:5px; background:#0b1422; color:#cbd5e1; font:inherit; font-size:.76rem; }
     .chair-role:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
-    .midi { min-width:185px; display:flex; flex-direction:column; gap:4px; font-variant-numeric:tabular-nums; }
+    /* Fixed width, so a short status ("Universal map") doesn't shift the column. */
+    .midi { width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:4px; font-variant-numeric:tabular-nums; }
     .midi strong { font-size:.88rem; }
     .midi .bridge { max-width:260px; } .midi .bridge.warn { color:#f8bd9d; }
     .delete { min-width:116px; } .delete.confirm { border-color:#f87171; background:#7f1d1d; color:#fee2e2; }

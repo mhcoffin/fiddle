@@ -1078,6 +1078,10 @@ try {
     assert.match(await chairRow("Flute 5").locator(".bridge").innerText(), /1 note not played \(outside the instrument's range\)/);
     assert.ok(await mismatched.evaluate(e => e.classList.contains("warn")));
     assert.match(await chairRow("Flute 4").innerText(), /Universal map/);
+    // The MIDI column has a fixed width, so a short status doesn't shift it.
+    const midiLefts = await manager.locator("article.chair-row .midi").evaluateAll((columns) =>
+        [...new Set(columns.map((column) => Math.round(column.getBoundingClientRect().left)))]);
+    assert.equal(midiLefts.length, 1, `MIDI columns line up: ${midiLefts.join(", ")}`);
     const bridgeMaps = manager.locator("details.bridges");
     await bridgeMaps.locator("summary").click();
     assert.match(await bridgeMaps.innerText(), /Orchestral Woodwinds r2 \(host test\) · revision 2/);
