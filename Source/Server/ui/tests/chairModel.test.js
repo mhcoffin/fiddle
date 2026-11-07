@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
     groupChairs,
-    likelySectionRoleMistakes,
     searchDoricoInstruments,
     suggestedChairName,
     suggestedChairRole,
@@ -35,19 +34,10 @@ test("chair roles default to Dorico's conventional orchestral player types", () 
     assert.equal(suggestedChairRole({ family: "keyboard" }), "solo");
 });
 
-test("only likely accidental section roles are offered for bulk correction", () => {
-    const chairs = [
-        { id: "flute", family: "wind", role: "section" },
-        { id: "horns", family: "brass", role: "section" },
-        { id: "violin-section", family: "strings", role: "section" },
-        { id: "violin-solo", family: "strings", role: "solo" },
-        { id: "piano", family: "keyboard", role: "solo" },
-    ];
-
-    assert.deepEqual(
-        likelySectionRoleMistakes(chairs).map((chair) => chair.id),
-        ["flute", "horns"],
-    );
+test("a wind section is a valid chair; nothing flags it", async () => {
+    const source = await import("node:fs").then((fs) =>
+        fs.readFileSync(new URL("../src/lib/ChairManager.svelte", import.meta.url), "utf8"));
+    assert.doesNotMatch(source, /normally uses solo players|Change all to Solo players/);
 });
 
 test("conventional solo instruments do not receive a redundant Solo prefix", () => {

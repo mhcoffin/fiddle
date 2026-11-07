@@ -48,11 +48,6 @@ export function suggestedChairRole(instrument) {
     return family === "strings" || family === "choir" ? "section" : "solo";
 }
 
-export function likelySectionRoleMistakes(chairs) {
-    return chairs.filter((chair) =>
-        chair.role === "section" && suggestedChairRole(chair) === "solo");
-}
-
 export function suggestedChairName(instrument, role, chairs) {
     const matching = chairs.filter((chair) =>
         chair.entityID === instrument.entityID && chair.role === role).length;

@@ -2,7 +2,7 @@
     import { onMount } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { populateScoreOrder } from "./orchestralOrder.js";
-    import { groupChairs, likelySectionRoleMistakes, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
+    import { groupChairs, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
     import { bridgeForChair, isPlaying, mapName, statusTitle, verificationText, withheldText } from "./bridgeStatus.js";
     import BridgeMaps from "./BridgeMaps.svelte";
 
@@ -21,7 +21,6 @@
     let undoState = $state({ canUndo: false, canRedo: false, undoDescription: "", redoDescription: "" });
     let bridgeState = $state({ documents: [], assignments: [], sections: [], error: "" });
     let groups = $derived(groupChairs(chairs));
-    let roleWarnings = $derived(likelySectionRoleMistakes(chairs));
     let results = $derived(searchDoricoInstruments(instruments, query));
 
     const clearMessageLater = () => setTimeout(() => { message = ""; }, 5000);
@@ -97,14 +96,6 @@
         dispatchCpp("updateChair", { id: chair.id, name: chair.name, role: nextRole });
     };
 
-    const correctLikelyRoles = () => {
-        if (roleWarnings.length === 0) return;
-        dispatchCpp("updateChairRoles", {
-            ids: roleWarnings.map((chair) => chair.id),
-            role: "solo",
-        });
-    };
-
     const installTemplate = () => {
         if (installing || chairs.length === 0) return;
         installing = true;
@@ -151,16 +142,6 @@
 
             {#if message}
                 <div class:error={message.startsWith("Error") || message.startsWith("Could") || message.startsWith("Add ")} class="message">{message}</div>
-            {/if}
-
-            {#if roleWarnings.length > 0}
-                <div class="role-warning">
-                    <div>
-                        <strong>{roleWarnings.length} {roleWarnings.length === 1 ? "chair is" : "chairs are"} set to Section player</strong>
-                        <span>Dorico normally uses solo players for winds, brass, percussion, and keyboards.</span>
-                    </div>
-                    <button onclick={correctLikelyRoles}>Change all to Solo players</button>
-                </div>
             {/if}
 
             {#if chairs.length === 0}
@@ -311,11 +292,6 @@
     .intro-row { justify-content:space-between; margin-bottom:18px; }
     .message { margin-bottom:16px; padding:10px 13px; border:1px solid rgba(34,197,94,.35); border-radius:6px; background:rgba(34,197,94,.1); color:#86efac; }
     .message.error { border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.1); color:#fca5a5; }
-    .role-warning { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:16px; padding:13px 15px; border:1px solid rgba(251,191,36,.45); border-radius:7px; background:rgba(251,191,36,.09); }
-    .role-warning div { display:flex; flex-direction:column; gap:3px; }
-    .role-warning strong { color:#fde68a; }
-    .role-warning span { color:#cbd5e1; font-size:.8rem; }
-    .role-warning button { flex-shrink:0; border-color:#d6a629; background:#5b4311; color:#fff4bd; font-weight:650; }
     .empty { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px dashed #334155; border-radius:10px; color:#cbd5e1; text-align:center; }
     .empty span { max-width:520px; color:#94a3b8; }
     .groups { display:flex; flex-direction:column; gap:18px; }
