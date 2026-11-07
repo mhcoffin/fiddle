@@ -209,6 +209,10 @@ public:
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
                     BusPrintCapture *capture = nullptr);
+  /// Render thread only, while the renderer is idle and processBlock doesn't
+  /// run: every meter (layers, chairs, buses, Master) falls as if it had heard
+  /// `seconds` of silence, so peaks and holds drop away after playback stops.
+  void decayMeters(double seconds);
 
   void prepareToPlay(double sampleRate, int blockSize);
   /// Local experimental setting, not part of project state. The count includes

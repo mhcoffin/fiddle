@@ -445,6 +445,22 @@ void testMeterOnlySnapshots() {
   // Demonstrate the test detects the old full-state path's program queries.
   const auto full = f.mixer.toJson();
   REQUIRE(full.isNotEmpty() && SignalProcessor::programQueries > programs);
+
+  // While the renderer idles, meters keep falling (peak 20 dB/s, hold 3 dB/s)
+  // instead of freezing where playback stopped.
+  auto &meter = f.mixer.getStrip(a)->meter();
+  const float peak = meter.peak(0), hold = meter.hold(0);
+  const float busPeak = f.mixer.getGroupBus(busId)->meter().peak(0);
+  const float masterPeak = f.mixer.masterAudio().meter().peak(0);
+  REQUIRE(peak > -60.0f && hold > -60.0f && masterPeak > -60.0f);
+  f.mixer.decayMeters(0.5);
+  REQUIRE(std::abs(meter.peak(0) - (peak - 10.0f)) < 0.1f);
+  REQUIRE(std::abs(meter.hold(0) - (hold - 1.5f)) < 0.1f);
+  REQUIRE(f.mixer.getGroupBus(busId)->meter().peak(0) < busPeak - 9.0f);
+  REQUIRE(f.mixer.masterAudio().meter().peak(0) < masterPeak - 9.0f);
+  for (int i = 0; i < 60; ++i) f.mixer.decayMeters(1.0);
+  REQUIRE(meter.peak(0) == -120.0f && meter.hold(0) == -120.0f);
+  REQUIRE(f.mixer.masterAudio().meter().hold(0) == -120.0f);
 }
 
 void testPluginTimingAndReprepare() {

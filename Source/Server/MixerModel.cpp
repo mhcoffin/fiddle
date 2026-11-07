@@ -665,6 +665,23 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   masterAudio_.processBlock(audioBuffer);
 }
 
+void MixerModel::decayMeters(double seconds) {
+  const double rate = currentSampleRate_.load(std::memory_order_relaxed);
+  const int frames = static_cast<int>(juce::jlimit(0.0, 1.0, seconds) * rate);
+  if (frames <= 0) return;
+  // Same lifetime rules as processBlock; meters are written only here and
+  // there, both on the render thread.
+  AudioProcessingGate::Render render;
+  if (!render) return;
+  auto graphRead = audioGraph_.read();
+  if (auto *graph = graphRead.get()) {
+    for (auto &route : graph->stripRoutes) route.strip->meter().process(nullptr, frames, rate);
+    for (auto &chair : graph->chairRoutes) chair.bus->meter().process(nullptr, frames, rate);
+    for (auto *bus : graph->groupBuses) bus->meter().process(nullptr, frames, rate);
+  }
+  masterAudio_.meter().process(nullptr, frames, rate);
+}
+
 void MixerModel::prepareToPlay(double sampleRate, int blockSize) {
   AudioProcessingGate::Control control;
   std::lock_guard<std::mutex> lock(stripsMutex_);

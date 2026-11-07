@@ -153,6 +153,14 @@ void RenderAheadEngine::run() {
   auto &ring = *s.ring;
   double previousEndMs = 0;
   uint64_t quietFrames = 0;
+  // While idle the mixer doesn't run, so its meters would freeze where
+  // playback stopped. Let them fall by the wall time that has passed.
+  double meterTimeMs = juce::Time::getMillisecondCounterHiRes();
+  const auto decayIdleMeters = [&] {
+    const auto nowMs = juce::Time::getMillisecondCounterHiRes();
+    mixer_.decayMeters((nowMs - meterTimeMs) / 1000.0);
+    meterTimeMs = nowMs;
+  };
   while (!threadShouldExit()) {
     const auto now = juce::Time::getMillisecondCounter();
     const bool requested = performanceRequested(now);
@@ -163,6 +171,7 @@ void RenderAheadEngine::run() {
     const bool idle = idle_.load(std::memory_order_acquire);
     const auto plan = RenderAheadPlan::next(ring);
     if (!ring.active.load(std::memory_order_acquire) || !plan.render) {
+      if (idle) decayIdleMeters();
       // Consumer never signals/locks here. Only the non-device worker waits.
       wait(idle ? idleWaitMilliseconds(ring) : 1);
       continue;
@@ -176,6 +185,7 @@ void RenderAheadEngine::run() {
     s.scratch.clear();
 
     if (idle) {
+      decayIdleMeters();
       const bool pushed = ring.push(
           plan.startFrame, s.scratch.getReadPointer(0),
           s.scratch.getReadPointer(1), ring.blockSize);
@@ -208,6 +218,7 @@ void RenderAheadEngine::run() {
     const bool pushed = ring.push(plan.startFrame, s.scratch.getReadPointer(0),
                                    s.scratch.getReadPointer(1), ring.blockSize);
     const auto end = juce::Time::getMillisecondCounterHiRes();
+    meterTimeMs = end; // processBlock advanced the meters
     recorder_.record(start, end, int(ring.blockSize), !pushed, false,
                       PluginRenderDiagnostics::blockWorkMs(), false,
                       mixer_.renderWorkerCount() > 1);
