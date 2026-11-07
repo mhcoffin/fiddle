@@ -10,14 +10,23 @@ template, and pins the four revisions with the project's branch/version. Every
 other chair keeps the universal Fiddle map. Users do not assign ports, channels
 or maps. A branch keeps the revisions it pinned even when the app ships newer
 built-ins; editing a map is future editor work.
-**Chairs** shows each chair's bridge map and live status (beacon match, withheld
-notes), and a **Bridge maps** list of the section maps with Dorico export. When
+**Chairs** shows each chair's bridge map and live status, and a **Bridge maps** list of the section maps with Dorico export. When
 a section's pinned map differs from the app's built-in one, the list opens and
 shows both, offering **Use built-in revision N** (or **Use all built-in maps**):
 one undoable change that repins the section and moves every channel that used
 the old map. Then reinstall the playback template with Dorico closed and
 reapply it in open projects; until then the beacon mismatches and those notes
 are withheld. The separate Technique Catalog window was removed on 2026-10-19.
+
+Chair Manager words the status for musicians: the beacon is the map's
+"version ID", and withheld notes are "not played". A chair's line reads, for
+example, "Orchestral strings map · ✓ Dorico has this version · 2 notes not
+played (outside the instrument's range)". The other states are "Play to check
+the version" (no beacon yet), "✓ Confirmed from an export" (attested), "Dorico
+has a different version · its notes are muted" (beacon mismatch) and "Not
+checked · its notes are muted" (a schema-1 map without attestation). Its
+tooltip explains the check, gives the received and expected beacon and the
+fix, counts notes not played by reason, and lists the other diagnostics.
 The compiler/decoder exists; production Dorico acceptance is still pending.
 
 The manual workspace described below (starting-map buttons, per-port
@@ -55,7 +64,8 @@ so every layer listening to that input receives the same decoded intent.
 2. Start playback so Dorico sends the map's Init and current commands. For a
    schema-2 map, Init includes the **revision beacon** (KS126/KS127). If it
    matches the assigned revision, the input is verified for that playback; the
-   Bridge maps status shows **Beacon matches**. A mismatch means Dorico is
+   chair's status in Chair Manager shows **✓ Dorico has this version**. A
+   mismatch means Dorico is
    playing a different map: notes on that input are withheld and the row shows
    the received and expected beacon. This is evidence from the live MIDI stream,
    not from the exported file.
@@ -74,8 +84,8 @@ is what Init sends. Unknown command values invalidate their dimension rather
 than falling back to Natural. Command-note releases are consumed as physical
 releases and do not clear a sticky articulation. Unassigned inputs retain
 legacy decoding. Bridge maps reports, per input, the last reason a note was
-withheld and counts of withheld notes, invalid commands, stale Offs ignored and
-early Offs suppressed. Consumed commands also appear in the debug MIDI feed,
+withheld and counts of withheld notes by reason, invalid commands, stale Offs
+ignored and early Offs suppressed. Consumed commands also appear in the debug MIDI feed,
 flagged `bridgeCommand`.
 
 Stop playback and release auditioned notes before editing, assigning or
@@ -108,8 +118,8 @@ following is the first host smoke test, not a claim that it has already passed.
    Woodwinds and horn uses Brass at the expected destinations. Use the normal
    Fiddle plugin and one voice per channel. Keep the current Fiddle test branch
    selected so the new score connects to that setup.
-5. Start playback once and check that each input in **Bridge maps** reports
-   **Beacon matches**. A successful installation does not perform this check.
+5. Start playback once and check that each chair in Chair Manager reports
+   **✓ Dorico has this version** (its beacon matches). A successful installation does not perform this check.
    If a beacon mismatches, Dorico is playing another map on that input: export
    it from Dorico, keep the file for inspection, and use **Verify assigned map**
    to compare it rather than bypassing the check.

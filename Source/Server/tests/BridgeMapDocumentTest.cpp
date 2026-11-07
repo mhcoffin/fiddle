@@ -310,6 +310,12 @@ void percussion() {
   tracker.processEvent(key(20, 72)); CHECK(notes.size() == 3);
   CHECK(tracker.bridgeDiagnostics(0, 2)->lastWithheld == BridgeDecoderState::Withheld::OutsideRange);
   tracker.processEvent(key(36, 72)); CHECK(notes.size() == 4);
+  // The UI words each reason from its stable key; every reason has its own.
+  std::set<std::string> reasonKeys;
+  for (int i = 1; i < int(BridgeDecoderState::Withheld::Count); ++i)
+    reasonKeys.insert(BridgeDecoderState::key(BridgeDecoderState::Withheld(i)));
+  CHECK(reasonKeys.size() == size_t(BridgeDecoderState::Withheld::Count) - 1 && !reasonKeys.count(""));
+  CHECK(std::string(BridgeDecoderState::key(BridgeDecoderState::Withheld::OutsideRange)) == "outsideRange");
 }
 
 void tests() {

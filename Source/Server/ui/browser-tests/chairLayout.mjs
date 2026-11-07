@@ -1062,15 +1062,20 @@ try {
         assignments: [
             { port: 0, channel: 1, hash: "ww", verified: false, beacon: "matched", receivedBeacon: [5, 6], expectedBeacon: [5, 6], lastWithheld: "", withheldNotes: 0 },
             { port: 0, channel: 3, hash: "ww", verified: false, beacon: "mismatched", receivedBeacon: [3, 4], expectedBeacon: [5, 6],
-              lastWithheld: "Dorico is playing a different bridge revision", withheldNotes: 2, ignoredOffs: 1, debouncedOffs: 3 }],
+              lastWithheld: "Dorico is playing a different bridge revision", lastWithheldReason: "beaconMismatch",
+              withheldNotes: 2, withheldByReason: { beaconMismatch: 2 }, ignoredOffs: 1, debouncedOffs: 3 },
+            { port: 0, channel: 5, hash: "ww", verified: false, beacon: "matched", receivedBeacon: [5, 6], expectedBeacon: [5, 6],
+              lastWithheldReason: "outsideRange", withheldNotes: 1, withheldByReason: { outsideRange: 1 } }],
         error: "",
     };
     await chairPage.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), bridgeState);
     const chairRow = name => manager.locator("article.chair-row").filter({ has: chairPage.getByRole("textbox", { name: `Name for ${name}`, exact: true }) });
-    assert.match(await chairRow("Flute 1").innerText(), /Orchestral woodwinds · Beacon matches/);
+    assert.match(await chairRow("Flute 1").innerText(), /Orchestral woodwinds map · ✓ Dorico has this version/);
     const mismatched = chairRow("Flute 3").locator(".bridge");
-    assert.match(await mismatched.innerText(), /different revision \(beacon 3\/4, expected 5\/6\) · notes withheld · 2 withheld/);
+    assert.equal(await mismatched.innerText(), "Orchestral woodwinds map · Dorico has a different version · its notes are muted · 2 notes not played");
+    assert.match(await mismatched.getAttribute("title"), /version ID 3\/4, but Fiddle installed 5\/6/);
     assert.match(await mismatched.getAttribute("title"), /1 stale Offs ignored · 3 early Offs suppressed/);
+    assert.match(await chairRow("Flute 5").locator(".bridge").innerText(), /1 note not played \(outside the instrument's range\)/);
     assert.ok(await mismatched.evaluate(e => e.classList.contains("warn")));
     assert.match(await chairRow("Flute 4").innerText(), /Universal map/);
     const bridgeMaps = manager.locator("details.bridges");

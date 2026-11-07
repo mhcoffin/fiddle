@@ -174,6 +174,20 @@ public:
     result.attested = attested;
     return result;
   }
+  /// Stable key for the UI, which words each reason for the user.
+  static const char *key(Withheld reason) {
+    switch (reason) {
+    case Withheld::None: return "";
+    case Withheld::Unverified: return "unverified";
+    case Withheld::BeaconMismatch: return "beaconMismatch";
+    case Withheld::BaseUnknown: return "baseUnknown";
+    case Withheld::InvalidCommand: return "invalidCommand";
+    case Withheld::OutsideRange: return "outsideRange";
+    case Withheld::UnmappedPitch: return "unmappedPitch";
+    case Withheld::Count: break;
+    }
+    return "";
+  }
   static const char *describe(Withheld reason) {
     switch (reason) {
     case Withheld::None: return "";

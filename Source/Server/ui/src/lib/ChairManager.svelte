@@ -3,7 +3,7 @@
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { populateScoreOrder } from "./orchestralOrder.js";
     import { groupChairs, likelySectionRoleMistakes, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
-    import { bridgeForChair, counterText, isPlaying, verificationText } from "./bridgeStatus.js";
+    import { bridgeForChair, isPlaying, mapName, statusTitle, verificationText, withheldText } from "./bridgeStatus.js";
     import BridgeMaps from "./BridgeMaps.svelte";
 
     let { onClose = () => {} } = $props();
@@ -212,7 +212,7 @@
                                             <strong>Port {chair.port + 1} · Channel {chair.channel + 1}</strong>
                                             {#if bridgeForChair(bridgeState, chair)}
                                                 {@const bridge = bridgeForChair(bridgeState, chair)}
-                                                <span class="bridge" class:warn={!isPlaying(bridge)} title={[bridge.lastWithheld ? `Last withheld note: ${bridge.lastWithheld}` : "", counterText(bridge)].filter(Boolean).join("\n")}>{`${bridge.label} · ${verificationText(bridge)}${bridge.withheldNotes ? ` · ${bridge.withheldNotes} withheld` : ""}`}</span>
+                                                <span class="bridge" class:warn={!isPlaying(bridge)} title={statusTitle(bridge)}>{`${mapName(bridge)} · ${verificationText(bridge)}${withheldText(bridge)}`}</span>
                                             {:else}
                                                 <span class="bridge">Universal map</span>
                                             {/if}

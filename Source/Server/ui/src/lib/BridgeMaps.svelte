@@ -9,7 +9,7 @@
 
 <details class="bridges" aria-label="Bridge maps" open={outdated.length > 0 || undefined}>
   <summary>Bridge maps</summary>
-  <p>Installing the playback template gives each strings, woodwind, brass and pitched-percussion chair its section’s bridge map; every other chair keeps the universal Fiddle map. The maps are saved with this version. When playback starts, each chair below reports whether Dorico’s revision beacon matched.</p>
+  <p>Installing the playback template gives each strings, woodwind, brass and pitched-percussion chair its section’s bridge map; every other chair keeps the universal Fiddle map. The maps are saved with this version. When playback starts, each chair below reports whether Dorico has the map version Fiddle installed.</p>
   {#if bridgeState.error}<p class="error" role="alert">{bridgeState.error}</p>{/if}
   {#if outdated.length}
     <div class="notice" role="status">
@@ -17,7 +17,7 @@
       {#if outdated.length > 1}<button disabled={bridgeState.busy} onclick={() => useBuiltIn()}>Use all built-in maps</button>{/if}
     </div>
   {:else if updated && !bridgeState.error}
-    <p class="notice" role="status">Done. With Dorico closed, press <strong>Install Playback Template</strong>, then reapply the Fiddle template in open projects. Until then Dorico plays the old maps and their notes are withheld.</p>
+    <p class="notice" role="status">Done. With Dorico closed, press <strong>Install Playback Template</strong>, then reapply the Fiddle template in open projects. Until then Dorico plays the old maps and Fiddle mutes their notes.</p>
   {/if}
   <table aria-label="Section maps"><tbody>
     {#each bridgeState.sections || [] as section}

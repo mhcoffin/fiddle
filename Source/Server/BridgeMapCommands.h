@@ -220,9 +220,17 @@ public:
         a->setProperty("receivedBeacon", juce::Array<juce::var>{live->receivedBeacon[0], live->receivedBeacon[1]});
         a->setProperty("expectedBeacon", juce::Array<juce::var>{live->expectedBeacon[0], live->expectedBeacon[1]});
         a->setProperty("lastWithheld", juce::String(BridgeDecoderState::describe(live->lastWithheld)));
+        a->setProperty("lastWithheldReason", juce::String(BridgeDecoderState::key(live->lastWithheld)));
         juce::int64 withheld = 0;
-        for (const auto count : live->withheld) withheld += juce::int64(count);
+        auto *byReason = new juce::DynamicObject();
+        for (size_t i = 0; i < live->withheld.size(); ++i) {
+          withheld += juce::int64(live->withheld[i]);
+          if (live->withheld[i])
+            byReason->setProperty(BridgeDecoderState::key(BridgeDecoderState::Withheld(i)),
+                                  juce::int64(live->withheld[i]));
+        }
         a->setProperty("withheldNotes", withheld);
+        a->setProperty("withheldByReason", juce::var(byReason));
         a->setProperty("invalidCommands", juce::int64(live->invalidCommands));
         a->setProperty("ignoredOffs", juce::int64(live->ignoredOffs));
         a->setProperty("debouncedOffs", juce::int64(live->debouncedOffs));
