@@ -32,6 +32,9 @@ Double-click **Fiddle.app** at the top of this repository, or run:
 Both use `build/release/FiddleServer_artefacts/Release/FiddleServer.app`.
 After a rebuild, save your work and quit Fiddle normally before opening it again;
 opening an already-running app does not reload its executable.
+`./fiddle.sh restart` does both, like Fiddle's Restart Fiddle: it quits Fiddle
+normally and relaunches it in the background, so its windows return to their
+saved places when you bring it forward.
 `./fiddle.sh path` prints the exact location; `./fiddle.sh reveal` shows it in Finder.
 
 The launcher no longer builds, force-quits the server, bumps versions, or installs

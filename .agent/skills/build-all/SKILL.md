@@ -32,8 +32,19 @@ See `docs/automated-testing.md` for labels and browser regressions.
 
 ## Launch and installation
 
-Only restart the user's app when requested. Save work and quit normally before
-running `./fiddle.sh open`; opening a running app will not reload a new binary.
+Only restart the user's app when requested. First check it has no unsaved
+changes and isn't playing (the MCP `fiddle_get_status`, or the agent-control
+`status` method: `dirty`, `transportPlaying`). Then run `./fiddle.sh restart`,
+which quits Fiddle normally and relaunches it in the background with
+`--relaunched`, exactly as the app's Restart Fiddle does. Opening a running app
+will not reload a new binary.
+
+Don't relaunch with a plain `./fiddle.sh open` or `open`: that brings Fiddle
+forward at once, so it saves wherever Stage Manager puts its windows as their
+places, overwriting the user's layout. After `restart`, Fiddle waits in the
+Stage Manager strip until the user brings it forward, then its windows return
+to their saved places (`LaunchWindowPlacement.h`).
+
 Do not force-kill Fiddle or delete WebView caches as a routine build step.
 
 If a launched Fiddle seems hung while loading plug-ins, macOS is probably
