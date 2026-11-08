@@ -1447,6 +1447,31 @@ try {
     }
     await libraryPage.keyboard.press("Escape");
     assert.equal(await libraryEditor.locator(".lmap").count(), 0, "Escape closes the maps pane");
+    // A percussion map opens read-only from View, like an expression map.
+    await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryMaps", data: [{
+        libraryId: "test-library", kind: "percussion", entityId: "drumkitmap.user.test", name: "Test snares",
+        map: { entityId: "drumkitmap.user.test", name: "Test snares", version: 2, entries: [
+            { instrument: "instrument.orchestral.unpitched.snare.drum", techniques: ["pt.natural"], pitch: 36, keyswitches: [], name: "Snare", variant: "" },
+            { instrument: "instrument.orchestral.unpitched.snare.drum", techniques: ["pt.tremolo", "pt.rim"], pitch: 38, keyswitches: [24], name: "Rim roll", variant: "" },
+        ] },
+    }] }));
+    const percussionPicker = linked.locator(".percussion-picker");
+    assert.ok(await percussionPicker.getByRole("button", { name: "View", exact: true }).isDisabled(), "nothing to view without a map");
+    await percussionPicker.getByRole("combobox", { name: "Percussion map" }).selectOption("drumkitmap.user.test");
+    await percussionPicker.getByRole("button", { name: "View", exact: true }).click();
+    const percussionViewer = libraryPage.getByRole("dialog", { name: "Test snares", exact: true });
+    assert.match(await percussionViewer.innerText(), /drumkitmap\.user\.test · Version 2 · 2 entries · 1 instrument/);
+    const viewerRows = percussionViewer.locator("tbody tr");
+    assert.equal(await viewerRows.count(), 2);
+    assert.match(await viewerRows.nth(1).innerText(), /2\s+snare drum\s+pt\.rim \+ pt\.tremolo\s+38 D1\s+24 \(C0\)\s+Rim roll/);
+    await percussionViewer.getByRole("searchbox").fill("rim");
+    assert.equal(await viewerRows.count(), 1);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await libraryPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "percussion-map-viewer.png") });
+    await libraryPage.keyboard.press("Escape");
+    assert.equal(await percussionViewer.count(), 0, "Escape closes the viewer");
+    assert.ok(await libraryEditor.isVisible(), "closing the viewer leaves the editor open");
+    await percussionPicker.getByRole("combobox", { name: "Percussion map" }).selectOption("");
     // Classify Patch keeps its height while search results come and go.
     await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setDoricoInstruments", data:
         ["Flute", "Alto Flute", "Bass Flute", "Oboe", "Clarinet", "Bassoon", "Horn", "Trumpet", "Trombone", "Tuba",

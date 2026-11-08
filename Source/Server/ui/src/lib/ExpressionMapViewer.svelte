@@ -53,6 +53,14 @@
     bind:this={dialog}
     class="viewer"
     aria-labelledby="expression-map-viewer-title"
+    onkeydown={(event) => {
+        // Close just the viewer; a panel underneath (the Library Manager
+        // editor) must not also see this Escape.
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeViewer();
+    }}
     onclick={handleBackdropClick}
     onclose={onclose}
 >

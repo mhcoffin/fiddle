@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-    coversInstrument, duplicatePercussionMap, formatTechniques, isUnpitchedInstrument,
+    coversInstrument, duplicatePercussionMap, filterPercussionEntries, formatTechniques, instrumentLabel, isUnpitchedInstrument,
     newPercussionMap, newPercussionMapId, parseKeyswitches, parseTechniques, pitchName, sortForInstrument,
     validatePercussionMap,
 } from "../src/lib/percussionMaps.js";
@@ -81,4 +81,26 @@ test("layers on unpitched chairs offer a percussion map picker", () => {
     assert.match(details, /mapsFor\(libraryMaps, strip\?\.libraryId \|\| "", "percussion"\)/);
     const manager = readFileSync(new URL("../src/lib/LibraryManager.svelte", import.meta.url), "utf8");
     assert.match(manager, /percMap:\s+patch\.percMap \|\| ""/);
+});
+
+test("the viewer names instruments readably", () => {
+    assert.equal(instrumentLabel(snare), "snare drum");
+    assert.equal(instrumentLabel("instrument.unpitched.kick.drum.very.low"), "kick drum very low");
+    assert.equal(instrumentLabel("instrument.orchestral.unpitched.tomtom.alias.tom-1"), "tomtom · tom-1");
+    assert.equal(instrumentLabel("instrument.percussion.other.wind.chimes"), "wind chimes");
+});
+
+test("the viewer filters entries by text and instrument, keeping row numbers", () => {
+    const toms = "instrument.orchestral.unpitched.tomtom";
+    const entries = [
+        { instrument: snare, techniques: ["pt.natural"], pitch: 36, keyswitches: [], name: "Snare" },
+        { instrument: snare, techniques: ["pt.rim", "pt.tremolo"], pitch: 38, keyswitches: [24], name: "Rim roll" },
+        { instrument: `${toms}.alias.tom-1`, techniques: ["pt.natural"], pitch: 48, keyswitches: [], name: "Tom 1" },
+    ];
+    assert.deepEqual(filterPercussionEntries(entries).map((e) => e.row), [1, 2, 3]);
+    assert.deepEqual(filterPercussionEntries(entries, "rim").map((e) => e.row), [2]);
+    assert.deepEqual(filterPercussionEntries(entries, "C1").map((e) => e.row), [1], "by pitch name");
+    assert.deepEqual(filterPercussionEntries(entries, "24").map((e) => e.row), [2], "by keyswitch");
+    assert.deepEqual(filterPercussionEntries(entries, "", toms).map((e) => e.row), [3], "an alias matches its instrument");
+    assert.deepEqual(filterPercussionEntries(entries, "roll", snare).map((e) => e.row), [2]);
 });

@@ -213,6 +213,12 @@ A new **Percussion Maps** section:
   directly.
 - **Patch editor.** A percussion map picker beside the expression map
   picker.
+- **View.** The percussion map picker, in the patch editor and in a layer's
+  Layer Details, has a **View** button, like the expression map's. It opens
+  a read-only list of the map's entries (row, instrument, techniques, pitch
+  with its note name, keyswitches, entry name) with a search box; for a map
+  covering several instruments it can show only the layer's instrument
+  (`PercussionMapViewer.svelte`).
 - **Undo.** Edits go on the library undo stack (`libraryUndoManager_`), like
   catalog saves.
 

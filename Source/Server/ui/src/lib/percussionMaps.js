@@ -111,3 +111,38 @@ export function sortForInstrument(maps, instrument) {
 }
 
 /** Import candidates the dialog selects by default. */
+
+/**
+ * A readable name for a Dorico instrument entity ID, for the map viewer:
+ * "instrument.unpitched.snare.drum" → "snare drum"; an alias is kept after
+ * a middle dot ("tomtom · tom-1").
+ */
+export function instrumentLabel(entityId) {
+    const [base, alias] = String(entityId || "").split(".alias.");
+    let rest = base.replace(/^instrument\./, "");
+    const unpitched = rest.indexOf("unpitched.");
+    rest = unpitched >= 0 ? rest.slice(unpitched + "unpitched.".length) : rest.replace(/^percussion\.other\./, "");
+    const words = rest.split(".").join(" ");
+    return alias ? `${words} · ${alias}` : words;
+}
+
+/**
+ * Entries of a percussion map for the viewer, each with its row number (order
+ * matters for ties), filtered by text (instrument, techniques, pitch name or
+ * number, keyswitches, entry name) and optionally to one instrument (aliases
+ * match their base instrument).
+ */
+export function filterPercussionEntries(entries, query = "", instrument = "") {
+    const canonical = (id) => String(id || "").split(".alias.")[0];
+    const words = String(query || "").toLowerCase().split(/\s+/).filter(Boolean);
+    return (entries || [])
+        .map((entry, index) => ({ ...entry, row: index + 1 }))
+        .filter((entry) => !instrument || canonical(entry.instrument) === canonical(instrument))
+        .filter((entry) => {
+            if (!words.length) return true;
+            const text = [entry.instrument, instrumentLabel(entry.instrument), formatTechniques(entry.techniques),
+                String(entry.pitch), pitchName(entry.pitch), (entry.keyswitches || []).join(" "),
+                entry.name, entry.variant].join(" ").toLowerCase();
+            return words.every((word) => text.includes(word));
+        });
+}

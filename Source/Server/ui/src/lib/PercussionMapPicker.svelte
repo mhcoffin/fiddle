@@ -1,4 +1,5 @@
 <script>
+    import PercussionMapViewer from "./PercussionMapViewer.svelte";
     import { sortForInstrument } from "./percussionMaps.js";
 
     // A layer's library percussion map: maps covering the chair's instrument
@@ -19,6 +20,8 @@
     const covers = (map) => (map.instruments || []).some((id) => canonical(id) === canonical(instrument));
     let ordered = $derived(sortForInstrument(maps, instrument));
     let selectedKnown = $derived(maps.some((map) => map.entityId === selectedId));
+    let selectedMap = $derived(maps.find((map) => map.entityId === selectedId)?.map);
+    let viewing = $state(false);
 </script>
 
 <div class="percussion-picker">
@@ -41,13 +44,17 @@
             </option>
         {/each}
     </select>
+    <button disabled={!selectedMap} title="View the selected percussion map" onclick={() => (viewing = true)}>View</button>
     {#if canLoadFromFile}
         <button onclick={onloadfile}>Load from file…</button>
     {/if}
 </div>
+{#if viewing && selectedMap}
+    <PercussionMapViewer map={selectedMap} {instrument} onclose={() => (viewing = false)} />
+{/if}
 
 <style>
-    .percussion-picker { display: flex; gap: 8px; }
+    .percussion-picker { display: flex; gap: 6px; }
     select { flex: 1; min-width: 0; }
     button { flex: none; }
 </style>
