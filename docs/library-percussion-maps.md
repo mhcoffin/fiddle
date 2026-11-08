@@ -252,5 +252,6 @@ A new **Percussion Maps** section:
 ## Out of scope (follow-ups)
 
 - Generating roll strokes when the matched entry has no roll technique.
-- Drum-set kits (several instruments on one chair, by pitch).
+- Drum-set kits (several instruments on one chair, by pitch). Draft design:
+  [percussion kits](percussion-kits.md).
 - Velocity per entry.

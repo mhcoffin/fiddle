@@ -121,7 +121,8 @@ documented elsewhere; this list records the remaining work and intended order.
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
 - Unpitched percussion r2: drum-set kits (`instrument.kit.*`, one pitch per
-  kit component in the percussion map), the percussion-map entry keyswitch as
+  kit component in the percussion map; draft design in
+  [percussion kits](percussion-kits.md)), the percussion-map entry keyswitch as
   a conduit (Dorico sends it with the hit, velocity 127, same length), and
   library-side percussion maps for driving instruments. Not needed after the
   one-pitch design: stroke × roll combination codes.
