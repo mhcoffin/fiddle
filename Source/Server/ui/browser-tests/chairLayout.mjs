@@ -1065,7 +1065,8 @@ try {
               lastWithheld: "Dorico is playing a different bridge revision", lastWithheldReason: "beaconMismatch",
               withheldNotes: 2, withheldByReason: { beaconMismatch: 2 }, ignoredOffs: 1, debouncedOffs: 3 },
             { port: 0, channel: 5, hash: "ww", verified: false, beacon: "matched", receivedBeacon: [5, 6], expectedBeacon: [5, 6],
-              lastWithheldReason: "outsideRange", withheldNotes: 1, withheldByReason: { outsideRange: 1 } }],
+              lastWithheldReason: "outsideRange", withheldNotes: 1, withheldByReason: { outsideRange: 1 } },
+            { port: 0, channel: 7, hash: "ww", verified: false, beacon: "absent", receivedBeacon: [-1, -1], expectedBeacon: [5, 6] }],
         error: "",
     };
     await chairPage.evaluate(data => window.__dispatchFromCpp({ type: "setBridgeMapState", data }), bridgeState);
@@ -1076,6 +1077,8 @@ try {
     assert.match(await mismatched.getAttribute("title"), /version ID 3\/4, but Fiddle installed 5\/6/);
     assert.match(await mismatched.getAttribute("title"), /1 stale Offs ignored · 3 early Offs suppressed/);
     assert.match(await chairRow("Flute 5").locator(".bridge").innerText(), /1 note not played \(outside the instrument's range\)/);
+    // Others reported, this chair got nothing: its project template lacks it.
+    assert.match(await chairRow("Flute 7").locator(".bridge").innerText(), /Dorico isn't sending to this chair · reapply the playback template in this project/);
     assert.ok(await mismatched.evaluate(e => e.classList.contains("warn")));
     assert.doesNotMatch(await chairRow("Flute 4").innerText(), /Universal map/, "a chair without a bridge map says nothing");
     // The MIDI column has a fixed width, so a short status doesn't shift it.

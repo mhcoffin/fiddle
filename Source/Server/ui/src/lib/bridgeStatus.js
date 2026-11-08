@@ -10,7 +10,12 @@ export function bridgeForChair(state, chair) {
     if (!assignment) return null;
     const section = (state.sections || []).find(s => s.hash === assignment.hash);
     const doc = (state.documents || []).find(d => d.hash === assignment.hash);
-    return { ...assignment, label: section?.label || doc?.name || "Bridge map" };
+    // Dorico sends every channel in its playback template its map's Init when
+    // playback starts, used or not. So once other chairs have reported, a chair
+    // that got nothing isn't in this project's template.
+    const othersReported = (state.assignments || []).some(other => other !== assignment
+        && (other.beacon === "matched" || other.beacon === "mismatched"));
+    return { ...assignment, othersReported, label: section?.label || doc?.name || "Bridge map" };
 }
 
 export function isPlaying(a) {
@@ -24,6 +29,7 @@ export function verificationText(a) {
     if (a.beacon === "mismatched") return "Dorico has a different version · its notes are muted";
     if (a.beacon === "matched") return "✓ Dorico has this version";
     if (a.verified) return "✓ Confirmed from an export";
+    if (a.beacon === "absent" && a.othersReported) return "Dorico isn't sending to this chair · reapply the playback template in this project";
     if (a.beacon === "absent") return "Play to check the version";
     return "Not checked · its notes are muted";
 }
@@ -70,6 +76,10 @@ function explanation(a) {
     if (a.verified)
         return "You confirmed that the map Dorico exported is the one Fiddle installed. "
             + "Playback also checks Dorico's version ID.";
+    if (a.beacon === "absent" && a.othersReported)
+        return "When playback started, Dorico sent other chairs their map's version ID but sent nothing to this one, "
+            + "so this project's playback template doesn't include it. If you haven't restarted Dorico since installing "
+            + "the template, restart it; then reapply the Fiddle playback template in this project.";
     if (a.beacon === "absent")
         return "When playback starts, Dorico sends this map's version ID (keyswitches 126/127), "
             + "and Fiddle checks it matches the version it installed. Stopping clears the check.";

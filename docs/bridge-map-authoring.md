@@ -22,7 +22,10 @@ Chair Manager words the status for musicians: the beacon is the map's
 "version ID", and withheld notes are "not played". A chair's line reads, for
 example, "Orchestral strings map · ✓ Dorico has this version · 2 notes not
 played (outside the instrument's range)". The other states are "Play to check
-the version" (no beacon yet), "✓ Confirmed from an export" (attested), "Dorico
+the version" (no beacon yet), "Dorico isn't sending to this chair · reapply
+the playback template in this project" (no beacon while other chairs have
+reported: Dorico sends every channel in its template an Init at playback start,
+used or not, so a silent one isn't in the project's template), "✓ Confirmed from an export" (attested), "Dorico
 has a different version · its notes are muted" (beacon mismatch) and "Not
 checked · its notes are muted" (a schema-1 map without attestation). Its
 tooltip explains the check, gives the received and expected beacon and the
@@ -37,6 +40,12 @@ removed chairs, and a new or changed chair's row says "reinstall" in place of
 its bridge-map status. Chairs on the universal map show no status. Until the
 first install after this change, Fiddle has no record and says so in the
 banner. See `PlaybackTemplateRecord.h`.
+
+Keeping Dorico in step takes three things: install the template when Fiddle's
+chairs change (the banner), restart Dorico so it loads new or changed maps from
+its library additions, and reapply the Fiddle template in each existing project,
+which keeps the template it was given. Fiddle can't see the last two directly;
+a skipped chair or a different version ID after playback starts shows them.
 The compiler/decoder exists; production Dorico acceptance is still pending.
 
 The manual workspace described below (starting-map buttons, per-port

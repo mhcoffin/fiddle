@@ -38,6 +38,22 @@ test("status text distinguishes version check, attestation and mismatch in plain
         assert.doesNotMatch(text, /beacon|withheld/i, "no internal jargon");
 });
 
+test("a chair Dorico skips while others report needs the template reapplied", () => {
+    const twoChairs = { ...state, assignments: [
+        { port: 1, channel: 3, hash: "s", beacon: "absent", receivedBeacon: [-1, -1], expectedBeacon: [9, 8] },
+        { port: 1, channel: 4, hash: "s", beacon: "absent", receivedBeacon: [-1, -1], expectedBeacon: [9, 8] },
+    ] };
+    // Nothing has played: both wait.
+    assert.equal(verificationText(bridgeForChair(twoChairs, { port: 1, channel: 2 })), "Play to check the version");
+    // The other chair reported; this one got nothing.
+    twoChairs.assignments[1] = { ...twoChairs.assignments[1], beacon: "matched", receivedBeacon: [9, 8] };
+    const skipped = bridgeForChair(twoChairs, { port: 1, channel: 2 });
+    assert.equal(verificationText(skipped), "Dorico isn't sending to this chair · reapply the playback template in this project");
+    assert.match(statusTitle(skipped), /restart it; then reapply the Fiddle playback template/);
+    assert.equal(isPlaying(skipped), false);
+    assert.equal(verificationText(bridgeForChair(twoChairs, { port: 1, channel: 3 })), "✓ Dorico has this version");
+});
+
 test("notes not played say why", () => {
     const playing = { ...state.assignments[0], beacon: "matched" };
     assert.equal(withheldText(playing), "");
