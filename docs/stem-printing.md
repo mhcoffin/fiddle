@@ -27,8 +27,9 @@ before playback leaves valid empty WAVs in the take folder.
 
 ## What is in each file?
 
-- Bus stems contain the bus's direct inputs and sends, inserts (pre and post),
-  balance and fader. They respect the live mute/solo mix, including solo-safe FX
+- Bus stems contain what reaches the bus: the chairs routed to it (each after
+  its chair bus's inserts, fader and balance) and chair sends to it, then the
+  bus's own inserts (pre and post), balance and fader. They respect the live mute/solo mix, including solo-safe FX
   returns. Printing never changes routing, solos tracks, or renders instruments
   an extra time.
 - Master contains the complete final output, including Master inserts and gain.
@@ -36,8 +37,11 @@ before playback leaves valid empty WAVs in the take folder.
   latency so their audio aligns with the Master file, not shifted earlier.
 - Shared reverb/other FX buses are separate wet stems, not folded into each
   contributing instrument/group stem.
-- Instruments routed directly to Master are present only in the Master file.
-  To obtain an instrument/family stem, first route it through a group bus.
+- Chairs routed directly to Master are present only in the Master file. To
+  obtain an instrument or family stem, route the chairs to an audio bus with
+  the Output selector in each chair's header (selecting several chairs routes
+  them together). Chair buses themselves aren't stem sources yet; see [chair
+  buses](chair-buses.md#later-not-in-this-design).
 - Summing bus files does not necessarily recreate Master: direct-to-Master
   sources may be absent, and Master gain/effects (especially nonlinear effects)
   are not baked into stems. Do not sum Master together with its stems.
@@ -71,7 +75,8 @@ already-open file. A lost Dorico connection ends the take with a visible error.
 
 ## Smoke test
 
-1. Route two instruments to two group buses; send both to a shared reverb bus.
+1. Route two chairs to two audio buses; give both chairs a send to a shared
+   reverb bus.
 2. Stop playback. Choose those three buses plus Master in the print section,
    choose a parent folder, and arm. Play a short passage and stop Dorico while
    the reverb is still ringing. Confirm **Printing tail** stays active for the
@@ -88,4 +93,4 @@ already-open file. A lost Dorico connection ends the take with a visible error.
 Automated tests cover trimmed common/tail boundaries, float sample data, duplicate
 names, cancellation, Master omission, latency compensation, missing sources,
 host-clock jitter, pre-roll gaps, missing/repeated sample positions, FIFO rejection, stop/render lifetime safety, real
-mixer routing/mute/solo/sends under 1/2/4 workers, and browser output selection.
+mixer routing/mute/solo/sends through chair buses under 1/2/4 workers, and browser output selection.

@@ -82,10 +82,6 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 2 — finish and deliver complex mixes
 
-- **Chair buses — phase 1 of 4 done (2026-11-06).** Each chair gets its own
-  bus with inserts, sends and an output; layers always feed it, and the chair
-  fader sets its level. The lock becomes "Keep blend level". See
-  [Chair buses](chair-buses.md).
 - **Input trim and gain staging.** Add a trim before pre-fader inserts so the
   level driving compressors and saturation is independent of the mix fader.
 - **General link/VCA groups.** Support arbitrary temporary or persistent linked
@@ -93,6 +89,8 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Priority 3 — advanced routing and delivery
 
+- Chair buses as stem-printing sources, so a chair or family prints without
+  first routing it to an audio bus.
 - Nested group buses with cycle prevention.
 - Effect sidechain routing.
 - Host-driven faster-than-real-time export, if the Dorico offline-processing
@@ -143,6 +141,14 @@ documented elsewhere; this list records the remaining work and intended order.
   `.doricolib` XML fields and providing validation, Undo/Redo, and safe writes.
 
 ## Recently completed
+
+- **Chair buses (2026-11-07).** Each chair has its own bus with inserts,
+  sends, balance, fader, meter, mute/solo and an output; its layers always
+  feed it. Chairs with several layers, or with chair settings, show a chair
+  strip; the output is in the chair header. The lock is "Keep blend level".
+  Older projects migrate their layer routing. An informal live check with
+  Dorico passed; the fuller smoke test is in
+  [Chair buses](chair-buses.md#implementation-phases).
 
 - **Stem printing.** Print selected group/FX buses and optionally Master to
   synchronized stereo WAVs in one real-time pass. Includes sample-cursor loss

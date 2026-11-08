@@ -107,39 +107,57 @@ that space. Inserts are not promotable.
 
 ## Implementation notes
 
-The published audio graph resolves send IDs to bus pointers and preallocates
-all routing buffers. Strip rendering is identical for serial and parallel
-workers; only the coordinator sums the branches, in stable strip order.
-RouteDelay copies and sums contiguous spans using JUCE AudioBuffer operations
-(vectorized by JUCE), with no per-block allocations or routing-string lookups.
+Sends belong to chair buses (see [chair buses](chair-buses.md)). A chair bus
+is a `GroupBus` with ID `chair:<chair ID>`; the send commands
+(`addChairSend`, `updateChairSend`, `removeChairSend`, `setChairSendVisible`,
+`setChairSendPreFader`) take that ID, or a layer ID that stands for its chair.
 
-Each source's MIDI lead includes the longest destination latency. Faster
-branches receive a sample delay equal to the difference. Disabled sends remain
-in the latency topology, so toggling enable does not retime the dry path.
+The published audio graph resolves send IDs to bus pointers and preallocates
+all routing buffers. Layers render as before, serially or in the render pool,
+and the coordinator sums them into their chair buses in stable strip order.
+Each chair bus then runs its pre-fader inserts, fader, post-fader inserts,
+balance and meter, and adds into its output and sends. RouteDelay copies and
+sums contiguous spans using JUCE AudioBuffer operations (vectorized by JUCE),
+with no per-block allocations or routing-string lookups.
+
+Latency compensation works per chair. A layer renders ahead by its own rack
+latency plus its chair bus's rack and everything downstream of the chair bus:
+the longest of its output bus and its sends' buses, less the post-fader
+latency a pre-fader send skips. All layers of a chair share that value, so no
+delay lines sit between layers and their chair bus; the per-route delay lines
+(direct output vs. sends) sit on the chair bus route. Disabled sends remain in
+the latency topology, so toggling enable does not retime the dry path.
 Unchanged delay histories survive graph publication and gain/enable edits;
 device reprepare clears them. Topology/latency changes can still cause a
 transition while queued MIDI/audio catches up; make those edits while stopped.
 
-Pre-fader capture happens inside the strip gain node, immediately before gain
-is applied, into graph-owned stereo storage allocated only for strips with pre
-sends. No buffer allocation, extra plug-in processing, or routing lookup is
-added to the audio callback; the copy uses JUCE's vectorized buffer operations.
-Its route compensation includes the post-fader latency that this tap skips.
-Strip rack edits and latency notifications refresh this topology as well as bus
-edits. Bypassed strip/bus inserts are zero-latency pass-throughs; their effective
-rack latency is updated accordingly. Bypass/tap changes can retime the paths
-and should be made while stopped; this does not add a crossfaded bypass path.
+The pre-fader tap is captured inside the chair bus's gain node, after its
+pre-fader inserts and immediately before the fader, into graph-owned stereo
+storage allocated only for chair buses with pre-fader sends. No buffer
+allocation, extra plug-in processing, or routing lookup is added to the audio
+callback. Rack edits and latency notifications on layers, chair buses and
+audio buses refresh this topology. Bypassed inserts are zero-latency
+pass-throughs; their effective rack latency is updated accordingly.
+Bypass/tap changes can retime the paths and should be made while stopped;
+this does not add a crossfaded bypass path.
 
-Ordered send definitions live in versioned strip blobs (`sends_json`). Old
-projects default to no sends and retain their existing hashes. Restore validates
-the full send configuration before changing the live mixer. Bus deletion
-removes its sends; Undo retains and restores their IDs/settings and the existing
-bus/effect instances. Missing effects use the existing visible, state-retaining
-pass-through placeholders; mute a return if that fallback is undesirable.
-The optional boolean `preFader` defaults to false and is omitted for post-fader
-sends, preserving existing send hashes. Invalid tap types reject the restore
-before changing live state.
+Chair bus settings, including ordered send definitions (`sendsJson`), are
+saved per version as a `ChairBusBlob` (`VersionTypes.h`). Only chair buses
+that differ from a new one are saved, so projects that never route or send
+keep their hashes. The optional boolean `preFader` defaults to false and is
+omitted for post-fader sends. Restore validates the full send configuration
+before changing the live mixer; invalid tap types reject it before any live
+change. Versions saved before chair buses kept sends on layer records
+(`sendsJson`); restoring migrates them to one chair send per destination
+(`ChairBusMigration.h`, described in [chair buses](chair-buses.md)).
 
-Automated coverage includes serial/parallel routing, multiple paths with real
-sample delays and variable block lengths, solo/mute, return tails, history,
-SQLite migration and reopen, missing-effect recovery, and built-UI controls.
+Bus deletion removes chair sends to it; Undo restores their IDs/settings and
+the existing bus/effect instances. Missing effects use the existing visible,
+state-retaining pass-through placeholders; mute a return if that fallback is
+undesirable.
+
+Automated coverage includes serial/parallel routing through chair buses,
+multiple paths with real sample delays and variable block lengths, solo/mute,
+return tails, history, SQLite migration and reopen, migration of layer sends
+to chair sends, missing-effect recovery, and built-UI controls (sends in Chair
+Audio, on chair strips and on a one-layer chair's layer strip).

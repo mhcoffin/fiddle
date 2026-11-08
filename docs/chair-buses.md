@@ -1,8 +1,9 @@
 # Chair buses
 
-Status: design agreed, 2026-11-06 (see [Decisions](#decisions)). Phases 1
-(engine, saving and migration), 2 (the chair strip) and 3 (the lock) are
-implemented; phase 4 (docs and the live smoke test) is not. See
+Status: implemented, 2026-11-07 (design agreed 2026-11-06; see
+[Decisions](#decisions)). All four phases are done: 1 (engine, saving and
+migration), 2 (the chair strip), 3 (the lock) and 4 (docs and an informal
+live check with Dorico). See
 [Phase 1 as built](#phase-1-as-built) and [Phases 2 and 3 as
 built](#phases-2-and-3-as-built).
 
@@ -346,6 +347,10 @@ sibling compensation remain one undo step, as now.
    [stem printing](stem-printing.md) and the [backlog](backlog.md), then a live
    test with Dorico playback: routing, sends, solo combinations, latency with
    a look-ahead limiter on a chair bus, and opening an older project.
+   Done 2026-11-07: the docs are updated; playback through chair strips with
+   Dorico worked as expected, and the user's project migrated with its bus
+   routing intact. A look-ahead limiter on a chair bus and solo combinations
+   haven't been checked specifically.
 
 Phase 1 is the largest and riskiest (render graph, latency, migration).
 Phases 2 and 3 are mostly UI.
