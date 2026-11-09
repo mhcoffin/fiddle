@@ -82,6 +82,51 @@ Fiddle can already import this map and resolve its entries by instrument and
 techniques (`PercussionMap::resolve`). On a kit's channel, what's missing is
 knowing which block each note is.
 
+## Another example: Art Conductor
+
+Art Conductor (Babylonwaves) ships **no percussion maps**: none of the 29,323
+`.doricolib` files in its Dorico set contains a `DrumKitNoteMapDefinition`
+(checked 2026-11-09). Its percussion maps are expression maps, one per
+library patch, for one channel. In `VSL/Synchron 11 Percussion/VelXF Mod`:
+
+- **Every combination passes the pitch through.** Each one covers pitches
+  0–127 with no transposition, so the key that plays (which tom, which block)
+  is whatever pitch Dorico sends. On an unpitched instrument that pitch
+  comes from a percussion map Art Conductor doesn't supply: VSL's own, Dorico's
+  default, or a pitched staff written on the patch's keys.
+- **Everything else is a channel-wide keyswitch**, selected by Art Conductor's
+  own playing techniques, which its "PBT" companion libraries define:
+  - *Concert Toms Yamaha*: beater (`pt.user.stick`, `rods`, `brushes`,
+    `mallets`; KS 24–27) × group (`pt.user.high` KS 23, `pt.user.low`
+    KS 21), plus `pt.user.fx`. No Natural.
+  - *Taikos*: drum size (`pt.user.08`, `12`, `13`, `15`, `16`, `18`, `20`,
+    `26`; KS 38–45) × beater (`pt.user.cudgel`, `tam`, `effects`;
+    KS 24–26).
+  - *Woodblocks*: beater only (`pt.natural` KS 24, `pt.user.stick` KS 26,
+    `pt.user.mallet+pt.user.plastic` KS 25). Which block plays depends
+    entirely on the pitch.
+
+That's the one-channel model with a drum chosen partly by keyswitch: a high
+and a low tom, or two taiko sizes, can't sound at the same moment, because the
+group switch belongs to the channel. The user's own "SY Percussion I"
+endpoint config pairs VSL's percussion maps with dynamics-only expression maps,
+not Art Conductor's.
+
+What it means for Fiddle:
+
+- **An Art Conductor map can't choose the drum.** On a layer with no
+  percussion map, Fiddle plays every note at the bridge's pitch 36
+  ([library percussion maps](library-percussion-maps.md)). The
+  instrument-to-key mapping has to come from the layer's percussion map, for
+  example VSL's. The annotator chain already runs the percussion map first and
+  hands the expression map the library pitch, so the two combine on one
+  layer, in either kit routing.
+- **Its own techniques never arrive.** `pt.user.*` aren't Dorico built-ins, so
+  the bridge never sends them, and combinations built only from them (all of
+  the toms map's) never match. Using them would need a per-layer rule that
+  adds techniques by instrument, for example high tom → `pt.user.high`, or
+  stick → `pt.user.stick`. That's later work, not part of this design.
+
 ## What Fiddle does today
 
 - **Bridge.** The unpitched percussion bridge (r2,
@@ -255,3 +300,5 @@ comes first.
   choke, and a dozen components squeeze one-channel vocabulary hard; check
   against a real drum map first.
 - Generating roll strokes when a library entry has no roll.
+- Per-layer technique rules for maps built on their own techniques, such as
+  Art Conductor's `pt.user.high` or `pt.user.12`.
