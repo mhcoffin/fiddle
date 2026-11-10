@@ -120,3 +120,17 @@ export function kitColumns(instrGroups) {
     }
     return columns;
 }
+
+/**
+ * A layer's linked layers: on the chairs of the same kit, from the same
+ * library patch, itself first. Their maps, library updates and removal go
+ * together; their mix settings don't. A layer outside a kit links only to
+ * itself.
+ */
+export function linkedKitLayers(strip, strips, chairs) {
+    if (!strip) return [];
+    const chair = (chairs || []).find((candidate) => candidate.id === strip.chairId);
+    if (!chair?.kitId || !strip.patchId) return [strip];
+    const kitChairs = new Set(chairs.filter((candidate) => candidate.kitId === chair.kitId).map((candidate) => candidate.id));
+    return [strip, ...strips.filter((other) => other.id !== strip.id && kitChairs.has(other.chairId) && other.patchId === strip.patchId)];
+}

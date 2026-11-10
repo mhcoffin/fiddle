@@ -96,3 +96,19 @@ test("mixer columns gather a kit's consecutive chairs", () => {
     assert.deepEqual(columns[1].instrGroups.map((group) => group.key), ["a", "b"]);
     assert.equal(columns[2].instrGroup.key, "y");
 });
+
+test("a kit layer links to the same patch on the kit's other chairs, not beyond", async () => {
+    const { linkedKitLayers } = await import("../src/lib/kitModel.js");
+    const chairs = [
+        { id: "high", kitId: "k" }, { id: "low", kitId: "k" }, { id: "other", kitId: "j" }, { id: "solo", kitId: "" },
+    ];
+    const strips = [
+        { id: "h1", chairId: "high", patchId: "p" }, { id: "l1", chairId: "low", patchId: "p" },
+        { id: "l2", chairId: "low", patchId: "q" }, { id: "o1", chairId: "other", patchId: "p" },
+        { id: "s1", chairId: "solo", patchId: "p" },
+    ];
+    assert.deepEqual(linkedKitLayers(strips[0], strips, chairs).map((strip) => strip.id), ["h1", "l1"]);
+    assert.deepEqual(linkedKitLayers(strips[2], strips, chairs).map((strip) => strip.id), ["l2"]);
+    assert.deepEqual(linkedKitLayers(strips[4], strips, chairs).map((strip) => strip.id), ["s1"]);
+    assert.deepEqual(linkedKitLayers(undefined, strips, chairs), []);
+});

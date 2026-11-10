@@ -25,7 +25,13 @@
         onInspectMidi = () => {},
         onRefreshLibrary = () => {},
         onDelete = () => {},
+        // A percussion kit's linked layers (kitModel.js): chairs, kit name,
+        // and deleting this chair's copy only.
+        linkedChairCount = 1,
+        kitName = "",
+        onDeleteThisChair = () => {},
     } = $props();
+    let linked = $derived(linkedChairCount > 1);
 
     let validPlugins = $derived(plugins.filter((plugin) => plugin.valid !== false));
     // A missing or unscanned player still shows by name in the selector.
@@ -46,6 +52,9 @@
             <div>
                 <h2>Layer Details</h2>
                 <p>{strip.layerName || strip.library || "Instrument strip"}</p>
+                {#if linked}
+                    <p class="kit-link">Linked across the {linkedChairCount} chairs of {kitName}: the expression and percussion maps, library updates and removal apply to all of them. Each chair keeps its own mix.</p>
+                {/if}
             </div>
             <button class="close" onclick={onClose}>Close</button>
         </header>
@@ -217,7 +226,12 @@
                     <p>Structural operations are kept away from the mixing controls.</p>
                 </div>
                 <div class="danger-actions">
-                    <button class="danger" onclick={onDelete}>Delete layer</button>
+                    {#if linked}
+                        <button onclick={onDeleteThisChair}>Delete from this chair only</button>
+                        <button class="danger" onclick={onDelete}>Delete from {linkedChairCount} kit chairs</button>
+                    {:else}
+                        <button class="danger" onclick={onDelete}>Delete layer</button>
+                    {/if}
                 </div>
             </section>
         </div>
@@ -225,6 +239,7 @@
 </div>
 
 <style>
+    .kit-link { max-width: 560px; color: #7dd3fc; }
     /* Centred over the blurred mixer, a little shorter than the window. */
     .backdrop { position: absolute; inset: 0; z-index: 52; display: flex; align-items: center; justify-content: center; background: rgba(2, 6, 23, 0.62); backdrop-filter: blur(2px); }
     .panel { position: relative; margin: 0; padding: 0; width: min(760px, calc(100% - 48px)); height: calc(100% - 64px); display: flex; flex-direction: column; overflow: hidden; background: #0b1220; border: 1px solid #334155; border-radius: 12px; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5); }

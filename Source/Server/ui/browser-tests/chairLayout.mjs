@@ -1620,10 +1620,14 @@ try {
     await kitMixer.goto(`http://127.0.0.1:${server.address().port}/`);
     await kitMixer.waitForSelector(".mixer-container");
     await kitMixer.evaluate((chairs) => {
-        window.__JUCE__ = { backend: { emitEvent: () => {} } };
+        window.kitMessages = [];
+        window.__JUCE__ = { backend: { emitEvent: (_event, request) => window.kitMessages.push(request.params[0]) } };
         window.__dispatchFromCpp({ type: "setChairState", data: chairs });
+        window.__dispatchFromCpp({ type: "setLayerCatalog", data: [
+            { id: "blocks", name: "Woodblocks", libraryId: "sy", libraryName: "SY Perc", family: "percussion" }] });
         window.__dispatchFromCpp({ type: "setMixerState", data: chairs.map((chair) => ({
             id: `${chair.id}-layer`, chairId: chair.id, chairBusId: `chair:${chair.id}`, inputPort: chair.port,
+            patchId: chair.kitId ? "blocks" : "snare-patch", libraryId: "sy",
             inputChannel: chair.channel, library: "SY Perc", layerName: chair.name, family: "wood", isSolo: true,
             active: true, gainDb: 0, muted: false, soloed: false, pluginUid: 0, hasPlugin: false })) });
     }, kitChairs);
@@ -1648,6 +1652,32 @@ try {
     assert.equal(kitGeometry.bottoms.length, 1, `chairs end at the same height: ${kitGeometry.bottoms}`);
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
         await kitMixer.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "kit-mixer.png") });
+    // Kit layers: the same patch on the kit's chairs is linked.
+    const kitMessage = () => kitMixer.evaluate(() => window.kitMessages.at(-1));
+    await kitBlock.locator(".inst-group").first().getByRole("button", { name: "Edit details…", exact: true }).click();
+    const kitDetails = kitMixer.getByRole("dialog", { name: /^Layer details for/ });
+    assert.match(await kitDetails.innerText(), /Linked across the 2 chairs of Wood Blocks/);
+    await kitDetails.getByRole("button", { name: "Delete from 2 kit chairs", exact: true }).click();
+    assert.deepEqual(await kitMessage(), { type: "removeChairLayer", payload: ["kit-high-layer", true] });
+    await kitBlock.locator(".inst-group").first().getByRole("button", { name: "Edit details…", exact: true }).click();
+    await kitDetails.getByRole("button", { name: "Delete from this chair only", exact: true }).click();
+    assert.deepEqual(await kitMessage(), { type: "removeChairLayer", payload: ["kit-high-layer"] });
+    // The snare isn't in the kit: an ordinary layer.
+    await kitMixer.locator(".folder-strips > .inst-group").getByRole("button", { name: "Edit details…", exact: true }).click();
+    assert.doesNotMatch(await kitDetails.innerText(), /Linked across/);
+    assert.equal(await kitDetails.getByRole("button", { name: "Delete layer", exact: true }).count(), 1);
+    await kitDetails.getByRole("button", { name: "Close", exact: true }).click();
+    // Adding a layer to a kit chair offers every chair in the kit.
+    await kitBlock.getByRole("button", { name: "Add a layer to Wood Block (Low)", exact: true }).click();
+    const kitPicker = kitMixer.getByRole("dialog", { name: "Add layer to Wood Block (Low)", exact: true });
+    const kitScope = kitPicker.getByRole("checkbox", { name: /Add to every chair in Wood Blocks \(2 chairs\), linked/ });
+    assert.equal(await kitScope.isChecked(), true);
+    await kitPicker.getByRole("button", { name: /Woodblocks/ }).click();
+    assert.deepEqual(await kitMessage(), { type: "assignPatchToChair", payload: [{ chairId: "kit-low", patchId: "blocks", kit: true }] });
+    await kitBlock.getByRole("button", { name: "Add a layer to Wood Block (Low)", exact: true }).click();
+    await kitScope.uncheck();
+    await kitPicker.getByRole("button", { name: /Woodblocks/ }).click();
+    assert.deepEqual(await kitMessage(), { type: "assignPatchToChair", payload: [{ chairId: "kit-low", patchId: "blocks" }] });
     await kitMixer.close();
 
     const kitManagerPage = await openTool("chairs");

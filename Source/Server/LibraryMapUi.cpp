@@ -243,12 +243,32 @@ void MainComponent::assignPercussionMap(const juce::String &stripId, PercussionM
   auto *strip = mixer_.getStrip(stripId);
   if (!strip)
     return;
-  auto before = strip->snapshotPercussionMap();
-  if ((before.map ? before.map->entityId : "") == (assignment.map ? assignment.map->entityId : "") &&
-      before.sourceXml == assignment.sourceXml)
+  // A percussion kit's linked layers share their percussion map: each chair
+  // resolves it by its own instrument (docs/percussion-kits.md).
+  std::vector<juce::String> stripIds{stripId};
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (const auto layer = repository ? repository->getLayer(stripId.toStdString()) : std::nullopt)
+    for (const auto &linked : kitLinkedLayers(*layer))
+      if (linked.id != layer->id && mixer_.getStrip(juce::String(linked.id)))
+        stripIds.push_back(juce::String(linked.id));
+  const auto same = [&](const PercussionMapAssignment &current) {
+    return (current.map ? current.map->entityId : "") == (assignment.map ? assignment.map->entityId : "") &&
+           current.sourceXml == assignment.sourceXml;
+  };
+  std::vector<std::unique_ptr<UndoableAction>> actions;
+  for (const auto &id : stripIds) {
+    auto before = mixer_.getStrip(id)->snapshotPercussionMap();
+    if (!same(before))
+      actions.push_back(std::make_unique<SetPercussionMapAction>(mixer_, id, std::move(before), assignment));
+  }
+  if (actions.empty())
     return;
-  if (undoManager_.perform(std::make_unique<SetPercussionMapAction>(mixer_, stripId, std::move(before),
-                                                                    std::move(assignment)))) {
+  const auto description = actions.front()->getDescription() +
+                            (actions.size() > 1 ? " for " + juce::String((int)actions.size()) + " kit layers" : "");
+  std::unique_ptr<UndoableAction> action = actions.size() == 1
+      ? std::move(actions.front())
+      : std::make_unique<CompoundAction>(description, std::move(actions));
+  if (undoManager_.perform(std::move(action))) {
     saveAllStripsToDB(false);
     pushMixerState();
     pushLibraryLayerStatus();

@@ -3,11 +3,14 @@
 
     let {
         chair,
+        kitChairCount = 0, // chairs in the chair's percussion kit, if any
         patches = [],
         onChoose = () => {},
         onClose = () => {},
     } = $props();
     let query = $state("");
+    // A kit layer goes on every chair in the kit (docs/percussion-kits.md).
+    let wholeKit = $state(true);
     let groups = $derived(filterLayerCatalog(patches, query));
 
     const closeFromBackdrop = (event) => {
@@ -23,6 +26,12 @@
             <div>
                 <h2>Add Layer</h2>
                 <p>Choose a library patch for <strong>{chair?.name}</strong>. Each assignment creates an independent instrument instance.</p>
+                {#if chair?.kitId && kitChairCount > 1}
+                    <label class="kit-scope">
+                        <input type="checkbox" bind:checked={wholeKit} />
+                        Add to every chair in {chair.kitName} ({kitChairCount} chairs), linked
+                    </label>
+                {/if}
             </div>
             <button onclick={onClose}>Cancel</button>
         </header>
@@ -52,7 +61,7 @@
                             </div>
                             <div class="patches">
                                 {#each group.patches as patch (patch.id)}
-                                    <button class="patch" onclick={() => onChoose(patch.id)}>
+                                    <button class="patch" onclick={() => onChoose(patch.id, Boolean(chair?.kitId && kitChairCount > 1 && wholeKit))}>
                                         <span class="patch-name">{patch.name}</span>
                                         <span class="patch-details">
                                             {patch.family || "Unclassified patch"}
@@ -76,6 +85,7 @@
     header { justify-content:space-between; gap:24px; padding:22px 24px; border-bottom:1px solid #273449; background:#111c2e; }
     h2,h3,p { margin:0; } h2 { font-size:1.35rem; color:#f8fafc; } h3 { font-size:.95rem; color:#e2e8f0; }
     p { margin-top:4px; color:#94a3b8; font-size:.86rem; } p strong { color:#cbd5e1; }
+    .kit-scope { display:flex; align-items:center; gap:7px; margin-top:10px; color:#cbd5e1; font-size:.84rem; }
     button,input { box-sizing:border-box; font:inherit; }
     button { min-height:38px; padding:8px 13px; border:1px solid #475569; border-radius:6px; background:#172337; color:#e2e8f0; cursor:pointer; }
     button:hover { border-color:#7dd3fc; background:#1e3048; }

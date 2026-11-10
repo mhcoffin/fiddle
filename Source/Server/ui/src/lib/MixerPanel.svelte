@@ -38,7 +38,7 @@
         writeLibraryBarVisible,
     } from "./uiPreferences.js";
     import { captureChairLevel, planLockedLayerChange } from "./lockedGroupGain.js";
-    import { kitColumns, orderChairsWithKits } from "./kitModel.js";
+    import { kitColumns, linkedKitLayers, orderChairsWithKits } from "./kitModel.js";
     import { projectSaveButton } from "./projectSaveUi.js";
 
     let meters = $state(parseMixerMeters(null));
@@ -371,10 +371,14 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         return () => window.removeEventListener("keydown", handleKeyDown);
     });
 
-    const removeStrip = (id) => {
+    // A kit's linked layers (kitModel.js) share maps, updates and removal.
+    const linkedIds = (stripId) =>
+        linkedKitLayers(strips.find((strip) => strip.id === stripId), strips, chairs).map((strip) => strip.id);
+    const removeStrip = (id, thisChairOnly = false) => {
         const target = strips.find((strip) => strip.id === id);
         if (target?.chairId) {
-            dispatchCpp("removeChairLayer", id);
+            if (!thisChairOnly && linkedIds(id).length > 1) dispatchCpp("removeChairLayer", id, true);
+            else dispatchCpp("removeChairLayer", id);
             selectedIds.delete(id);
             selectedIds = new Set(selectedIds);
             return;
@@ -450,6 +454,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             dispatchCpp("setGroupExpressionMap", selectedIdsJson(), entityID);
             return;
         }
+        if (linkedIds(stripId).length > 1) {
+            dispatchCpp("setGroupExpressionMap", JSON.stringify(linkedIds(stripId)), entityID);
+            return;
+        }
         dispatchCpp("loadExpressionMap", stripId, entityID);
     };
     const loadExpressionMapFromFile = (stripId) => {
@@ -458,6 +466,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     const clearExpressionMap = (stripId) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
             dispatchCpp("setGroupExpressionMap", selectedIdsJson(), "");
+            return;
+        }
+        if (linkedIds(stripId).length > 1) {
+            dispatchCpp("setGroupExpressionMap", JSON.stringify(linkedIds(stripId)), "");
             return;
         }
         dispatchCpp("clearExpressionMap", stripId);
@@ -1867,15 +1879,23 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                     removeStrip(detailsStrip.id);
                     layerDetailsStripId = "";
                 }}
+                linkedChairCount={linkedIds(detailsStrip.id).length}
+                kitName={chairs.find((chair) => chair.id === detailsStrip.chairId)?.kitName || ""}
+                onDeleteThisChair={() => {
+                    removeStrip(detailsStrip.id, true);
+                    layerDetailsStripId = "";
+                }}
             />
         {/if}
     {/if}
     {#if layerPickerChair}
         <LayerPicker
             chair={layerPickerChair}
+            kitChairCount={layerPickerChair.kitId ? chairs.filter((chair) => chair.kitId === layerPickerChair.kitId).length : 0}
             patches={layerCatalog}
-            onChoose={(patchId) => {
-                dispatchCpp("assignPatchToChair", { chairId: layerPickerChair.id, patchId });
+            onChoose={(patchId, kit) => {
+                dispatchCpp("assignPatchToChair", kit ? { chairId: layerPickerChair.id, patchId, kit: true }
+                    : { chairId: layerPickerChair.id, patchId });
                 layerPickerChair = null;
             }}
             onClose={() => { layerPickerChair = null; }}

@@ -332,6 +332,10 @@ private:
   void layerLibrarySetupSettled(const juce::String &stripId);
   // Per-library maps (docs/library-map-import.md), in LibraryMapUi.cpp.
   std::string layerLibraryId(const juce::String &stripId);
+  /// The layers linked with this one: on the chairs of the same percussion
+  /// kit, from the same library patch (docs/percussion-kits.md). The layer
+  /// itself comes first; a layer outside a kit is linked only to itself.
+  std::vector<LayerRow> kitLinkedLayers(const LayerRow &layer);
   PercussionMapAssignment loadPercussionMap(const std::string &libraryId, const std::string &entityId);
   ExpressionMapAssignment loadLibraryExpressionMap(const std::string &libraryId, const std::string &entityId);
   void refreshLiveLibraryMaps();

@@ -134,4 +134,50 @@ private:
   bool success_ = false;
 };
 
+/// Several layer actions as one undoable step that reports once: adding a
+/// patch to every chair in a percussion kit, or removing a kit's linked
+/// layers (docs/percussion-kits.md). The members report nothing themselves.
+class GroupedLayerAction final : public UndoableAction {
+public:
+  using Changed = RemoveChairLayerAction::Changed;
+
+  GroupedLayerAction(juce::String description, std::vector<std::unique_ptr<UndoableAction>> members,
+                     Changed changed)
+      : description_(std::move(description)), members_(std::move(members)), changed_(std::move(changed)) {}
+
+  void execute() override {
+    success_ = false;
+    std::size_t done = 0;
+    for (; done < members_.size(); ++done) {
+      members_[done]->execute();
+      if (!members_[done]->succeeded()) break;
+    }
+    if (done < members_.size()) {
+      while (done-- > 0) members_[done]->undo();
+      changed_(false);
+      return;
+    }
+    success_ = !members_.empty();
+    changed_(success_);
+  }
+
+  void undo() override {
+    success_ = true;
+    for (auto member = members_.rbegin(); member != members_.rend(); ++member) {
+      (*member)->undo();
+      success_ = success_ && (*member)->succeeded();
+    }
+    changed_(success_);
+  }
+
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override { return description_; }
+
+private:
+  juce::String description_;
+  std::vector<std::unique_ptr<UndoableAction>> members_;
+  Changed changed_;
+  bool success_ = false;
+};
+
 } // namespace fiddle

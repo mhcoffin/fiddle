@@ -2022,6 +2022,71 @@ void testKitCommandsUndo() {
   REQUIRE(!f.undo.perform(std::make_unique<fiddle::RemoveKitAction>(repository, f.mixer, "absent", changed)));
 }
 
+// Kit layers (docs/percussion-kits.md): the same patch added to, or removed
+// from, every chair of a kit is one undoable step that reports once, and a
+// member that fails leaves nothing behind.
+void testKitLayerGroupUndo() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("kit-layers.sqlite")));
+  REQUIRE(db.saveLibraryMetadata({"library", "Test percussion", "Test", ""}));
+  auto &repository = *db.getLibraryRoutingRepository();
+  for (const auto &[id, flat] : {std::make_pair(std::string("high"), 20), std::make_pair(std::string("low"), 21)}) {
+    fiddle::ChairRow chair;
+    chair.id = id; chair.name = id; chair.instrumentEntityId = "test.block." + id;
+    chair.flatIndex = flat; chair.kitId = "kit"; chair.kitName = "Blocks";
+    REQUIRE(repository.upsertChair(chair));
+  }
+  fiddle::LibraryPatchRow patch;
+  patch.id = "blocks-patch"; patch.libraryId = "library"; patch.name = "Woodblocks";
+  REQUIRE(repository.upsertPatch(patch));
+  MixerFixture f;
+  bool failLow = false;
+  auto instantiate = [&](const fiddle::LayerRow &layer) {
+    if (failLow && layer.chairId == "low") return false;
+    auto strip = std::make_shared<fiddle::MixerStrip>();
+    strip->id = layer.id; strip->chairId = layer.chairId; strip->patchId = layer.patchId;
+    f.mixer.insertStripAt(strip, f.mixer.size());
+    return true;
+  };
+  int notifications = 0, failures = 0;
+  auto changed = [&](bool success) { success ? ++notifications : ++failures; };
+  const auto addToKit = [&] {
+    std::vector<std::unique_ptr<fiddle::UndoableAction>> members;
+    for (const auto *id : {"high", "low"})
+      members.push_back(std::make_unique<fiddle::AddChairLayerAction>(repository, f.mixer, id, patch.id, 0,
+                                                                      instantiate, [](bool) {}));
+    return std::make_unique<fiddle::GroupedLayerAction>("Add layer to kit", std::move(members), changed);
+  };
+  REQUIRE(f.undo.perform(addToKit()));
+  REQUIRE(notifications == 1);
+  REQUIRE(repository.listLayers("high").size() == 1 && repository.listLayers("low").size() == 1);
+  const auto highLayer = repository.listLayers("high").front();
+  const auto lowLayer = repository.listLayers("low").front();
+  auto *highStrip = f.mixer.getStrip(juce::String(highLayer.id));
+  REQUIRE(highStrip && f.mixer.getStrip(juce::String(lowLayer.id)));
+  REQUIRE(f.undo.undo() && notifications == 2);
+  REQUIRE(repository.listLayers().empty() && !f.mixer.getStrip(juce::String(highLayer.id)));
+  REQUIRE(f.undo.redo() && notifications == 3);
+  REQUIRE(f.mixer.getStrip(juce::String(highLayer.id)) == highStrip); // the same live strip, not a copy
+
+  // Removing the linked layers is one step too.
+  std::vector<std::unique_ptr<fiddle::UndoableAction>> removals;
+  for (const auto &layer : {highLayer, lowLayer})
+    removals.push_back(std::make_unique<fiddle::RemoveChairLayerAction>(repository, f.mixer, layer, [](bool) {}));
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::GroupedLayerAction>("Remove layer from kit", std::move(removals), changed)));
+  REQUIRE(repository.listLayers().empty() && notifications == 4);
+  REQUIRE(f.undo.undo() && repository.listLayers().size() == 2 && f.mixer.getStrip(juce::String(highLayer.id)) == highStrip);
+
+  // A failing member undoes the ones before it.
+  REQUIRE(f.undo.undo() && repository.listLayers().empty());
+  f.undo.clear();
+  failLow = true;
+  REQUIRE(!f.undo.perform(addToKit()));
+  REQUIRE(failures == 1 && repository.listLayers().empty());
+  for (auto *strip : f.mixer.getAllStrips()) REQUIRE(strip->chairId != "high" && strip->chairId != "low");
+}
+
 void testChairDeletionRetainsLayers() {
   Sandbox sandbox;
   fiddle::FiddleDatabase db;
@@ -4057,6 +4122,7 @@ int main(int argc, char **argv) {
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);
   run("chair create and atomic metadata edit undo", testChairCommandsUndo);
   run("percussion kit add, rename, delete and save", testKitCommandsUndo);
+  run("percussion kit layers add and remove as one step", testKitLayerGroupUndo);
   run("chair deletion retains live layers, locks, FX and assignments", testChairDeletionRetainsLayers);
   run("chair layer removal restores assignment, live player and FX on undo", testChairLayerRemovalUndo);
   run("chair layer addition undo/redo retains original and asynchronously loaded players", testChairLayerAdditionUndo);

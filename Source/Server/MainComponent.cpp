@@ -4904,37 +4904,63 @@ void MainComponent::setupJsHandlers() {
         data->getProperty("chairId").toString().toStdString();
     const auto patchId =
         data->getProperty("patchId").toString().toStdString();
-    safeCallAsync([this, chairId, patchId]() {
+    // kit: also give the patch to every other chair in the chair's
+    // percussion kit that doesn't have it yet, as one step.
+    const bool wholeKit = static_cast<bool>(data->getProperty("kit"));
+    safeCallAsync([this, chairId, patchId, wholeKit]() {
       auto *repository = db_.getLibraryRoutingRepository();
-      if (!repository || !repository->getChair(chairId) ||
-          !repository->getPatch(patchId)) {
+      const auto chair = repository ? repository->getChair(chairId) : std::nullopt;
+      const auto patch = repository ? repository->getPatch(patchId) : std::nullopt;
+      if (!chair || !patch) {
         broadcastMessage("layerOperationResult",
                          juce::var("Could not find the chair or patch"));
         return;
       }
-      int position = 0;
-      for (const auto &existing : repository->listLayers(chairId))
-        position = std::max(position, existing.position + 1);
-      undoManager_.perform(std::make_unique<AddChairLayerAction>(
-          *repository, mixer_, chairId, patchId, position,
-          [this, repository](const LayerRow &layer) {
-            const auto chair = repository->getChair(layer.chairId);
-            const auto patch = repository->getPatch(layer.patchId);
-            return chair && patch &&
-                   instantiateLayer(layer, *chair, &*patch,
-                                    juce::String(layer.libraryName));
-          },
-          [this](bool success) {
-            if (!success) {
-              broadcastMessage("layerOperationResult",
-                               juce::var("Could not change the layer"));
-              return;
-            }
-            saveAllStripsToDB();
-            pushChairState();
-            pushMixerState();
-            scheduleStateRebuild();
-          }));
+      const auto instantiate = [this, repository](const LayerRow &layer) {
+        const auto layerChair = repository->getChair(layer.chairId);
+        const auto layerPatch = repository->getPatch(layer.patchId);
+        return layerChair && layerPatch &&
+               instantiateLayer(layer, *layerChair, &*layerPatch,
+                                juce::String(layer.libraryName));
+      };
+      const auto changed = [this](bool success) {
+        if (!success) {
+          broadcastMessage("layerOperationResult",
+                           juce::var("Could not change the layer"));
+          return;
+        }
+        saveAllStripsToDB();
+        pushChairState();
+        pushMixerState();
+        scheduleStateRebuild();
+      };
+      const auto nextPosition = [repository](const std::string &id) {
+        int position = 0;
+        for (const auto &existing : repository->listLayers(id))
+          position = std::max(position, existing.position + 1);
+        return position;
+      };
+      std::vector<std::string> targets{chairId};
+      if (wholeKit && !chair->kitId.empty())
+        for (const auto &other : repository->listChairs()) {
+          if (other.id == chairId || other.kitId != chair->kitId) continue;
+          const auto layers = repository->listLayers(other.id);
+          if (std::none_of(layers.begin(), layers.end(),
+                           [&](const LayerRow &layer) { return layer.patchId == patchId; }))
+            targets.push_back(other.id);
+        }
+      if (targets.size() == 1) {
+        undoManager_.perform(std::make_unique<AddChairLayerAction>(
+            *repository, mixer_, chairId, patchId, nextPosition(chairId), instantiate, changed));
+        return;
+      }
+      std::vector<std::unique_ptr<UndoableAction>> members;
+      for (const auto &target : targets)
+        members.push_back(std::make_unique<AddChairLayerAction>(
+            *repository, mixer_, target, patchId, nextPosition(target), instantiate, [](bool) {}));
+      undoManager_.perform(std::make_unique<GroupedLayerAction>(
+          "Add layer '" + juce::String(patch->name) + "' to kit '" + juce::String(chair->kitName) + "'",
+          std::move(members), changed));
     });
     return;
   });
@@ -4946,7 +4972,10 @@ void MainComponent::setupJsHandlers() {
     if (args.isEmpty())
       return;
     const auto layerId = args[0].toString();
-    safeCallAsync([this, layerId]() {
+    // [layerId, kit]: kit removes the layer's linked copies on the other
+    // chairs of its percussion kit too, as one step.
+    const bool wholeKit = args.size() > 1 && static_cast<bool>(args[1]);
+    safeCallAsync([this, layerId, wholeKit]() {
       auto *repository = db_.getLibraryRoutingRepository();
       const auto layer = repository
                              ? repository->getLayer(layerId.toStdString())
@@ -4956,20 +4985,33 @@ void MainComponent::setupJsHandlers() {
                          juce::var("Could not remove the layer"));
         return;
       }
-      undoManager_.perform(std::make_unique<RemoveChairLayerAction>(
-          *repository, mixer_, *layer, [this](bool success) {
-            if (!success) {
-              broadcastMessage("layerOperationResult",
-                               juce::var("Could not change the layer"));
-              return;
-            }
-            // Also run on undo/redo: persist the retained live setup and
-            // refresh chair membership, not just the visible strip list.
-            saveAllStripsToDB();
-            pushChairState();
-            pushMixerState();
-            scheduleStateRebuild();
-          }));
+      const auto changed = [this](bool success) {
+        if (!success) {
+          broadcastMessage("layerOperationResult",
+                           juce::var("Could not change the layer"));
+          return;
+        }
+        // Also run on undo/redo: persist the retained live setup and
+        // refresh chair membership, not just the visible strip list.
+        saveAllStripsToDB();
+        pushChairState();
+        pushMixerState();
+        scheduleStateRebuild();
+      };
+      const auto linked = wholeKit ? kitLinkedLayers(*layer) : std::vector<LayerRow>{*layer};
+      if (linked.size() == 1) {
+        undoManager_.perform(std::make_unique<RemoveChairLayerAction>(
+            *repository, mixer_, *layer, changed));
+        return;
+      }
+      std::vector<std::unique_ptr<UndoableAction>> members;
+      for (const auto &row : linked)
+        members.push_back(std::make_unique<RemoveChairLayerAction>(*repository, mixer_, row, [](bool) {}));
+      const auto chair = repository->getChair(layer->chairId);
+      undoManager_.perform(std::make_unique<GroupedLayerAction>(
+          "Remove layer '" + juce::String(layer->patchName) + "' from kit '" +
+              juce::String(chair ? chair->kitName : std::string()) + "'",
+          std::move(members), changed));
     });
     return;
   });
@@ -4995,7 +5037,8 @@ void MainComponent::setupJsHandlers() {
         return;
       }
 
-      if (!refreshLayersFromPatch(*patch, {*before})) {
+      // A kit's linked layers refresh together (docs/percussion-kits.md).
+      if (!refreshLayersFromPatch(*patch, kitLinkedLayers(*before))) {
         broadcastMessage("layerOperationResult", juce::var("Could not refresh the layer"));
         return;
       }
@@ -5977,6 +6020,21 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() { saveConfig(); });
     return;
   });
+}
+
+std::vector<LayerRow> MainComponent::kitLinkedLayers(const LayerRow &layer) {
+  std::vector<LayerRow> result{layer};
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto chair = repository ? repository->getChair(layer.chairId) : std::nullopt;
+  if (!chair || chair->kitId.empty() || layer.patchId.empty())
+    return result;
+  for (const auto &other : repository->listChairs()) {
+    if (other.kitId != chair->kitId) continue;
+    for (const auto &row : repository->listLayers(other.id))
+      if (row.id != layer.id && row.patchId == layer.patchId)
+        result.push_back(row);
+  }
+  return result;
 }
 
 void MainComponent::chairEditChanged(bool success) {

@@ -1,7 +1,7 @@
 # Percussion kits
 
-Status: phase 1 (kit definitions and grouping) implemented 2026-11-10; kit
-layers, coverage and sticking are still to do.
+Status: phases 1 (kit definitions and grouping) and 2 (kit layers)
+implemented 2026-11-10; coverage and sticking are still to do.
 
 ## Summary
 
@@ -131,8 +131,31 @@ that chair's instrument. With VSL's wood-blocks map, each block chair plays its
 own octave (see the example below). A chair can still override a kit layer or
 add its own.
 
-Whether a kit layer is one shared plugin voice or a copy per chair is a
-question for implementation; the mixer and audio routing decide it.
+A kit layer is **a copy per chair**, chosen over one shared plug-in
+(2026-11-10). Each copy is an ordinary layer: it hears its own chair's
+channel, resolves the shared percussion map by its chair's instrument, and
+feeds its chair's bus, so each instrument keeps its own strip for mixing. The
+cost is one plug-in instance per instrument (5 for wood blocks, 19 for a full
+drum set). A shared plug-in would need a layer with several input channels, a
+percussion-map instrument per channel and a kit-level bus; it's worth doing
+only if instance counts become a problem.
+
+**Linked layers.** Layers on the chairs of one kit that come from the same
+library patch are linked (`kitLinkedLayers` in C++, `linkedKitLayers` in
+`kitModel.js`); nothing extra is stored. For linked layers:
+
+- **Add.** The layer picker on a kit chair offers "Add to every chair in the
+  kit", on by default: the patch goes on that chair and on every kit chair
+  that doesn't have it yet, as one undo step (`GroupedLayerAction`). So after
+  Add Instrument, adding the patch again fills just the new chair.
+- **Maps.** Choosing or clearing the expression map or percussion map on one
+  applies to all, as one step.
+- **Update from Library** refreshes all of them.
+- **Delete** removes all of them as one step; Layer Details also offers
+  "Delete from this chair only".
+- **Mix** (gain, mute, solo, balance, inserts, sends) and the plug-in's own
+  state stay per chair. Editing one copy's instrument settings doesn't change
+  the others.
 
 ### 5. Coverage
 
@@ -266,7 +289,9 @@ What it means for Fiddle:
    - Template: the variant rule above. Tests in `DoricoConfigGeneratorTest`,
      `MixerIntegrationTest`, `SqliteVersionStorageTest`, `kitModel.test.js` and
      `chairLayout.mjs`.
-2. **Kit layers.**
+2. **Kit layers.** Done (2026-11-10): see [Kit layers](#4-kit-layers). Tests in
+   `MixerIntegrationTest` (grouped add and remove, rollback), `kitModel.test.js`
+   and `chairLayout.mjs`.
 3. **Coverage and sticking.** The missing kit instruments and
    sticking, in the next unpitched bridge revision.
 4. **Score tests and docs.** A kit score test (each block, rim, roll,
