@@ -60,6 +60,13 @@ All in Dorico 6, 2026-11-08 to 2026-11-10.
   `kit-definition.kit.wood.blocks` → high, medium-high, medium, medium-low and
   low blocks. There are 27 kit definitions.
 
+**Working assumption.** Unless the kit itself is given a port and channel,
+Dorico treats an instrument in a kit exactly like the same instrument outside
+one: the same template matching, the same `index` counting, the same
+expression and percussion maps, the same techniques. Fiddle never maps the kit
+ID, so a kit's instruments behave as single instruments, which Fiddle already
+plays. The kit score test (phase 4) checks it.
+
 ## Design
 
 ### 1. Kit definitions
@@ -145,7 +152,6 @@ revision. That helps single instruments as much as kits.
 
 | | Question | How to find out |
 | --- | --- | --- |
-| Q2 | Does a kit played through Fiddle chairs arrive as expected, every technique on the right chair? | Phase 1's score test. |
 | Q3 | Does Dorico send `pt.left`/`pt.right` from sticking? | A sticking passage through the unpitched probe. |
 | Q4 | Can Fiddle read custom kits from a project, or must the user list the instruments? | Look at a project with a custom kit. |
 
@@ -230,16 +236,13 @@ What it means for Fiddle:
 
 ## Phases
 
-1. **Prove it by hand.** Five wood-block chairs in Fiddle, the template
-   installed, a wood-blocks kit in a project: each block on its own chair,
-   every technique in the Note Inspector (Q2).
-2. **Kit definitions and grouping.** Presets from `kitDefinitions.xml`, custom
+1. **Kit definitions and grouping.** Presets from `kitDefinitions.xml`, custom
    kits, kit rows in Chair Manager, kit headers in the mixer. Template and
    `index` tests in `DoricoConfigGeneratorTest`.
-3. **Kit layers.**
-4. **Coverage and sticking.** The missing kit instruments and, if Q3 says so,
+2. **Kit layers.**
+3. **Coverage and sticking.** The missing kit instruments and, if Q3 says so,
    sticking, in the next unpitched bridge revision.
-5. **Score tests and docs.** A kit score test (each block, rim, roll,
+4. **Score tests and docs.** A kit score test (each block, rim, roll,
    simultaneous blocks with different techniques),
    [library percussion maps](library-percussion-maps.md) and the
    [backlog](backlog.md).
