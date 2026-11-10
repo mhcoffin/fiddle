@@ -1,7 +1,7 @@
 # Percussion kits
 
-Status: draft design, revised 2026-11-08. Not implemented. Phase 0 (a probe
-score) has to answer the open questions before anything is built.
+Status: draft design, revised 2026-11-10 after a template experiment. Not
+implemented.
 
 ## Summary
 
@@ -9,53 +9,147 @@ A Dorico percussion kit is several unpitched instruments played by one player.
 "Wood blocks" (`instrument.kit.wood.blocks`) is five wood blocks on a
 five-line staff. Dorico can route a kit two ways:
 
-- **One channel for the kit.** Every component plays on the same channel. Each
-  note's pitch stands for an (instrument, technique) pair, and the kit's
-  percussion map defines the pairs. Keyswitches and controllers act on the
-  whole channel, so they can't give one component a technique different from
-  another's: the pitch has to carry it.
-- **A channel per instrument.** Each component has a channel of its own and
-  behaves like a single instrument. Pitches, keyswitches and controllers are
-  all free to describe that instrument's techniques.
+- **One channel for the kit.** Every instrument plays on the same channel, and
+  each note's pitch stands for an (instrument, technique) pair defined by the
+  kit's percussion map. Keyswitches and controllers act on the whole channel,
+  so they can't give one instrument a technique different from another's.
+- **A channel per instrument.** Each instrument has a channel, expression map
+  and percussion map of its own, and behaves exactly like a single
+  instrument.
 
-Fiddle can play neither yet: a chair is one instrument, and the unpitched
-bridge sends every instrument's notes at the same pitch.
+Fiddle uses **a channel per instrument**. A kit in Fiddle is a group of
+ordinary unpitched chairs, one per instrument, each on the unpitched bridge
+(r2) that single instruments already use. Every technique gets through,
+simultaneous notes on different instruments never interfere, and Fiddle needs
+no new bridge, decoder or note field. The cost is channels: wood blocks take
+5, a full drum set 19.
 
-The plan supports both, chosen per kit chair in Chair Manager:
+The playback template needs nothing kit-specific: a split kit is addressed by
+its instruments' own IDs, exactly as Fiddle already addresses chairs.
 
-- **A channel per instrument** reuses what Fiddle has. Each component becomes
-  a chair with the unpitched bridge (r2), techniques in the expression map,
-  exactly like a single wood block today.
-- **One channel** gets a bridge percussion map per kit that gives each
-  (component, technique) pair its own pitch. Fiddle decodes the pitch back
-  into the component and its techniques, and each layer's library percussion
-  map picks the sample, as it already does.
+## Evidence
 
-## Evidence so far
+All in Dorico 6, 2026-11-08 to 2026-11-10.
 
-- **Dorico's playback templates address a kit by listing it with its
-  components.** Every endpoint config the user has saved that includes a kit
-  (`EndpointConfigs/SY Percussion I (Synchron Player)`, `Elite`, `VEPro`,
-  `Toms`, `VEP Server`, `Unified Server`) routes it to one channel. It lists
-  the kit's ID and each component's instrument ID, all with the same
-  `endpoints` value. For example, `instrument.kit.wood.blocks` and the five
-  `instrument.percussion.other.wood.block.*` IDs all go to endpoint 14336. A
-  template uses the same entity-to-endpoint mapping Fiddle already writes
-  (`DoricoConfigGenerator`), so a channel per instrument should be a matter of
-  giving the components different endpoints. None of the saved configs does
-  that, so phase 0 has to confirm Dorico honours it (K1).
-- **Dorico defines its kits' components.** `kitDefinitions.xml` in Dorico's
-  resources lists each kit's components by instrument ID, for example
+- **One-channel kits list the kit with its instruments.** Every endpoint
+  config the user had saved that includes a kit (`SY Percussion I (Synchron
+  Player)`, `Elite`, `VEPro`, `Toms`, `VEP Server`, `Unified Server`) routes
+  it to one channel: the kit ID (`instrument.kit.wood.blocks`) and each
+  instrument's ID (the five `instrument.percussion.other.wood.block.*`) all
+  have the same `endpoints` value.
+- **A split kit is just its instruments.** The user split a wood-blocks kit
+  across channels in Play mode and exported the endpoint config
+  (`EndpointConfigs/WoodBlockSeparateTest`). Its `instruments` section has
+  five entries, one per block ID, each on its own channel, all `index` 0,
+  `irvIndex` 0, `kSoloPlayer`. There is **no entry for the kit ID**.
+- **The split survives a template.** A playback template ("BlockTest") whose
+  only endpoint is that config, applied to a new project with a wood-blocks
+  kit, routed the blocks exactly as exported.
+- **A kit's instruments count like separate instruments.** Adding a separate
+  high wood block to that project and reapplying the template routed it to a
+  new plugin instance: the template's one high-block entry (`index` 0) went to
+  the kit's high block, and the standalone block, as the second high block in
+  the project, matched nothing, just as a second standalone high block would. So `index`
+  counts every instrument of a type in the project, inside a kit or not.
+- **Dorico defines its kits' instruments.** `kitDefinitions.xml` in Dorico's
+  resources lists each kit's instruments by ID, for example
   `kit-definition.kit.wood.blocks` → high, medium-high, medium, medium-low and
-  low blocks. `instruments.xml` has 27 kit IDs (drum set, toms, congas,
-  temple blocks, marching kits and others). Fiddle can read both, so it knows
-  a built-in kit's components when it writes the template.
+  low blocks. There are 27 kit definitions.
+
+## Design
+
+### 1. Kit definitions
+
+A kit in Fiddle is a name and a list of Dorico instrument IDs. Chair Manager
+adds one:
+
+- **From a preset.** Each of Dorico's kit definitions, read from
+  `kitDefinitions.xml`: wood blocks, temple blocks, tom-toms, roto toms,
+  bongos, congas, drum set and so on.
+- **Custom.** Any list of unpitched instruments, to match a kit the user built
+  in Dorico. A custom kit's instruments are ordinary instrument IDs, so
+  nothing else changes.
+
+The kit's instruments must cover every instrument of the Dorico kit it plays:
+an instrument the template doesn't map is routed, like any unmatched
+instrument, to a new plugin instance.
+
+### 2. A kit compiles to chairs
+
+Each instrument becomes a solo chair (a kit is one player), with the kit as a
+group:
+
+- **Template.** One entry per chair, as now: the instrument's ID (and its
+  aliases), `index`, `kSoloPlayer`, the chair's channel. The kit ID gets no
+  entry.
+- **`index`.** Fiddle already numbers chairs of the same instrument and player
+  type (`DoricoConfigGenerator::playerIndices`). Kit chairs join that count, so
+  a wood-blocks kit plus a standalone high block is two high-block chairs,
+  `index` 0 and 1, in the order Dorico orders them in the project, as for
+  Flute 1 and Flute 2.
+- **Bridge.** Each chair gets the unpitched bridge by its instrument, as
+  today. No kit-specific map.
+
+Users can do all of this by hand today, by adding a chair per instrument. Kits
+add the convenience and the grouping.
+
+### 3. Grouping
+
+- **Chair Manager** shows a kit as one row with its instrument chairs under
+  it; adding, removing or reordering the kit moves them together.
+- **Mixer.** The kit is a header over its instrument strips, the way a chair's
+  header spans its layers. Each instrument keeps its own strip, which is
+  useful for balancing toms or blocks.
+
+### 4. Kit layers
+
+Setting up the same library on every instrument chair one at a time would be
+tedious. A kit layer applies to every chair in the kit: the same plugin
+routing, expression map and library percussion map, resolved on each chair by
+that chair's instrument. With VSL's wood-blocks map, each block chair plays its
+own octave (see the example below). A chair can still override a kit layer or
+add its own.
+
+Whether a kit layer is one shared plugin voice or a copy per chair is a
+question for implementation; the mixer and audio routing decide it.
+
+### 5. Coverage
+
+The unpitched bridge covers 46 of the 88 instruments used in Dorico's kits.
+These kits are fully covered: drum set and basic drum set, tom-toms, floor
+toms, roto toms, tenor drums, wood blocks, temple blocks, bongos, bongo bells,
+congas and cowbells. Not covered:
+
+- agogos, cajón, cuíca, maracas, timbales;
+- jam blocks, kempyang/ketuk, tabla;
+- the marching kits (bass drums, cymbals, snares, tenors).
+
+Adding them means adding their instrument IDs to the unpitched bridge's
+instrument list (a new revision, because Dorico keeps a project's copy of a
+map whose ID and version it already has) and to `BridgeSections.h`. Until then
+those chairs get the universal map.
+
+### 6. Sticking
+
+VSL's map uses `pt.right` (right hand) for alternate samples. The unpitched
+bridge has no sticking dimension, so `pt.right` is lost. If Dorico sends it,
+add a sticking add-on dimension (`pt.left`, `pt.right`) in the next unpitched
+revision. That helps single instruments as much as kits.
+
+## Open questions
+
+| | Question | How to find out |
+| --- | --- | --- |
+| Q1 | When a kit and a standalone instrument of the same type coexist, which gets `index` 0: the first in player order, or always the kit's? | Reorder the players in the BlockTest project and reapply. |
+| Q2 | Does a kit played through Fiddle chairs arrive as expected, every technique on the right chair? | Phase 1's score test. |
+| Q3 | Does Dorico send `pt.left`/`pt.right` from sticking? | A sticking passage through the unpitched probe. |
+| Q4 | Can Fiddle read custom kits from a project, or must the user list the instruments? | Look at a project with a custom kit. |
 
 ## An example: VSL's wood blocks
 
 `VSL SY Percussion - Woodblocks (PM).doricolib`, in Dorico's
-`DefaultLibraryAdditions/Synchron Percussion I`, is a typical vendor map for a
-kit played on one channel:
+`DefaultLibraryAdditions/Synchron Percussion I`, is a typical vendor map, made
+for a kit on one channel:
 
 - `drumkitmap.user.vsl_sy_percussion_woodblocks`, version 1,
   `forSingleInstrument` false, 36 entries, no keyswitches or variants.
@@ -73,14 +167,12 @@ kit played on one channel:
   | Medium-high | 72 (C4) | 73 | 74 | 75 | 76 |
   | High | 84 (C5) | 85 | 86 | 87 | 88 |
 
-- The kit's own entries repeat the medium block's (60–64), presumably a
-  fallback for a note Dorico attributes to the kit rather than a block.
-- Its expression map ("Velocity + Mod Wheel Dynamic") carries only dynamics,
-  which is all an expression map can safely carry on a kit's channel.
+- The kit's own entries repeat the medium block's (60–64).
+- Its expression map ("Velocity + Mod Wheel Dynamic") carries only dynamics.
 
-Fiddle can already import this map and resolve its entries by instrument and
-techniques (`PercussionMap::resolve`). On a kit's channel, what's missing is
-knowing which block each note is.
+As a layer's library percussion map it works unchanged on a split kit:
+`PercussionMap::resolve` takes the chair's instrument, so the medium-high
+block's chair plays 72–76.
 
 ## Another example: Art Conductor
 
@@ -91,9 +183,8 @@ library patch, for one channel. In `VSL/Synchron 11 Percussion/VelXF Mod`:
 
 - **Every combination passes the pitch through.** Each one covers pitches
   0–127 with no transposition, so the key that plays (which tom, which block)
-  is whatever pitch Dorico sends. On an unpitched instrument that pitch
-  comes from a percussion map Art Conductor doesn't supply: VSL's own, Dorico's
-  default, or a pitched staff written on the patch's keys.
+  is whatever pitch Dorico sends. On an unpitched instrument that pitch comes
+  from a percussion map Art Conductor doesn't supply.
 - **Everything else is a channel-wide keyswitch**, selected by Art Conductor's
   own playing techniques, which its "PBT" companion libraries define:
   - *Concert Toms Yamaha*: beater (`pt.user.stick`, `rods`, `brushes`,
@@ -106,199 +197,63 @@ library patch, for one channel. In `VSL/Synchron 11 Percussion/VelXF Mod`:
     `pt.user.mallet+pt.user.plastic` KS 25). Which block plays depends
     entirely on the pitch.
 
-That's the one-channel model with a drum chosen partly by keyswitch: a high
-and a low tom, or two taiko sizes, can't sound at the same moment, because the
-group switch belongs to the channel. The user's own "SY Percussion I"
-endpoint config pairs VSL's percussion maps with dynamics-only expression maps,
-not Art Conductor's.
-
 What it means for Fiddle:
 
 - **An Art Conductor map can't choose the drum.** On a layer with no
   percussion map, Fiddle plays every note at the bridge's pitch 36
   ([library percussion maps](library-percussion-maps.md)). The
   instrument-to-key mapping has to come from the layer's percussion map, for
-  example VSL's. The annotator chain already runs the percussion map first and
-  hands the expression map the library pitch, so the two combine on one
-  layer, in either kit routing.
+  example VSL's. The annotator chain runs the percussion map first and hands
+  the expression map the library pitch, so the two combine on one layer.
 - **Its own techniques never arrive.** `pt.user.*` aren't Dorico built-ins, so
   the bridge never sends them, and combinations built only from them (all of
   the toms map's) never match. Using them would need a per-layer rule that
-  adds techniques by instrument, for example high tom → `pt.user.high`, or
-  stick → `pt.user.stick`. That's later work, not part of this design.
+  adds techniques by instrument, for example high tom → `pt.user.high`.
 
 ## What Fiddle does today
 
 - **Bridge.** The unpitched percussion bridge (r2,
-  [experiment](../experiments/unpitched-percussion-bridge/README.md)) has a
-  percussion map of one pitch, 36, for every one of its 75 instruments, marked
-  `forSingleInstrument` true. Every technique arrives through the expression
-  map's dimensions (strokes, roll kinds, mechanisms, modifiers); the pitch
-  carries nothing. The decoder withholds a note on any other pitch.
-- **Sections.** `BridgeSections.h` gives the unpitched map to single
-  instruments, matching by prefix, and deliberately not to kits
-  (`instrument.kit.*`), so a kit chair gets the universal map.
+  [experiment](../experiments/unpitched-percussion-bridge/README.md)) gives
+  75 single instruments one pitch, 36, with every technique in the expression
+  map's dimensions.
+- **Sections.** `BridgeSections.h` gives the unpitched map to those
+  instruments, matching by prefix, and not to kit IDs.
 - **Layers.** `PercussionMapAnnotator` resolves every note with the chair's
-  instrument. Notes (`midi_event.proto`) carry techniques but no instrument.
-- **Chairs.** A chair is one Dorico instrument entity on one channel.
-- **Template.** `DoricoConfigGenerator` maps each chair's instrument ID (and
-  its aliases) to the chair's endpoint, with `index` counting players of the
-  same instrument and player type.
-
-## Design
-
-### 1. Kit chairs and the routing choice
-
-Chair Manager adds a kit (K5: from Dorico's instrument list, or from
-`kitDefinitions.xml`) as one row, with a routing choice:
-
-- **One channel.** One chair. The template maps the kit ID and every component
-  ID to the chair's endpoint, as the saved configs do.
-- **A channel per instrument.** One chair per component, grouped under the
-  kit's row. The template maps each component ID to its own chair's endpoint;
-  what the kit ID itself maps to is a phase 0 question (K1).
-
-The default is a channel per instrument, because it keeps every technique and
-gives each component its own mixer strip. One channel suits a kit you want
-mixed as one sound, or a vendor map built for one channel.
-
-### 2. A channel per instrument
-
-Each component chair is a single unpitched instrument, so everything already
-works: the r2 bridge, techniques in the expression map, layers resolving by
-the chair's instrument, the percussion map picker. What's new:
-
-- The chairs are grouped: Chair Manager shows them under the kit, and the
-  mixer can show the kit as a header over its component strips, the way a
-  chair spans its layers.
-- `index`: a component of a kit and a standalone instrument of the same type
-  (a wood block kit and a separate wood block) both use the component's
-  instrument ID. How Dorico counts `index` across them decides how the
-  template tells them apart (K2).
-
-### 3. One channel per kit
-
-#### The kit's bridge map
-
-Each kit gets its own bridge percussion map, generated from its components in
-`kitDefinitions.xml`: `forSingleInstrument` false, with an entry for each
-(component, technique) pair at its own pitch. The kit ID also gets entries,
-like VSL's, in case Dorico attributes a note to the kit (K3).
-
-The kit's expression map carries dynamics and the Init (with the revision
-beacon) and **no technique switches**: a switch would apply to every
-component.
-
-The pitches limit the vocabulary. A kit has roughly 110 usable pitches (the
-beacon keyswitches sit at 126/127), so a five-block kit could give each block
-about 20 techniques and a drum set with a dozen components about 9. The
-vocabulary is therefore a short list per component, chosen from what library
-maps actually distinguish:
-
-- Natural.
-- The roll kinds a library is likely to sample (roll, buzz roll), since a roll
-  only sustains when its entry carries it (unpitched `results-01.md`,
-  finding 2).
-- The strokes that matter for that kind of instrument (rim for blocks, rim
-  shot and cross stick for drums, bell for cymbals, openness for the hi-hat).
-- Sticking, if Dorico sends it (K6).
-
-Anything else falls back to the component's Natural entry, which is how
-Dorico treats an unmatched technique (unpitched probe). Modifiers that only
-change level, such as accents and dynamics, still reach Fiddle through
-velocity.
-
-Pitches are fixed per kit and append-only, kept explicitly in the generator,
-so a new technique never moves another's pitch. Changing a kit's map is a new
-revision, because Dorico keeps a project's copy of a map whose ID and version
-it already has.
-
-#### The decoder names each note's instrument
-
-The compiled kit map keeps the pitch → (component, techniques) table. For each
-note, the decoder sets its techniques and its **instrument** from the pitch.
-That needs one new field on `fiddle::Note` (`notation_instrument`, a Dorico
-entity ID). A pitch the map never sends is withheld, as now.
-
-#### Layers resolve by the note's instrument
-
-`PercussionMapAnnotator` resolves with the note's instrument, falling back to
-the chair's when a note has none (every chair except a one-channel kit).
-Everything else stays: a library map's entries for that instrument, Natural
-implied, largest technique subset wins, single-instrument maps fall back to
-their own entries. So on a one-channel wood-blocks chair:
-
-- a layer with the VSL wood-blocks map plays each block from its octave;
-- a layer with a single-block map plays every block on that block (its
-  fallback), which is a reasonable sketch sound;
-- a note for an instrument a multi-instrument map doesn't cover is withheld,
-  and the Note Inspector says which instrument.
-
-The Note Inspector shows the note's instrument. The percussion map picker
-treats a map as covering a one-channel kit chair when it lists the kit's ID or
-any of its components.
-
-### 4. Sticking
-
-VSL's map uses `pt.right` (right hand) for alternate samples. If Dorico sends
-sticking (K6):
-
-- on a channel per instrument it becomes an add-on dimension (`pt.left`,
-  `pt.right`) in a new revision of the unpitched bridge, which helps single
-  instruments too;
-- on one channel it doubles a component's pitches, so it goes in only for
-  kits whose components have room.
-
-### 5. Custom kits
-
-A custom kit's components are ordinary instrument IDs, so a channel per
-instrument handles it like a built-in kit, once Fiddle knows the components.
-One channel needs a generated map for that exact set of components. Where a
-custom kit's ID and components come from, and whether a template can name it,
-is K5.
-
-## Phase 0: what only Dorico can tell us
-
-A probe score with the wood-blocks kit, a custom kit (for example snare and
-two toms), and a standalone wood block, played through probe templates for
-both routings:
-
-| | Question | Why it matters |
-| --- | --- | --- |
-| K1 | With the components mapped to different endpoints, does Dorico play each on its own channel? What should the kit ID map to (nothing, the first component's endpoint, a spare)? | Whether a channel per instrument can come from the template, or only from Play mode by hand. |
-| K2 | How does `index` count a kit component against a standalone instrument of the same type, and against the same component in a second kit? | How the template tells a kit's wood block from a standalone one. |
-| K3 | On one channel, which instrument ID does Dorico look up for each note: the component's, or ever the kit's? | Whether the kit's bridge map needs entries for the kit ID (as VSL's has). |
-| K4 | On one channel, does Dorico still send an expression map's technique switches for kit notes, or only the percussion map's pitch? | Confirms the kit's expression map should carry dynamics only. |
-| K5 | Are kits in the instrument list Fiddle reads for Chair Manager? How does a custom kit appear, and can a template name it? | Where kit chairs come from, and whether one-channel custom kits are possible. |
-| K6 | Does Dorico send `pt.left`/`pt.right` from sticking, and to the expression map, the pitch, or both? | Whether the bridges need sticking. |
-
-K1 decides the order of work. If the template can split a kit, a channel per
-instrument is mostly chair and template work on top of the r2 bridge, and it
-comes first.
+  instrument.
+- **Chairs and template.** A chair is one Dorico instrument on one channel;
+  `DoricoConfigGenerator` maps its ID to that channel with an `index` per
+  instrument and player type.
 
 ## Phases
 
-0. **Probe** (above). Revise this design with the results.
-1. **A channel per instrument.** Kit rows and grouped component chairs in
-   Chair Manager, the template entries (K1, K2), kit headers in the mixer.
-   Generator tests for the template.
-2. **One channel: bridge.** Per-kit bridge maps from `kitDefinitions.xml`, the
-   kit IDs in `BridgeSections.h`, the note instrument field. Generator tests
-   and C++ decoder tests (pitch → component and techniques, withheld
-   pitches).
-3. **One channel: layers.** Resolve by the note's instrument; Note Inspector;
-   picker coverage for kit chairs. C++ annotator tests with the VSL map.
-4. **Sticking** if K6 says so.
-5. **Score tests and docs.** A kit score test for each routing (each block,
-   rim, roll, simultaneous blocks with different techniques),
-   [library percussion maps](library-percussion-maps.md),
-   [bridge maps](bridge-map-authoring.md) and the [backlog](backlog.md).
+1. **Prove it by hand.** Five wood-block chairs in Fiddle, the template
+   installed, a wood-blocks kit in a project: each block on its own chair,
+   every technique in the Note Inspector (Q2). Then Q1.
+2. **Kit definitions and grouping.** Presets from `kitDefinitions.xml`, custom
+   kits, kit rows in Chair Manager, kit headers in the mixer. Template and
+   `index` tests in `DoricoConfigGeneratorTest`.
+3. **Kit layers.**
+4. **Coverage and sticking.** The missing kit instruments and, if Q3 says so,
+   sticking, in the next unpitched bridge revision.
+5. **Score tests and docs.** A kit score test (each block, rim, roll,
+   simultaneous blocks with different techniques),
+   [library percussion maps](library-percussion-maps.md) and the
+   [backlog](backlog.md).
+
+## Not chosen: one channel per kit
+
+Fiddle could generate, per kit, a bridge percussion map giving each
+(instrument, technique) pair its own pitch, with an expression map carrying
+only dynamics, and decode the pitch back into instrument and technique. The
+pitch is a private code between the template and Fiddle, so nothing would be
+lost as long as the vocabulary fits in about 110 pitches (roughly 20
+techniques per block for wood blocks, 6 per instrument for a full drum set).
+It saves channels, but needs a per-kit map, a decode table and an instrument
+field on every note, and roll dynamics (CC1) would still be shared by the
+channel. Worth building only if channel use becomes a real problem.
 
 ## Later, not in this design
 
-- Drum sets use the same mechanisms, but drum maps lean on hi-hat openness and
-  choke, and a dozen components squeeze one-channel vocabulary hard; check
-  against a real drum map first.
 - Generating roll strokes when a library entry has no roll.
 - Per-layer technique rules for maps built on their own techniques, such as
   Art Conductor's `pt.user.high` or `pt.user.12`.

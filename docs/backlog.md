@@ -120,8 +120,8 @@ documented elsewhere; this list records the remaining work and intended order.
   musical needs. Revisit effect/send/parameter automation when a concrete use
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
-- Unpitched percussion r2: kits (`instrument.kit.*`, routed one channel per
-  component or one channel per kit; draft design in
+- Unpitched percussion r2: kits (`instrument.kit.*`, one chair per kit
+  instrument, grouped; draft design in
   [percussion kits](percussion-kits.md)), the percussion-map entry keyswitch as
   a conduit (Dorico sends it with the hit, velocity 127, same length), and
   library-side percussion maps for driving instruments. Not needed after the
