@@ -144,15 +144,27 @@ those chairs get the universal map.
 ### 6. Sticking
 
 VSL's map uses `pt.right` (right hand) for alternate samples. The unpitched
-bridge has no sticking dimension, so `pt.right` is lost. If Dorico sends it,
-add a sticking add-on dimension (`pt.left`, `pt.right`) in the next unpitched
-revision. That helps single instruments as much as kits.
+bridge has no sticking dimension, so `pt.right` is lost.
+
+Dorico sends sticking only from two playing techniques in the Unpitched
+Percussion category: **Left (L)** and **Right (R)** (`pta.leftStickText`,
+`pta.rightStickText`; Shift-P "l" and "r"), shown as "L" and "R" above the
+note. They play as `pt.left` and `pt.right` and appear in Play mode's
+technique lane as "Left (LH)" and "Right (RH)" (checked 2026-11-10). The
+similarly named techniques don't: "Left Hand"/"Right Hand" (Agostini), the
+keyboard L.H./R.H. and m.s./m.d. all play as `pt.natural`, and "Damp
+(Left)"/"Damp (Right)" as `pt.damp`. Dorico's sticking notation (stickings
+above or below notes) isn't a playing technique and plays nothing.
+
+So the next unpitched revision adds a sticking add-on dimension (`pt.left`,
+`pt.right`), mutually exclusive, applying to the one note like any attribute.
+That helps single instruments as much as kits. Its probe confirms the add-on's
+switch arrives in Fiddle.
 
 ## Open questions
 
 | | Question | How to find out |
 | --- | --- | --- |
-| Q3 | Does Dorico send `pt.left`/`pt.right` from sticking? | A sticking passage through the unpitched probe. |
 | Q4 | Can Fiddle read custom kits from a project, or must the user list the instruments? | Look at a project with a custom kit. |
 
 ## An example: VSL's wood blocks
@@ -240,7 +252,7 @@ What it means for Fiddle:
    kits, kit rows in Chair Manager, kit headers in the mixer. Template and
    `index` tests in `DoricoConfigGeneratorTest`.
 2. **Kit layers.**
-3. **Coverage and sticking.** The missing kit instruments and, if Q3 says so,
+3. **Coverage and sticking.** The missing kit instruments and
    sticking, in the next unpitched bridge revision.
 4. **Score tests and docs.** A kit score test (each block, rim, roll,
    simultaneous blocks with different techniques),
