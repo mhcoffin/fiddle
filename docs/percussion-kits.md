@@ -79,7 +79,10 @@ adds one:
   bongos, congas, drum set and so on.
 - **Custom.** Any list of unpitched instruments, to match a kit the user built
   in Dorico. A custom kit's instruments are ordinary instrument IDs, so
-  nothing else changes.
+  nothing else changes. The user lists them in Fiddle; Fiddle doesn't read
+  custom kits from a project, which would mean parsing Dorico's undocumented
+  binary score format (`score.dtn` and `scorelibrary.dtn` inside the
+  `.dorico` zip) for a small convenience.
 
 The kit's instruments must cover every instrument of the Dorico kit it plays:
 an instrument the template doesn't map is routed, like any unmatched
@@ -160,12 +163,6 @@ So the next unpitched revision adds a sticking add-on dimension (`pt.left`,
 `pt.right`), mutually exclusive, applying to the one note like any attribute.
 That helps single instruments as much as kits. Its probe confirms the add-on's
 switch arrives in Fiddle.
-
-## Open questions
-
-| | Question | How to find out |
-| --- | --- | --- |
-| Q4 | Can Fiddle read custom kits from a project, or must the user list the instruments? | Look at a project with a custom kit. |
 
 ## An example: VSL's wood blocks
 
