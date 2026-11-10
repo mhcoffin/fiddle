@@ -117,7 +117,12 @@ private:
 /// layer rows here: their gains or player state may be older than live edits.
 class EditChairsAction final : public UndoableAction {
 public:
-  struct Edit { std::string id; std::optional<std::string> name; std::optional<DoricoRole> role; };
+  struct Edit {
+    std::string id;
+    std::optional<std::string> name;
+    std::optional<DoricoRole> role;
+    std::optional<std::string> kitName; // renames the chair's kit
+  };
   EditChairsAction(LibraryRoutingRepository &repository, MixerModel &mixer,
                    const std::vector<Edit> &edits, ChairChanged changed)
       : repository_(repository), mixer_(mixer), changed_(std::move(changed)) {
@@ -128,6 +133,7 @@ public:
       if (found == working.end() || !ids.insert(edit.id).second || (edit.name && edit.name->empty())) return;
       const auto before = *found;
       if (edit.name) found->name = *edit.name;
+      if (edit.kitName && !found->kitId.empty() && !edit.kitName->empty()) found->kitName = *edit.kitName;
       if (edit.role && *edit.role != found->role) {
         const bool conflict = std::any_of(working.begin(), working.end(), [&](const auto &c) {
           return c.id != found->id && c.instrumentEntityId == found->instrumentEntityId &&
@@ -142,7 +148,7 @@ public:
         }
         found->role = *edit.role;
       }
-      if (before.name != found->name || before.role != found->role) {
+      if (before.name != found->name || before.role != found->role || before.kitName != found->kitName) {
         before_.push_back(before);
         after_.push_back(*found);
       }
@@ -154,6 +160,8 @@ public:
   bool succeeded() const override { return success_; }
   bool isNoOp() const override { return valid_ && before_.empty(); }
   juce::String getDescription() const override {
+    if (!after_.empty() && !before_.empty() && after_[0].kitName != before_[0].kitName)
+      return "Rename kit '" + juce::String(after_[0].kitName) + "'";
     return after_.size() == 1 ? "Edit chair '" + juce::String(after_[0].name) + "'" : "Change chair player types";
   }
 private:
@@ -174,6 +182,100 @@ private:
   ChairChanged changed_;
   std::vector<ChairRow> before_, after_;
   bool valid_ = false, success_ = false;
+};
+
+/// A percussion kit is a group of ordinary chairs that share a kit ID
+/// (docs/percussion-kits.md). Adding or deleting one is one undoable step.
+class AddKitAction final : public UndoableAction {
+public:
+  AddKitAction(LibraryRoutingRepository &repository, MixerModel &mixer,
+               std::vector<ChairRow> chairs, ChairChanged changed)
+      : repository_(repository), mixer_(mixer), chairs_(std::move(chairs)), changed_(std::move(changed)) {}
+  void execute() override {
+    success_ = false;
+    if (members_.empty()) {
+      for (const auto &chair : chairs_)
+        members_.push_back(std::make_unique<AddChairAction>(repository_, mixer_, chair, [](bool) {}));
+    }
+    std::size_t done = 0;
+    for (; done < members_.size(); ++done) {
+      members_[done]->execute();
+      if (!members_[done]->succeeded()) break;
+    }
+    if (done < members_.size()) {
+      while (done-- > 0) members_[done]->undo();
+      changed_(false);
+      return;
+    }
+    success_ = !members_.empty();
+    changed_(success_);
+  }
+  void undo() override {
+    success_ = true;
+    for (auto member = members_.rbegin(); member != members_.rend(); ++member) {
+      (*member)->undo();
+      success_ = success_ && (*member)->succeeded();
+    }
+    changed_(success_);
+  }
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override {
+    return "Add kit '" + juce::String(chairs_.empty() ? std::string() : chairs_.front().kitName) + "'";
+  }
+private:
+  LibraryRoutingRepository &repository_;
+  MixerModel &mixer_;
+  std::vector<ChairRow> chairs_;
+  ChairChanged changed_;
+  std::vector<std::unique_ptr<AddChairAction>> members_;
+  bool success_ = false;
+};
+
+class RemoveKitAction final : public UndoableAction {
+public:
+  RemoveKitAction(LibraryRoutingRepository &repository, MixerModel &mixer,
+                  std::string kitId, ChairChanged changed)
+      : repository_(repository), mixer_(mixer), kitId_(std::move(kitId)), changed_(std::move(changed)) {}
+  void execute() override {
+    success_ = false;
+    if (members_.empty()) {
+      for (const auto &chair : repository_.listChairs())
+        if (!kitId_.empty() && chair.kitId == kitId_) {
+          kitName_ = chair.kitName;
+          members_.push_back(std::make_unique<RemoveChairAction>(repository_, mixer_, chair.id, [](bool) {}));
+        }
+    }
+    std::size_t done = 0;
+    for (; done < members_.size(); ++done) {
+      members_[done]->execute();
+      if (!members_[done]->succeeded()) break;
+    }
+    if (done < members_.size()) {
+      while (done-- > 0) members_[done]->undo();
+      changed_(false);
+      return;
+    }
+    success_ = !members_.empty();
+    changed_(success_);
+  }
+  void undo() override {
+    success_ = true;
+    for (auto member = members_.rbegin(); member != members_.rend(); ++member) {
+      (*member)->undo();
+      success_ = success_ && (*member)->succeeded();
+    }
+    changed_(success_);
+  }
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override { return "Delete kit '" + juce::String(kitName_) + "'"; }
+private:
+  LibraryRoutingRepository &repository_;
+  MixerModel &mixer_;
+  std::string kitId_;
+  std::string kitName_;
+  ChairChanged changed_;
+  std::vector<std::unique_ptr<RemoveChairAction>> members_;
+  bool success_ = false;
 };
 
 } // namespace fiddle

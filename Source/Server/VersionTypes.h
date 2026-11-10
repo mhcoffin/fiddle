@@ -279,12 +279,18 @@ struct ChairSnapshot {
   int ordinal = 1;
   int displayOrder = 0;
   int flatIndex = -1;
+  /// Routing schema 3: the percussion kit the chair belongs to, if any.
+  std::string kitId;
+  std::string kitName;
 
   std::string serializeForHash() const {
     std::ostringstream os;
     os << id << '\0' << instrumentEntityId << '\0' << name << '\0' << family
        << '\0' << (isSolo ? '1' : '0') << '\0' << ordinal << '\0'
        << displayOrder << '\0' << flatIndex << '\0';
+    // Only kit chairs add fields, so a project without kits hashes as before.
+    if (!kitId.empty())
+      os << kitId << '\0' << kitName << '\0';
     return os.str();
   }
 };
@@ -313,6 +319,8 @@ struct LayerSnapshot {
 
 struct RoutingState {
   /// Zero denotes a legacy snapshot that did not contain routing topology.
+  /// 2 added layer patch revisions; 3 adds chair kits, and is written only
+  /// when a chair belongs to a kit.
   int schemaVersion = 0;
   std::vector<ChairSnapshot> chairs;
   std::vector<LayerSnapshot> layers;

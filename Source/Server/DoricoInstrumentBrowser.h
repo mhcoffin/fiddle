@@ -15,6 +15,8 @@ struct BrowsableInstrument {
   juce::String musicXMLSoundID; // e.g., "strings.violin"
   juce::String family;          // Top-level family derived from musicXMLSoundID
   bool isDefault = true;        // true if no parentEntityID (this is the root variant)
+  juce::String kitDefinitionID; // a percussion kit's definition, e.g. "kit-definition.kit.wood.blocks"
+  std::vector<juce::String> kitInstruments; // a kit's instruments, from kitDefinitions.xml
 };
 
 /**
@@ -52,6 +54,12 @@ public:
    * @return true if parsing succeeded.
    */
   bool parseScoreOrders(const juce::File& file);
+
+  /**
+   * Parse kitDefinitions.xml and give each kit instrument its instruments.
+   * @return true if at least one kit definition was found.
+   */
+  bool parseKitDefinitions(const juce::File &file);
 
   /**
    * Get the "Orchestral" score order map: entityID → position.

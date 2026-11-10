@@ -151,6 +151,11 @@ void StateManager::captureRoutingState(
     saved.ordinal = chair.ordinal;
     saved.displayOrder = chair.displayOrder;
     saved.flatIndex = chair.flatIndex;
+    saved.kitId = chair.kitId;
+    saved.kitName = chair.kitName;
+    // Schema 3 only when it's needed, so kit-free projects save as before.
+    if (!chair.kitId.empty())
+      state.routingState.schemaVersion = 3;
     state.routingState.chairs.push_back(std::move(saved));
 
     for (const auto &layer : routingRepository_->listLayers(chair.id)) {

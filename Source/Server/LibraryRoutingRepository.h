@@ -74,6 +74,11 @@ struct ChairRow {
   int ordinal = 1;
   int displayOrder = 0;
   int flatIndex = -1;
+  /// Chairs created together as a percussion kit share a kit ID and name
+  /// (docs/percussion-kits.md). Empty for an ordinary chair. A kit is only a
+  /// grouping: each chair is still one Dorico instrument on one channel.
+  std::string kitId;
+  std::string kitName;
 };
 
 struct LayerRow {

@@ -1,4 +1,5 @@
 #include "DoricoConfigGenerator.h"
+#include <set>
 #include "BridgeMapDocument.h"
 #include <algorithm>
 #include <limits>
@@ -337,39 +338,45 @@ DoricoConfigGenerator::buildEndpointConfigXml(
   auto *instruments = root->createNewChildElement("instruments");
   instruments->setAttribute("array", "true");
 
-  // Build lookup from entity ID → all variant entity IDs.
-  // Group by musicXMLSoundID: all instruments sharing the same soundID
-  // are variants of the same instrument.
+  // Instruments that share a MusicXML sound ID are variants of one another
+  // (Clarinet in B♭ and in A, say): a chair also receives its variants, so a
+  // score with a variant still plays. But an instrument that has a chair of
+  // its own is never another chair's variant, and a variant is mapped once
+  // per player index and type. Kit instruments share sound IDs (all five wood
+  // blocks are wood.wood-block), so without this a kit's chairs would claim
+  // each other's instruments (docs/percussion-kits.md). An empty sound ID
+  // groups nothing, and kit IDs (instrument.kit.*) are never mapped: a kit's
+  // instruments have chairs of their own.
   std::map<juce::String, std::vector<juce::String>> soundIdToEntities;
+  std::map<juce::String, juce::String> soundIdOf;
   for (const auto &bi : browserInstruments) {
-    soundIdToEntities[bi.musicXMLSoundID].push_back(bi.entityID);
-  }
-  // Now build entityID → all sibling entity IDs
-  std::map<juce::String, std::vector<juce::String>> entityToVariants;
-  for (const auto &bi : browserInstruments) {
-    entityToVariants[bi.entityID] = soundIdToEntities[bi.musicXMLSoundID];
+    soundIdOf[bi.entityID] = bi.musicXMLSoundID;
+    if (bi.musicXMLSoundID.isNotEmpty() && !bi.entityID.startsWith("instrument.kit."))
+      soundIdToEntities[bi.musicXMLSoundID].push_back(bi.entityID);
   }
 
   // Dorico uses <index> to match the Nth player of a given instrument
   // type + player type. Solo and section are counted separately.
   const auto playerIndex = playerIndices(assignments);
+  const auto key = [](const juce::String &entityId, int index, bool isSolo) {
+    return entityId + "\n" + juce::String(index) + (isSolo ? "\nsolo" : "\nsection");
+  };
+  std::set<juce::String> mapped;
+  for (int i = 0; i < (int)assignments.size(); ++i)
+    mapped.insert(key(assignments[i].entityID, playerIndex[size_t(i)], assignments[i].isSolo));
 
   for (int i = 0; i < (int)assignments.size(); ++i) {
     const auto &a = assignments[i];
     const int endpointIndex = a.flatIndex >= 0 ? a.flatIndex : i;
-
-    // Get all variant entity IDs for this instrument
-    std::vector<juce::String> entityIds;
-    auto it = entityToVariants.find(a.entityID);
-    if (it != entityToVariants.end()) {
-      entityIds = it->second;
-    } else {
-      entityIds.push_back(a.entityID);
-    }
-
     const int idx = playerIndex[size_t(i)];
 
-    // Emit one instrumentData block per variant entity ID
+    std::vector<juce::String> entityIds{a.entityID};
+    if (const auto sound = soundIdOf.find(a.entityID); sound != soundIdOf.end())
+      if (const auto group = soundIdToEntities.find(sound->second); group != soundIdToEntities.end())
+        for (const auto &variant : group->second)
+          if (variant != a.entityID && mapped.insert(key(variant, idx, a.isSolo)).second)
+            entityIds.push_back(variant);
+
     for (const auto &eid : entityIds) {
       auto *instrData = instruments->createNewChildElement("instrumentData");
       instrData->createNewChildElement("entityID")->addTextElement(eid);

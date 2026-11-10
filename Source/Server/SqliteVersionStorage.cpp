@@ -60,6 +60,10 @@ std::string serializeRoutingState(const RoutingState &routing) {
     appendI32(result, chair.ordinal);
     appendI32(result, chair.displayOrder);
     appendI32(result, chair.flatIndex);
+    if (routing.schemaVersion >= 3) {
+      appendString(result, chair.kitId);
+      appendString(result, chair.kitName);
+    }
   }
   appendU32(result, static_cast<uint32_t>(routing.layers.size()));
   for (const auto &layer : routing.layers) {
@@ -211,6 +215,10 @@ RoutingState deserializeRoutingState(const void *data, int size) {
     if (!readI32(cursor, end, chair.ordinal) ||
         !readI32(cursor, end, chair.displayOrder) ||
         !readI32(cursor, end, chair.flatIndex))
+      return {};
+    if (result.schemaVersion >= 3 &&
+        (!readString(cursor, end, chair.kitId) ||
+         !readString(cursor, end, chair.kitName)))
       return {};
     result.chairs.push_back(std::move(chair));
   }

@@ -120,8 +120,8 @@ documented elsewhere; this list records the remaining work and intended order.
   musical needs. Revisit effect/send/parameter automation when a concrete use
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
-- Unpitched percussion r2: kits (`instrument.kit.*`, one chair per kit
-  instrument, grouped; draft design in
+- Unpitched percussion r2: kits beyond phase 1 (kit layers, the kit
+  instruments the bridge doesn't cover yet, sticking; see
   [percussion kits](percussion-kits.md)), the percussion-map entry keyswitch as
   a conduit (Dorico sends it with the hit, velocity 127, same length), and
   library-side percussion maps for driving instruments. Not needed after the
@@ -143,6 +143,11 @@ documented elsewhere; this list records the remaining work and intended order.
 
 ## Recently completed
 
+- **Percussion kits, phase 1 (2026-11-10).** A kit is a group of solo
+  chairs, one per instrument, each on its own channel: presets from Dorico's
+  kit definitions or a custom list, kit rows in Chair Manager, a kit header in
+  the mixer. The template generator no longer maps an instrument with its own
+  chair as another chair's variant. [Percussion kits](percussion-kits.md).
 - **Chair buses (2026-11-07).** Each chair has its own bus with inserts,
   sends, balance, fader, meter, mute/solo and an output; its layers always
   feed it. Chairs with several layers, or with chair settings, show a chair

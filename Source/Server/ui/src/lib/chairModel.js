@@ -1,4 +1,5 @@
 import { FAMILY_ORDER, canonicalFamily, compareChairsInScoreOrder } from "./orchestralOrder.js";
+import { chairUnits } from "./kitModel.js";
 
 const familyLabel = (key) =>
     key ? key.charAt(0).toUpperCase() + key.slice(1) : "Other";
@@ -20,6 +21,8 @@ export function groupChairs(chairs) {
             key,
             label: familyLabel(key),
             chairs: entries.slice().sort(compareChairsInScoreOrder),
+            // Kits stay together (kitModel.js): { chair } or { kitId, kitName, chairs }.
+            units: chairUnits(entries, compareChairsInScoreOrder),
         }));
 }
 

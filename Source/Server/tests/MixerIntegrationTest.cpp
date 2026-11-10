@@ -1937,6 +1937,91 @@ void testChairCommandsUndo() {
   REQUIRE(repository.getChair(solo.id)->flatIndex == solo.flatIndex);
 }
 
+// A percussion kit is a group of ordinary chairs sharing a kit ID
+// (docs/percussion-kits.md): adding, renaming and deleting it are single
+// undoable steps, and the kit survives a project save and restore.
+void testKitCommandsUndo() {
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("kit-undo.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  MixerFixture f;
+  int successes = 0, failures = 0;
+  auto changed = [&](bool success) { if (success) ++successes; else ++failures; };
+  const auto chair = [](const std::string &id, const std::string &entity) {
+    fiddle::ChairRow row;
+    row.id = id; row.name = id; row.instrumentEntityId = entity; row.family = "wood";
+    row.role = fiddle::DoricoRole::solo; row.kitId = "kit-a"; row.kitName = "Wood Blocks";
+    return row;
+  };
+  // A standalone high block first, so the kit's high block is the second.
+  fiddle::ChairRow standalone = chair("standalone", "test.block.high");
+  standalone.kitId.clear(); standalone.kitName.clear();
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddChairAction>(repository, f.mixer, standalone, changed)));
+
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddKitAction>(repository, f.mixer,
+      std::vector<fiddle::ChairRow>{chair("high", "test.block.high"), chair("low", "test.block.low")}, changed)));
+  const auto kitChairs = [&] {
+    std::vector<fiddle::ChairRow> result;
+    for (const auto &row : repository.listChairs()) if (row.kitId == "kit-a") result.push_back(row);
+    return result;
+  };
+  REQUIRE(kitChairs().size() == 2);
+  REQUIRE(kitChairs()[0].id == "high" && kitChairs()[1].id == "low"); // kit order
+  REQUIRE(kitChairs()[0].displayOrder + 1 == kitChairs()[1].displayOrder);
+  REQUIRE(repository.getChair("high")->ordinal == 2); // counts with the standalone block
+  REQUIRE(repository.getChair("high")->kitName == "Wood Blocks");
+  REQUIRE(repository.getChair("standalone")->kitId.empty());
+
+  REQUIRE(f.undo.undo() && kitChairs().empty() && repository.getChair("standalone"));
+  REQUIRE(f.undo.redo() && kitChairs().size() == 2);
+
+  using Edit = fiddle::EditChairsAction::Edit;
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<Edit>{{"high", std::nullopt, std::nullopt, std::string("Blocks")},
+                        {"low", std::nullopt, std::nullopt, std::string("Blocks")}}, changed)));
+  REQUIRE(repository.getChair("high")->kitName == "Blocks" && repository.getChair("low")->kitName == "Blocks");
+  REQUIRE(f.undo.undo() && repository.getChair("low")->kitName == "Wood Blocks");
+  // A kit name can't be given to a chair outside a kit.
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::EditChairsAction>(repository, f.mixer,
+      std::vector<Edit>{{"standalone", std::nullopt, std::nullopt, std::string("Blocks")}}, changed)));
+  REQUIRE(repository.getChair("standalone")->kitName.empty());
+
+  // Saving and restoring keeps the kit.
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.setRoutingRepository(&repository);
+  const auto saved = state.commitCurrentState(f.mixer, branch);
+  const auto version = versions.getVersion(saved);
+  REQUIRE(version);
+  const auto snapshot = versions.getState(version->stateHash);
+  REQUIRE(snapshot && snapshot->routingState.schemaVersion == 3);
+  int kitSnapshots = 0;
+  for (const auto &row : snapshot->routingState.chairs)
+    if (row.kitId == "kit-a" && row.kitName == "Wood Blocks") ++kitSnapshots;
+  REQUIRE(kitSnapshots == 2);
+
+  const auto flats = std::make_pair(repository.getChair("high")->flatIndex, repository.getChair("low")->flatIndex);
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::RemoveKitAction>(repository, f.mixer, "kit-a", changed)));
+  REQUIRE(kitChairs().empty() && repository.getChair("standalone"));
+  REQUIRE(f.undo.undo() && kitChairs().size() == 2);
+  REQUIRE(repository.getChair("high")->flatIndex == flats.first && repository.getChair("low")->flatIndex == flats.second);
+  REQUIRE(repository.getChair("low")->kitName == "Wood Blocks");
+  REQUIRE(f.undo.redo() && kitChairs().empty());
+  REQUIRE(f.undo.undo());
+
+  // A kit that can't be added completely isn't added at all.
+  const auto before = repository.listChairs().size();
+  fiddle::ChairRow broken = chair("broken", "");
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::AddKitAction>(repository, f.mixer,
+      std::vector<fiddle::ChairRow>{chair("ok", "test.block.medium"), broken}, changed)));
+  REQUIRE(repository.listChairs().size() == before && !repository.getChair("ok"));
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::RemoveKitAction>(repository, f.mixer, "absent", changed)));
+}
+
 void testChairDeletionRetainsLayers() {
   Sandbox sandbox;
   fiddle::FiddleDatabase db;
@@ -3971,6 +4056,7 @@ int main(int argc, char **argv) {
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);
   run("chair create and atomic metadata edit undo", testChairCommandsUndo);
+  run("percussion kit add, rename, delete and save", testKitCommandsUndo);
   run("chair deletion retains live layers, locks, FX and assignments", testChairDeletionRetainsLayers);
   run("chair layer removal restores assignment, live player and FX on undo", testChairLayerRemovalUndo);
   run("chair layer addition undo/redo retains original and asynchronously loaded players", testChairLayerAdditionUndo);

@@ -196,6 +196,8 @@ ChairRow readChair(sqlite3_stmt *statement) {
   chair.ordinal = sqlite3_column_int(statement, 5);
   chair.displayOrder = sqlite3_column_int(statement, 6);
   chair.flatIndex = sqlite3_column_int(statement, 7);
+  chair.kitId = columnText(statement, 8);
+  chair.kitName = columnText(statement, 9);
   return chair;
 }
 
@@ -227,7 +229,7 @@ constexpr const char *kPatchColumns =
     "expected_preset_name, setup_complete, revision, percussion_map_id";
 constexpr const char *kChairColumns =
     "id, instrument_entity_id, name, family, dorico_role, ordinal, "
-    "display_order, flat_index";
+    "display_order, flat_index, kit_id, kit_name";
 constexpr const char *kLayerColumns =
     "id, chair_id, patch_id, patch_name, library_id, library_name, position, "
     "active, muted, soloed, gain_db, plugin_uid, plugin_state, "
@@ -319,6 +321,10 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
     )
   )");
   if (!baseSchema ||
+      !ensureColumn(database, "chairs", "kit_id",
+                    "kit_id TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "chairs", "kit_name",
+                    "kit_name TEXT NOT NULL DEFAULT ''") ||
       !ensureColumn(database, "library_patches", "revision",
                     "revision INTEGER NOT NULL DEFAULT 1") ||
       !ensureColumn(database, "library_patches", "expected_preset_name",
@@ -1161,8 +1167,8 @@ bool LibraryRoutingRepository::insertChairWithStableAssignment(
   Statement insert(database_, R"(
     INSERT INTO chairs
       (id, instrument_entity_id, name, family, dorico_role, ordinal,
-       display_order, flat_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       display_order, flat_index, kit_id, kit_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )");
   if (!insert) {
     execute(database_, "ROLLBACK");
@@ -1176,6 +1182,8 @@ bool LibraryRoutingRepository::insertChairWithStableAssignment(
   sqlite3_bind_int(insert.get(), 6, chair.ordinal);
   sqlite3_bind_int(insert.get(), 7, chair.displayOrder);
   sqlite3_bind_int(insert.get(), 8, chair.flatIndex);
+  bindText(insert.get(), 9, chair.kitId);
+  bindText(insert.get(), 10, chair.kitName);
   if (sqlite3_step(insert.get()) != SQLITE_DONE) {
     execute(database_, "ROLLBACK");
     return false;
@@ -1215,8 +1223,8 @@ bool LibraryRoutingRepository::upsertChairUnlocked(const ChairRow &chair) {
   Statement statement(database_, R"(
     INSERT INTO chairs
       (id, instrument_entity_id, name, family, dorico_role, ordinal,
-       display_order, flat_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       display_order, flat_index, kit_id, kit_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       instrument_entity_id = excluded.instrument_entity_id,
       name = excluded.name,
@@ -1224,7 +1232,9 @@ bool LibraryRoutingRepository::upsertChairUnlocked(const ChairRow &chair) {
       dorico_role = excluded.dorico_role,
       ordinal = excluded.ordinal,
       display_order = excluded.display_order,
-      flat_index = excluded.flat_index
+      flat_index = excluded.flat_index,
+      kit_id = excluded.kit_id,
+      kit_name = excluded.kit_name
   )");
   if (!statement)
     return false;
@@ -1237,6 +1247,8 @@ bool LibraryRoutingRepository::upsertChairUnlocked(const ChairRow &chair) {
   sqlite3_bind_int(statement.get(), 6, chair.ordinal);
   sqlite3_bind_int(statement.get(), 7, chair.displayOrder);
   sqlite3_bind_int(statement.get(), 8, chair.flatIndex);
+  bindText(statement.get(), 9, chair.kitId);
+  bindText(statement.get(), 10, chair.kitName);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -1631,8 +1643,8 @@ bool LibraryRoutingRepository::replaceTopology(
   Statement insertChair(database_, R"(
     INSERT INTO chairs
       (id, instrument_entity_id, name, family, dorico_role, ordinal,
-       display_order, flat_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       display_order, flat_index, kit_id, kit_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )");
   Statement insertLayer(database_, R"(
     INSERT INTO layers
@@ -1663,6 +1675,8 @@ bool LibraryRoutingRepository::replaceTopology(
     sqlite3_bind_int(insertChair.get(), 6, chair.ordinal);
     sqlite3_bind_int(insertChair.get(), 7, chair.displayOrder);
     sqlite3_bind_int(insertChair.get(), 8, chair.flatIndex);
+    bindText(insertChair.get(), 9, chair.kitId);
+    bindText(insertChair.get(), 10, chair.kitName);
     succeeded = succeeded &&
                 sqlite3_step(insertChair.get()) == SQLITE_DONE;
   }

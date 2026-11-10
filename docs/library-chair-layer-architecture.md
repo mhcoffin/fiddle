@@ -86,6 +86,9 @@ stores the ordered chair roster, stable MIDI assignments, immutable layer IDs,
 patch references, and fallback patch/library labels. Each layer points to its
 strip blob rather than duplicating opaque VST state.
 
+Routing schema 3 adds each chair's kit ID and name. It is written only when a
+chair belongs to a kit, so a project without kits saves and hashes as before.
+
 Versions made before this schema remain readable through the legacy strip
 restore path. When such a version is the head of a checked-out branch, Fiddle
 marks it dirty once so the next Fiddle or Dorico save records its current
@@ -99,6 +102,19 @@ The Dorico playback template is derived only from chairs. Adding, removing, or
 changing the identity of a chair marks the installed template out of date.
 Adding, removing, configuring, activating, or mixing layers does not require a
 template rebuild.
+
+Each chair maps its own Dorico instrument and the instruments that share its
+MusicXML sound ID (its variants, such as another clarinet), so a score with a
+variant still plays. An instrument with a chair of its own is never mapped as
+another chair's variant, a variant is mapped once per player index and type,
+an empty sound ID groups nothing, and kit IDs (`instrument.kit.*`) are never
+mapped. Without these rules, chairs for instruments that share a sound ID,
+such as the five wood blocks, would claim each other's instruments.
+
+A percussion kit is a group of ordinary solo chairs sharing a kit ID and name
+([percussion kits](percussion-kits.md)). Kit membership is not part of the
+template: Dorico routes a kit's instruments like any others, so renaming or
+grouping a kit needs no reinstall.
 
 Reordering chairs for display must not silently renumber MIDI assignments.
 Channel compaction is an explicit exceptional operation because existing

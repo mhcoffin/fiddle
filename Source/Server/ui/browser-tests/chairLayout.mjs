@@ -1597,6 +1597,113 @@ try {
     assert.match(await mapsPane.locator(".lmap-check-result").innerText(), /Checked .+ · 1 update available/);
     assert.match(await mapsPane.locator(".lmap-table").innerText(), /Newer version \(v3\)/);
     await libraryPage.close();
+    // Percussion kits (docs/percussion-kits.md): one solo chair per
+    // instrument, shown together under the kit in the mixer and Chair Manager.
+    const block = (tail) => `instrument.percussion.other.wood.block.${tail}`;
+    const kitChairs = [
+        { id: "kit-high", entityID: block("high"), name: "Wood Block (High)", family: "wood", role: "solo",
+          port: 1, channel: 0, ordinal: 1, displayOrder: 1, flatIndex: 16, scoreOrder: 10, kitId: "kit-a", kitName: "Wood Blocks" },
+        { id: "snare", entityID: "instrument.orchestral.unpitched.snare.drum", name: "Snare", family: "wood", role: "solo",
+          port: 1, channel: 1, ordinal: 1, displayOrder: 0, flatIndex: 17, scoreOrder: 11, kitId: "", kitName: "" },
+        { id: "kit-low", entityID: block("low"), name: "Wood Block (Low)", family: "wood", role: "solo",
+          port: 1, channel: 2, ordinal: 1, displayOrder: 2, flatIndex: 18, scoreOrder: 12, kitId: "kit-a", kitName: "Wood Blocks" },
+    ];
+    const kitInstruments = [
+        { entityID: block("high"), name: "Wood Block", family: "wood" },
+        { entityID: block("low"), name: "Wood Block", family: "wood" },
+        { entityID: "instrument.orchestral.unpitched.snare.drum", name: "Snare Drum", family: "drum" },
+        { entityID: "instrument.kit.wood.blocks", name: "Wood Block", family: "", kitInstruments: [block("high"), block("low")] },
+    ];
+    const kitMixer = await context.newPage();
+    kitMixer.setDefaultTimeout(10000);
+    kitMixer.on("pageerror", error => errors.push(error.message));
+    await kitMixer.goto(`http://127.0.0.1:${server.address().port}/`);
+    await kitMixer.waitForSelector(".mixer-container");
+    await kitMixer.evaluate((chairs) => {
+        window.__JUCE__ = { backend: { emitEvent: () => {} } };
+        window.__dispatchFromCpp({ type: "setChairState", data: chairs });
+        window.__dispatchFromCpp({ type: "setMixerState", data: chairs.map((chair) => ({
+            id: `${chair.id}-layer`, chairId: chair.id, chairBusId: `chair:${chair.id}`, inputPort: chair.port,
+            inputChannel: chair.channel, library: "SY Perc", layerName: chair.name, family: "wood", isSolo: true,
+            active: true, gainDb: 0, muted: false, soloed: false, pluginUid: 0, hasPlugin: false })) });
+    }, kitChairs);
+    const kitBlock = kitMixer.locator(".kit-block");
+    await kitBlock.waitFor();
+    assert.equal(await kitBlock.count(), 1);
+    assert.match(await kitBlock.locator(".kit-header").innerText(), /Wood Blocks\s*Kit · 2/);
+    assert.deepEqual(await kitBlock.locator(".bridge-label").allInnerTexts(), ["Wood Block (High)", "Wood Block (Low)"],
+        "the kit's chairs stay together, in kit order, though the snare sorts between them");
+    assert.deepEqual(await kitMixer.locator(".folder-strips .bridge-label").allInnerTexts(),
+        ["Wood Block (High)", "Wood Block (Low)", "Snare"]);
+    const kitGeometry = await kitMixer.evaluate(() => {
+        const box = (element) => element.getBoundingClientRect();
+        const kit = document.querySelector(".kit-block");
+        const headers = [...document.querySelectorAll(".folder-strips .bridge-header")].map((header) => Math.round(box(header).top));
+        const bottoms = [...document.querySelectorAll(".folder-strips .inst-group")].map((group) => Math.round(box(group).bottom));
+        return { headerWidth: box(kit.querySelector(".kit-header")).width, chairsWidth: box(kit.querySelector(".kit-chairs")).width,
+            headers: [...new Set(headers)], bottoms: [...new Set(bottoms)] };
+    });
+    assert.ok(Math.abs(kitGeometry.headerWidth - kitGeometry.chairsWidth) <= 2, `kit header spans its chairs: ${JSON.stringify(kitGeometry)}`);
+    assert.equal(kitGeometry.headers.length, 1, `chair headers line up with and without a kit: ${kitGeometry.headers}`);
+    assert.equal(kitGeometry.bottoms.length, 1, `chairs end at the same height: ${kitGeometry.bottoms}`);
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await kitMixer.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "kit-mixer.png") });
+    await kitMixer.close();
+
+    const kitManagerPage = await openTool("chairs");
+    await kitManagerPage.evaluate(({ chairs, instruments }) => {
+        window.__dispatchFromCpp({ type: "setChairState", data: chairs });
+        window.__dispatchFromCpp({ type: "setDoricoInstruments", data: instruments });
+    }, { chairs: kitChairs, instruments: kitInstruments });
+    const kitManager = kitManagerPage.getByRole("dialog", { name: "Chair Manager", exact: true });
+    const kitSection = kitManager.getByRole("region", { name: "Kit Wood Blocks", exact: true });
+    assert.equal(await kitSection.locator("article.chair-row").count(), 2);
+    assert.match(await kitSection.innerText(), /Kit · 2 instruments, each on its own channel/);
+    assert.match(await kitSection.locator("article.chair-row").first().innerText(), /Solo player · in kit/);
+    assert.equal(await kitSection.getByRole("combobox").count(), 0, "a kit's chairs are always solo players");
+    assert.equal(await kitManager.getByRole("combobox", { name: "Player type for Snare", exact: true }).count(), 1);
+    const lastMessage = () => kitManagerPage.evaluate(() => window.fixtureMessages.at(-1));
+    const kitName = kitSection.getByRole("textbox", { name: "Name for kit Wood Blocks", exact: true });
+    await kitName.fill("Blocks");
+    await kitName.press("Enter");
+    assert.deepEqual(await lastMessage(), { type: "renameKit", payload: [{ kitId: "kit-a", name: "Blocks" }] });
+    await kitSection.getByRole("button", { name: "Delete Kit", exact: true }).click();
+    await kitSection.getByRole("button", { name: "Delete 2 chairs", exact: true }).click();
+    assert.deepEqual(await lastMessage(), { type: "deleteKit", payload: ["kit-a"] });
+    // Add an instrument to the kit: a solo chair with the kit's ID and name.
+    await kitSection.getByRole("button", { name: "Add Instrument", exact: true }).click();
+    const addDialog = kitManager.getByRole("region", { name: "Add Chair", exact: true });
+    assert.match(await addDialog.innerText(), /Add to Wood Blocks/);
+    await addDialog.getByRole("searchbox").fill("snare");
+    await addDialog.getByRole("button", { name: /Snare Drum/ }).click();
+    assert.deepEqual(await lastMessage(), { type: "createChair", payload: [{
+        entityID: "instrument.orchestral.unpitched.snare.drum", family: "wood", role: "solo",
+        name: "Snare Drum", kitId: "kit-a", kitName: "Wood Blocks" }] });
+    // A Dorico kit from the search is a preset: edit its instruments, then create.
+    await kitManager.getByRole("button", { name: "Add Chair", exact: true }).click();
+    await addDialog.getByRole("searchbox").fill("wood");
+    const kitPreset = addDialog.getByRole("button", { name: /Kit · 2 instruments/ });
+    assert.match(await kitPreset.innerText(), /Wood Block, Wood Block/);
+    await kitPreset.click();
+    assert.match(await addDialog.innerText(), /Add Kit/);
+    assert.equal(await addDialog.getByRole("textbox", { name: "Kit name", exact: true }).inputValue(), "Wood Block");
+    assert.deepEqual(await addDialog.locator(".kit-draft-row strong").allInnerTexts(), ["Wood Block (High)", "Wood Block (Low)"]);
+    await addDialog.getByRole("searchbox").fill("snare");
+    await addDialog.getByRole("button", { name: /Snare Drum/ }).click();
+    await addDialog.getByRole("button", { name: "Remove Wood Block (Low)", exact: true }).click();
+    await addDialog.getByRole("button", { name: "Create Kit · 2 chairs", exact: true }).click();
+    assert.deepEqual(await lastMessage(), { type: "createKit", payload: [{ name: "Wood Block", family: "wood", instruments: [
+        { entityID: block("high"), name: "Wood Block" },
+        { entityID: "instrument.orchestral.unpitched.snare.drum", name: "Snare Drum" }] }] });
+    // A custom kit starts empty.
+    await kitManager.getByRole("button", { name: "Add Chair", exact: true }).click();
+    await addDialog.getByRole("button", { name: "Make a custom kit", exact: true }).click();
+    assert.equal(await addDialog.getByRole("button", { name: /^Create Kit/ }).isDisabled(), true);
+    await addDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await kitManagerPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "kit-chairs.png") });
+    await kitManagerPage.close();
+
     assert.deepEqual(errors, [], "no browser runtime errors");
     console.log("PASS: chair layout, mixer Undo, project settings, audio diagnostics, library status, and separate library history");
 } finally {

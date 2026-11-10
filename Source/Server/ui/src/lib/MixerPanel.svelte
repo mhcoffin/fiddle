@@ -38,6 +38,7 @@
         writeLibraryBarVisible,
     } from "./uiPreferences.js";
     import { captureChairLevel, planLockedLayerChange } from "./lockedGroupGain.js";
+    import { kitColumns, orderChairsWithKits } from "./kitModel.js";
     import { projectSaveButton } from "./projectSaveUi.js";
 
     let meters = $state(parseMixerMeters(null));
@@ -929,7 +930,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         // visible and makes their Add Layer affordance available before any
         // plug-in instance exists.
         if (chairs.length > 0) {
-            for (const chair of chairs.slice().sort(compareChairsInScoreOrder)) {
+            // A percussion kit's chairs stay together (docs/percussion-kits.md).
+            for (const chair of orderChairsWithKits(chairs, compareChairsInScoreOrder)) {
                 const fam = canonicalFamily(chair.family || "");
                 if (!familyMap.has(fam)) {
                     const group = {
@@ -963,6 +965,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 const ib = FAMILY_ORDER.indexOf(b.family);
                 return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
             });
+            for (const group of groups) group.columns = kitColumns(group.instrGroups);
             return groups;
         }
 
@@ -1033,6 +1036,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 instrMap.get(key).strips.push(strip);
             }
             g.instrGroups = instrOrder.map((k) => instrMap.get(k));
+            g.columns = kitColumns(g.instrGroups);
         }
         return groups;
     });
@@ -1052,6 +1056,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     // Sends belong to chairs: on the chair strip, or on the layer strip of a
     // one-layer chair without one.
     const sendsAt = (bus, location) => (bus?.sends || []).filter((send) => !!send.preFader === (location === "Pre"));
+    let consoleHasKits = $derived(chairs.some((chair) => chair.kitId));
     let renderedChairBuses = $derived(groupedStrips.flatMap((group) => group.instrGroups)
         .filter((instrGroup) => instrGroup.strips.length > 0)
         .map((instrGroup) => chairBusById.get(instrGroup.chairBusId)).filter(Boolean));
@@ -1074,160 +1079,15 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
 </script>
 
-<div
-    class="mixer-container"
-    class:compact-strips={stripSize === "compact"}
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 306 : 236}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
->
-    {#if layerRefreshResult}
-        <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
-    {/if}
-    <div class="mixer-toolbar">
-        <div class="toolbar-left">
-            <BranchSelector
-                {branches}
-                {currentBranch}
-                onCheckout={(id) => dispatchCpp("checkoutBranch", id)}
-                onCreateBranch={(name) => dispatchCpp("createBranch", name)}
-            />
-            <button class="toolbar-btn" disabled={!undoState.canUndo}
-                title={undoState.undoDescription ? `Undo: ${undoState.undoDescription}` : "Nothing to undo"}
-                onclick={() => dispatchCpp("undo")}>Undo</button>
-            <button class="toolbar-btn" disabled={!undoState.canRedo}
-                title={undoState.redoDescription ? `Redo: ${undoState.redoDescription}` : "Nothing to redo"}
-                onclick={() => dispatchCpp("redo")}>Redo</button>
-            <button class="toolbar-btn save-btn" onclick={doSaveConfig}
-                disabled={saveButton.disabled} title={saveButton.title}>Save</button>
-            {#if selectedIds.size > 1}
-                <span class="selection-badge">{selectedIds.size} selected</span>
-            {/if}
-            {#if anySoloed || anyBusSoloed || anyChairSoloed}
-                <button class="toolbar-btn solo-clear" onclick={clearSolos}>Clear Solos</button>
-            {/if}
-        </div>
-        <div class="toolbar-right">
-            <AudioDiagnostics />
-            <ToolbarMenu label="View">
-                {#snippet children(close)}
-                    <div class="view-group">
-                        <span class="view-group-title">Windows</span>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "print"); }}>Print Audio…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "score-tests"); }}>Score Tests…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "project-history"); }}>Project History</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-performance"); }}>Audio Performance</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "timeline"); }}>Timeline</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "event-log"); }}>Event Log</button>
-                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "midi-capture"); }}>MIDI Capture</button>
-                    </div>
-                    <span class="view-group-title">Mixer layout</span>
-                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "inspector"); }}>Layer Inspector</button>
-                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-bank"); }}>Audio Buses &amp; Master</button>
-                    <div class="display-controls">
-                        <label class="display-control-label" for="strip-size-select">Strip size</label>
-                        <select id="strip-size-select" class="toolbar-select" value={stripSize}
-                            onchange={(event) => updateStripSize(event.currentTarget.value)}>
-                            {#each Object.entries(STRIP_SIZE_PRESETS) as [value, preset]}
-                                <option {value}>{preset.label}</option>
-                            {/each}
-                        </select>
-                    </div>
-                    <div class="display-controls">
-                        <span class="display-control-label">Zoom</span>
-                        <div class="zoom-control" aria-label="Interface zoom">
-                            <button class="zoom-btn" onclick={onZoomOut} aria-label="Zoom out" title="Zoom out (Command-minus)">−</button>
-                            <button class="zoom-value" onclick={onResetZoom} aria-label="Reset zoom" title="Reset zoom (Command-0)">{Math.round(uiZoom * 100)}%</button>
-                            <button class="zoom-btn" onclick={onZoomIn} aria-label="Zoom in" title="Zoom in (Command-plus)">+</button>
-                        </div>
-                    </div>
-                    <label class="library-bar-option">
-                        <input type="checkbox" checked={showLibraryBar}
-                            onchange={(event) => { showLibraryBar = writeLibraryBarVisible(window.localStorage, event.currentTarget.checked); }} />
-                        Show library bar
-                    </label>
-                {/snippet}
-            </ToolbarMenu>
-        </div>
-    </div>
-
-    {#if showLibraryBar && uniqueLibraries.length > 0}
-        <div class="library-chip-bar">
-            {#each uniqueLibraries as lib (lib.name)}
-                <button
-                    class="library-chip"
-                    class:library-chip-active={lib.active}
-                    class:library-chip-inactive={!lib.active}
-                    onclick={() => toggleLibActive(lib.name)}
-                    title={lib.active ? `Deactivate ${lib.name}` : `Activate ${lib.name}`}
-                >
-                    <span class="chip-icon">{lib.active ? "✓" : "○"}</span>
-                    <span class="chip-label">{lib.name}</span>
-                </button>
-            {/each}
-        </div>
-    {/if}
-
-    <div class="mixer-body" class:resizing={isResizing}>
-    {#if strips.length === 0 && chairs.length === 0}
-        <div class="empty-state">
-            <p>
-                No chairs yet. Use <strong>Manage Chairs</strong> to define the
-                instruments Dorico should address.
-            </p>
-        </div>
-    {:else}
-        <div class="mixer-strips-area">
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="console" onclick={clearSelection}>
-            {#each groupedStrips as group (group.family)}
-                {@const collapsed = collapsedFamilies[group.family]}
-                <div class="folder" class:folder-collapsed={collapsed}>
-                    <!-- Folder tab (always visible, vertical when collapsed) -->
-                    <button
-                        class="folder-tab"
-                        class:folder-tab-collapsed={collapsed}
-                        style="background: {group.colors.header}; color: {group
-                            .colors.text}; border-bottom: 3px solid {group
-                            .colors.accent};"
-                        onclick={() => toggleFamily(group.family)}
-                        title={collapsed
-                            ? `Expand ${group.displayName}`
-                            : `Collapse ${group.displayName}`}
-                    >
-                        <svg
-                            class="tab-chevron"
-                            class:tab-chevron-collapsed={collapsed}
-                            viewBox="0 0 20 20"
-                            width="10"
-                            height="10"
-                            fill="currentColor"
-                        >
-                            <path d="M6 4l8 6-8 6z" />
-                        </svg>
-                        <span class="tab-label">{group.displayName}</span>
-                        <span
-                            class="tab-count"
-                            style="background: {group.colors
-                                .accent}25; color: {group.colors.accent};"
-                            >{group.strips.length}</span
-                        >
-                    </button>
-
-                    {#if !collapsed}
-                        <div class="folder-strips">
-                            {#each group.instrGroups as instrGroup (instrGroup.key)}
+{#snippet chairColumn(instrGroup, group)}
                                 {@const instInput = availableInputs.find(
                                     (i) => i.port === instrGroup.strips[0]?.inputPort
                                         && i.channel === instrGroup.strips[0]?.inputChannel
                                 )}
-                                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                                <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 {@const groupChairBus = instrGroup.strips.length > 0 ? chairBusById.get(instrGroup.chairBusId) : undefined}
                                 {@const showChairStrip = showsChairStrip(instrGroup)}
+                                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                                <!-- svelte-ignore a11y_no_static_element_interactions -->
                                 <div
                                     class="inst-group"
                                     style="--accent: {group.colors.accent};"
@@ -1697,6 +1557,170 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                     </div> <!-- /strips-row -->
                                     </div> <!-- /inst-body -->
                                 </div> <!-- /inst-group -->
+{/snippet}
+
+
+<div
+    class="mixer-container"
+    class:compact-strips={stripSize === "compact"}
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 306 : 236}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
+>
+    {#if layerRefreshResult}
+        <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
+    {/if}
+    <div class="mixer-toolbar">
+        <div class="toolbar-left">
+            <BranchSelector
+                {branches}
+                {currentBranch}
+                onCheckout={(id) => dispatchCpp("checkoutBranch", id)}
+                onCreateBranch={(name) => dispatchCpp("createBranch", name)}
+            />
+            <button class="toolbar-btn" disabled={!undoState.canUndo}
+                title={undoState.undoDescription ? `Undo: ${undoState.undoDescription}` : "Nothing to undo"}
+                onclick={() => dispatchCpp("undo")}>Undo</button>
+            <button class="toolbar-btn" disabled={!undoState.canRedo}
+                title={undoState.redoDescription ? `Redo: ${undoState.redoDescription}` : "Nothing to redo"}
+                onclick={() => dispatchCpp("redo")}>Redo</button>
+            <button class="toolbar-btn save-btn" onclick={doSaveConfig}
+                disabled={saveButton.disabled} title={saveButton.title}>Save</button>
+            {#if selectedIds.size > 1}
+                <span class="selection-badge">{selectedIds.size} selected</span>
+            {/if}
+            {#if anySoloed || anyBusSoloed || anyChairSoloed}
+                <button class="toolbar-btn solo-clear" onclick={clearSolos}>Clear Solos</button>
+            {/if}
+        </div>
+        <div class="toolbar-right">
+            <AudioDiagnostics />
+            <ToolbarMenu label="View">
+                {#snippet children(close)}
+                    <div class="view-group">
+                        <span class="view-group-title">Windows</span>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "print"); }}>Print Audio…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "chairs"); }}>Chairs…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "settings"); }}>Settings…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "library-manager"); }}>Library Manager</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "score-tests"); }}>Score Tests…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "project-history"); }}>Project History</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-performance"); }}>Audio Performance</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "plugins"); }}>Plug-ins…</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "timeline"); }}>Timeline</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "event-log"); }}>Event Log</button>
+                        <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "midi-capture"); }}>MIDI Capture</button>
+                    </div>
+                    <span class="view-group-title">Mixer layout</span>
+                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "inspector"); }}>Layer Inspector</button>
+                    <button class="view-item" onclick={() => { close(); dispatchCpp("showView", "audio-bank"); }}>Audio Buses &amp; Master</button>
+                    <div class="display-controls">
+                        <label class="display-control-label" for="strip-size-select">Strip size</label>
+                        <select id="strip-size-select" class="toolbar-select" value={stripSize}
+                            onchange={(event) => updateStripSize(event.currentTarget.value)}>
+                            {#each Object.entries(STRIP_SIZE_PRESETS) as [value, preset]}
+                                <option {value}>{preset.label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                    <div class="display-controls">
+                        <span class="display-control-label">Zoom</span>
+                        <div class="zoom-control" aria-label="Interface zoom">
+                            <button class="zoom-btn" onclick={onZoomOut} aria-label="Zoom out" title="Zoom out (Command-minus)">−</button>
+                            <button class="zoom-value" onclick={onResetZoom} aria-label="Reset zoom" title="Reset zoom (Command-0)">{Math.round(uiZoom * 100)}%</button>
+                            <button class="zoom-btn" onclick={onZoomIn} aria-label="Zoom in" title="Zoom in (Command-plus)">+</button>
+                        </div>
+                    </div>
+                    <label class="library-bar-option">
+                        <input type="checkbox" checked={showLibraryBar}
+                            onchange={(event) => { showLibraryBar = writeLibraryBarVisible(window.localStorage, event.currentTarget.checked); }} />
+                        Show library bar
+                    </label>
+                {/snippet}
+            </ToolbarMenu>
+        </div>
+    </div>
+
+    {#if showLibraryBar && uniqueLibraries.length > 0}
+        <div class="library-chip-bar">
+            {#each uniqueLibraries as lib (lib.name)}
+                <button
+                    class="library-chip"
+                    class:library-chip-active={lib.active}
+                    class:library-chip-inactive={!lib.active}
+                    onclick={() => toggleLibActive(lib.name)}
+                    title={lib.active ? `Deactivate ${lib.name}` : `Activate ${lib.name}`}
+                >
+                    <span class="chip-icon">{lib.active ? "✓" : "○"}</span>
+                    <span class="chip-label">{lib.name}</span>
+                </button>
+            {/each}
+        </div>
+    {/if}
+
+    <div class="mixer-body" class:resizing={isResizing}>
+    {#if strips.length === 0 && chairs.length === 0}
+        <div class="empty-state">
+            <p>
+                No chairs yet. Use <strong>Manage Chairs</strong> to define the
+                instruments Dorico should address.
+            </p>
+        </div>
+    {:else}
+        <div class="mixer-strips-area">
+        <!-- svelte-ignore a11y_click_events_have_key_events -->
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="console" class:has-kits={consoleHasKits} onclick={clearSelection}>
+            {#each groupedStrips as group (group.family)}
+                {@const collapsed = collapsedFamilies[group.family]}
+                <div class="folder" class:folder-collapsed={collapsed}>
+                    <!-- Folder tab (always visible, vertical when collapsed) -->
+                    <button
+                        class="folder-tab"
+                        class:folder-tab-collapsed={collapsed}
+                        style="background: {group.colors.header}; color: {group
+                            .colors.text}; border-bottom: 3px solid {group
+                            .colors.accent};"
+                        onclick={() => toggleFamily(group.family)}
+                        title={collapsed
+                            ? `Expand ${group.displayName}`
+                            : `Collapse ${group.displayName}`}
+                    >
+                        <svg
+                            class="tab-chevron"
+                            class:tab-chevron-collapsed={collapsed}
+                            viewBox="0 0 20 20"
+                            width="10"
+                            height="10"
+                            fill="currentColor"
+                        >
+                            <path d="M6 4l8 6-8 6z" />
+                        </svg>
+                        <span class="tab-label">{group.displayName}</span>
+                        <span
+                            class="tab-count"
+                            style="background: {group.colors
+                                .accent}25; color: {group.colors.accent};"
+                            >{group.strips.length}</span
+                        >
+                    </button>
+
+                    {#if !collapsed}
+                        <div class="folder-strips">
+                            {#each group.columns as column (column.kitId || column.instrGroup.key)}
+                                {#if column.kitId}
+                                    <div class="kit-block" style="--accent: {group.colors.accent};" role="group" aria-label={`Kit ${column.kitName}`}>
+                                        <div class="kit-header" title={`${column.kitName}: a percussion kit, each instrument on its own chair`}>
+                                            <span class="kit-header-label">{column.kitName}</span>
+                                            <span class="kit-header-count">Kit · {column.instrGroups.length}</span>
+                                        </div>
+                                        <div class="kit-chairs">
+                                            {#each column.instrGroups as instrGroup (instrGroup.key)}
+                                                {@render chairColumn(instrGroup, group)}
+                                            {/each}
+                                        </div>
+                                    </div>
+                                {:else}
+                                    {@render chairColumn(column.instrGroup, group)}
+                                {/if}
                             {/each}
                         </div>
                     {/if}
@@ -2204,6 +2228,41 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     }
 
     /* Instrument group (bridge-header + inst-body) */
+    /* A percussion kit: its chairs under one header. Other chairs drop by the
+       header's height so every fader lines up. */
+    .kit-block {
+        display: flex;
+        flex-direction: column;
+        flex: 0 0 auto;
+        min-height: 0;
+    }
+    .kit-header {
+        contain: inline-size;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 6px;
+        border-left: 2px solid var(--accent, #334155);
+        margin-left: -1px;
+        border-bottom: 1px solid var(--accent, #334155);
+        background: rgba(255,255,255,0.05);
+        overflow: hidden;
+        white-space: nowrap;
+        font-size: 0.68rem;
+        flex-shrink: 0;
+    }
+    .kit-header-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 700; color: #e2e8f0; }
+    .kit-header-count { flex-shrink: 0; color: #94a3b8; }
+    .kit-chairs {
+        display: flex;
+        flex-direction: row;
+        flex: 1;
+        min-height: 0;
+        align-items: stretch;
+        gap: 3px;
+    }
+    .console.has-kits .folder-strips > .inst-group { margin-top: 19px; }
     .inst-group {
         display: flex;
         flex-direction: column;

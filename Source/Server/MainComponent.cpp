@@ -5028,6 +5028,10 @@ void MainComponent::setupJsHandlers() {
     chair.role = data->getProperty("role").toString() == "section"
                      ? DoricoRole::section
                      : DoricoRole::solo;
+    // Adding an instrument to an existing kit (docs/percussion-kits.md).
+    chair.kitId = data->getProperty("kitId").toString().toStdString();
+    chair.kitName = data->getProperty("kitName").toString().trim().toStdString();
+    if (!chair.kitId.empty()) chair.role = DoricoRole::solo;
 
     safeCallAsync([this, chair = std::move(chair)]() mutable {
       auto *repository = db_.getLibraryRoutingRepository();
@@ -5057,7 +5061,7 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this, chairId, name, updateRole, requestedRole]() {
       auto *repository = db_.getLibraryRoutingRepository();
       if (!repository) { chairEditChanged(false); return; }
-      EditChairsAction::Edit edit{chairId, std::nullopt, std::nullopt};
+      EditChairsAction::Edit edit{chairId, std::nullopt, std::nullopt, std::nullopt};
       if (!name.empty()) edit.name = name;
       if (updateRole) edit.role = requestedRole;
       undoManager_.perform(std::make_unique<EditChairsAction>(
@@ -5095,7 +5099,7 @@ void MainComponent::setupJsHandlers() {
       if (!repository) { chairEditChanged(false); return; }
       std::vector<EditChairsAction::Edit> edits;
       for (const auto &chairId : chairIds) {
-        edits.push_back({chairId, std::nullopt, requestedRole});
+        edits.push_back({chairId, std::nullopt, requestedRole, std::nullopt});
       }
       undoManager_.perform(std::make_unique<EditChairsAction>(
           *repository, mixer_, edits,
@@ -5115,6 +5119,89 @@ void MainComponent::setupJsHandlers() {
       if (!repository) { chairEditChanged(false); return; }
       undoManager_.perform(std::make_unique<RemoveChairAction>(
           *repository, mixer_, chairId,
+          [this](bool success) { chairEditChanged(success); }));
+    });
+    return;
+  });
+  // A percussion kit: one solo chair per instrument, sharing a kit ID
+  // (docs/percussion-kits.md). Payload: {name, family, instruments:
+  // [{entityID, name}]}; every chair takes the kit's family so the kit stays
+  // together.
+  jsRouter_.registerHandler("createKit", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+    const auto kitName = data->getProperty("name").toString().trim().toStdString();
+    const auto family = data->getProperty("family").toString().toStdString();
+    const auto *instruments = data->getProperty("instruments").getArray();
+    if (kitName.empty() || !instruments || instruments->isEmpty())
+      return;
+    const auto kitId = juce::Uuid().toString().toStdString();
+    std::vector<ChairRow> chairs;
+    for (const auto &item : *instruments) {
+      ChairRow chair;
+      chair.id = juce::Uuid().toString().toStdString();
+      chair.instrumentEntityId = item["entityID"].toString().toStdString();
+      chair.name = item["name"].toString().trim().toStdString();
+      chair.family = family;
+      chair.role = DoricoRole::solo;
+      chair.kitId = kitId;
+      chair.kitName = kitName;
+      if (chair.instrumentEntityId.empty() || chair.name.empty())
+        return;
+      chairs.push_back(std::move(chair));
+    }
+    safeCallAsync([this, chairs = std::move(chairs)]() mutable {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository) { chairEditChanged(false); return; }
+      undoManager_.perform(std::make_unique<AddKitAction>(
+          *repository, mixer_, std::move(chairs),
+          [this](bool success) { chairEditChanged(success); }));
+    });
+    return;
+  });
+  jsRouter_.registerHandler("deleteKit", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    if (args.isEmpty())
+      return;
+    const auto kitId = args[0].toString().toStdString();
+    if (kitId.empty())
+      return;
+    safeCallAsync([this, kitId]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository) { chairEditChanged(false); return; }
+      undoManager_.perform(std::make_unique<RemoveKitAction>(
+          *repository, mixer_, kitId,
+          [this](bool success) { chairEditChanged(success); }));
+    });
+    return;
+  });
+  jsRouter_.registerHandler("renameKit", [this](const juce::var &payload) {
+    juce::Array<juce::var> args;
+    if (payload.isArray())
+      args = *payload.getArray();
+    auto *data = args.isEmpty() ? nullptr : args[0].getDynamicObject();
+    if (!data)
+      return;
+    const auto kitId = data->getProperty("kitId").toString().toStdString();
+    const auto name = data->getProperty("name").toString().trim().toStdString();
+    if (kitId.empty() || name.empty())
+      return;
+    safeCallAsync([this, kitId, name]() {
+      auto *repository = db_.getLibraryRoutingRepository();
+      if (!repository) { chairEditChanged(false); return; }
+      std::vector<EditChairsAction::Edit> edits;
+      for (const auto &chair : repository->listChairs())
+        if (chair.kitId == kitId)
+          edits.push_back({chair.id, std::nullopt, std::nullopt, name});
+      if (edits.empty()) return;
+      undoManager_.perform(std::make_unique<EditChairsAction>(
+          *repository, mixer_, edits,
           [this](bool success) { chairEditChanged(success); }));
     });
     return;
@@ -5925,6 +6012,8 @@ void MainComponent::pushChairState() {
       obj->setProperty("scoreOrder",
                        order != scoreOrder.end() ? order->second : 99999);
       obj->setProperty("flatIndex", chair.flatIndex);
+      obj->setProperty("kitId", juce::String(chair.kitId));
+      obj->setProperty("kitName", juce::String(chair.kitName));
       obj->setProperty("port", chair.flatIndex / 16);
       obj->setProperty("channel", chair.flatIndex % 16);
       obj->setProperty(

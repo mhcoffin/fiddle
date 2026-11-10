@@ -271,6 +271,27 @@ void testMasterAudioRoundTripsThroughSqlite() {
                   .sourcePatchRevision == 7);
     CHECK(restoredVersionTwo &&
           restoredVersionTwo->routingState.layers.front().pluginStateEdited);
+
+    // Schema 3 carries percussion kits; a kit-free chair hashes as before.
+    const auto chairHashWithoutKit = state.routingState.chairs.front().serializeForHash();
+    state.routingState.schemaVersion = 3;
+    state.routingState.chairs.front().kitId = "kit-1";
+    state.routingState.chairs.front().kitName = "Wood Blocks";
+    CHECK(state.routingState.chairs.front().serializeForHash() != chairHashWithoutKit);
+    const auto versionThreeHash = state.computeHash();
+    storage.putFiddleState(versionThreeHash, state);
+    const auto restoredVersionThree = storage.getFiddleState(versionThreeHash);
+    CHECK(restoredVersionThree &&
+          restoredVersionThree->routingState.schemaVersion == 3);
+    CHECK(restoredVersionThree &&
+          restoredVersionThree->routingState.chairs.front().kitId == "kit-1");
+    CHECK(restoredVersionThree &&
+          restoredVersionThree->routingState.chairs.front().kitName == "Wood Blocks");
+    CHECK(restoredVersionThree &&
+          restoredVersionThree->routingState.layers.front().pluginStateEdited);
+    fiddle::versioning::ChairSnapshot plain;
+    plain.id = "plain";
+    CHECK(plain.serializeForHash().find("kit") == std::string::npos);
   }
 
   CHECK(sqlite3_close(database) == SQLITE_OK);

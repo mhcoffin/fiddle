@@ -3,6 +3,7 @@
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import { populateScoreOrder } from "./orchestralOrder.js";
     import { groupChairs, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
+    import { isKitInstrument, kitChairNames, kitPayload, suggestedKitName } from "./kitModel.js";
     import { bridgeForChair, isPlaying, mapName, statusTitle, verificationText, withheldText } from "./bridgeStatus.js";
     import { chairTemplateNote, parseTemplateStatus, templateBanner } from "./templateStatus.js";
     import BridgeMaps from "./BridgeMaps.svelte";
@@ -16,6 +17,15 @@
     let role = $state("section");
     let chairName = $state("");
     let pendingDeleteId = $state("");
+    // Percussion kits (docs/percussion-kits.md). kitDraft is a kit being
+    // composed in the Add dialog; kitTarget an existing kit gaining an
+    // instrument.
+    let kitDraft = $state(null);
+    let kitTarget = $state(null);
+    let kitQuery = $state("");
+    let kitResults = $derived(searchDoricoInstruments(instruments, kitQuery)
+        .filter((instrument) => !isKitInstrument(instrument)));
+    let kitDraftNames = $derived(kitDraft ? kitChairNames(kitDraft.entityIds, instruments) : []);
     let templateStatus = $state(parseTemplateStatus(true));
     let templateDirty = $derived(templateStatus.dirty);
     let banner = $derived(templateBanner(templateStatus));
@@ -60,10 +70,60 @@
         selectedInstrument = null;
         role = "section";
         chairName = "";
+        kitDraft = null;
+        kitTarget = null;
         adding = true;
     };
 
+    const instrumentName = (entityID) =>
+        instruments.find((item) => item.entityID === entityID)?.name || entityID;
+
+    const startKit = (instrument) => {
+        kitQuery = "";
+        kitDraft = {
+            name: suggestedKitName(instrument?.name || "Kit", chairs),
+            entityIds: instrument ? [...instrument.kitInstruments] : [],
+            preset: instrument?.name || "",
+        };
+    };
+
+    const createKit = () => {
+        if (!kitDraft || !kitDraft.name.trim() || kitDraft.entityIds.length === 0) return;
+        dispatchCpp("createKit", kitPayload(kitDraft.name, kitDraft.entityIds, instruments));
+        kitDraft = null;
+        adding = false;
+    };
+
+    const openAddToKit = (unit) => {
+        openAdd();
+        kitTarget = { kitId: unit.kitId, kitName: unit.kitName, family: unit.chairs[0]?.family || "",
+            entityIds: unit.chairs.map((chair) => chair.entityID) };
+    };
+
+    const addToKit = (instrument) => {
+        if (!kitTarget) return;
+        const names = kitChairNames([...kitTarget.entityIds, instrument.entityID], instruments);
+        dispatchCpp("createChair", {
+            entityID: instrument.entityID,
+            family: kitTarget.family || instrument.family,
+            role: "solo",
+            name: names[names.length - 1],
+            kitId: kitTarget.kitId,
+            kitName: kitTarget.kitName,
+        });
+        kitTarget = null;
+        adding = false;
+    };
+
+    const renameKit = (unit, input) => {
+        const name = input.value.trim();
+        if (name && name !== unit.kitName) dispatchCpp("renameKit", { kitId: unit.kitId, name });
+        else if (!name) input.value = unit.kitName;
+    };
+
     const selectInstrument = (instrument) => {
+        if (kitTarget) { addToKit(instrument); return; }
+        if (isKitInstrument(instrument)) { startKit(instrument); return; }
         selectedInstrument = instrument;
         role = suggestedChairRole(instrument);
         chairName = suggestedChairName(instrument, role, chairs);
@@ -107,6 +167,67 @@
     };
 
 </script>
+
+{#snippet chairRow(chair, inKit)}
+<article class="chair-row" class:in-kit={inKit}>
+    <input
+        class="chair-name"
+        value={chair.name}
+        aria-label={`Name for ${chair.name}`}
+        onblur={(event) => renameChair(chair, event.currentTarget)}
+        onkeydown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+            if (event.key === "Escape") {
+                event.currentTarget.value = chair.name;
+                event.currentTarget.blur();
+            }
+        }}
+    />
+    <div class="identity">
+        <strong>{instruments.find((item) => item.entityID === chair.entityID)?.name || chair.entityID}</strong>
+        <div class="role-row">
+            {#if inKit}
+                <span>Solo player · in kit</span>
+            {:else}
+            <select
+                class="chair-role"
+                aria-label={`Player type for ${chair.name}`}
+                value={chair.role}
+                onchange={(event) => updateChairRole(chair, event.currentTarget.value)}
+            >
+                <option value="solo">Solo player</option>
+                <option value="section">Section player</option>
+            </select>
+            {/if}
+            <span>instance {chair.ordinal}</span>
+        </div>
+    </div>
+    <div class="midi">
+        <span>MIDI destination</span>
+        <strong>Port {chair.port + 1} · Channel {chair.channel + 1}</strong>
+        {#if chairTemplateNote(templateStatus, chair.id)}
+            <span class="bridge warn" title="Dorico's playback template doesn't match this chair. With Dorico closed, choose Install Playback Template, then reapply the Fiddle template in open projects.">{chairTemplateNote(templateStatus, chair.id)}</span>
+        {:else if bridgeForChair(bridgeState, chair)}
+            {@const bridge = bridgeForChair(bridgeState, chair)}
+            <span class="bridge" class:warn={!isPlaying(bridge)} title={statusTitle(bridge)}>{`${mapName(bridge)} · ${verificationText(bridge)}${withheldText(bridge)}`}</span>
+        {/if}
+    </div>
+    <button
+        class:confirm={pendingDeleteId === chair.id}
+        class="delete"
+        onclick={() => {
+            if (pendingDeleteId === chair.id) {
+                dispatchCpp("deleteChair", chair.id);
+                pendingDeleteId = "";
+            } else pendingDeleteId = chair.id;
+        }}
+    >{pendingDeleteId === chair.id
+        ? (chair.layerCount > 0
+            ? `Delete chair + ${chair.layerCount} ${chair.layerCount === 1 ? "layer" : "layers"}`
+            : "Confirm delete")
+        : "Delete"}</button>
+</article>
+{/snippet}
 
 <dialog class="panel" aria-label="Chair Manager" open>
         <header>
@@ -168,61 +289,43 @@
                                 <span>{group.chairs.length}</span>
                             </div>
                             <div class="chair-list">
-                                {#each group.chairs as chair (chair.id)}
-                                    <article class="chair-row">
-                                        <input
-                                            class="chair-name"
-                                            value={chair.name}
-                                            aria-label={`Name for ${chair.name}`}
-                                            onblur={(event) => renameChair(chair, event.currentTarget)}
-                                            onkeydown={(event) => {
-                                                if (event.key === "Enter") event.currentTarget.blur();
-                                                if (event.key === "Escape") {
-                                                    event.currentTarget.value = chair.name;
-                                                    event.currentTarget.blur();
-                                                }
-                                            }}
-                                        />
-                                        <div class="identity">
-                                            <strong>{instruments.find((item) => item.entityID === chair.entityID)?.name || chair.entityID}</strong>
-                                            <div class="role-row">
-                                                <select
-                                                    class="chair-role"
-                                                    aria-label={`Player type for ${chair.name}`}
-                                                    value={chair.role}
-                                                    onchange={(event) => updateChairRole(chair, event.currentTarget.value)}
-                                                >
-                                                    <option value="solo">Solo player</option>
-                                                    <option value="section">Section player</option>
-                                                </select>
-                                                <span>instance {chair.ordinal}</span>
+                                {#each group.units as unit (unit.kitId || unit.chair.id)}
+                                    {#if unit.kitId}
+                                        <section class="kit" aria-label={`Kit ${unit.kitName}`}>
+                                            <div class="kit-heading">
+                                                <input
+                                                    class="kit-name"
+                                                    value={unit.kitName}
+                                                    aria-label={`Name for kit ${unit.kitName}`}
+                                                    onblur={(event) => renameKit(unit, event.currentTarget)}
+                                                    onkeydown={(event) => {
+                                                        if (event.key === "Enter") event.currentTarget.blur();
+                                                        if (event.key === "Escape") {
+                                                            event.currentTarget.value = unit.kitName;
+                                                            event.currentTarget.blur();
+                                                        }
+                                                    }}
+                                                />
+                                                <span class="kit-summary">Kit · {unit.chairs.length} {unit.chairs.length === 1 ? "instrument" : "instruments"}, each on its own channel</span>
+                                                <button onclick={() => openAddToKit(unit)}>Add Instrument</button>
+                                                <button
+                                                    class:confirm={pendingDeleteId === unit.kitId}
+                                                    class="delete"
+                                                    onclick={() => {
+                                                        if (pendingDeleteId === unit.kitId) {
+                                                            dispatchCpp("deleteKit", unit.kitId);
+                                                            pendingDeleteId = "";
+                                                        } else pendingDeleteId = unit.kitId;
+                                                    }}
+                                                >{pendingDeleteId === unit.kitId ? `Delete ${unit.chairs.length} ${unit.chairs.length === 1 ? "chair" : "chairs"}` : "Delete Kit"}</button>
                                             </div>
-                                        </div>
-                                        <div class="midi">
-                                            <span>MIDI destination</span>
-                                            <strong>Port {chair.port + 1} · Channel {chair.channel + 1}</strong>
-                                            {#if chairTemplateNote(templateStatus, chair.id)}
-                                                <span class="bridge warn" title="Dorico's playback template doesn't match this chair. With Dorico closed, choose Install Playback Template, then reapply the Fiddle template in open projects.">{chairTemplateNote(templateStatus, chair.id)}</span>
-                                            {:else if bridgeForChair(bridgeState, chair)}
-                                                {@const bridge = bridgeForChair(bridgeState, chair)}
-                                                <span class="bridge" class:warn={!isPlaying(bridge)} title={statusTitle(bridge)}>{`${mapName(bridge)} · ${verificationText(bridge)}${withheldText(bridge)}`}</span>
-                                            {/if}
-                                        </div>
-                                        <button
-                                            class:confirm={pendingDeleteId === chair.id}
-                                            class="delete"
-                                            onclick={() => {
-                                                if (pendingDeleteId === chair.id) {
-                                                    dispatchCpp("deleteChair", chair.id);
-                                                    pendingDeleteId = "";
-                                                } else pendingDeleteId = chair.id;
-                                            }}
-                                        >{pendingDeleteId === chair.id
-                                            ? (chair.layerCount > 0
-                                                ? `Delete chair + ${chair.layerCount} ${chair.layerCount === 1 ? "layer" : "layers"}`
-                                                : "Confirm delete")
-                                            : "Delete"}</button>
-                                    </article>
+                                            {#each unit.chairs as chair (chair.id)}
+                                                {@render chairRow(chair, true)}
+                                            {/each}
+                                        </section>
+                                    {:else}
+                                        {@render chairRow(unit.chair, false)}
+                                    {/if}
                                 {/each}
                             </div>
                         </section>
@@ -235,11 +338,55 @@
             <div class="add-backdrop">
                 <section class="add-dialog" aria-label="Add Chair">
                     <div class="add-heading">
-                        <div><h3>Add Chair</h3><p>Choose the Dorico instrument and player type.</p></div>
-                        <button onclick={() => { adding = false; }}>Cancel</button>
+                        {#if kitTarget}
+                            <div><h3>Add to {kitTarget.kitName}</h3><p>Choose an instrument. It gets a solo chair of its own in the kit.</p></div>
+                        {:else if kitDraft}
+                            <div><h3>Add Kit</h3><p>One solo chair per instrument, each on its own channel. List the same instruments as the kit in Dorico.</p></div>
+                        {:else}
+                            <div><h3>Add Chair</h3><p>Choose the Dorico instrument and player type, or a percussion kit.</p></div>
+                        {/if}
+                        <button onclick={() => { adding = false; kitDraft = null; kitTarget = null; }}>Cancel</button>
                     </div>
 
-                    {#if !selectedInstrument}
+                    {#if kitDraft}
+                        <label for="kit-name">Kit name</label>
+                        <input id="kit-name" class="search" bind:value={kitDraft.name} />
+                        <div class="kit-draft" aria-label="Kit instruments">
+                            {#if kitDraft.entityIds.length === 0}
+                                <div class="search-hint">Add the kit's instruments below.</div>
+                            {/if}
+                            {#each kitDraft.entityIds as entityID, index (`${entityID}:${index}`)}
+                                <div class="kit-draft-row">
+                                    <strong>{kitDraftNames[index]}</strong>
+                                    <span>{entityID}</span>
+                                    <button
+                                        aria-label={`Remove ${kitDraftNames[index]}`}
+                                        onclick={() => { kitDraft.entityIds = kitDraft.entityIds.filter((_, i) => i !== index); }}
+                                    >Remove</button>
+                                </div>
+                            {/each}
+                        </div>
+                        <label for="kit-search">Add an instrument</label>
+                        <input id="kit-search" class="search" type="search" bind:value={kitQuery}
+                            placeholder="Type an instrument name, such as snare or tom" />
+                        {#if kitQuery.trim()}
+                            <div class="search-results kit-search-results">
+                                {#each kitResults as instrument (instrument.entityID)}
+                                    <button class="instrument-choice" onclick={() => { kitDraft.entityIds = [...kitDraft.entityIds, instrument.entityID]; kitQuery = ""; }}>
+                                        <strong>{instrument.name}</strong>
+                                        <span>{instrument.family} · {instrument.entityID}</span>
+                                    </button>
+                                {:else}
+                                    <div class="search-hint">No matching Dorico instruments.</div>
+                                {/each}
+                            </div>
+                        {/if}
+                        <div class="add-footer">
+                            <button class="primary" onclick={createKit}
+                                disabled={!kitDraft.name.trim() || kitDraft.entityIds.length === 0}
+                            >Create Kit · {kitDraft.entityIds.length} {kitDraft.entityIds.length === 1 ? "chair" : "chairs"}</button>
+                        </div>
+                    {:else if !selectedInstrument}
                         <label for="chair-search">Dorico instrument</label>
                         <input
                             id="chair-search"
@@ -250,14 +397,21 @@
                         />
                         <div class="search-results">
                             {#if !query.trim()}
-                                <div class="search-hint">Start typing to search Dorico’s instrument catalog.</div>
+                                <div class="search-hint">
+                                    Start typing to search Dorico’s instrument catalog.
+                                    {#if !kitTarget}
+                                        <button class="custom-kit" onclick={() => startKit(null)}>Make a custom kit</button>
+                                    {/if}
+                                </div>
                             {:else if results.length === 0}
                                 <div class="search-hint">No matching Dorico instruments.</div>
                             {:else}
-                                {#each results as instrument (instrument.entityID)}
+                                {#each results.filter((instrument) => !kitTarget || !isKitInstrument(instrument)) as instrument (instrument.entityID)}
                                     <button class="instrument-choice" onclick={() => selectInstrument(instrument)}>
-                                        <strong>{instrument.name}</strong>
-                                        <span>{instrument.family} · {instrument.entityID}</span>
+                                        <strong>{instrument.name}{#if isKitInstrument(instrument)}<em class="kit-badge">Kit · {instrument.kitInstruments.length} instruments</em>{/if}</strong>
+                                        <span>{isKitInstrument(instrument)
+                                            ? instrument.kitInstruments.map(instrumentName).join(", ")
+                                            : `${instrument.family} · ${instrument.entityID}`}</span>
                                     </button>
                                 {/each}
                             {/if}
@@ -340,5 +494,21 @@
     fieldset { display:flex; gap:24px; margin:18px 0 2px; padding:14px 16px; border:1px solid #334155; border-radius:7px; }
     legend { padding:0 5px; color:#cbd5e1; font-size:.82rem; font-weight:650; } fieldset label { display:flex; align-items:center; gap:7px; }
     .add-footer { justify-content:flex-end; margin-top:20px; }
+    .kit { border-bottom:1px solid #1e2d40; background:#0d1626; }
+    .kit:last-child { border-bottom:0; }
+    .kit-heading { display:flex; align-items:center; gap:12px; padding:10px 14px; border-bottom:1px solid #1e2d40; background:#101d31; }
+    .kit-name { width:240px; height:36px; padding:7px 10px; border:1px solid #3b4b61; border-radius:6px; background:#0b1422; color:#f8fafc; font-weight:700; }
+    .kit-name:focus { outline:2px solid rgba(56,189,248,.45); border-color:#38bdf8; }
+    .kit-summary { flex:1; color:#94a3b8; font-size:.8rem; }
+    .chair-row.in-kit { padding-left:34px; border-bottom-color:#18263a; }
+    .kit .chair-row.in-kit:last-child { border-bottom:0; }
+    .kit-badge { margin-left:8px; padding:1px 7px; border-radius:10px; background:rgba(56,189,248,.15); color:#7dd3fc; font-size:.72rem; font-style:normal; font-weight:600; }
+    .custom-kit { display:block; margin:14px auto 0; }
+    .kit-draft { display:flex; flex-direction:column; max-height:260px; margin-top:12px; overflow-y:auto; border:1px solid #26364d; border-radius:7px; background:#09121f; }
+    .kit-draft-row { display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1.2fr) auto; align-items:center; gap:10px; padding:6px 10px; border-bottom:1px solid #1e293b; }
+    .kit-draft-row:last-child { border-bottom:0; }
+    .kit-draft-row span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#94a3b8; font-size:.74rem; }
+    .kit-draft-row button { min-height:30px; padding:4px 10px; font-size:.78rem; }
+    .kit-search-results { height:auto; max-height:200px; }
     @media (max-width:800px) { .panel { width:100%; } header { align-items:flex-start; } .header-actions { flex-direction:column; align-items:stretch; } .chair-row { align-items:stretch; flex-direction:column; } .chair-name,.midi { width:100%; } }
 </style>

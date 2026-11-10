@@ -122,7 +122,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   if (!BridgeMapProject::parse(juce::String(state.globalState.projectSettings.bridgeMapsJson), bridgeProject, bridgeError))
     return {false, false, "Invalid saved bridge project: " + bridgeError.toStdString()};
   const bool topology = state.routingState.schemaVersion >= 1;
-  if (state.routingState.schemaVersion > 2 || (topology && !repository_))
+  if (state.routingState.schemaVersion > 3 || (topology && !repository_))
     return {false, false, "Unsupported or unavailable routing schema"};
 
   // Resolve every blob before touching either the live mixer or session DB.
@@ -176,7 +176,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
   for (const auto &saved : state.routingState.chairs) {
     chairs.push_back({saved.id, saved.instrumentEntityId, saved.name, saved.family,
                       saved.isSolo ? DoricoRole::solo : DoricoRole::section,
-                      saved.ordinal, saved.displayOrder, saved.flatIndex});
+                      saved.ordinal, saved.displayOrder, saved.flatIndex,
+                      saved.kitId, saved.kitName});
   }
   for (const auto &saved : state.routingState.layers) {
     const auto &blob = blobs.at(saved.stripHash);

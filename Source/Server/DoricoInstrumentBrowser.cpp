@@ -1,4 +1,5 @@
 #include "DoricoInstrumentBrowser.h"
+#include "DoricoKitDefinitions.h"
 #include <iostream>
 #include <set>
 
@@ -115,6 +116,8 @@ bool DoricoInstrumentBrowser::parseInstrumentsXml(const juce::File &file) {
     if (parentElem && parentElem->getAllSubText().trim().isNotEmpty())
       instr.isDefault = false;
 
+    instr.kitDefinitionID = kitDefinitionIdOf(*instrElem);
+
     // Skip entries without essential fields
     if (instr.name.isEmpty() || instr.entityID.isEmpty())
       continue;
@@ -143,6 +146,8 @@ bool DoricoInstrumentBrowser::loadFromDorico() {
               << std::endl;
   }
 
+  parseKitDefinitions(instrXml.getParentDirectory().getChildFile("kitDefinitions.xml"));
+
   if (ok)
     buildJsonCache();
   return ok;
@@ -165,6 +170,11 @@ void DoricoInstrumentBrowser::buildJsonCache() {
     obj->setProperty("family", instr.family);
     obj->setProperty("xmlIndex", idx++);
     obj->setProperty("isDefault", instr.isDefault);
+    if (!instr.kitInstruments.empty()) {
+      juce::Array<juce::var> kitInstruments;
+      for (const auto &id : instr.kitInstruments) kitInstruments.add(id);
+      obj->setProperty("kitInstruments", kitInstruments);
+    }
 
     // Include score order position if available
     auto it = scoreOrder_.find(instr.entityID);
@@ -187,6 +197,21 @@ std::vector<juce::String> DoricoInstrumentBrowser::getFamilies() const {
       familySet.insert(instr.family);
   }
   return {familySet.begin(), familySet.end()};
+}
+
+bool DoricoInstrumentBrowser::parseKitDefinitions(const juce::File &file) {
+  for (auto &instr : instruments_) instr.kitInstruments.clear();
+  if (!file.existsAsFile()) {
+    std::cerr << "[InstrumentBrowser] kitDefinitions.xml not found" << std::endl;
+    return false;
+  }
+  auto xml = juce::XmlDocument::parse(file);
+  if (!xml) return false;
+  const auto kits = fiddle::parseKitDefinitions(*xml);
+  for (auto &instr : instruments_)
+    if (const auto kit = kits.find(instr.kitDefinitionID); kit != kits.end())
+      instr.kitInstruments = kit->second;
+  return !kits.empty();
 }
 
 bool DoricoInstrumentBrowser::parseScoreOrders(const juce::File &file) {

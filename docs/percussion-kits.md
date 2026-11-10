@@ -1,7 +1,7 @@
 # Percussion kits
 
-Status: draft design, revised 2026-11-10 after template experiments. Not
-implemented.
+Status: phase 1 (kit definitions and grouping) implemented 2026-11-10; kit
+layers, coverage and sticking are still to do.
 
 ## Summary
 
@@ -104,6 +104,12 @@ group:
   duplicate instruments.
 - **Bridge.** Each chair gets the unpitched bridge by its instrument, as
   today. No kit-specific map.
+- **Variants.** The template generator also maps instruments that share a
+  chair's MusicXML sound ID, and all five wood blocks share
+  `wood.wood-block`. So an instrument with a chair of its own is never
+  another chair's variant, each variant is mapped once per `index`, and kit
+  IDs and empty sound IDs are never grouped
+  ([template boundary](library-chair-layer-architecture.md#template-boundary)).
 
 Users can do all of this by hand today, by adding a chair per instrument. Kits
 add the convenience and the grouping.
@@ -245,9 +251,21 @@ What it means for Fiddle:
 
 ## Phases
 
-1. **Kit definitions and grouping.** Presets from `kitDefinitions.xml`, custom
-   kits, kit rows in Chair Manager, kit headers in the mixer. Template and
-   `index` tests in `DoricoConfigGeneratorTest`.
+1. **Kit definitions and grouping.** Done (2026-11-10):
+   - Chairs carry a kit ID and name (`ChairRow`, routing schema 3);
+     `AddKitAction` and `RemoveKitAction` add and delete a kit in one undoable
+     step, and a kit rename is a chair edit.
+   - Dorico's kits come from `kitDefinitions.xml` (`DoricoKitDefinitions.h`);
+     each kit instrument in the Add Chair search carries its instruments.
+   - Chair Manager: a kit from the search is a preset you can edit before
+     creating it, or you make a custom kit; kit rows have a name, Add
+     Instrument and Delete Kit; a kit's chairs are always solo players.
+     Repeated Dorico names are told apart by their IDs: "Wood Block (High)".
+   - Mixer: a kit's chairs stay together under a kit header; other chairs drop
+     by the header's height so faders line up.
+   - Template: the variant rule above. Tests in `DoricoConfigGeneratorTest`,
+     `MixerIntegrationTest`, `SqliteVersionStorageTest`, `kitModel.test.js` and
+     `chairLayout.mjs`.
 2. **Kit layers.**
 3. **Coverage and sticking.** The missing kit instruments and
    sticking, in the next unpitched bridge revision.
