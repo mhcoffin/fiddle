@@ -1,6 +1,6 @@
 # Percussion kits
 
-Status: draft design, revised 2026-11-10 after a template experiment. Not
+Status: draft design, revised 2026-11-10 after template experiments. Not
 implemented.
 
 ## Summary
@@ -51,6 +51,10 @@ All in Dorico 6, 2026-11-08 to 2026-11-10.
   the kit's high block, and the standalone block, as the second high block in
   the project, matched nothing, just as a second standalone high block would. So `index`
   counts every instrument of a type in the project, inside a kit or not.
+- **`index` follows player order.** With the standalone block's player moved
+  above the kit's, the standalone block and the kit's other four blocks
+  played on the template's channels, and the kit's high block went to the new
+  instance. Whichever instrument comes first in player order is `index` 0.
 - **Dorico defines its kits' instruments.** `kitDefinitions.xml` in Dorico's
   resources lists each kit's instruments by ID, for example
   `kit-definition.kit.wood.blocks` → high, medium-high, medium, medium-low and
@@ -85,8 +89,9 @@ group:
 - **`index`.** Fiddle already numbers chairs of the same instrument and player
   type (`DoricoConfigGenerator::playerIndices`). Kit chairs join that count, so
   a wood-blocks kit plus a standalone high block is two high-block chairs,
-  `index` 0 and 1, in the order Dorico orders them in the project, as for
-  Flute 1 and Flute 2.
+  `index` 0 and 1 in player order, as for Flute 1 and Flute 2. Chair order in
+  Fiddle has to match the players' order in Dorico, as it already does for
+  duplicate instruments.
 - **Bridge.** Each chair gets the unpitched bridge by its instrument, as
   today. No kit-specific map.
 
@@ -140,7 +145,6 @@ revision. That helps single instruments as much as kits.
 
 | | Question | How to find out |
 | --- | --- | --- |
-| Q1 | When a kit and a standalone instrument of the same type coexist, which gets `index` 0: the first in player order, or always the kit's? | Reorder the players in the BlockTest project and reapply. |
 | Q2 | Does a kit played through Fiddle chairs arrive as expected, every technique on the right chair? | Phase 1's score test. |
 | Q3 | Does Dorico send `pt.left`/`pt.right` from sticking? | A sticking passage through the unpitched probe. |
 | Q4 | Can Fiddle read custom kits from a project, or must the user list the instruments? | Look at a project with a custom kit. |
@@ -228,7 +232,7 @@ What it means for Fiddle:
 
 1. **Prove it by hand.** Five wood-block chairs in Fiddle, the template
    installed, a wood-blocks kit in a project: each block on its own chair,
-   every technique in the Note Inspector (Q2). Then Q1.
+   every technique in the Note Inspector (Q2).
 2. **Kit definitions and grouping.** Presets from `kitDefinitions.xml`, custom
    kits, kit rows in Chair Manager, kit headers in the mixer. Template and
    `index` tests in `DoricoConfigGeneratorTest`.
