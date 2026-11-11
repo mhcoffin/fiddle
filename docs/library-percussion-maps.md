@@ -22,7 +22,7 @@ comma-separated, a format no Dorico file has shown.
 
 Every unpitched note reaches a layer as pitch 36 plus its decoded playing
 techniques (`pt.rim`, `pt.open2`, `pt.snareOff`, `pt.tremolo`, …). That comes
-from the bridge's own maps ("Orchestral unpitched percussion r2"). A sample
+from the bridge's own maps ("Orchestral unpitched percussion r3"). A sample
 library wants a different pitch per stroke, and sometimes a keyswitch. In
 Dorico that is the job of a **percussion map** (`DrumKitNoteMapDefinition`),
 which sits beside the library's expression map. Fiddle has no percussion

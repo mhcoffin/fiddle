@@ -174,7 +174,7 @@ marks them. The probe carried all three on the same conduits r2 uses (CC108,
 CC105, KS4).
 
 An unpitched part's expected pitch is the unpitched bridge's percussion-map
-pitch (`experiments/unpitched-percussion-bridge/unpitched-percussion-r2/allocation.json`),
+pitch (`experiments/unpitched-percussion-bridge/unpitched-percussion-r3/allocation.json`),
 36 for every note: Dorico plays the pitch of the entry it picks, and the map
 puts Natural and every roll kind on one pitch. The techniques arrive through
 the expression map as for any instrument; hits carry their dynamic as

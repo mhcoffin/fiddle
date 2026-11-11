@@ -157,8 +157,9 @@ each hypothesis, so every verdict is exercised before a capture exists.
 | File | Purpose |
 | --- | --- |
 | `profiles.py` | the r2 profile (`UNPITCHED_R2`), the probe profile, the entry table, instruments |
-| `generate_unpitched.py` | writes `probe/` and `unpitched-percussion-r2/` (`--check` verifies) |
+| `generate_unpitched.py` | writes `probe/`, `unpitched-percussion-r2/` and `unpitched-percussion-r3/` (`--check` verifies) |
 | `test_unpitched.py` | profile contracts |
 | `make_probe_score.py` → `unpitched-probe.musicxml` | the probe score |
 | `check_probe.py`, `test_check_probe.py` | verdicts from a MIDI Probe capture |
-| `unpitched-percussion-r2/` | the r2 library (r1, pitch codes, was superseded the day the probe ran), `allocation.json/md`, `inventory.md` |
+| `unpitched-percussion-r2/` | the r2 library (r1, pitch codes, was superseded the day the probe ran), `allocation.json/md`, `inventory.md`; frozen |
+| `unpitched-percussion-r3/` | the built-in r3 library (2026-11-11): r2 plus the 49 instruments of Dorico's kits that r2 lacked and a sticking add-on (`pt.left`/`pt.right`, KS6); see `docs/percussion-kits.md` |

@@ -204,4 +204,56 @@ PROBE = SimpleNamespace(
     ],
 )
 
-REVISIONS = [UNPITCHED_R2]
+# r2 is frozen. r3 (docs/percussion-kits.md) adds the instruments of Dorico's
+# kits that r2 lacked, with the variants their stems also match (so every
+# instrument BridgeSections.h gives this map has entries), and sticking: the
+# Left (L) and Right (R) playing techniques, a per-note add-on on the next
+# free conduit. r2's conduits and values are unchanged.
+KIT_INSTRUMENTS_R3 = [
+    "instrument.band.marching.tenor.drum.10inch", "instrument.band.marching.tenor.drum.12inch",
+    "instrument.band.marching.tenor.drum.13inch", "instrument.band.marching.tenor.drum.14inch",
+    "instrument.band.marching.tenor.drum.6inch", "instrument.band.marching.tenor.drum.8inch",
+    "instrument.band.unpitched.marching.bass.drum.14inch", "instrument.band.unpitched.marching.bass.drum.16inch",
+    "instrument.band.unpitched.marching.bass.drum.20inch", "instrument.band.unpitched.marching.bass.drum.24inch",
+    "instrument.band.unpitched.marching.bass.drum.28inch", "instrument.band.unpitched.marching.bass.drum.32inch",
+    "instrument.band.unpitched.marching.bass.drum.ensemble",
+    "instrument.band.unpitched.marching.cymbals.16inch", "instrument.band.unpitched.marching.cymbals.16inch.ensemble",
+    "instrument.band.unpitched.marching.cymbals.18inch", "instrument.band.unpitched.marching.cymbals.18inch.ensemble",
+    "instrument.band.unpitched.marching.cymbals.20inch", "instrument.band.unpitched.marching.cymbals.20inch.ensemble",
+    "instrument.band.unpitched.marching.hihat", "instrument.band.unpitched.marching.ride.cymbal",
+    "instrument.band.unpitched.marching.snare.drum",
+    "instrument.band.unpitched.marching.snare.drum.ensemble.snares-off",
+    "instrument.band.unpitched.marching.snare.drum.ensemble.snares-on",
+    "instrument.band.unpitched.marching.snare.drum.kevlar", "instrument.band.unpitched.marching.snare.drum.rim",
+    "instrument.band.unpitched.marching.snare.drum.solo.snares-off",
+    "instrument.band.unpitched.marching.snare.drum.solo.snares-on",
+    "instrument.latin.unpitched.agogo.high", "instrument.latin.unpitched.agogo.low",
+    "instrument.latin.unpitched.cajon.high", "instrument.latin.unpitched.cajon.high.alias.box-high-tone",
+    "instrument.latin.unpitched.cajon.low", "instrument.latin.unpitched.cajon.low.alias.box-low-tone",
+    "instrument.latin.unpitched.cuica.high", "instrument.latin.unpitched.cuica.low",
+    "instrument.latin.unpitched.maraca.high", "instrument.latin.unpitched.maraca.low",
+    "instrument.latin.unpitched.timbale.medium.high", "instrument.latin.unpitched.timbale.medium.low",
+    "instrument.percussion.other.jam.block.high", "instrument.percussion.other.jam.block.low",
+    "instrument.percussion.other.jam.block.medium", "instrument.percussion.other.jam.block.medium-high",
+    "instrument.percussion.other.jam.block.medium-low",
+    "instrument.percussion.other.kempyang", "instrument.percussion.other.ketuk",
+    "instrument.percussion.other.tabla.baiya", "instrument.percussion.other.tabla.daiya",
+]
+INSTRUMENTS_R3 = INSTRUMENTS + KIT_INSTRUMENTS_R3
+STICKING = ("sticking", "left right", False,
+            "Hand for one stroke: Dorico's Left (L) and Right (R) playing techniques (Shift-P l / r). "
+            "Sticking notation and the hand-named Agostini and keyboard techniques play as Natural.")
+DIMENSIONS_R3 = DIMENSIONS + [STICKING]
+wire_r3 = {**wire, "sticking": next(free)}
+UNPITCHED_R3 = SimpleNamespace(**{
+    **vars(UNPITCHED_R2), "REVISION": 3,
+    "NAME": "Fiddle Bridge - Orchestral Unpitched Percussion r3 (host test)",
+    "ENTITY_ID": "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r3",
+    "DIMENSIONS": DIMENSIONS_R3, "CONDUITS": wire_r3, "INSTRUMENTS": INSTRUMENTS_R3,
+    "PERCUSSION": SimpleNamespace(
+        ENTITY_ID="drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r3",
+        NAME="Fiddle Bridge - Orchestral Unpitched Percussion r3 (host test)",
+        INSTRUMENTS=INSTRUMENTS_R3, CODES=CODES, FOR_SINGLE_INSTRUMENT=True),
+})
+
+REVISIONS = [UNPITCHED_R2, UNPITCHED_R3]

@@ -25,11 +25,13 @@ inline const std::array<BridgeSectionInfo, 5> &bridgeSections() {
       {BridgeSection::Brass, "brass", "Orchestral brass", "Fiddle-Orchestral-Brass-r3.doricolib"},
       {BridgeSection::PitchedPercussion, "pitched-percussion", "Orchestral pitched percussion",
        "Fiddle-Orchestral-PitchedPercussion-r2.doricolib"},
-      // Single unpitched instruments only; kits (instrument.kit.*) are not
-      // covered. The stems must match the percussion map's instrument list
+      // Single unpitched instruments, including every instrument of
+      // Dorico's kits; kit IDs (instrument.kit.*) are not mapped, because a
+      // kit's instruments have chairs of their own (docs/percussion-kits.md).
+      // The stems must match the percussion map's instrument list
       // (experiments/unpitched-percussion-bridge/profiles.py); a test keeps them so.
       {BridgeSection::UnpitchedPercussion, "unpitched-percussion", "Orchestral unpitched percussion",
-       "Fiddle-Orchestral-UnpitchedPercussion-r2.doricolib"},
+       "Fiddle-Orchestral-UnpitchedPercussion-r3.doricolib"},
   }};
   return sections;
 }
@@ -140,6 +142,56 @@ inline BridgeSection bridgeSectionForInstrument(const juce::String &entityId) {
       {"instrument.unpitched.kick.drum.very.low", BridgeSection::UnpitchedPercussion},
       {"instrument.unpitched.ribboncrasher", BridgeSection::UnpitchedPercussion},
       {"instrument.unpitched.splash.cymbal", BridgeSection::UnpitchedPercussion},
+      // Unpitched r3: the instruments of Dorico's kits that r2 lacked.
+      {"instrument.band.marching.tenor.drum.10inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum.12inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum.13inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum.14inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum.6inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum.8inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.14inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.16inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.20inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.24inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.28inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.32inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.ensemble", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.16inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.16inch.ensemble", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.18inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.18inch.ensemble", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.20inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals.20inch.ensemble", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.hihat", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.ride.cymbal", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.ensemble.snares-off", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.ensemble.snares-on", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.kevlar", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.rim", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.solo.snares-off", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.snare.drum.solo.snares-on", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.agogo.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.agogo.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cajon.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cajon.high.alias.box-high-tone", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cajon.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cajon.low.alias.box-low-tone", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cuica.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cuica.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.maraca.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.maraca.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.timbale.medium.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.timbale.medium.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.jam.block.high", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.jam.block.low", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.jam.block.medium", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.jam.block.medium-high", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.jam.block.medium-low", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.kempyang", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.ketuk", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.tabla.baiya", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.tabla.daiya", BridgeSection::UnpitchedPercussion},
   };
   const auto matches = [&entityId](const char *stem) {
     const juce::String s(stem);

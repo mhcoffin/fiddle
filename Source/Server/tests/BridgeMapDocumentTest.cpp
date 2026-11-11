@@ -476,12 +476,16 @@ void tests() {
   CHECK(section("instrument.orchestral.unpitched.percussion.1line") == BridgeSection::None);
   CHECK(section("instrument.kit.drumset.basic") == BridgeSection::None);
   CHECK(section("instrument.unpitched.kick.drum") == BridgeSection::None); // not a stem
+  CHECK(section("instrument.percussion.other.jam.block.medium-high") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.band.unpitched.marching.snare.drum.kevlar") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.latin.unpitched.cajon.low.alias.box-low-tone") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.kit.wood.blocks") == BridgeSection::None);
   for (const auto &info : bridgeSections()) {
     const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r5/"
         : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
         : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
         : info.section == BridgeSection::PitchedPercussion ? "experiments/orchestral-percussion-bridge/pitched-percussion-r2/"
-        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r2/");
+        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r3/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
     CHECK(built->schema == 2 && built->compiled->pinnedPlayback);
@@ -489,7 +493,16 @@ void tests() {
     // The section's stems and the percussion map's instruments stay in lockstep.
     for (const auto &instrument : built->percussionInstruments)
       CHECK(section(instrument.toRawUTF8()) == info.section);
-    if (info.section == BridgeSection::UnpitchedPercussion) CHECK(built->percussionInstruments.size() == 75);
+    if (info.section == BridgeSection::UnpitchedPercussion) {
+      // r3: r2's 75 instruments and 49 from Dorico's kits, and sticking
+      // (Left/Right) as an add-on (docs/percussion-kits.md).
+      CHECK(built->percussionInstruments.size() == 124);
+      CHECK(built->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r3");
+      const auto sticking = std::find_if(built->compiled->dimensions.begin(), built->compiled->dimensions.end(),
+          [](const auto &d) { return d.values.size() == 3 && d.values.at(2).techniques == std::set<std::string>{"pt.left"}; });
+      CHECK(sticking != built->compiled->dimensions.end() &&
+            sticking->values.at(3).techniques == std::set<std::string>{"pt.right"});
+    }
   }
   std::cout << "Bridge compiler, persistence, corruption, runtime isolation and schema 2 passed\n";
 }

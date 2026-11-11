@@ -136,5 +136,52 @@ class UnpitchedPercussion(unittest.TestCase):
         bad([(36, "pt.natural"), (37, "pt.rim", 60)])      # keyswitch inside the musical range
 
 
+
+class UnpitchedPercussionR3(unittest.TestCase):
+    """r3 (docs/percussion-kits.md): r2 plus the instruments of Dorico's kits
+    and a sticking add-on; r2's conduits, values and artifacts unchanged."""
+
+    @classmethod
+    def setUpClass(cls):
+        from profiles import UNPITCHED_R3
+        cls.spec = UNPITCHED_R3
+        cls.outputs = engine.build(UNPITCHED_R3)
+        cls.manifest = json.loads(cls.outputs["allocation.json"])
+        cls.root = ET.fromstring(cls.outputs["Fiddle-Orchestral-UnpitchedPercussion-r3.doricolib"])
+        cls.r2 = json.loads(engine.build(spec)["allocation.json"])
+
+    def test_artifacts_are_current(self):
+        for name, data in self.outputs.items():
+            self.assertEqual((generator.HERE / "unpitched-percussion-r3" / name).read_bytes(), data, name)
+
+    def test_r2_dimensions_keep_their_wire(self):
+        r2 = {d["id"]: d for d in self.r2["dimensions"]}
+        r3 = {d["id"]: d for d in self.manifest["dimensions"]}
+        self.assertEqual(set(r3) - set(r2), {"sticking"})
+        for key, dimension in r2.items():
+            self.assertEqual((r3[key]["kind"], r3[key]["number"], r3[key]["values"]),
+                             (dimension["kind"], dimension["number"], dimension["values"]))
+        sticking = r3["sticking"]
+        self.assertNotIn((sticking["kind"], sticking["number"]), {(d["kind"], d["number"]) for d in r2.values()})
+        self.assertEqual(set(sticking["values"]), {"pt.left", "pt.right"})
+
+    def test_kit_instruments_join_r2s(self):
+        from profiles import INSTRUMENTS_R3, KIT_INSTRUMENTS_R3
+        self.assertEqual(INSTRUMENTS_R3[:len(INSTRUMENTS)], INSTRUMENTS)
+        self.assertEqual(len(KIT_INSTRUMENTS_R3), 49)
+        self.assertFalse(set(KIT_INSTRUMENTS_R3) & set(INSTRUMENTS))
+        self.assertFalse([i for i in INSTRUMENTS_R3 if i.startswith("instrument.kit.")])
+        definition = self.root.find("drumKitNoteMapDefinitions/entities/DrumKitNoteMapDefinition")
+        self.assertEqual(definition.findtext("entityID"), "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r3")
+        self.assertEqual({e.findtext("instrumentEntityID") for e in definition.findall("entries/entry")}, set(INSTRUMENTS_R3))
+        self.assertEqual(len(definition.findall("entries/entry")), len(INSTRUMENTS_R3) * len(CODES))
+
+    def test_new_revision_identity(self):
+        self.assertEqual(self.root.find(".//ExpressionMapDefinition").findtext("entityID"),
+                         "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r3")
+        self.assertNotEqual(self.manifest.get("beacon"), self.r2.get("beacon"))
+        self.assertRegex(self.outputs["inventory.md"].decode(), r"\| `pt\.left` \|[^|]*\|[^|]*\| Add-on \| sticking")
+
+
 if __name__ == "__main__":
     unittest.main()

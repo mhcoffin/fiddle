@@ -1,7 +1,8 @@
 # Percussion kits
 
 Status: phases 1 (kit definitions and grouping) and 2 (kit layers)
-implemented 2026-11-10; coverage and sticking are still to do.
+implemented 2026-11-10, phase 3 (unpitched bridge r3: coverage and sticking)
+2026-11-11. A kit score test is still to do.
 
 ## Summary
 
@@ -159,19 +160,17 @@ library patch are linked (`kitLinkedLayers` in C++, `linkedKitLayers` in
 
 ### 5. Coverage
 
-The unpitched bridge covers 46 of the 88 instruments used in Dorico's kits.
-These kits are fully covered: drum set and basic drum set, tom-toms, floor
-toms, roto toms, tenor drums, wood blocks, temple blocks, bongos, bongo bells,
-congas and cowbells. Not covered:
-
-- agogos, cajón, cuíca, maracas, timbales;
-- jam blocks, kempyang/ketuk, tabla;
-- the marching kits (bass drums, cymbals, snares, tenors).
-
-Adding them means adding their instrument IDs to the unpitched bridge's
-instrument list (a new revision, because Dorico keeps a project's copy of a
-map whose ID and version it already has) and to `BridgeSections.h`. Until then
-those chairs get the universal map.
+Unpitched bridge r2 covered 46 of the 88 instruments used in Dorico's kits.
+**r3** (2026-11-11) adds the rest: agogos, cajón (and its "box" aliases),
+cuíca, maracas, timbales, jam blocks, kempyang and ketuk, tabla, and the
+marching kits (bass drums, cymbals, hi-hat, ride, snares and their variants,
+tenors): 49 instrument IDs, so every kit in Dorico can be a group of bridged
+chairs. It's a new revision (new map IDs, version and version ID) because
+Dorico keeps a project's copy of a map whose ID and version it already has; r2
+is frozen. `BridgeSections.h` gives the new instruments the unpitched section,
+and kit IDs (`instrument.kit.*`) still get nothing, since a kit's instruments
+have chairs of their own. Tabla strokes (`pt.tabla-*`) stay out of scope, so
+tabla chairs get the generic strokes.
 
 ### 6. Sticking
 
@@ -188,10 +187,12 @@ keyboard L.H./R.H. and m.s./m.d. all play as `pt.natural`, and "Damp
 (Left)"/"Damp (Right)" as `pt.damp`. Dorico's sticking notation (stickings
 above or below notes) isn't a playing technique and plays nothing.
 
-So the next unpitched revision adds a sticking add-on dimension (`pt.left`,
-`pt.right`), mutually exclusive, applying to the one note like any attribute.
-That helps single instruments as much as kits. Its probe confirms the add-on's
-switch arrives in Fiddle.
+So **r3** adds a sticking add-on dimension: `pt.left` and `pt.right` on KS6
+(the next free conduit; r2's conduits and values are unchanged), applying to
+the one note like any attribute. It helps single instruments as much as kits:
+a layer's percussion map can now choose VSL's right-hand samples. Playing a
+sticking passage through r3 confirms the switch arrives (the kit score test
+covers it).
 
 ## An example: VSL's wood blocks
 
@@ -292,8 +293,10 @@ What it means for Fiddle:
 2. **Kit layers.** Done (2026-11-10): see [Kit layers](#4-kit-layers). Tests in
    `MixerIntegrationTest` (grouped add and remove, rollback), `kitModel.test.js`
    and `chairLayout.mjs`.
-3. **Coverage and sticking.** The missing kit instruments and
-   sticking, in the next unpitched bridge revision.
+3. **Coverage and sticking.** Done (2026-11-11): unpitched bridge r3, the
+   built-in unpitched map (`experiments/unpitched-percussion-bridge`,
+   `UNPITCHED_R3`; tests in `test_unpitched.py` and
+   `BridgeMapDocumentTest`).
 4. **Score tests and docs.** A kit score test (each block, rim, roll,
    simultaneous blocks with different techniques),
    [library percussion maps](library-percussion-maps.md) and the

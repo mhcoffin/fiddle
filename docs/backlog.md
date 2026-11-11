@@ -120,9 +120,9 @@ documented elsewhere; this list records the remaining work and intended order.
   musical needs. Revisit effect/send/parameter automation when a concrete use
   case warrants it; preserve the isolated CC102–119 musical protocol and do not
   appropriate instrument controllers implicitly.
-- Unpitched percussion r2: kits beyond phase 2 (the kit instruments the
-  bridge doesn't cover yet, sticking; see
-  [percussion kits](percussion-kits.md)), the percussion-map entry keyswitch as
+- Unpitched percussion: a kit score test (each block, rim, roll, sticking,
+  simultaneous blocks; [percussion kits](percussion-kits.md)), the
+  percussion-map entry keyswitch as
   a conduit (Dorico sends it with the hit, velocity 127, same length), and
   library-side percussion maps for driving instruments. Not needed after the
   one-pitch design: stroke × roll combination codes.
@@ -148,7 +148,9 @@ documented elsewhere; this list records the remaining work and intended order.
   kit definitions or a custom list, kit rows in Chair Manager, a kit header in
   the mixer. The template generator no longer maps an instrument with its own
   chair as another chair's variant. Phase 2 (same day): kit layers, a copy
-  per chair, linked by patch for maps, updates and removal.
+  per chair, linked by patch for maps, updates and removal. Phase 3
+  (2026-11-11): unpitched bridge r3 covers every instrument of Dorico's kits
+  and adds sticking (`pt.left`/`pt.right`).
   [Percussion kits](percussion-kits.md).
 - **Chair buses (2026-11-07).** Each chair has its own bus with inserts,
   sends, balance, fader, meter, mute/solo and an output; its layers always
