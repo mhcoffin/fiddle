@@ -25,13 +25,13 @@ inline const std::array<BridgeSectionInfo, 5> &bridgeSections() {
       {BridgeSection::Brass, "brass", "Orchestral brass", "Fiddle-Orchestral-Brass-r3.doricolib"},
       {BridgeSection::PitchedPercussion, "pitched-percussion", "Orchestral pitched percussion",
        "Fiddle-Orchestral-PitchedPercussion-r2.doricolib"},
-      // Single unpitched instruments, including every instrument of
-      // Dorico's kits; kit IDs (instrument.kit.*) are not mapped, because a
+      // Single unpitched instruments (every one Dorico has on a one-line
+      // percussion staff), including every instrument of Dorico's kits; kit IDs (instrument.kit.*) are not mapped, because a
       // kit's instruments have chairs of their own (docs/percussion-kits.md).
       // The stems must match the percussion map's instrument list
       // (experiments/unpitched-percussion-bridge/profiles.py); a test keeps them so.
       {BridgeSection::UnpitchedPercussion, "unpitched-percussion", "Orchestral unpitched percussion",
-       "Fiddle-Orchestral-UnpitchedPercussion-r3.doricolib"},
+       "Fiddle-Orchestral-UnpitchedPercussion-r4.doricolib"},
   }};
   return sections;
 }
@@ -192,6 +192,47 @@ inline BridgeSection bridgeSectionForInstrument(const juce::String &entityId) {
       {"instrument.percussion.other.ketuk", BridgeSection::UnpitchedPercussion},
       {"instrument.percussion.other.tabla.baiya", BridgeSection::UnpitchedPercussion},
       {"instrument.percussion.other.tabla.daiya", BridgeSection::UnpitchedPercussion},
+      // Unpitched r4: Dorico's remaining single unpitched instruments.
+      {"instrument.african.unpitched.caxixi", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.djembe", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.gourd", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.kayamba", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.shekere", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.sogo", BridgeSection::UnpitchedPercussion},
+      {"instrument.african.unpitched.udu", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.marching.tenor.drum", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.18inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.22inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.26inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.bass.drum.30inch", BridgeSection::UnpitchedPercussion},
+      {"instrument.band.unpitched.marching.cymbals", BridgeSection::UnpitchedPercussion},
+      {"instrument.body.finger.snaps", BridgeSection::UnpitchedPercussion},
+      {"instrument.body.hand.claps", BridgeSection::UnpitchedPercussion},
+      {"instrument.body.patsch", BridgeSection::UnpitchedPercussion},
+      {"instrument.body.stomp", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.alfaia", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.cabasa", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.castanets", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.chacha.bell", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.claves", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.guiro", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.jawbone", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.jawbone.alias.vibraslap", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.pandeiro", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.rainstick", BridgeSection::UnpitchedPercussion},
+      {"instrument.latin.unpitched.surdo", BridgeSection::UnpitchedPercussion},
+      {"instrument.orff.hand.drum", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.brake.drum", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.doumbek", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.finger.cymbals", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.finger.cymbals.alias.zills", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.gong.ageng", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.kendhang.ageng", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.mark.tree", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.shaker", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.taiko", BridgeSection::UnpitchedPercussion},
+      {"instrument.percussion.other.taiko.alias.wadaiko", BridgeSection::UnpitchedPercussion},
   };
   const auto matches = [&entityId](const char *stem) {
     const juce::String s(stem);

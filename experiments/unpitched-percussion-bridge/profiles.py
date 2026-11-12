@@ -256,4 +256,46 @@ UNPITCHED_R3 = SimpleNamespace(**{
         INSTRUMENTS=INSTRUMENTS_R3, CODES=CODES, FOR_SINGLE_INSTRUMENT=True),
 })
 
-REVISIONS = [UNPITCHED_R2, UNPITCHED_R3]
+# r3 is frozen too. r4 adds Dorico's remaining single unpitched instruments:
+# every non-kit instrument on a one-line percussion staff that no section
+# covered (latin and African hand percussion, shakers and scrapers, marching
+# bass drums by size, body percussion...), with the aliases their stems match.
+# The generic percussion staff and the slash staves are placeholders, not
+# instruments, and stay out. Conduits and values are r3's.
+EXTRA_INSTRUMENTS_R4 = [
+    "instrument.african.unpitched.caxixi", "instrument.african.unpitched.djembe",
+    "instrument.african.unpitched.gourd", "instrument.african.unpitched.kayamba",
+    "instrument.african.unpitched.shekere", "instrument.african.unpitched.sogo",
+    "instrument.african.unpitched.udu",
+    "instrument.band.marching.tenor.drum",
+    "instrument.band.unpitched.marching.bass.drum", "instrument.band.unpitched.marching.bass.drum.18inch",
+    "instrument.band.unpitched.marching.bass.drum.22inch", "instrument.band.unpitched.marching.bass.drum.26inch",
+    "instrument.band.unpitched.marching.bass.drum.30inch",
+    "instrument.band.unpitched.marching.cymbals",
+    "instrument.body.finger.snaps", "instrument.body.hand.claps", "instrument.body.patsch", "instrument.body.stomp",
+    "instrument.latin.unpitched.alfaia", "instrument.latin.unpitched.cabasa",
+    "instrument.latin.unpitched.castanets", "instrument.latin.unpitched.chacha.bell",
+    "instrument.latin.unpitched.claves", "instrument.latin.unpitched.guiro",
+    "instrument.latin.unpitched.jawbone", "instrument.latin.unpitched.jawbone.alias.vibraslap",
+    "instrument.latin.unpitched.pandeiro", "instrument.latin.unpitched.rainstick",
+    "instrument.latin.unpitched.surdo",
+    "instrument.orff.hand.drum",
+    "instrument.percussion.other.brake.drum", "instrument.percussion.other.doumbek",
+    "instrument.percussion.other.finger.cymbals", "instrument.percussion.other.finger.cymbals.alias.zills",
+    "instrument.percussion.other.gong.ageng", "instrument.percussion.other.kendhang.ageng",
+    "instrument.percussion.other.mark.tree", "instrument.percussion.other.shaker",
+    "instrument.percussion.other.taiko", "instrument.percussion.other.taiko.alias.wadaiko",
+]
+INSTRUMENTS_R4 = INSTRUMENTS_R3 + EXTRA_INSTRUMENTS_R4
+UNPITCHED_R4 = SimpleNamespace(**{
+    **vars(UNPITCHED_R3), "REVISION": 4,
+    "NAME": "Fiddle Bridge - Orchestral Unpitched Percussion r4 (host test)",
+    "ENTITY_ID": "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r4",
+    "INSTRUMENTS": INSTRUMENTS_R4,
+    "PERCUSSION": SimpleNamespace(
+        ENTITY_ID="drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r4",
+        NAME="Fiddle Bridge - Orchestral Unpitched Percussion r4 (host test)",
+        INSTRUMENTS=INSTRUMENTS_R4, CODES=CODES, FOR_SINGLE_INSTRUMENT=True),
+})
+
+REVISIONS = [UNPITCHED_R2, UNPITCHED_R3, UNPITCHED_R4]

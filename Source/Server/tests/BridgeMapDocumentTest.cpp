@@ -480,12 +480,19 @@ void tests() {
   CHECK(section("instrument.band.unpitched.marching.snare.drum.kevlar") == BridgeSection::UnpitchedPercussion);
   CHECK(section("instrument.latin.unpitched.cajon.low.alias.box-low-tone") == BridgeSection::UnpitchedPercussion);
   CHECK(section("instrument.kit.wood.blocks") == BridgeSection::None);
+  // r4: the remaining single unpitched instruments, aliases and sizes too.
+  CHECK(section("instrument.latin.unpitched.castanets") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.latin.unpitched.jawbone.alias.vibraslap") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.band.unpitched.marching.bass.drum.26inch") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.body.hand.claps") == BridgeSection::UnpitchedPercussion);
+  CHECK(section("instrument.generic.singlelinepercussion") == BridgeSection::None);
+  CHECK(section("instrument.percussion.other.slashes-with-stems") == BridgeSection::None);
   for (const auto &info : bridgeSections()) {
     const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r5/"
         : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
         : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
         : info.section == BridgeSection::PitchedPercussion ? "experiments/orchestral-percussion-bridge/pitched-percussion-r2/"
-        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r3/");
+        : "experiments/unpitched-percussion-bridge/unpitched-percussion-r4/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
     CHECK(built->schema == 2 && built->compiled->pinnedPlayback);
@@ -494,10 +501,11 @@ void tests() {
     for (const auto &instrument : built->percussionInstruments)
       CHECK(section(instrument.toRawUTF8()) == info.section);
     if (info.section == BridgeSection::UnpitchedPercussion) {
-      // r3: r2's 75 instruments and 49 from Dorico's kits, and sticking
-      // (Left/Right) as an add-on (docs/percussion-kits.md).
-      CHECK(built->percussionInstruments.size() == 124);
-      CHECK(built->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r3");
+      // r4: r2's 75 instruments, r3's 49 from Dorico's kits and sticking
+      // (Left/Right) as an add-on (docs/percussion-kits.md), and Dorico's 40
+      // remaining single unpitched instruments.
+      CHECK(built->percussionInstruments.size() == 164);
+      CHECK(built->percussionMapId == "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r4");
       const auto sticking = std::find_if(built->compiled->dimensions.begin(), built->compiled->dimensions.end(),
           [](const auto &d) { return d.values.size() == 3 && d.values.at(2).techniques == std::set<std::string>{"pt.left"}; });
       CHECK(sticking != built->compiled->dimensions.end() &&

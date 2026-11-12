@@ -150,7 +150,9 @@ documented elsewhere; this list records the remaining work and intended order.
   chair as another chair's variant. Phase 2 (same day): kit layers, a copy
   per chair, linked by patch for maps, updates and removal. Phase 3
   (2026-11-11): unpitched bridge r3 covers every instrument of Dorico's kits
-  and adds sticking (`pt.left`/`pt.right`).
+  and adds sticking (`pt.left`/`pt.right`). r4 (same day) adds Dorico's 40
+  remaining single unpitched instruments (castanets, claves, guiro, shaker,
+  hand drums, body percussion…), so every unpitched instrument is covered.
   [Percussion kits](percussion-kits.md).
 - **Chair buses (2026-11-07).** Each chair has its own bus with inserts,
   sends, balance, fader, meter, mute/solo and an output; its layers always

@@ -183,5 +183,44 @@ class UnpitchedPercussionR3(unittest.TestCase):
         self.assertRegex(self.outputs["inventory.md"].decode(), r"\| `pt\.left` \|[^|]*\|[^|]*\| Add-on \| sticking")
 
 
+
+class UnpitchedPercussionR4(unittest.TestCase):
+    """r4: r3 plus Dorico's remaining single unpitched instruments; r3's
+    conduits, values and artifacts unchanged."""
+
+    @classmethod
+    def setUpClass(cls):
+        from profiles import UNPITCHED_R3, UNPITCHED_R4
+        cls.outputs = engine.build(UNPITCHED_R4)
+        cls.manifest = json.loads(cls.outputs["allocation.json"])
+        cls.root = ET.fromstring(cls.outputs["Fiddle-Orchestral-UnpitchedPercussion-r4.doricolib"])
+        cls.r3 = json.loads(engine.build(UNPITCHED_R3)["allocation.json"])
+
+    def test_artifacts_are_current(self):
+        for name, data in self.outputs.items():
+            self.assertEqual((generator.HERE / "unpitched-percussion-r4" / name).read_bytes(), data, name)
+
+    def test_r3_wire_unchanged(self):
+        r3 = {d["id"]: (d["kind"], d["number"], d["values"]) for d in self.r3["dimensions"]}
+        r4 = {d["id"]: (d["kind"], d["number"], d["values"]) for d in self.manifest["dimensions"]}
+        self.assertEqual(r4, r3)
+
+    def test_extra_instruments_join_r3s(self):
+        from profiles import EXTRA_INSTRUMENTS_R4, INSTRUMENTS_R3, INSTRUMENTS_R4
+        self.assertEqual(INSTRUMENTS_R4[:len(INSTRUMENTS_R3)], INSTRUMENTS_R3)
+        self.assertEqual(len(EXTRA_INSTRUMENTS_R4), 40)
+        self.assertEqual(len(set(INSTRUMENTS_R4)), len(INSTRUMENTS_R4))
+        self.assertFalse([i for i in INSTRUMENTS_R4 if i.startswith(("instrument.kit.", "instrument.generic."))])
+        definition = self.root.find("drumKitNoteMapDefinitions/entities/DrumKitNoteMapDefinition")
+        self.assertEqual(definition.findtext("entityID"), "drumkitmap.user.Fiddle.OrchestralUnpitchedPercussion.r4")
+        self.assertEqual({e.findtext("instrumentEntityID") for e in definition.findall("entries/entry")}, set(INSTRUMENTS_R4))
+        self.assertEqual(len(definition.findall("entries/entry")), len(INSTRUMENTS_R4) * len(CODES))
+
+    def test_new_revision_identity(self):
+        self.assertEqual(self.root.find(".//ExpressionMapDefinition").findtext("entityID"),
+                         "xmap.user.Fiddle.OrchestralUnpitchedPercussion.r4")
+        self.assertNotEqual(self.manifest.get("beacon"), self.r3.get("beacon"))
+
+
 if __name__ == "__main__":
     unittest.main()
