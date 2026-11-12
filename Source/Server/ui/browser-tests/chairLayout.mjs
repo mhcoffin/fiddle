@@ -932,7 +932,7 @@ try {
     await cmdClick(page.locator(".inst-group").nth(2).locator(".channel-strip:not(.chair-strip) .select-bar-top"));
     await cmdClick(routedChair.locator(".chair-strip .select-bar-top"));
     await cmdClick(routedChair.locator(".channel-strip:not(.chair-strip) .select-bar-top").first());
-    assert.equal(await page.locator(".selection-badge").innerText(), "4 selected");
+    assert.match(await page.locator(".selection-badge").innerText(), /^4 selected\s*×$/);
     assert.match(await routedChair.locator(".bridge-output").getAttribute("title"), /all 3 selected chairs/);
     assert.match(await page.locator(".inst-group").nth(1).locator(".bridge-output").getAttribute("title"), /all 3 selected chairs/,
         "a chair selected through its layer routes the selection too");
@@ -962,6 +962,22 @@ try {
     });
     await routedChair.locator(".chair-strip .select-bar-top").click();
     await routedChair.locator(".chair-strip .select-bar-top").click({ modifiers: ["Meta"] });
+    // Deselecting: click the lone selected strip again, the toolbar badge, or
+    // the console's empty space (a chair's name). Controls keep the selection.
+    const loneBar = routedChair.locator(".chair-strip .select-bar-top");
+    const badge = page.locator(".selection-badge");
+    await loneBar.click();
+    assert.match(await badge.innerText(), /^1 selected\s*×$/);
+    await loneBar.click();
+    assert.equal(await badge.count(), 0, "a second click deselects the lone selected strip");
+    await loneBar.click();
+    await badge.click();
+    assert.equal(await badge.count(), 0, "the badge clears the selection");
+    await loneBar.click();
+    await routedChair.locator(".bridge-output").evaluate((select) => select.click());
+    assert.equal(await badge.count(), 1, "the output selector keeps the selection");
+    await routedChair.locator(".bridge-label").click();
+    assert.equal(await badge.count(), 0, "a click on a chair's name clears the selection");
     // The chair fader is the chair bus gain: it never rewrites layer gains.
     await page.evaluate(() => { window.fixtureMessages = []; });
     const chairLevel = routedChair.getByRole("spinbutton", { name: "Flute 9 chair level in decibels", exact: true });

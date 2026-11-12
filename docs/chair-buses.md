@@ -322,6 +322,11 @@ sibling compensation remain one undo step, as now.
   chair bus ID joins the selection). A selected chair's Output routes every
   chair the selection stands for; Add Bus routes those chairs. Layer commands
   ignore selected chairs.
+- **Deselecting:** Escape; a plain click on the only selected strip's select
+  bar; the toolbar's "N selected ×" badge (shown for any selection); or a
+  click on the console's empty space, such as a chair's name or the gaps
+  between columns. Clicks on controls, strips and the bus bank keep the
+  selection.
 - **Tests:** `MixerIntegrationTest` covers the chair-ID commands;
   `browser-tests/chairLayout.mjs` covers chair strip width and alignment at
   every strip size, the header Output and "+", one-layer chairs (sends on the

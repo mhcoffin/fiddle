@@ -324,6 +324,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             if (next.has(stripId)) next.delete(stripId);
             else next.add(stripId);
             selectedIds = next;
+        } else if (selectedIds.size === 1 && selectedIds.has(stripId)) {
+            // Plain click on the only selected strip: deselect it.
+            clearSelection();
+            return;
         } else {
             // Plain click: single select
             selectedIds = new Set([stripId]);
@@ -334,6 +338,14 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     const clearSelection = () => {
         selectedIds = new Set();
         lastClickedId = null;
+    };
+    // A click on the console's empty space clears the selection: anywhere
+    // outside a strip and outside a control (headers, gaps, the area below).
+    const clearSelectionFromConsole = (/** @type {MouseEvent} */ e) => {
+        const target = /** @type {Element} */ (e.target);
+        if (target.closest?.("button, select, input, textarea, a, label, [role='slider'], [role='spinbutton'], .channel-strip, .bank"))
+            return;
+        clearSelection();
     };
     // The selection holds layer IDs and chair bus IDs (chair strips).
     /** Selected IDs that are still layers in the mixer. */
@@ -1105,7 +1117,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                 <div
                                     class="inst-group"
                                     style="--accent: {group.colors.accent};"
-                                    onclick={(e) => e.stopPropagation()}
                                 >
                                     <!-- Bridge header: the chair's name, port, output and Add Layer.
                                          Same height for every group (1 or N strips). -->
@@ -1598,8 +1609,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onclick={() => dispatchCpp("redo")}>Redo</button>
             <button class="toolbar-btn save-btn" onclick={doSaveConfig}
                 disabled={saveButton.disabled} title={saveButton.title}>Save</button>
-            {#if selectedIds.size > 1}
-                <span class="selection-badge">{selectedIds.size} selected</span>
+            {#if selectedIds.size > 0}
+                <button class="selection-badge" onclick={clearSelection}
+                    title="Clear the selection (Esc)" aria-label={`${selectedIds.size} selected; clear the selection`}
+                    >{selectedIds.size} selected <span class="selection-clear" aria-hidden="true">×</span></button>
             {/if}
             {#if anySoloed || anyBusSoloed || anyChairSoloed}
                 <button class="toolbar-btn solo-clear" onclick={clearSolos}>Clear Solos</button>
@@ -1682,7 +1695,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         <div class="mixer-strips-area">
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div class="console" class:has-kits={consoleHasKits} onclick={clearSelection}>
+        <div class="console" class:has-kits={consoleHasKits} onclick={clearSelectionFromConsole}>
             {#each groupedStrips as group (group.family)}
                 {@const collapsed = collapsedFamilies[group.family]}
                 <div class="folder" class:folder-collapsed={collapsed}>
@@ -2050,7 +2063,11 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         border-radius: 4px;
         padding: 2px 8px;
         margin-left: 8px;
+        font-family: inherit;
+        cursor: pointer;
     }
+    .selection-badge:hover { background: rgba(56, 189, 248, 0.2); border-color: rgba(56, 189, 248, 0.6); }
+    .selection-clear { margin-left: 4px; font-size: 0.85rem; line-height: 1; }
 
     .toolbar-right {
         display: flex;
