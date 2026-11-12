@@ -445,6 +445,10 @@
   const playAsFor = (patch) => playAsDefaults(
     editorPercussionMaps.find((map) => map.entityId === patch?.percMap), allDoricoInstruments, patch?.percPlayAs);
   let playAsTable = $derived(playAsFor(playAsPatch));
+  // Instruments the map lists play as themselves; show them only on request
+  // (or when one already has a default).
+  let playAsShowAll = $state(false);
+  let playAsRows = $derived(playAsTable.rows.filter((row) => playAsShowAll || !row.covered || row.value));
   const setPatchPlayAs = (/** @type {string} */ rowId, /** @type {string} */ instrument, /** @type {string} */ mapInstrument) => {
     patches = patches.map((patch) => patch.id === rowId
       ? { ...patch, percPlayAs: setPlayAsDefault(patch.percPlayAs, instrument, mapInstrument) }
@@ -903,7 +907,7 @@
                   />
                   {#if row.percMap && playAsFor(row).rows.length}
                     {@const chosen = Object.keys(row.percPlayAs || {}).length}
-                    <button class="play-as-open" onclick={() => (playAsPatchId = row.id)}
+                    <button class="play-as-open" onclick={() => { playAsShowAll = false; playAsPatchId = row.id; }}
                       title="Which of the map's instruments a layer plays on each kind of chair">
                       Play as{chosen ? ` (${chosen})` : "…"}
                     </button>
@@ -956,12 +960,15 @@
             <div class="instrument-chooser-header">
               <div>
                 <h2 id="play-as-heading">Play as: {playAsPatch.name}</h2>
-                <p>Which of the percussion map's instruments a layer from this patch plays, by its chair's instrument. Automatic is Dorico's choice. Layers take these when they're added or updated from the library; Layer Details can still change one.</p>
+                <p>An instrument this map doesn't list plays as the map's first instrument with the same sound, as Dorico does. Choose a different one here, by the chair's instrument. Layers take these when they're added or updated from the library; Layer Details can still change one.</p>
               </div>
               <button onclick={() => (playAsPatchId = "")}>Done</button>
             </div>
             <div class="instrument-results play-as-rows">
-              {#each playAsTable.rows as row (row.instrument)}
+              {#if !playAsRows.length}
+                <div class="chooser-empty">This map lists every instrument with its sound, so each plays as itself.</div>
+              {/if}
+              {#each playAsRows as row (row.instrument)}
                 <label class="play-as-row">
                   <span>{row.name}<small>{row.instrument}</small></span>
                   <select value={row.value}
@@ -973,6 +980,12 @@
                   </select>
                 </label>
               {/each}
+            </div>
+            <div class="instrument-chooser-footer">
+              <label class="play-as-all">
+                <input type="checkbox" bind:checked={playAsShowAll} />
+                Show all instruments, including those the map lists
+              </label>
             </div>
           </div>
         </div>
@@ -1467,6 +1480,7 @@
   }
   .play-as-open:hover { border-color: #929fff; background: #292863; }
   .play-as-rows { padding-top: 12px; }
+  .play-as-all { display: flex; align-items: center; gap: 8px; color: #bab9df; font: 500 .74rem "Inter", sans-serif; cursor: pointer; }
   .play-as-row {
     display: grid; grid-template-columns: 1fr minmax(220px, 1fr); align-items: center;
     gap: 16px; padding: 9px 4px; border-bottom: 1px solid #292850;

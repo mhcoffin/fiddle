@@ -157,11 +157,11 @@ test("a patch's Play as defaults list the instruments of the map's sound", () =>
     assert.deepEqual(mapInstrumentsInOrder(map), [low, medium]);
     const table = playAsDefaults(map, instruments, { "instrument.band.unpitched.floortom.high": medium });
     assert.deepEqual(table.options.map((option) => option.label), ["Tom-tom (Low)", "Tom-tom (Medium)"]);
-    assert.deepEqual(table.rows.map((row) => [row.name, row.automaticLabel, row.value]), [
-        ["Floor tom (High)", "Automatic: Tom-tom (Low)", medium],
-        ["Floor tom (Low)", "Automatic: Tom-tom (Low)", ""],
-        ["Tom-tom (Low)", "Automatic: Tom-tom (Low)", ""],
-        ["Tom-tom (Medium)", "Automatic: Tom-tom (Medium)", ""],
+    assert.deepEqual(table.rows.map((row) => [row.name, row.automaticLabel, row.value, row.covered]), [
+        ["Floor tom (High)", "Automatic: Tom-tom (Low)", medium, false],
+        ["Floor tom (Low)", "Automatic: Tom-tom (Low)", "", false],
+        ["Tom-tom (Low)", "Automatic: Tom-tom (Low)", "", true],
+        ["Tom-tom (Medium)", "Automatic: Tom-tom (Medium)", "", true],
     ]);
     // Nothing to choose with a single-instrument map.
     assert.deepEqual(playAsDefaults({ map: { entries: [{ instrument: low }] } }, instruments).rows, []);

@@ -184,8 +184,10 @@ export function mapInstrumentsInOrder(map) {
  * A library patch's Play as defaults (docs/library-percussion-maps.md): one
  * row per Dorico instrument that shares a sound with the map's instruments
  * (and any instrument already given a default), with Dorico's automatic
- * choice for it. options are the map's instruments. Empty for a map with
- * one instrument, where there's nothing to choose.
+ * choice for it. covered rows are instruments the map lists, which
+ * Automatic plays as themselves; the others are where Dorico guesses.
+ * options are the map's instruments. Empty for a map with one instrument,
+ * where there's nothing to choose.
  */
 export function playAsDefaults(map, instruments = [], defaults = {}) {
     const ids = mapInstrumentsInOrder(map);
@@ -212,6 +214,7 @@ export function playAsDefaults(map, instruments = [], defaults = {}) {
             instrument,
             name: chairNames[index],
             automaticLabel: automatic ? `Automatic: ${labelOf(automatic)}` : "Automatic: none",
+            covered: ids.some((id) => canonicalInstrument(id) === canonicalInstrument(instrument)),
             value: ids.includes(defaults?.[instrument]) ? defaults[instrument] : "",
         };
     }).sort((a, b) => a.name.localeCompare(b.name));

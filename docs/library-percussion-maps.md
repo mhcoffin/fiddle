@@ -130,9 +130,12 @@ use.
   library, like a layer with its own map.
 - **Library Manager.** A patch whose percussion map lists more than one
   instrument has a "Play as" button under its map picker (with the number of
-  defaults set). It lists every Dorico instrument with one of the map's
-  sounds, with Dorico's automatic choice for each, plus any instrument
-  already set. Choosing another map keeps only the defaults it lists; the
+  defaults set). It lists the Dorico instruments with one of the map's
+  sounds that the map doesn't list (for VSL's toms, the two floor toms),
+  where Automatic is Dorico's guess, with that guess shown, plus any
+  instrument already set. "Show all instruments" adds the ones the map
+  lists, which Automatic plays as themselves. The patch isn't tied to a
+  kit, so the rows are instruments, not a kit's chairs. Choosing another map keeps only the defaults it lists; the
   server drops any others when the library is saved. The defaults are not
   tied to kits: a floor tom on its own chair gets the same one.
 - **Layer Details** shows a Play as menu under the percussion map picker
