@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <sqlite3.h>
@@ -24,12 +25,20 @@ struct LibraryPatchRow {
   std::string expressionMapId;
   /// This library's percussion map (library_maps.entity_id), or empty.
   std::string percussionMapId;
+  /// Play as defaults: chair instrument -> the percussion map instrument a
+  /// layer from this patch plays on such a chair (docs/library-percussion-maps.md).
+  std::map<std::string, std::string> percussionPlayAs;
   /// Human-readable preset the guided setup asks the user to load.
   std::string expectedPresetName;
   /// False while a guided-import patch still needs explicit user capture.
   bool setupComplete = true;
   int revision = 1;
 };
+
+/// A patch's Play as defaults as stored: a flat JSON object, sorted, or
+/// empty for none. Decoding ignores anything malformed.
+std::string encodePercussionPlayAs(const std::map<std::string, std::string> &playAs);
+std::map<std::string, std::string> decodePercussionPlayAs(const std::string &text);
 
 enum class LibraryMapKind { expression, percussion };
 const char *libraryMapKindName(LibraryMapKind kind);

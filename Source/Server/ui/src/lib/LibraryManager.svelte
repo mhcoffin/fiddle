@@ -6,6 +6,7 @@
   import PercussionMapPicker from "./PercussionMapPicker.svelte";
   import LibraryMaps from "./LibraryMaps.svelte";
   import { mapsFor } from "./libraryMaps.js";
+  import { keepPlayAsDefaults, playAsDefaults, setPlayAsDefault } from "./percussionMaps.js";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
     import { LibraryHistory } from "./libraryHistory.js";
@@ -53,6 +54,7 @@
         vstPlugin: Number(patch.vstPlugin) || patch.pluginUid || 0,
         exprMap:   patch.exprMap || "",
         percMap:   patch.percMap || "",
+        percPlayAs: { ...(patch.percPlayAs || {}) },
         pluginUid: patch.pluginUid || 0,
         hasPluginState: patch.hasPluginState || false,
         pluginStatePending: false,
@@ -429,8 +431,25 @@
   };
 
   const setPatchPercussionMap = (/** @type {string} */ rowId, /** @type {string} */ entityId) => {
-    patches = patches.map((patch) => patch.id === rowId ? { ...patch, percMap: entityId } : patch);
+    const map = editorPercussionMaps.find((candidate) => candidate.entityId === entityId);
+    patches = patches.map((patch) => patch.id === rowId
+      ? { ...patch, percMap: entityId, percPlayAs: keepPlayAsDefaults(patch.percPlayAs, map) }
+      : patch);
     recordEdit("Set percussion map");
+  };
+
+  // Play as defaults (docs/library-percussion-maps.md): which of the patch's
+  // map instruments a layer plays on a chair of each instrument.
+  let playAsPatchId = $state("");
+  let playAsPatch = $derived(patches.find((patch) => patch.id === playAsPatchId));
+  const playAsFor = (patch) => playAsDefaults(
+    editorPercussionMaps.find((map) => map.entityId === patch?.percMap), allDoricoInstruments, patch?.percPlayAs);
+  let playAsTable = $derived(playAsFor(playAsPatch));
+  const setPatchPlayAs = (/** @type {string} */ rowId, /** @type {string} */ instrument, /** @type {string} */ mapInstrument) => {
+    patches = patches.map((patch) => patch.id === rowId
+      ? { ...patch, percPlayAs: setPlayAsDefault(patch.percPlayAs, instrument, mapInstrument) }
+      : patch);
+    recordEdit("Set Play as");
   };
 
   const addEnsemble = (/** @type {typeof standardEnsembles[0]} */ ens) => {
@@ -560,6 +579,7 @@
         vstPlugin:   patch.vstPlugin,
         exprMap:     patch.exprMap,
         percMap:     patch.percMap || "",
+        percPlayAs:  patch.percPlayAs || {},
         hasPluginState: patch.hasPluginState,
         expectedPresetName: patch.expectedPresetName || "",
         setupComplete: patch.id === guidedCompletionId
@@ -687,7 +707,8 @@
     class="modal-backdrop"
     onkeydown={(e) => {
       if (e.key !== "Escape") return;
-      if (instrumentChooserPatchId) closeInstrumentChooser();
+      if (playAsPatchId) playAsPatchId = "";
+      else if (instrumentChooserPatchId) closeInstrumentChooser();
       else if (mapsPane) mapsPane = "";
       else closeEditor();
     }}
@@ -880,6 +901,13 @@
                     onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
                     onclear={() => setPatchPercussionMap(row.id, "")}
                   />
+                  {#if row.percMap && playAsFor(row).rows.length}
+                    {@const chosen = Object.keys(row.percPlayAs || {}).length}
+                    <button class="play-as-open" onclick={() => (playAsPatchId = row.id)}
+                      title="Which of the map's instruments a layer plays on each kind of chair">
+                      Play as{chosen ? ` (${chosen})` : "…"}
+                    </button>
+                  {/if}
                 </div>
                 <div class="ir-actions">
                   <button class="action-duplicate" onclick={() => duplicatePatch(row)}>Duplicate</button>
@@ -922,6 +950,33 @@
         {/if}
       </div>
 
+      {#if playAsPatch}
+        <div class="instrument-chooser-backdrop">
+          <div class="instrument-chooser" role="dialog" aria-labelledby="play-as-heading">
+            <div class="instrument-chooser-header">
+              <div>
+                <h2 id="play-as-heading">Play as: {playAsPatch.name}</h2>
+                <p>Which of the percussion map's instruments a layer from this patch plays, by its chair's instrument. Automatic is Dorico's choice. Layers take these when they're added or updated from the library; Layer Details can still change one.</p>
+              </div>
+              <button onclick={() => (playAsPatchId = "")}>Done</button>
+            </div>
+            <div class="instrument-results play-as-rows">
+              {#each playAsTable.rows as row (row.instrument)}
+                <label class="play-as-row">
+                  <span>{row.name}<small>{row.instrument}</small></span>
+                  <select value={row.value}
+                    onchange={(e) => setPatchPlayAs(playAsPatch.id, row.instrument, /** @type {HTMLSelectElement} */ (e.target).value)}>
+                    <option value="">{row.automaticLabel}</option>
+                    {#each playAsTable.options as option (option.value)}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/each}
+            </div>
+          </div>
+        </div>
+      {/if}
       {#if instrumentChooserPatchId}
         <div class="instrument-chooser-backdrop">
           <div class="instrument-chooser" role="dialog" aria-labelledby="instrument-chooser-heading">
@@ -1405,6 +1460,23 @@
   }
   .inst-empty p { margin: 4px 0; font-family: "Inter",sans-serif; font-size: .85rem; }
   .inst-empty-hint { font-size: .72rem; color: #2a2a5a; }
+  .play-as-open {
+    margin-top: 6px; min-height: 28px; padding: 4px 10px; border: 1px solid #4d4c78;
+    border-radius: 4px; background: #1b1a4c; color: #dcdbff;
+    font: 600 .68rem "Inter", sans-serif; cursor: pointer;
+  }
+  .play-as-open:hover { border-color: #929fff; background: #292863; }
+  .play-as-rows { padding-top: 12px; }
+  .play-as-row {
+    display: grid; grid-template-columns: 1fr minmax(220px, 1fr); align-items: center;
+    gap: 16px; padding: 9px 4px; border-bottom: 1px solid #292850;
+  }
+  .play-as-row span { display: flex; flex-direction: column; gap: 2px; color: #e9e8ff; font: 500 .8rem "Inter", sans-serif; }
+  .play-as-row small { color: #7d7ca8; font-size: .66rem; }
+  .play-as-row select {
+    min-height: 32px; padding: 5px 8px; border: 1px solid #4d4c78; border-radius: 4px;
+    background: #0c0b31; color: #f0efff; font: 500 .76rem "Inter", sans-serif;
+  }
   .instrument-chooser-backdrop {
     position: absolute; inset: 0; z-index: 300; display: flex;
     align-items: center; justify-content: center; padding: 24px;

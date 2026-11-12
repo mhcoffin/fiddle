@@ -121,13 +121,28 @@ use.
 
 - **Per layer.** It is the layer's, not the chair's or the map's. A kit's
   linked layers share their map but each keeps its own Play as.
+- **Library default, per instrument.** A library patch can't hold one Play
+  as, because one patch goes on every chair of a kit. It holds a table
+  instead: chair instrument → map instrument ("on a floor tom chair, play
+  as Tom-tom (Medium)"). A layer made from the patch, or updated from the
+  library, takes the row for its chair's instrument, or Automatic without
+  one. A layer whose Play as differs from that is out of date with the
+  library, like a layer with its own map.
+- **Library Manager.** A patch whose percussion map lists more than one
+  instrument has a "Play as" button under its map picker (with the number of
+  defaults set). It lists every Dorico instrument with one of the map's
+  sounds, with Dorico's automatic choice for each, plus any instrument
+  already set. Choosing another map keeps only the defaults it lists; the
+  server drops any others when the library is saved. The defaults are not
+  tied to kits: a floor tom on its own chair gets the same one.
 - **Layer Details** shows a Play as menu under the percussion map picker
   when there is a choice (the map lists more than one instrument, or the
   chair falls back). "Automatic" names Dorico's choice; the other options
   are the map's instruments, named from Dorico's instruments.
-- **Kept while the map lists it.** Choosing another map, a library update
-  of the map, or Update from Library keeps Play as when the new map lists
-  the instrument, and clears it otherwise. Clearing the map clears it.
+- **Kept while the map lists it.** Choosing another map or a library update
+  of the map keeps Play as when the new map lists the instrument, and clears
+  it otherwise. Clearing the map clears it. Update from Library sets it to
+  the patch's default.
 - **Undo.** Changing it is one `SetPercussionMapAction` on the project
   stack.
 
@@ -198,6 +213,10 @@ creatable and editable in Fiddle.
   - New columns `library_patches.percussion_map_id` and
     `layers.percussion_map_id`, next to `expression_map_id`.
   - `layers.percussion_play_as`: the layer's Play as instrument, or empty.
+  - `library_patches.percussion_play_as`: the patch's defaults, a flat JSON
+    object (chair instrument → map instrument) with sorted keys, or empty.
+    Layer creation and the out-of-date checks read it with `json_extract`;
+    changing it bumps the patch revision.
 - **Library patch default.** A patch can name a percussion map. A layer
   created from the patch copies it, like `expression_map_id`. The same
   layer-differs-from-patch comparison applies, and so does refresh from the

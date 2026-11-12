@@ -701,14 +701,15 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.libraryMapReferences("vsl", kind, map.entityId).size() == 2);
   CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::referenced);
 
-  // Play as belongs to the layer: stored, and kept by a library refresh.
+  // Play as is stored on the layer; one the patch doesn't set for this
+  // chair differs from the library.
   {
     auto playing = *repository.getLayer("snare-layer");
     CHECK(playing.percussionPlayAs.empty());
     playing.percussionPlayAs = "instrument.orchestral.unpitched.side.drum";
     CHECK(repository.upsertLayer(playing));
     CHECK(repository.getLayer("snare-layer")->percussionPlayAs == playing.percussionPlayAs);
-    CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+    CHECK(repository.outOfDateLayerCount(patch.id) == 1);
     CHECK(repository.updateLayerSetups({playing}));
     CHECK(repository.getLayer("snare-layer")->percussionPlayAs == playing.percussionPlayAs);
     playing.percussionPlayAs.clear();
@@ -734,6 +735,62 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::notFound);
 }
 
+void testPatchPlayAsDefaults() {
+  // The stored form: sorted, flat JSON that json_extract reads.
+  const std::map<std::string, std::string> table{
+      {"instrument.band.unpitched.floortom.low", "instrument.band.unpitched.tomtom.medium.alias.tom-medium"},
+      {"instrument.band.unpitched.floortom.high", "instrument.band.unpitched.tomtom.low.alias.tom-low"}};
+  const auto encoded = fiddle::encodePercussionPlayAs(table);
+  CHECK(encoded.rfind("{\"instrument.band.unpitched.floortom.high\":", 0) == 0);
+  CHECK(fiddle::decodePercussionPlayAs(encoded) == table);
+  CHECK(fiddle::encodePercussionPlayAs({}).empty());
+  CHECK(fiddle::decodePercussionPlayAs("").empty());
+  CHECK(fiddle::decodePercussionPlayAs("{\"a\":").empty());
+  CHECK((fiddle::decodePercussionPlayAs(R"({"a\"b":"c"})") == std::map<std::string, std::string>{{"a\"b", "c"}}));
+
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  auto patch = soloViolinPatch();
+  patch.id = "concert-toms";
+  patch.name = "Concert Toms";
+  patch.instrumentEntityId = "instrument.band.unpitched.tomtom.low";
+  patch.percussionMapId = "vsl.toms";
+  patch.percussionPlayAs = table;
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->percussionPlayAs == table);
+  const int revision = repository.getPatch(patch.id)->revision;
+
+  // A layer takes the default for its chair's instrument, or none.
+  auto floor = makeChair("floor", fiddle::DoricoRole::solo, 1, 1);
+  floor.instrumentEntityId = "instrument.band.unpitched.floortom.high";
+  auto low = makeChair("low", fiddle::DoricoRole::solo, 1, 2);
+  low.instrumentEntityId = "instrument.band.unpitched.tomtom.low";
+  CHECK(repository.upsertChair(floor));
+  CHECK(repository.upsertChair(low));
+  CHECK(repository.createLayerFromPatch("floor-layer", floor.id, patch.id, 0));
+  CHECK(repository.createLayerFromPatch("low-layer", low.id, patch.id, 0));
+  CHECK(repository.getLayer("floor-layer")->percussionPlayAs == table.at(floor.instrumentEntityId));
+  CHECK(repository.getLayer("low-layer")->percussionPlayAs.empty());
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  // A layer's own choice differs from its patch until refreshed.
+  auto layer = *repository.getLayer("low-layer");
+  layer.percussionPlayAs = "instrument.band.unpitched.tomtom.medium.alias.tom-medium";
+  CHECK(repository.updateLayerSetups({layer}));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 1);
+  CHECK(repository.outOfDateLayerIds() == std::vector<std::string>{"low-layer"});
+  layer.percussionPlayAs.clear();
+  CHECK(repository.updateLayerSetups({layer}));
+  CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+
+  // Changing the defaults is a library change; saving the same ones isn't.
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->revision == revision);
+  patch.percussionPlayAs.erase("instrument.band.unpitched.floortom.low");
+  CHECK(repository.upsertPatch(patch));
+  CHECK(repository.getPatch(patch.id)->revision == revision + 1);
+}
+
 int main() {
   std::cout << "===== Library Routing Repository Tests =====\n";
   testExpressionMapReferencesAreReadOnlyMetadata();
@@ -752,6 +809,7 @@ int main() {
   testHistoricalTopologyRestoresMissingCatalogReference();
   testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
   testPercussionMapsAreStoredReferencedAndCopiedToLayers();
+  testPatchPlayAsDefaults();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

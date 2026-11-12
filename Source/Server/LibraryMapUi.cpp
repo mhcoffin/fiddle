@@ -533,6 +533,7 @@ void MainComponent::setupLibraryMapHandlers() {
               std::make_unique<SetPercussionMapAction>(mixer_, stripId, std::move(before), std::move(after)))) {
         saveAllStripsToDB(false);
         pushMixerState();
+        pushLibraryLayerStatus();
         scheduleStateRebuild();
       }
     });

@@ -4,7 +4,7 @@ import test from "node:test";
 import {
     coversInstrument, duplicatePercussionMap, filterPercussionEntries, formatTechniques, instrumentLabel, isUnpitchedInstrument,
     newPercussionMap, newPercussionMapId, parseKeyswitches, parseTechniques, pitchName, sortForInstrument,
-    playAsChoices, validatePercussionMap,
+    keepPlayAsDefaults, mapInstrumentsInOrder, playAsChoices, playAsDefaults, setPlayAsDefault, validatePercussionMap,
 } from "../src/lib/percussionMaps.js";
 import { percussionState } from "../src/lib/noteInspection.js";
 
@@ -137,4 +137,43 @@ test("the inspector names the instrument a note played as", () => {
         playedAs: "instrument.band.unpitched.tomtom.low.alias.tom-low",
     } });
     assert.match(state.label, /\(as tomtom low · tom-low\)$/);
+});
+
+test("a patch's Play as defaults list the instruments of the map's sound", () => {
+    const low = "instrument.band.unpitched.tomtom.low.alias.tom-low";
+    const medium = "instrument.band.unpitched.tomtom.medium.alias.tom-medium";
+    const map = { entityId: "vsl.toms", map: { entries: [
+        { instrument: low, techniques: ["pt.natural"], pitch: 36 },
+        { instrument: low, techniques: ["pt.rim"], pitch: 37 },
+        { instrument: medium, techniques: ["pt.natural"], pitch: 72 },
+    ] } };
+    const instruments = [
+        { entityID: "instrument.band.unpitched.tomtom.low", name: "Tom-tom", musicXMLSoundID: "drum.tom-tom" },
+        { entityID: "instrument.band.unpitched.tomtom.medium", name: "Tom-tom", musicXMLSoundID: "drum.tom-tom" },
+        { entityID: "instrument.band.unpitched.floortom.high", name: "Floor tom", musicXMLSoundID: "drum.tom-tom" },
+        { entityID: "instrument.band.unpitched.floortom.low", name: "Floor tom", musicXMLSoundID: "drum.tom-tom" },
+        { entityID: "instrument.orchestral.unpitched.snare.drum", name: "Snare Drum", musicXMLSoundID: "drum.snare-drum" },
+    ];
+    assert.deepEqual(mapInstrumentsInOrder(map), [low, medium]);
+    const table = playAsDefaults(map, instruments, { "instrument.band.unpitched.floortom.high": medium });
+    assert.deepEqual(table.options.map((option) => option.label), ["Tom-tom (Low)", "Tom-tom (Medium)"]);
+    assert.deepEqual(table.rows.map((row) => [row.name, row.automaticLabel, row.value]), [
+        ["Floor tom (High)", "Automatic: Tom-tom (Low)", medium],
+        ["Floor tom (Low)", "Automatic: Tom-tom (Low)", ""],
+        ["Tom-tom (Low)", "Automatic: Tom-tom (Low)", ""],
+        ["Tom-tom (Medium)", "Automatic: Tom-tom (Medium)", ""],
+    ]);
+    // Nothing to choose with a single-instrument map.
+    assert.deepEqual(playAsDefaults({ map: { entries: [{ instrument: low }] } }, instruments).rows, []);
+
+    const set = setPlayAsDefault({}, "instrument.band.unpitched.floortom.low", low);
+    assert.deepEqual(set, { "instrument.band.unpitched.floortom.low": low });
+    assert.deepEqual(setPlayAsDefault(set, "instrument.band.unpitched.floortom.low", ""), {});
+    // A new map keeps only defaults it lists.
+    assert.deepEqual(keepPlayAsDefaults({ a: low, b: "instrument.gone" }, map), { a: low });
+});
+
+test("Library Manager saves each patch's Play as defaults", () => {
+    const manager = readFileSync(new URL("../src/lib/LibraryManager.svelte", import.meta.url), "utf8");
+    assert.match(manager, /percPlayAs:\s+patch\.percPlayAs \|\| \{\}/);
 });

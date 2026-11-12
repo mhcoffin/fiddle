@@ -32,6 +32,7 @@ public:
           a.family != b.family || a.character != b.character || a.pluginUid != b.pluginUid ||
           a.pluginState != b.pluginState || a.expressionMapId != b.expressionMapId ||
           a.percussionMapId != b.percussionMapId ||
+          a.percussionPlayAs != b.percussionPlayAs ||
           a.expectedPresetName != b.expectedPresetName ||
           a.setupComplete != b.setupComplete) return false;
     }

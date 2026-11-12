@@ -154,7 +154,8 @@ library patch are linked (`kitLinkedLayers` in C++, `linkedKitLayers` in
 - **Play as** stays per chair. A chair the shared map doesn't list plays as
   the map's first instrument with its sound, as Dorico does (VSL's toms play
   a Tom-toms kit's floor tom on the low tom-tom's drum); Play as in Layer
-  Details picks another ([library percussion maps](library-percussion-maps.md),
+  Details picks another, and the library patch can set a default for each
+  instrument ([library percussion maps](library-percussion-maps.md),
   "Play as").
 - **Update from Library** refreshes all of them.
 - **Delete** removes all of them as one step; Layer Details also offers

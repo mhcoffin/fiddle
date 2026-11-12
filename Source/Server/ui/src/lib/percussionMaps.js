@@ -173,3 +173,61 @@ export function playAsChoices(strip, instruments = []) {
         options: [{ value: "", label: automaticLabel }, ...ids.map((id) => ({ value: id, label: nameOf(id) }))],
     };
 }
+
+/** A percussion map's instruments in entry order, each once (what a layer can play as). */
+export function mapInstrumentsInOrder(map) {
+    const entries = map?.map?.entries || map?.entries || [];
+    return [...new Set(entries.map((entry) => entry.instrument).filter(Boolean))];
+}
+
+/**
+ * A library patch's Play as defaults (docs/library-percussion-maps.md): one
+ * row per Dorico instrument that shares a sound with the map's instruments
+ * (and any instrument already given a default), with Dorico's automatic
+ * choice for it. options are the map's instruments. Empty for a map with
+ * one instrument, where there's nothing to choose.
+ */
+export function playAsDefaults(map, instruments = [], defaults = {}) {
+    const ids = mapInstrumentsInOrder(map);
+    if (ids.length < 2) return { options: [], rows: [] };
+    const byId = new Map((instruments || []).map((instrument) => [instrument.entityID, instrument]));
+    const soundOf = (id) => byId.get(id)?.musicXMLSoundID || byId.get(canonicalInstrument(id))?.musicXMLSoundID || "";
+    const sounds = new Set(ids.map(soundOf).filter(Boolean));
+    const chairIds = (instruments || [])
+        .filter((instrument) => sounds.has(instrument.musicXMLSoundID) && !instrument.entityID.includes(".alias."))
+        .map((instrument) => instrument.entityID);
+    for (const id of Object.keys(defaults || {})) if (!chairIds.includes(id)) chairIds.push(id);
+    const chairNames = kitChairNames(chairIds, instruments);
+    const mapNames = kitChairNames(ids.map(canonicalInstrument), instruments);
+    const options = ids.map((id, index) => ({ value: id, label: mapNames[index] }));
+    const labelOf = (id) => options.find((option) => option.value === id)?.label || "";
+    // Dorico's rule, as PercussionMap::instrumentFor (without Play as).
+    const automaticFor = (chair) => ids.find((id) => id === chair)
+        || ids.find((id) => canonicalInstrument(id) === canonicalInstrument(chair))
+        || (soundOf(chair) && ids.find((id) => soundOf(id) === soundOf(chair)))
+        || "";
+    const rows = chairIds.map((instrument, index) => {
+        const automatic = automaticFor(instrument);
+        return {
+            instrument,
+            name: chairNames[index],
+            automaticLabel: automatic ? `Automatic: ${labelOf(automatic)}` : "Automatic: none",
+            value: ids.includes(defaults?.[instrument]) ? defaults[instrument] : "",
+        };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    return { options, rows };
+}
+
+/** A patch's Play as defaults with one instrument changed ("" removes it). */
+export function setPlayAsDefault(defaults, instrument, mapInstrument) {
+    const next = { ...(defaults || {}) };
+    if (mapInstrument) next[instrument] = mapInstrument;
+    else delete next[instrument];
+    return next;
+}
+
+/** Defaults a newly chosen map still lists. */
+export function keepPlayAsDefaults(defaults, map) {
+    const ids = mapInstrumentsInOrder(map);
+    return Object.fromEntries(Object.entries(defaults || {}).filter(([, value]) => ids.includes(value)));
+}

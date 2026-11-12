@@ -5464,6 +5464,20 @@ void MainComponent::setupJsHandlers() {
           patch.expectedPresetName = patchObj->getProperty("expectedPresetName")
                                          .toString()
                                          .toStdString();
+          // Play as defaults, kept only for instruments the map lists.
+          if (const auto *playAs = patchObj->getProperty("percPlayAs").getDynamicObject();
+              playAs && !patch.percussionMapId.empty())
+            if (auto *repository = db_.getLibraryRoutingRepository())
+              if (const auto row = repository->getLibraryMap(patch.libraryId, LibraryMapKind::percussion,
+                                                             patch.percussionMapId))
+                if (const auto map = compilePercussionMap(juce::String::fromUTF8(row->xml.c_str()))) {
+                  const auto listed = map->instrumentsInOrder();
+                  for (const auto &property : playAs->getProperties()) {
+                    const auto mapInstrument = property.value.toString().toStdString();
+                    if (std::find(listed.begin(), listed.end(), mapInstrument) != listed.end())
+                      patch.percussionPlayAs[property.name.toString().toStdString()] = mapInstrument;
+                  }
+                }
           patch.setupComplete =
               !patchObj->hasProperty("setupComplete") ||
               (bool)patchObj->getProperty("setupComplete");
@@ -5649,6 +5663,10 @@ void MainComponent::setupJsHandlers() {
                                 juce::String(patch.percussionMapId));
           patchObj->setProperty("expectedPresetName",
                                 juce::String(patch.expectedPresetName));
+          auto *playAs = new juce::DynamicObject();
+          for (const auto &[instrument, mapInstrument] : patch.percussionPlayAs)
+            playAs->setProperty(juce::Identifier(juce::String(instrument)), juce::String(mapInstrument));
+          patchObj->setProperty("percPlayAs", juce::var(playAs));
           patchObj->setProperty("setupComplete", patch.setupComplete);
           patchObj->setProperty("pluginUid", patch.pluginUid);
           patchObj->setProperty("hasPluginState", !patch.pluginState.empty());
@@ -6157,7 +6175,10 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
     // Bypass is a layer control, not a library default.
     if (auto *strip = mixer_.getStrip(juce::String(layer.id))) {
       target.instrument.bypassed = strip->isPluginBypassed();
-      target.percussionMap = keepingPlayAs(std::move(target.percussionMap), strip->percussionPlayAs);
+      // Play as comes from the patch's default for this chair's instrument.
+      const auto preset = patch.percussionPlayAs.find(strip->instrumentEntityId.toStdString());
+      target.percussionMap = keepingPlayAs(std::move(target.percussionMap),
+                                           preset == patch.percussionPlayAs.end() ? std::string{} : preset->second);
       target.row.percussionPlayAs = target.percussionMap.playAs;
     }
     targets.push_back(std::move(target));

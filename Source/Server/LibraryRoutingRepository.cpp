@@ -1,5 +1,6 @@
 #include "LibraryRoutingRepository.h"
 
+#include <cctype>
 #include <iostream>
 #include <set>
 #include <utility>
@@ -166,6 +167,82 @@ std::vector<std::uint8_t> columnBlob(sqlite3_stmt *statement, int column) {
   return {data, data + size};
 }
 
+} // namespace
+
+namespace {
+void appendJsonString(std::string &out, const std::string &text) {
+  out += '"';
+  for (const char c : text) {
+    if (c == '"' || c == '\\') out += '\\';
+    out += c;
+  }
+  out += '"';
+}
+
+// Reads a JSON string at text[at] (after its opening quote); false if malformed.
+bool readJsonString(const std::string &text, std::size_t &at, std::string &out) {
+  for (; at < text.size(); ++at) {
+    const char c = text[at];
+    if (c == '"') {
+      ++at;
+      return true;
+    }
+    if (c == '\\') {
+      if (++at >= text.size()) return false;
+      out += text[at];
+    } else {
+      out += c;
+    }
+  }
+  return false;
+}
+} // namespace
+
+std::string encodePercussionPlayAs(const std::map<std::string, std::string> &playAs) {
+  // A flat JSON object with sorted keys and no spaces, so equal tables are
+  // equal strings (the revision and out-of-date checks compare them) and
+  // SQLite's json_extract can read it.
+  std::string out;
+  for (const auto &[instrument, mapInstrument] : playAs) {
+    if (instrument.empty() || mapInstrument.empty()) continue;
+    out += out.empty() ? "{" : ",";
+    appendJsonString(out, instrument);
+    out += ':';
+    appendJsonString(out, mapInstrument);
+  }
+  return out.empty() ? out : out + "}";
+}
+
+std::map<std::string, std::string> decodePercussionPlayAs(const std::string &text) {
+  std::map<std::string, std::string> result;
+  std::size_t at = 0;
+  const auto skip = [&] {
+    while (at < text.size() && std::isspace(static_cast<unsigned char>(text[at]))) ++at;
+  };
+  skip();
+  if (at >= text.size() || text[at++] != '{') return {};
+  while (true) {
+    skip();
+    if (at < text.size() && text[at] == '}') return result;
+    std::string key, value;
+    if (at >= text.size() || text[at++] != '"' || !readJsonString(text, at, key)) return {};
+    skip();
+    if (at >= text.size() || text[at++] != ':') return {};
+    skip();
+    if (at >= text.size() || text[at++] != '"' || !readJsonString(text, at, value)) return {};
+    if (!key.empty() && !value.empty()) result[key] = value;
+    skip();
+    if (at < text.size() && text[at] == ',') {
+      ++at;
+      continue;
+    }
+    if (at < text.size() && text[at] == '}') return result;
+    return {};
+  }
+}
+
+namespace {
+
 LibraryPatchRow readPatch(sqlite3_stmt *statement) {
   LibraryPatchRow patch;
   patch.id = columnText(statement, 0);
@@ -182,6 +259,7 @@ LibraryPatchRow readPatch(sqlite3_stmt *statement) {
   patch.setupComplete = sqlite3_column_int(statement, 11) != 0;
   patch.revision = sqlite3_column_int(statement, 12);
   patch.percussionMapId = columnText(statement, 13);
+  patch.percussionPlayAs = decodePercussionPlayAs(columnText(statement, 14));
   return patch;
 }
 
@@ -227,7 +305,8 @@ LayerRow readLayer(sqlite3_stmt *statement) {
 constexpr const char *kPatchColumns =
     "id, library_id, position, name, instrument_entity_id, family, "
     "character, plugin_uid, plugin_state, expression_map_id, "
-    "expected_preset_name, setup_complete, revision, percussion_map_id";
+    "expected_preset_name, setup_complete, revision, percussion_map_id, "
+    "percussion_play_as";
 constexpr const char *kChairColumns =
     "id, instrument_entity_id, name, family, dorico_role, ordinal, "
     "display_order, flat_index, kit_id, kit_name";
@@ -347,6 +426,8 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
                     "percussion_map_id TEXT NOT NULL DEFAULT ''") ||
       !ensureColumn(database, "layers", "percussion_map_id",
                     "percussion_map_id TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "library_patches", "percussion_play_as",
+                    "percussion_play_as TEXT NOT NULL DEFAULT ''") ||
       !ensureColumn(database, "layers", "percussion_play_as",
                     "percussion_play_as TEXT NOT NULL DEFAULT ''") ||
       !execute(database, R"(
@@ -434,8 +515,9 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
        character, plugin_uid, plugin_state, expression_map_id,
-       expected_preset_name, setup_complete, percussion_map_id, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+       expected_preset_name, setup_complete, percussion_map_id,
+       percussion_play_as, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -449,7 +531,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
         library_patches.expression_map_id <> excluded.expression_map_id OR
-        library_patches.percussion_map_id <> excluded.percussion_map_id
+        library_patches.percussion_map_id <> excluded.percussion_map_id OR
+        library_patches.percussion_play_as <> excluded.percussion_play_as
         THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       library_id = excluded.library_id,
@@ -463,7 +546,8 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
       expression_map_id = excluded.expression_map_id,
       expected_preset_name = excluded.expected_preset_name,
       setup_complete = excluded.setup_complete,
-      percussion_map_id = excluded.percussion_map_id
+      percussion_map_id = excluded.percussion_map_id,
+      percussion_play_as = excluded.percussion_play_as
   )");
   if (!statement)
     return false;
@@ -480,6 +564,7 @@ bool LibraryRoutingRepository::upsertPatch(const LibraryPatchRow &patch) {
   bindText(statement.get(), 11, patch.expectedPresetName);
   sqlite3_bind_int(statement.get(), 12, patch.setupComplete ? 1 : 0);
   bindText(statement.get(), 13, patch.percussionMapId);
+  bindText(statement.get(), 14, encodePercussionPlayAs(patch.percussionPlayAs));
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -735,6 +820,7 @@ int LibraryRoutingRepository::outOfDateLayerCount(
     FROM layers layer
     JOIN library_patches patch ON patch.id = layer.patch_id
     LEFT JOIN libraries library ON library.id = patch.library_id
+    LEFT JOIN chairs chair ON chair.id = layer.chair_id
     WHERE patch.id = ? AND (
       layer.patch_name <> patch.name OR
       layer.library_id <> patch.library_id OR
@@ -742,6 +828,8 @@ int LibraryRoutingRepository::outOfDateLayerCount(
       layer.plugin_uid <> patch.plugin_uid OR
       layer.expression_map_id <> patch.expression_map_id OR
       layer.percussion_map_id <> patch.percussion_map_id OR
+      layer.percussion_play_as <> COALESCE(CASE WHEN json_valid(patch.percussion_play_as)
+          THEN json_extract(patch.percussion_play_as, '$."' || chair.instrument_entity_id || '"') END, '') OR
       layer.source_patch_revision <> patch.revision OR
       layer.plugin_state_edited <> 0
     )
@@ -762,6 +850,7 @@ LibraryRoutingRepository::outOfDateLayerIds() const {
     FROM layers layer
     JOIN library_patches patch ON patch.id = layer.patch_id
     LEFT JOIN libraries library ON library.id = patch.library_id
+    LEFT JOIN chairs chair ON chair.id = layer.chair_id
     WHERE
       layer.patch_name <> patch.name OR
       layer.library_id <> patch.library_id OR
@@ -769,6 +858,8 @@ LibraryRoutingRepository::outOfDateLayerIds() const {
       layer.plugin_uid <> patch.plugin_uid OR
       layer.expression_map_id <> patch.expression_map_id OR
       layer.percussion_map_id <> patch.percussion_map_id OR
+      layer.percussion_play_as <> COALESCE(CASE WHEN json_valid(patch.percussion_play_as)
+          THEN json_extract(patch.percussion_play_as, '$."' || chair.instrument_entity_id || '"') END, '') OR
       layer.source_patch_revision <> patch.revision OR
       layer.plugin_state_edited <> 0
     ORDER BY layer.id
@@ -910,8 +1001,9 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
     INSERT INTO library_patches
       (id, library_id, position, name, instrument_entity_id, family,
        character, plugin_uid, plugin_state, expression_map_id,
-       expected_preset_name, setup_complete, percussion_map_id, revision)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+       expected_preset_name, setup_complete, percussion_map_id,
+       percussion_play_as, revision)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
       COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = ?1), 0) + 1)
     ON CONFLICT(id) DO UPDATE SET
       revision = CASE WHEN
@@ -924,7 +1016,8 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
         COALESCE(library_patches.plugin_state, X'') <>
           COALESCE(excluded.plugin_state, X'') OR
         library_patches.expression_map_id <> excluded.expression_map_id OR
-        library_patches.percussion_map_id <> excluded.percussion_map_id
+        library_patches.percussion_map_id <> excluded.percussion_map_id OR
+        library_patches.percussion_play_as <> excluded.percussion_play_as
         THEN MAX(library_patches.revision, COALESCE((SELECT revision FROM library_patch_revisions WHERE patch_id = excluded.id), 0)) + 1
         ELSE library_patches.revision END,
       position = excluded.position,
@@ -937,7 +1030,8 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
       expression_map_id = excluded.expression_map_id,
       expected_preset_name = excluded.expected_preset_name,
       setup_complete = excluded.setup_complete,
-      percussion_map_id = excluded.percussion_map_id
+      percussion_map_id = excluded.percussion_map_id,
+      percussion_play_as = excluded.percussion_play_as
   )");
   Statement remove(database_, "DELETE FROM library_patches WHERE id = ?");
   bool succeeded = upsert && remove;
@@ -960,6 +1054,7 @@ PatchReplaceResult LibraryRoutingRepository::replaceLibraryPatchesUnlocked(
     bindText(upsert.get(), 11, patch.expectedPresetName);
     sqlite3_bind_int(upsert.get(), 12, patch.setupComplete ? 1 : 0);
     bindText(upsert.get(), 13, patch.percussionMapId);
+    bindText(upsert.get(), 14, encodePercussionPlayAs(patch.percussionPlayAs));
     succeeded = sqlite3_step(upsert.get()) == SQLITE_DONE;
     if (!succeeded)
       std::cerr << "[LibraryRoutingRepository] Could not save patch '"
@@ -1542,13 +1637,16 @@ bool LibraryRoutingRepository::createLayerFromPatch(
     INSERT INTO layers
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        plugin_uid, plugin_state, expression_map_id, source_patch_revision,
-       plugin_state_edited, percussion_map_id)
-    SELECT ?, ?, p.id, p.name, p.library_id, COALESCE(l.name, ''), ?,
+       plugin_state_edited, percussion_map_id, percussion_play_as)
+    SELECT ?1, ?2, p.id, p.name, p.library_id, COALESCE(l.name, ''), ?3,
            p.plugin_uid, p.plugin_state, p.expression_map_id, p.revision, 0,
-           p.percussion_map_id
+           p.percussion_map_id,
+           COALESCE(CASE WHEN json_valid(p.percussion_play_as)
+             THEN json_extract(p.percussion_play_as,
+                               '$."' || (SELECT instrument_entity_id FROM chairs WHERE id = ?2) || '"') END, '')
     FROM library_patches p
     LEFT JOIN libraries l ON l.id = p.library_id
-    WHERE p.id = ?
+    WHERE p.id = ?4
   )");
   if (!statement)
     return false;
