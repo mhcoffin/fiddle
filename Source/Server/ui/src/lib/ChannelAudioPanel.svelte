@@ -54,9 +54,6 @@
                     <h3>Instrument</h3>
                     <p>{instrumentName || "No VST instrument assigned"}</p>
                 </div>
-                {#if strip.hasPlugin}
-                    <button onclick={() => dispatchCpp("showStripEditor", strip.id)}>Edit instrument</button>
-                {/if}
             </section>
 
             {#each sections as section (section.key)}
