@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Generate the fretted-instruments bridge map, allocation and PT inventory.
+
+No installation or playback mutation. --check is strictly read-only.
+"""
+import argparse
+from pathlib import Path
+
+from profiles import REVISIONS, engine
+
+HERE = Path(__file__).resolve().parent
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    for spec in REVISIONS:
+        destination = HERE / f"fretted-r{spec.REVISION}"
+        outputs = engine.build(spec)
+        if not args.check:
+            destination.mkdir(exist_ok=True)
+        for name, content in outputs.items():
+            path = destination / name
+            if args.check:
+                if not path.exists() or path.read_bytes() != content:
+                    raise SystemExit(f"Stale/missing generated artifact: {path}")
+            else:
+                path.write_bytes(content)
+        print(("Checked" if args.check else "Generated")
+              + f" fretted r{spec.REVISION}: {len(outputs)} artifacts")
+
+
+if __name__ == "__main__":
+    main()

@@ -1075,7 +1075,7 @@ try {
     const chairPage = await openTool("chairs");
     await chairPage.evaluate(chairs => { window.fixtureChairs = chairs; }, await page.evaluate(() => window.fixtureChairs));
     const manager = chairPage.getByRole("dialog", { name: "Chair Manager", exact: true });
-    assert.match(await manager.innerText(), /Installing gives each orchestral chair its section’s bridge map/);
+    assert.match(await manager.innerText(), /Installing gives each orchestral or fretted chair its section’s bridge map/);
     await chairPage.evaluate(() => {
         window.__dispatchFromCpp({ type: "setChairState", data: window.fixtureChairs });
         window.__dispatchFromCpp({ type: "setUndoState", data: {

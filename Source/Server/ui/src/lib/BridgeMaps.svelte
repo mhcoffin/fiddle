@@ -9,7 +9,7 @@
 
 <details class="bridges" aria-label="Bridge maps" open={outdated.length > 0 || undefined}>
   <summary>Bridge maps</summary>
-  <p>Installing the playback template gives each strings, woodwind, brass and pitched-percussion chair its section’s bridge map; every other chair keeps the universal Fiddle map. The maps are saved with this version. When playback starts, each chair below reports whether Dorico has the map version Fiddle installed.</p>
+  <p>Installing the playback template gives each strings, woodwind, brass, pitched- or unpitched-percussion and fretted chair its section’s bridge map; every other chair keeps the universal Fiddle map. The maps are saved with this version. When playback starts, each chair below reports whether Dorico has the map version Fiddle installed.</p>
   {#if bridgeState.error}<p class="error" role="alert">{bridgeState.error}</p>{/if}
   {#if outdated.length}
     <div class="notice" role="status">

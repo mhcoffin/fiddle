@@ -20,7 +20,10 @@ instrument, so the expression map carries every technique as in the other
 sections. Template installation assigns each chair its section's map from the
 Dorico instrument, pins the five revisions with the branch/version, and leaves
 every other instrument on the universal map. There is no manual assignment
-step; see [bridge maps](bridge-map-authoring.md).
+step; see [bridge maps](bridge-map-authoring.md). A sixth, non-orchestral
+section followed on 2026-11-11: [Fretted r1](../experiments/fretted-bridge/README.md)
+for guitars, basses, lutes and Dorico's other fretted instruments (not yet
+host-verified).
 
 ## Wire schema 2 (2026-10-19)
 
@@ -92,7 +95,9 @@ See [scope decisions and evidence](../experiments/orchestral-strings-bridge/r3/c
 [current allocation](../experiments/orchestral-strings-bridge/r3/allocation.md),
 and the [full 298-ID disposition](../experiments/orchestral-strings-bridge/r3/inventory.md).
 
-A guitar bridge is planned for a later phase. Customization affordances will
+A guitar bridge followed on 2026-11-11: [Fretted r1](../experiments/fretted-bridge/README.md)
+covers every Dorico fretted instrument (guitars, basses, lutes, banjo,
+mandolin, ukulele, folk instruments) and picks up the guitar PTs deferred here. Customization affordances will
 allow profile-specific additions when needed; speculative extensions need not
 consume a default strings conduit now. R3 has a new map/group identity and
 compact allocation. Its 25 base rows and retained cancellation/grouping semantics

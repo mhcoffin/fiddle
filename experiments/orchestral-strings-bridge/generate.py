@@ -308,6 +308,9 @@ def build(spec=legacy_profile):
     section = getattr(spec, "SECTION", "Strings")
     label = getattr(spec, "LABEL", "Bowed orchestral strings")
     title = getattr(spec, "TITLE", "Orchestral strings")
+    # Names: Fiddle-<prefix>-<section>-rN.doricolib and ptmg.user.Fiddle.<prefix><section>.rN.*;
+    # the non-orchestral sections (fretted) leave the prefix out.
+    prefix = getattr(spec, "PREFIX", "Orchestral")
     source = ET.parse(BASE_SOURCE).find(".//ExpressionMapDefinition")
     source_bases = source.findall("playingTechniqueCombinations/playingTechniqueCombination")
     if len(source_bases) != 25:
@@ -403,7 +406,7 @@ def build(spec=legacy_profile):
     group_specs.extend(getattr(spec, "EXTRA_MUTEX_GROUPS", []))
     for key, pts in group_specs:
         group = sub(groups, "mutualExclusionGroup")
-        sub(group, "groupID", f"ptmg.user.Fiddle.Orchestral{section}.r{spec.REVISION}.{key}")
+        sub(group, "groupID", f"ptmg.user.Fiddle.{prefix}{section}.r{spec.REVISION}.{key}")
         sub(group, "name", section + ": " + key.replace("_", " "))
         sub(group, "techniqueIDs", ", ".join(pts))
     overrides = sub(definition, "playbackOptionsOverrides", array="true")
@@ -439,7 +442,7 @@ def build(spec=legacy_profile):
     if percussion:
         counts["percussion_entry_ids"] = len(pitch_codes(spec))
         manifest.update(percussion=percussion)
-    return {f"Fiddle-Orchestral-{section}-r{spec.REVISION}.doricolib": xml,
+    return {f"Fiddle-{prefix}-{section}-r{spec.REVISION}.doricolib" if prefix else f"Fiddle-{section}-r{spec.REVISION}.doricolib": xml,
             "allocation.json": (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode(),
             "allocation.md": allocation_markdown(manifest, catalog).encode(),
             "inventory.md": inventory_markdown(catalog, owners, spec).encode()}

@@ -257,7 +257,7 @@
                 <div>
                     <h3>Dorico chairs</h3>
                     <p>{chairs.length} {chairs.length === 1 ? "destination" : "destinations"}</p>
-                    <p>Installing gives each orchestral chair its section’s bridge map. Restart Dorico and apply the Fiddle playback template after installation.</p>
+                    <p>Installing gives each orchestral or fretted chair its section’s bridge map. Restart Dorico and apply the Fiddle playback template after installation.</p>
                 </div>
                 <button class="primary" onclick={openAdd}>Add Chair</button>
             </div>

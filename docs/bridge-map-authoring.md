@@ -1,12 +1,13 @@
 # Bridge maps: section profiles, installation and project history
 
-**Workflow (2026-10-20).** Fiddle has one bridge map per orchestral section:
-strings r5, woodwinds r3, brass r3 and pitched percussion r2 (all wire schema 2,
+**Workflow (2026-10-20).** Fiddle has one bridge map per section:
+strings r5, woodwinds r3, brass r3, pitched percussion r2, unpitched
+percussion r4 and, since 2026-11-11, fretted instruments r1 (all wire schema 2,
 with Dorico's note durations pinned to written length; see
 [What reaches instruments](#what-reaches-instruments)).
 **Chairs → Install Playback Template** chooses the map for every chair from its
 Dorico instrument (`BridgeSections.h`), writes the maps into the Fiddle playback
-template, and pins the four revisions with the project's branch/version. Every
+template, and pins the section revisions with the project's branch/version. Every
 other chair keeps the universal Fiddle map. Users do not assign ports, channels
 or maps. A branch keeps the revisions it pinned even when the app ships newer
 built-ins; editing a map is future editor work.

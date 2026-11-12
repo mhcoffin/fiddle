@@ -27,8 +27,10 @@ documented elsewhere; this list records the remaining work and intended order.
   is the current candidate: 32 add-on dimensions + one base, 33/52 conduits,
   19 spare, 87 add-on switches and 91 distinct encoded PT IDs. Nineteen fringe
   PTs are deferred with explicit reasons; genuine string pizzicato variants
-  remain. Historical r2 allocations/captures are frozen. A guitar bridge and
-  a structured bridge editor are later work. Source-derived decoding and advanced
+  remain. Historical r2 allocations/captures are frozen. A structured bridge
+  editor is later work; the guitar bridge is
+  [Fretted r1](../experiments/fretted-bridge/README.md) (2026-11-11, not yet
+  host-verified). Source-derived decoding and advanced
   XML revision editing are implemented; r3 host acceptance is pending.
   **Woodwinds/brass (2026-10-16):** [r1 candidates](../experiments/orchestral-winds-bridge/README.md)
   are generated with complete inventories and allocation tables. Woodwinds:

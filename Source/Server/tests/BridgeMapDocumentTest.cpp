@@ -452,7 +452,7 @@ void tests() {
   schemaTwo();
   writtenDurations();
   percussion();
-  const auto section = [](const char *id) { return bridgeSectionForInstrument(id); };
+  const auto section = [](const juce::String &id) { return bridgeSectionForInstrument(id); };
   CHECK(section("instrument.strings.violin") == BridgeSection::Strings);
   CHECK(section("instrument.strings.violoncello") == BridgeSection::Strings);
   CHECK(section("instrument.strings.viol.bass") == BridgeSection::None); // not viola
@@ -487,11 +487,23 @@ void tests() {
   CHECK(section("instrument.body.hand.claps") == BridgeSection::UnpitchedPercussion);
   CHECK(section("instrument.generic.singlelinepercussion") == BridgeSection::None);
   CHECK(section("instrument.percussion.other.slashes-with-stems") == BridgeSection::None);
+  // Fretted r1: every instrument.fretted.* entity, tunings and aliases too,
+  // and the guitarrón (UTF-8 in Dorico's ID). Other plucked instruments don't.
+  CHECK(section("instrument.fretted.classical-guitar") == BridgeSection::Fretted);
+  CHECK(section("instrument.fretted.electric-guitar.dropped-d") == BridgeSection::Fretted);
+  CHECK(section("instrument.fretted.5-string-bass-guitar.alias.5-string-bass") == BridgeSection::Fretted);
+  CHECK(section("instrument.fretted.14-course-baroque-theorbo") == BridgeSection::Fretted);
+  CHECK(section(juce::CharPointer_UTF8("instrument.strings.guitarr\xc3\xb3n")) == BridgeSection::Fretted);
+  CHECK(section("instrument.strings.guitarron") == BridgeSection::None);
+  CHECK(section("instrument.frettedx") == BridgeSection::None); // not a stem
+  CHECK(section("instrument.strings.oud") == BridgeSection::None);
+  CHECK(section("instrument.pitchedpercussion.harp") == BridgeSection::None);
   for (const auto &info : bridgeSections()) {
     const auto dir = std::string(info.section == BridgeSection::Strings ? "experiments/orchestral-strings-bridge/r5/"
         : info.section == BridgeSection::Woodwinds ? "experiments/orchestral-winds-bridge/woodwinds-r3/"
         : info.section == BridgeSection::Brass ? "experiments/orchestral-winds-bridge/brass-r3/"
         : info.section == BridgeSection::PitchedPercussion ? "experiments/orchestral-percussion-bridge/pitched-percussion-r2/"
+        : info.section == BridgeSection::Fretted ? "experiments/fretted-bridge/fretted-r1/"
         : "experiments/unpitched-percussion-bridge/unpitched-percussion-r4/");
     const auto built = BridgeMapDocument::compile(fixture((dir + info.templateFile).c_str()), error);
     if (!built) throw std::runtime_error(std::string(info.templateFile) + ": " + error.toStdString());
@@ -499,7 +511,7 @@ void tests() {
     CHECK((info.section == BridgeSection::UnpitchedPercussion) == built->compiled->hasPercussionMap);
     // The section's stems and the percussion map's instruments stay in lockstep.
     for (const auto &instrument : built->percussionInstruments)
-      CHECK(section(instrument.toRawUTF8()) == info.section);
+      CHECK(section(instrument) == info.section);
     if (info.section == BridgeSection::UnpitchedPercussion) {
       // r4: r2's 75 instruments, r3's 49 from Dorico's kits and sticking
       // (Left/Right) as an add-on (docs/percussion-kits.md), and Dorico's 40

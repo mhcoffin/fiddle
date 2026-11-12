@@ -4,12 +4,12 @@
 
 namespace fiddle {
 
-// The five orchestral bridge profiles. Every other instrument keeps the
-// universal Fiddle map. Membership is an explicit list of Dorico instrument
+// The five orchestral bridge profiles and the fretted one. Every other
+// instrument keeps the universal Fiddle map. Membership is an explicit list of Dorico instrument
 // entity IDs (stems match their keyed variants and aliases), following each
 // profile's documented instrument coverage, not Dorico's broad sound families:
 // Dorico files timpani under drums and band/folk instruments under brass/wind.
-enum class BridgeSection { None, Strings, Woodwinds, Brass, PitchedPercussion, UnpitchedPercussion };
+enum class BridgeSection { None, Strings, Woodwinds, Brass, PitchedPercussion, UnpitchedPercussion, Fretted };
 
 struct BridgeSectionInfo {
   BridgeSection section;
@@ -18,8 +18,8 @@ struct BridgeSectionInfo {
   const char *templateFile; // built-in map in Resources/BridgeMaps
 };
 
-inline const std::array<BridgeSectionInfo, 5> &bridgeSections() {
-  static const std::array<BridgeSectionInfo, 5> sections{{
+inline const std::array<BridgeSectionInfo, 6> &bridgeSections() {
+  static const std::array<BridgeSectionInfo, 6> sections{{
       {BridgeSection::Strings, "strings", "Orchestral strings", "Fiddle-Orchestral-Strings-r5.doricolib"},
       {BridgeSection::Woodwinds, "woodwinds", "Orchestral woodwinds", "Fiddle-Orchestral-Woodwinds-r3.doricolib"},
       {BridgeSection::Brass, "brass", "Orchestral brass", "Fiddle-Orchestral-Brass-r3.doricolib"},
@@ -32,6 +32,10 @@ inline const std::array<BridgeSectionInfo, 5> &bridgeSections() {
       // (experiments/unpitched-percussion-bridge/profiles.py); a test keeps them so.
       {BridgeSection::UnpitchedPercussion, "unpitched-percussion", "Orchestral unpitched percussion",
        "Fiddle-Orchestral-UnpitchedPercussion-r4.doricolib"},
+      // Guitars, basses, lutes and every other instrument.fretted.* entity,
+      // plus the guitarrón (experiments/fretted-bridge; a test keeps the
+      // stems in step with profiles.py).
+      {BridgeSection::Fretted, "fretted", "Fretted instruments", "Fiddle-Fretted-r1.doricolib"},
   }};
   return sections;
 }
@@ -233,9 +237,13 @@ inline BridgeSection bridgeSectionForInstrument(const juce::String &entityId) {
       {"instrument.percussion.other.shaker", BridgeSection::UnpitchedPercussion},
       {"instrument.percussion.other.taiko", BridgeSection::UnpitchedPercussion},
       {"instrument.percussion.other.taiko.alias.wadaiko", BridgeSection::UnpitchedPercussion},
+      // Fretted r1: every instrument.fretted.* entity, and the guitarrón,
+      // which Dorico files under strings.
+      {"instrument.fretted", BridgeSection::Fretted},
+      {"instrument.strings.guitarrón", BridgeSection::Fretted},
   };
   const auto matches = [&entityId](const char *stem) {
-    const juce::String s(stem);
+    const auto s = juce::String::fromUTF8(stem); // the guitarrón's ó
     return entityId == s || entityId.startsWith(s + ".");
   };
   for (const auto *stem : excluded)
