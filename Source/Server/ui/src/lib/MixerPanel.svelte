@@ -2538,13 +2538,17 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         box-sizing: border-box;
         overflow: hidden;
         /* A slim caret instead of the native arrow leaves room for "Master"
-           in a one-layer chair's compact header. */
+           in a one-layer chair's compact header. The arrow on the left reads
+           as "→ Master": where the chair's audio goes. */
         appearance: none;
         -webkit-appearance: none;
-        padding: 2px 11px 2px 4px;
+        padding: 2px 11px 2px 15px;
         border: 1px solid #3d4c62;
         border-radius: 4px;
-        background: #111c2e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4'%3E%3Cpath d='M0 0h7L3.5 4z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 3px center;
+        background:
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='7'%3E%3Cpath d='M0 3.5h7.5M5 1l2.5 2.5L5 6' fill='none' stroke='%2394a3b8' stroke-width='1.3'/%3E%3C/svg%3E") no-repeat left 4px center,
+            url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4'%3E%3Cpath d='M0 0h7L3.5 4z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 3px center,
+            #111c2e;
         color: #cbd5e1;
         font: inherit;
         font-size: 0.7rem;
@@ -2552,6 +2556,11 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         white-space: nowrap;
         text-overflow: ellipsis;
         cursor: pointer;
+    }
+    /* Compact headers have room for "Master" or the arrow, not both. */
+    .compact-strips .bridge-output {
+        padding-left: 4px;
+        background: #111c2e url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='7' height='4'%3E%3Cpath d='M0 0h7L3.5 4z' fill='%2394a3b8'/%3E%3C/svg%3E") no-repeat right 3px center;
     }
     .bridge-output:hover {
         border-color: #7dd3fc;

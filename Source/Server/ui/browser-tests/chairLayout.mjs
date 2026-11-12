@@ -590,8 +590,17 @@ try {
                         if (!select) return null;
                         const box = select.getBoundingClientRect();
                         const button = group.querySelector(".bridge-add-layer").getBoundingClientRect();
+                        // The selected bus name fits in full, after the arrow
+                        // (dropped in compact headers) and before the caret.
+                        const style = getComputedStyle(select);
+                        const context = document.createElement("canvas").getContext("2d");
+                        context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+                        const room = select.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
                         return { width: box.width, height: box.height,
-                            fits: box.left >= rect.left && box.right <= button.left };
+                            fits: box.left >= rect.left && box.right <= button.left,
+                            text: select.selectedOptions[0]?.text,
+                            textWidth: context.measureText(select.selectedOptions[0]?.text || "").width, room,
+                            textFits: context.measureText(select.selectedOptions[0]?.text || "").width <= room };
                     })(),
                 };
             }),
@@ -618,6 +627,8 @@ try {
         for (const [index, group] of measured.groups.entries()) {
             if (index === 9) { assert.equal(group.output, null, "an empty chair has no output"); continue; }
             assert.ok(group.output?.fits, `${size}: chair ${index} output fits its header`);
+            if (group.output.text === "Master")
+                assert.ok(group.output.textFits, `${size}: chair ${index} shows "Master" in full: ${JSON.stringify(group.output)}`);
             assert.ok(group.output.width >= 44, `${size}: chair ${index} output is wide enough to read (${group.output.width}px)`);
             assert.equal(group.output.height, 28);
         }
