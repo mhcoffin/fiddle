@@ -1644,10 +1644,19 @@ try {
         const kit = document.querySelector(".kit-block");
         const headers = [...document.querySelectorAll(".folder-strips .bridge-header")].map((header) => Math.round(box(header).top));
         const bottoms = [...document.querySelectorAll(".folder-strips .inst-group")].map((group) => Math.round(box(group).bottom));
-        return { headerWidth: box(kit.querySelector(".kit-header")).width, chairsWidth: box(kit.querySelector(".kit-chairs")).width,
+        const header = box(kit.querySelector(".kit-header")), chairs = box(kit.querySelector(".kit-chairs"));
+        const next = kit.nextElementSibling;
+        return { headerLeft: header.left, headerRight: header.right, chairsLeft: chairs.left, chairsRight: chairs.right,
+            nextLeft: next ? box(next).left : null, nextDividerTop: next ? Math.round(box(next).top) : null,
+            folderTop: Math.round(box(kit.parentElement).top),
             headers: [...new Set(headers)], bottoms: [...new Set(bottoms)] };
     });
-    assert.ok(Math.abs(kitGeometry.headerWidth - kitGeometry.chairsWidth) <= 2, `kit header spans its chairs: ${JSON.stringify(kitGeometry)}`);
+    // The header spans its chairs and reaches the next chair's divider; that
+    // divider (like every chair's) runs from the top.
+    assert.ok(kitGeometry.headerLeft <= kitGeometry.chairsLeft + 1 && kitGeometry.headerRight >= kitGeometry.chairsRight,
+        `kit header spans its chairs: ${JSON.stringify(kitGeometry)}`);
+    assert.ok(Math.abs(kitGeometry.headerRight - kitGeometry.nextLeft) <= 1, `kit header meets the next divider: ${JSON.stringify(kitGeometry)}`);
+    assert.equal(kitGeometry.nextDividerTop, kitGeometry.folderTop, `the next chair's divider runs to the top: ${JSON.stringify(kitGeometry)}`);
     assert.equal(kitGeometry.headers.length, 1, `chair headers line up with and without a kit: ${kitGeometry.headers}`);
     assert.equal(kitGeometry.bottoms.length, 1, `chairs end at the same height: ${kitGeometry.bottoms}`);
     if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)

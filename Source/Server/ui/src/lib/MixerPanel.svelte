@@ -2253,7 +2253,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 
     /* Instrument group (bridge-header + inst-body) */
     /* A percussion kit: its chairs under one header. Other chairs drop by the
-       header's height so every fader lines up. */
+       header's height so every fader lines up: padding, not margin, so their
+       dividers still run to the top. */
     .kit-block {
         display: flex;
         flex-direction: column;
@@ -2270,6 +2271,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         border-left: 2px solid var(--accent, #334155);
         margin-left: -1px;
         border-bottom: 1px solid var(--accent, #334155);
+        /* Across the gap after the last chair, to meet the next divider. */
+        margin-right: -3px;
         background: rgba(255,255,255,0.05);
         overflow: hidden;
         white-space: nowrap;
@@ -2286,7 +2289,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         align-items: stretch;
         gap: 3px;
     }
-    .console.has-kits .folder-strips > .inst-group { margin-top: 19px; }
+    .console.has-kits .folder-strips > .inst-group { padding-top: 19px; }
     .inst-group {
         display: flex;
         flex-direction: column;
