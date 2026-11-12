@@ -1,6 +1,7 @@
 #include "PercussionMap.h"
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <tuple>
 
 namespace fiddle {
@@ -272,22 +273,83 @@ std::set<std::string> PercussionMap::instruments() const {
   return result;
 }
 
-PercussionMap::Match PercussionMap::resolve(const std::string &instrument,
-                                            const std::set<std::string> &techniques) const {
-  Match match;
-  // 1. Entries for this instrument.
-  std::vector<const PercussionMapEntry *> rows;
-  const auto collect = [&](auto &&same) {
-    for (const auto &e : entries)
-      if (same(e.instrument)) rows.push_back(&e);
-  };
-  collect([&](const std::string &id) { return id == instrument; });
-  if (rows.empty())
-    collect([&](const std::string &id) { return canonicalInstrument(id) == canonicalInstrument(instrument); });
-  if (rows.empty() && instruments().size() == 1) {
-    collect([](const std::string &) { return true; });
-    match.instrumentFallback = !rows.empty();
+std::vector<std::string> PercussionMap::instrumentsInOrder() const {
+  std::vector<std::string> result;
+  std::set<std::string> seen;
+  for (const auto &e : entries)
+    if (seen.insert(e.instrument).second) result.push_back(e.instrument);
+  return result;
+}
+
+namespace {
+std::mutex soundIdsMutex;
+std::shared_ptr<const std::map<std::string, std::string>> soundIdsTable;
+} // namespace
+
+void setPercussionSoundIds(std::map<std::string, std::string> soundIds) {
+  auto table = std::make_shared<const std::map<std::string, std::string>>(std::move(soundIds));
+  std::lock_guard lock(soundIdsMutex);
+  soundIdsTable = std::move(table);
+}
+
+std::string percussionSoundId(const std::string &instrument) {
+  std::shared_ptr<const std::map<std::string, std::string>> table;
+  {
+    std::lock_guard lock(soundIdsMutex);
+    table = soundIdsTable;
   }
+  if (!table) return {};
+  for (const auto &id : {instrument, canonicalInstrument(instrument)})
+    if (const auto it = table->find(id); it != table->end() && !it->second.empty()) return it->second;
+  return {};
+}
+
+std::string PercussionMap::instrumentFor(const std::string &instrument, const std::string &playAs,
+                                         bool &fallback) const {
+  fallback = false;
+  const auto order = instrumentsInOrder();
+  const auto find = [&](auto &&same) {
+    const auto it = std::find_if(order.begin(), order.end(), same);
+    return it == order.end() ? std::string{} : *it;
+  };
+  const auto canonicalIs = [](const std::string &target) {
+    return [target = canonicalInstrument(target)](const std::string &id) { return canonicalInstrument(id) == target; };
+  };
+  if (!playAs.empty()) {
+    auto chosen = find([&](const std::string &id) { return id == playAs; });
+    if (chosen.empty()) chosen = find(canonicalIs(playAs));
+    if (!chosen.empty()) {
+      fallback = canonicalInstrument(chosen) != canonicalInstrument(instrument);
+      return chosen;
+    }
+  }
+  if (auto exact = find([&](const std::string &id) { return id == instrument; }); !exact.empty()) return exact;
+  if (auto alias = find(canonicalIs(instrument)); !alias.empty()) return alias;
+  fallback = true;
+  // Dorico plays an instrument the map doesn't list with the first listed
+  // instrument of the same sound: a floor tom with VSL's lowest tom-tom.
+  if (const auto sound = percussionSoundId(instrument); !sound.empty())
+    if (auto same = find([&](const std::string &id) { return percussionSoundId(id) == sound; }); !same.empty())
+      return same;
+  if (order.size() == 1) return order.front();
+  fallback = false;
+  return {};
+}
+
+PercussionMap::Match PercussionMap::resolve(const std::string &instrument,
+                                            const std::set<std::string> &techniques,
+                                            const std::string &playAs) const {
+  Match match;
+  // 1. Entries for this instrument (or the one it plays as): its own ID's
+  // when the map lists it, else every alias of the same instrument's.
+  std::vector<const PercussionMapEntry *> rows;
+  const auto chosen = instrumentFor(instrument, playAs, match.instrumentFallback);
+  if (!chosen.empty())
+    for (const auto &e : entries)
+      if (chosen == instrument ? e.instrument == chosen
+                               : canonicalInstrument(e.instrument) == canonicalInstrument(chosen))
+        rows.push_back(&e);
+  if (match.instrumentFallback) match.playedAs = chosen;
   // Variant entries only stand in when the instrument has no plain ones.
   if (std::any_of(rows.begin(), rows.end(), [](auto *e) { return e->variant.empty(); }))
     rows.erase(std::remove_if(rows.begin(), rows.end(), [](auto *e) { return !e->variant.empty(); }), rows.end());

@@ -1,5 +1,6 @@
 #pragma once
 #include <juce_core/juce_core.h>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -39,15 +40,33 @@ struct PercussionMap {
 
   std::set<std::string> instruments() const;
 
+  // The map's instruments in entry order, each once: what a layer can play as.
+  std::vector<std::string> instrumentsInOrder() const;
+
   struct Match {
     const PercussionMapEntry *entry = nullptr;
-    bool instrumentFallback = false; // single-instrument map on another chair
+    bool instrumentFallback = false; // another instrument's entries
+    // The map instrument whose entries played, when it isn't the chair's own
+    // (or its alias): Play as, the same sound, or a single-instrument map.
+    std::string playedAs;
   };
-  // Dorico's rule: entries for the instrument (exact, then alias-stripped,
-  // then a single-instrument map's own), Natural implied on both sides,
+  // The map instrument a chair's notes use: playAs when the map has it, else
+  // Dorico's rule: the instrument itself (exact, then alias-stripped), then
+  // the first listed instrument with the same MusicXML sound ID, then a
+  // single-instrument map's own. Empty when none. fallback is set when it
+  // isn't the chair's instrument or its alias.
+  std::string instrumentFor(const std::string &instrument, const std::string &playAs, bool &fallback) const;
+  // Entries for instrumentFor's instrument, Natural implied on both sides,
   // largest subset wins, ties by entry order.
-  Match resolve(const std::string &instrument, const std::set<std::string> &techniques) const;
+  Match resolve(const std::string &instrument, const std::set<std::string> &techniques,
+                const std::string &playAs = {}) const;
 };
+
+// The MusicXML sound ID of a Dorico instrument (instruments.xml
+// musicXMLSoundID; an alias uses its base instrument's), for the same-sound
+// fallback. Fiddle registers Dorico's instruments at startup; empty before.
+void setPercussionSoundIds(std::map<std::string, std::string> soundIds);
+std::string percussionSoundId(const std::string &instrument);
 
 // The single map in a stored definition (or library) XML, or null.
 std::shared_ptr<const PercussionMap> compilePercussionMap(const juce::String &xml);

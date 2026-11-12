@@ -194,6 +194,82 @@ void testInstrumentSelection() {
   CHECK_EQ(pitchFor(gm, "instrument.unpitched.kick.drum.low", {}), 99);
 }
 
+// Dorico's toms, as instruments.xml has them: the floor toms share the
+// tom-toms' sound, the snare has its own.
+void registerSoundIds() {
+  setPercussionSoundIds({
+      {"instrument.band.unpitched.floortom.high", "drum.tom-tom"},
+      {"instrument.band.unpitched.floortom.low", "drum.tom-tom"},
+      {"instrument.band.unpitched.tomtom.low", "drum.tom-tom"},
+      {"instrument.band.unpitched.tomtom.medium-low", "drum.tom-tom"},
+      {"instrument.band.unpitched.tomtom.medium", "drum.tom-tom"},
+      {"instrument.band.unpitched.tomtom.medium-high", "drum.tom-tom"},
+      {"instrument.band.unpitched.tomtom.high", "drum.tom-tom"},
+      {kSnare, "drum.snare-drum"},
+      {"instrument.orchestral.unpitched.side.drum", "drum.snare-drum"},
+  });
+}
+
+void testSameSoundFallback() {
+  const auto toms = load("VSL SY Percussion - Concert toms (PM).doricolib");
+  const std::string floorTom = "instrument.band.unpitched.floortom.high";
+  // Before Dorico's instruments are known, a floor tom finds nothing.
+  setPercussionSoundIds({});
+  CHECK_EQ(pitchFor(toms, floorTom, {}), -1);
+
+  // Then it plays as the first listed instrument of its sound, as Dorico
+  // does with VSL's template: the low tom-tom.
+  registerSoundIds();
+  const auto match = toms.resolve(floorTom, {"pt.rim"});
+  CHECK(match.entry != nullptr && match.entry->pitch == 37);
+  CHECK(match.instrumentFallback);
+  CHECK_EQ(match.playedAs, std::string("instrument.band.unpitched.tomtom.low.alias.tom-low"));
+  // The map's own instruments are unaffected, and so is another sound.
+  CHECK_EQ(pitchFor(toms, "instrument.band.unpitched.tomtom.medium-low", {}), 48);
+  CHECK(toms.resolve("instrument.band.unpitched.tomtom.medium-low", {}).playedAs.empty());
+  CHECK_EQ(pitchFor(toms, kSnare, {}), -1);
+
+  // In a mixed map, the first listed instrument of the sound plays.
+  const auto mixed = makeMap({entry(kSnare, {"pt.natural"}, 38), entry("instrument.band.unpitched.tomtom.high", {"pt.natural"}, 50),
+                              entry("instrument.band.unpitched.tomtom.low", {"pt.natural"}, 41)});
+  CHECK_EQ(pitchFor(mixed, floorTom, {}), 50);
+  CHECK_EQ(pitchFor(mixed, "instrument.orchestral.unpitched.side.drum", {}), 38);
+}
+
+void testPlayAs() {
+  registerSoundIds();
+  const auto toms = load("VSL SY Percussion - Concert toms (PM).doricolib");
+  const std::string floorTom = "instrument.band.unpitched.floortom.high";
+  const std::string medium = "instrument.band.unpitched.tomtom.medium.alias.tom-medium";
+  CHECK_EQ(toms.instrumentsInOrder().size(), size_t(5));
+  CHECK_EQ(toms.instrumentsInOrder().front(), std::string("instrument.band.unpitched.tomtom.low.alias.tom-low"));
+
+  // The floor tom plays the medium tom, which the kit doesn't use.
+  auto match = toms.resolve(floorTom, {}, medium);
+  CHECK(match.entry != nullptr && match.entry->pitch == 72);
+  CHECK_EQ(match.playedAs, medium);
+  // Play as overrides the chair's own instrument too; naming the plain ID
+  // finds the map's alias.
+  CHECK_EQ(toms.resolve("instrument.band.unpitched.tomtom.high", {}, "instrument.band.unpitched.tomtom.medium").entry->pitch,
+           72);
+  // An instrument the map doesn't list falls back to Dorico's choice.
+  CHECK_EQ(toms.resolve(floorTom, {}, kSnare).entry->pitch, 36);
+  bool fallback = true;
+  CHECK_EQ(toms.instrumentFor("instrument.band.unpitched.tomtom.high", {}, fallback),
+           std::string("instrument.band.unpitched.tomtom.high.alias.tom-high"));
+  CHECK(!fallback);
+
+  // Through the annotator, with the decision on the note's record.
+  PercussionMapAnnotator annotator(std::make_shared<const PercussionMap>(toms), floorTom, medium);
+  AnnotatorContext ctx;
+  auto note = bridgeNote(1, {"pt.natural"});
+  annotator.onNoteStart(note, ctx);
+  CHECK(!annotator.noteSuppressed());
+  CHECK_EQ(int(note.note_number()), 72);
+  CHECK_EQ(annotator.lastAnnotationRecord()->percussion.playedAs, medium);
+  CHECK(annotator.lastAnnotationRecord()->percussion.instrumentFallback);
+}
+
 void testNaturalEquivalent() {
   // Dorico's GM map has no Natural for the hi-hat: Closed is its natural,
   // and Dorico sends a Closed hi-hat note as Natural.
@@ -340,6 +416,8 @@ int main() {
   testMatching();
   testInstrumentSelection();
   testNaturalEquivalent();
+  testSameSoundFallback();
+  testPlayAs();
   testAnnotator();
   testWithheldNote();
   testWithVendorExpressionMap();

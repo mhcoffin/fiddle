@@ -105,6 +105,9 @@ struct LayerRow {
   int sourcePatchRevision = 0;
   bool pluginStateEdited = false;
   std::string percussionMapId;
+  /// The percussion map instrument this layer plays as, or empty for the
+  /// chair's own (docs/library-percussion-maps.md, "Play as").
+  std::string percussionPlayAs;
 };
 
 enum class PatchDeleteResult { deleted, referenced, notFound, error };

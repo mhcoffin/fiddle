@@ -295,6 +295,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
+    sb.percussionPlayAs = strip->percussionPlayAs;
     if (strip->chairId.isEmpty()) {
       // A layer without a chair has a private chair bus that a restore can't
       // find by ID, so its routing stays on the layer record (as in versions
@@ -383,6 +384,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
     obj->setProperty("expressionMapSource", strip->expressionMapSourceXml);
     if (strip->percussionMapSourceXml.isNotEmpty())
       obj->setProperty("percussionMapSource", strip->percussionMapSourceXml);
+    if (!strip->percussionPlayAs.empty())
+      obj->setProperty("percussionPlayAs", juce::String(strip->percussionPlayAs));
     obj->setProperty(
         "audioInserts",
         serializeStripAudioSnapshot(strip->audioEngine().snapshotAll(captureLiveState))
@@ -480,6 +483,7 @@ versioning::FiddleState StateManager::captureCurrentState(
     sb.expressionMapPath = strip->expressionMapPath.toStdString();
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
+    sb.percussionPlayAs = strip->percussionPlayAs;
     if (strip->chairId.isEmpty()) {
       // A layer without a chair has a private chair bus that a restore can't
       // find by ID, so its routing stays on the layer record (as in versions

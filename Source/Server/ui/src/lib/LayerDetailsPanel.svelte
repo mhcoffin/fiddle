@@ -2,6 +2,7 @@
     import ExpressionMapSelect from "./ExpressionMapSelect.svelte";
     import PercussionMapPicker from "./PercussionMapPicker.svelte";
     import { mapsFor } from "./libraryMaps.js";
+    import { playAsChoices } from "./percussionMaps.js";
 
     let {
         strip,
@@ -20,6 +21,8 @@
         onSelectPercussionMap = () => {},
         onClearPercussionMap = () => {},
         onLoadPercussionMapFile = () => {},
+        onSetPercussionPlayAs = () => {},
+        doricoInstruments = [],
         onAddLua = () => {},
         onRemoveLua = () => {},
         onInspectMidi = () => {},
@@ -38,6 +41,7 @@
     let pluginListed = $derived(validPlugins.some((plugin) => plugin.uid === strip?.pluginUid));
     let expressionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "expression"));
     let percussionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "percussion"));
+    let playAs = $derived(playAsChoices(strip, doricoInstruments));
 
     const closeFromBackdrop = (event) => {
         if (event.target === event.currentTarget) onClose();
@@ -172,6 +176,21 @@
                         onloadfile={onLoadPercussionMapFile}
                     />
                     </div>
+                    {#if playAs}
+                        <label class="play-as">
+                            <span>Play as</span>
+                            <select
+                                aria-label="Play as"
+                                value={playAs.value}
+                                onchange={(event) => onSetPercussionPlayAs(event.currentTarget.value)}
+                            >
+                                {#each playAs.options as option}
+                                    <option value={option.value}>{option.label}</option>
+                                {/each}
+                            </select>
+                        </label>
+                        <p class="hint">Which of the map's instruments this layer plays. Automatic is Dorico's choice: the chair's own instrument, else the first one with the same sound.</p>
+                    {/if}
                 </section>
             {/if}
 
@@ -267,6 +286,8 @@
     label { display: flex; flex-direction: column; gap: 6px; }
     label > span { color: #94a3b8; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
     .program { margin-top: 14px; }
+    .play-as { margin-top: 14px; }
+    .hint { margin-top: 6px; }
     .notice, .warning, .empty { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; }
     .warning { display: flex; flex-direction: column; gap: 4px; }
     .notice { border: 1px solid #854d0e; background: rgba(133, 77, 14, 0.2); color: #fde68a; }

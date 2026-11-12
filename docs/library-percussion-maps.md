@@ -58,13 +58,24 @@ fields:
 
 ## Matching (per note)
 
-Input: the chair's Dorico instrument ID and the note's technique set (as
-`collectInputTechniqueIds` gives it today).
+Input: the chair's Dorico instrument ID, the layer's Play as choice (usually
+none), and the note's technique set (as `collectInputTechniqueIds` gives it
+today).
 
-1. **Entries for this instrument.**
+1. **Entries for this instrument** (`PercussionMap::instrumentFor`).
+   - **Play as.** If the layer names one of the map's instruments, use that
+     instrument's entries, whatever the chair is. A choice the map doesn't
+     list (the map changed) is ignored.
    - Use entries whose `instrumentEntityID` equals the chair's ID.
    - If none match, compare with any `.alias.*` suffix stripped on both
      sides. (VSL's tom map lists aliases; a chair may hold the plain ID.)
+   - **Same sound.** If still none match, use the first listed instrument
+     with the chair's MusicXML sound ID (`instruments.xml`
+     `musicXMLSoundID`; an alias uses its base instrument's). This is what
+     Dorico does: with VSL's template, a Tom-toms kit's floor tom
+     (`drum.tom-tom`, not in VSL's map) plays VSL's first entry, the low
+     tom-tom. Fiddle registers the sound IDs from Dorico's instruments at
+     startup (`setPercussionSoundIds`).
    - If still none match and the map covers only one instrument, use its
      entries anyway. The user picked this map for this layer, so a snare map
      on a "Field drum" chair still plays.
@@ -97,6 +108,28 @@ Input: the chair's Dorico instrument ID and the note's technique set (as
    - Passing pitch 36 through would usually trigger an unrelated sample.
 
 The result is cached per (technique set), like the expression-map resolver.
+When another instrument's entries played (Play as, same sound, or a
+single-instrument map), the Note Inspector names it: "(as ⟨instrument⟩)".
+
+### Play as
+
+Dorico's automatic choice can be poor. VSL's concert toms have six drums in
+their low bank but map five, and a Tom-toms kit's floor tom lands on the same
+drum as its low tom-tom. Play as lets a layer pick which of its map's
+instruments it plays, for example VSL's medium tom, which the kit doesn't
+use.
+
+- **Per layer.** It is the layer's, not the chair's or the map's. A kit's
+  linked layers share their map but each keeps its own Play as.
+- **Layer Details** shows a Play as menu under the percussion map picker
+  when there is a choice (the map lists more than one instrument, or the
+  chair falls back). "Automatic" names Dorico's choice; the other options
+  are the map's instruments, named from Dorico's instruments.
+- **Kept while the map lists it.** Choosing another map, a library update
+  of the map, or Update from Library keeps Play as when the new map lists
+  the instrument, and clears it otherwise. Clearing the map clears it.
+- **Undo.** Changing it is one `SetPercussionMapAction` on the project
+  stack.
 
 ## Playback: how it composes with the layer's expression map
 
@@ -164,6 +197,7 @@ creatable and editable in Fiddle.
     `DrumKitNoteMapDefinition` XML, so import and export are lossless.
   - New columns `library_patches.percussion_map_id` and
     `layers.percussion_map_id`, next to `expression_map_id`.
+  - `layers.percussion_play_as`: the layer's Play as instrument, or empty.
 - **Library patch default.** A patch can name a percussion map. A layer
   created from the patch copies it, like `expression_map_id`. The same
   layer-differs-from-patch comparison applies, and so does refresh from the
@@ -180,6 +214,8 @@ creatable and editable in Fiddle.
   - `rebuildAnnotatorChain` inserts the annotator when both are present.
   - The project snapshot (`VersionTypes`) records the percussion map's
     entity ID and XML, so restoring an old version plays the map it had.
+    It also records Play as (`strip_blobs.percussion_play_as`), hashed
+    only when set, so existing versions keep their hashes.
 - **Library edits propagate.** Saving a map recompiles it, and every live
   strip referencing that entity ID gets the new version (the same path as
   refresh from the library).
@@ -234,6 +270,8 @@ A new **Percussion Maps** section:
     - Natural fallback
     - natural equivalent (GM hi-hat plain note → 42)
     - alias stripping
+    - same-sound fallback (floor tom on VSL's toms)
+    - Play as (including a choice the map doesn't list)
     - single-instrument fallback
     - variant preference
     - no entry → withheld

@@ -151,6 +151,11 @@ library patch are linked (`kitLinkedLayers` in C++, `linkedKitLayers` in
   Add Instrument, adding the patch again fills just the new chair.
 - **Maps.** Choosing or clearing the expression map or percussion map on one
   applies to all, as one step.
+- **Play as** stays per chair. A chair the shared map doesn't list plays as
+  the map's first instrument with its sound, as Dorico does (VSL's toms play
+  a Tom-toms kit's floor tom on the low tom-tom's drum); Play as in Layer
+  Details picks another ([library percussion maps](library-percussion-maps.md),
+  "Play as").
 - **Update from Library** refreshes all of them.
 - **Delete** removes all of them as one step; Layer Details also offers
   "Delete from this chair only".

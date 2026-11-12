@@ -701,6 +701,20 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.libraryMapReferences("vsl", kind, map.entityId).size() == 2);
   CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::referenced);
 
+  // Play as belongs to the layer: stored, and kept by a library refresh.
+  {
+    auto playing = *repository.getLayer("snare-layer");
+    CHECK(playing.percussionPlayAs.empty());
+    playing.percussionPlayAs = "instrument.orchestral.unpitched.side.drum";
+    CHECK(repository.upsertLayer(playing));
+    CHECK(repository.getLayer("snare-layer")->percussionPlayAs == playing.percussionPlayAs);
+    CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+    CHECK(repository.updateLayerSetups({playing}));
+    CHECK(repository.getLayer("snare-layer")->percussionPlayAs == playing.percussionPlayAs);
+    playing.percussionPlayAs.clear();
+    CHECK(repository.upsertLayer(playing));
+  }
+
   // A layer override differs from its patch until refreshed.
   auto layer = *repository.getLayer("snare-layer");
   layer.percussionMapId.clear();

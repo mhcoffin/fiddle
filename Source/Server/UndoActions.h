@@ -118,6 +118,10 @@ public:
   juce::String getDescription() const override {
     if (!after_.map)
       return "Clear percussion map";
+    if (before_.map && before_.map->entityId == after_.map->entityId && before_.sourceXml == after_.sourceXml &&
+        before_.playAs != after_.playAs)
+      return after_.playAs.empty() ? juce::String("Play percussion as the chair's instrument")
+                                   : "Play percussion as " + juce::String(after_.playAs);
     return "Set percussion map to '" + juce::String(after_.map->name) + "'";
   }
 

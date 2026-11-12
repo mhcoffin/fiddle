@@ -35,7 +35,17 @@ struct ExpressionMapAssignment {
 struct PercussionMapAssignment {
   std::shared_ptr<const PercussionMap> map;
   juce::String sourceXml;
+  /// The map instrument the layer plays as (Play as), or empty for Dorico's
+  /// choice: the chair's own instrument, else the same sound's.
+  std::string playAs;
 };
+
+/// assignment, keeping a Play as choice its map still lists.
+inline PercussionMapAssignment keepingPlayAs(PercussionMapAssignment assignment, const std::string &playAs) {
+  const auto listed = assignment.map ? assignment.map->instrumentsInOrder() : std::vector<std::string>{};
+  assignment.playAs = std::find(listed.begin(), listed.end(), playAs) != listed.end() ? playAs : std::string{};
+  return assignment;
+}
 
 /// A single mixer channel strip. Instrument plug-in lifecycle is delegated to
 /// a reusable HostedPluginSlot. Identified by a unique string ID.
@@ -169,6 +179,7 @@ struct MixerStrip {
   // unpitched chair (docs/library-percussion-maps.md).
   std::shared_ptr<const PercussionMap> percussionMap;
   juce::String percussionMapSourceXml;
+  std::string percussionPlayAs;
   /// The chair's Dorico instrument entity ID, which percussion maps key on.
   juce::String instrumentEntityId;
 

@@ -77,6 +77,8 @@ struct StripBlob {
   std::string expressionMapSourceXml;
   /// The library percussion map the layer plays (its definition XML), or empty.
   std::string percussionMapSourceXml;
+  /// The map instrument the layer plays as (Play as), or empty.
+  std::string percussionPlayAs;
   /// Versions saved before chair buses only: the layer's output (empty =
   /// Master, else a GroupBusBlob ID) and sends. Restoring moves them to the
   /// chair bus (ChairBusMigration.h); new saves leave them empty.
@@ -128,6 +130,11 @@ struct StripBlob {
     if (!percussionMapSourceXml.empty()) {
       header.append("\0percussionMap\0", 15);
       header.append(percussionMapSourceXml);
+    }
+    // And for layers playing their own instrument.
+    if (!percussionPlayAs.empty()) {
+      header.append("\0percussionPlayAs\0", 18);
+      header.append(percussionPlayAs);
     }
     return header;
   }

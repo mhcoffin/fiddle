@@ -188,13 +188,14 @@ void MixerStrip::setExpressionMapAssignment(
 
 PercussionMapAssignment MixerStrip::snapshotPercussionMap() const {
   auto lock = lockMidiState();
-  return {percussionMap, percussionMapSourceXml};
+  return {percussionMap, percussionMapSourceXml, percussionPlayAs};
 }
 
 void MixerStrip::setPercussionMapAssignment(PercussionMapAssignment assignment) {
   auto lock = lockMidiState();
   percussionMap = std::move(assignment.map);
   percussionMapSourceXml = percussionMap ? std::move(assignment.sourceXml) : juce::String();
+  percussionPlayAs = percussionMap ? std::move(assignment.playAs) : std::string();
   rebuildAnnotatorChain();
 }
 
@@ -255,7 +256,8 @@ void MixerStrip::rebuildAnnotatorChain() {
   for (auto &plugin : luaPlugins)
     chain->add(std::make_unique<LuaAnnotator>(plugin));
   if (percussionMap)
-    chain->add(std::make_unique<PercussionMapAnnotator>(percussionMap, instrumentEntityId.toStdString()));
+    chain->add(std::make_unique<PercussionMapAnnotator>(percussionMap, instrumentEntityId.toStdString(),
+                                                        percussionPlayAs));
   if (expressionMap)
     chain->add(std::make_unique<ExpressionMapAnnotator>(expressionMap));
   else
@@ -326,6 +328,7 @@ juce::var MixerStrip::annotationRecordToVar(const AnnotationRecord &r) {
     percussion->setProperty("pitch", p.pitch);
     percussion->setProperty("keyswitches", juce::var(keys));
     percussion->setProperty("instrumentFallback", p.instrumentFallback);
+    percussion->setProperty("playedAs", juce::String(p.playedAs));
     percussion->setProperty("withheld", juce::String(p.withheld));
     percussion->setProperty("warning", juce::String(p.warning));
     obj->setProperty("percussion", juce::var(percussion));
@@ -713,6 +716,20 @@ juce::var MixerStrip::toJson() const {
                    percussionMap ? juce::String(percussionMap->name) : "");
   obj->setProperty("percussionMapEntityID",
                    percussionMap ? juce::String(percussionMap->entityId) : "");
+  if (percussionMap) {
+    // Play as: the map's instruments, the layer's choice, and what Dorico's
+    // rule picks without one (docs/library-percussion-maps.md).
+    juce::Array<juce::var> instruments;
+    for (const auto &id : percussionMap->instrumentsInOrder())
+      instruments.add(juce::String(id));
+    bool automaticFallback = false;
+    const auto automatic =
+        percussionMap->instrumentFor(instrumentEntityId.toStdString(), {}, automaticFallback);
+    obj->setProperty("percussionMapInstruments", instruments);
+    obj->setProperty("percussionPlayAs", juce::String(percussionPlayAs));
+    obj->setProperty("percussionAutomatic", juce::String(automatic));
+    obj->setProperty("percussionAutomaticFallback", automaticFallback);
+  }
   obj->setProperty("instrumentEntityId", instrumentEntityId);
   obj->setProperty("unpitchedPercussion",
                    bridgeSectionForInstrument(instrumentEntityId) == BridgeSection::UnpitchedPercussion);

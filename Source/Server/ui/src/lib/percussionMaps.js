@@ -2,6 +2,8 @@
 // (docs/library-percussion-maps.md). Pure helpers for the Library Manager
 // editor and the layer picker; C++ validates again before saving.
 
+import { kitChairNames } from "./kitModel.js";
+
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 /** Dorico's note name for a MIDI pitch (middle C = C3, as in Dorico). */
@@ -145,4 +147,29 @@ export function filterPercussionEntries(entries, query = "", instrument = "") {
                 entry.name, entry.variant].join(" ").toLowerCase();
             return words.every((word) => text.includes(word));
         });
+}
+
+/**
+ * Play as (docs/library-percussion-maps.md): the layer's choice among its
+ * map's instruments, from the strip the server sends. Names come from
+ * Dorico's instruments ("Tom-tom (Low)"); an alias is its base instrument.
+ * Returns null when there is nothing to choose.
+ */
+export function playAsChoices(strip, instruments = []) {
+    const ids = strip?.percussionMapInstruments || [];
+    const automatic = strip?.percussionAutomatic || "";
+    const playAs = strip?.percussionPlayAs || "";
+    if (!strip?.percussionMapEntityID || !ids.length) return null;
+    if (ids.length < 2 && !strip.percussionAutomaticFallback && !playAs && automatic) return null;
+    const names = kitChairNames(ids.map(canonicalInstrument), instruments);
+    const nameOf = (id) => names[ids.indexOf(id)] || instrumentLabel(id);
+    const automaticLabel = !automatic
+        ? "Automatic: none (this map doesn't cover the instrument)"
+        : strip.percussionAutomaticFallback
+            ? `Automatic: ${nameOf(automatic)}, as Dorico plays it`
+            : `Automatic: ${nameOf(automatic)}`;
+    return {
+        value: ids.includes(playAs) ? playAs : "",
+        options: [{ value: "", label: automaticLabel }, ...ids.map((id) => ({ value: id, label: nameOf(id) }))],
+    };
 }

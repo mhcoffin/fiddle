@@ -18,8 +18,9 @@ namespace fiddle {
 /// the library pitch. A note no entry covers is withheld.
 class PercussionMapAnnotator : public Annotator {
 public:
-  PercussionMapAnnotator(std::shared_ptr<const PercussionMap> map, std::string instrument)
-      : map_(std::move(map)), instrument_(std::move(instrument)) {}
+  PercussionMapAnnotator(std::shared_ptr<const PercussionMap> map, std::string instrument,
+                         std::string playAs = {})
+      : map_(std::move(map)), instrument_(std::move(instrument)), playAs_(std::move(playAs)) {}
 
   std::string name() const override { return map_ ? map_->name : "PercussionMap"; }
   const AnnotationRecord *lastAnnotationRecord() const override { return &record_; }
@@ -33,7 +34,7 @@ public:
     suppressed_ = false;
     const auto key = noteKey(note);
     const auto &techniques = record_.inputTechniques;
-    const auto *entry = resolve(techniques, decision.instrumentFallback);
+    const auto *entry = resolve(techniques, decision.instrumentFallback, decision.playedAs);
     if (!entry) {
       suppressed_ = true;
       decision.withheld = "no percussion-map entry for " + (instrument_.empty() ? "this chair" : instrument_) +
@@ -93,25 +94,28 @@ private:
   struct Cached {
     const PercussionMapEntry *entry = nullptr;
     bool instrumentFallback = false;
+    std::string playedAs;
   };
   using NoteKey = std::tuple<uint64_t, uint32_t, uint32_t>;
 
   static NoteKey noteKey(const fiddle::Note &note) { return {note.id(), note.channel(), note.note_number()}; }
 
-  const PercussionMapEntry *resolve(const std::set<std::string> &techniques, bool &instrumentFallback) {
+  const PercussionMapEntry *resolve(const std::set<std::string> &techniques, bool &instrumentFallback,
+                                    std::string &playedAs) {
     if (!map_)
       return nullptr;
     auto it = cache_.find(techniques);
     if (it == cache_.end()) {
-      const auto match = map_->resolve(instrument_, techniques);
-      it = cache_.emplace(techniques, Cached{match.entry, match.instrumentFallback}).first;
+      const auto match = map_->resolve(instrument_, techniques, playAs_);
+      it = cache_.emplace(techniques, Cached{match.entry, match.instrumentFallback, match.playedAs}).first;
     }
     instrumentFallback = it->second.instrumentFallback;
+    playedAs = it->second.playedAs;
     return it->second.entry;
   }
 
   std::shared_ptr<const PercussionMap> map_;
-  std::string instrument_;
+  std::string instrument_, playAs_;
   AnnotationRecord record_;
   bool suppressed_ = false;
   std::map<std::set<std::string>, Cached> cache_;

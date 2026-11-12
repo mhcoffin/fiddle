@@ -93,6 +93,11 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.pluginState = {0, 1, 2, 255};
     strip.audioInsertState = {9, 8, 7, 6, 5};
     strip.luaPluginFileNames = {"first.lua", "second.lua"};
+    strip.percussionMapSourceXml = "<saved-percussion-map/>";
+    // Play as is part of the strip; a layer without one hashes as before.
+    const auto hashWithoutPlayAs = strip.computeHash();
+    strip.percussionPlayAs = "instrument.band.unpitched.tomtom.medium";
+    CHECK(strip.computeHash() != hashWithoutPlayAs);
 
     const auto hash = strip.computeHash();
     storage.putStripBlob(hash, strip);
@@ -110,7 +115,11 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored && restored->expressionMapPath == strip.expressionMapPath);
     CHECK(restored &&
           restored->expressionMapSourceXml == strip.expressionMapSourceXml);
+    CHECK(restored && restored->percussionMapSourceXml == strip.percussionMapSourceXml);
+    CHECK(restored && restored->percussionPlayAs == strip.percussionPlayAs);
     CHECK(restored && restored->computeHash() == hash);
+    fiddle::versioning::StripBlob plain;
+    CHECK(plain.serializeForHash().find("percussionPlayAs") == std::string::npos);
   }
 
   CHECK(sqlite3_close(database) == SQLITE_OK);

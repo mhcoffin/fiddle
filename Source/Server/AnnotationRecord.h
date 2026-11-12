@@ -50,7 +50,8 @@ struct AnnotationRecord {
     std::set<std::string> entryTechniques;
     int pitch = -1;
     std::vector<int> keyswitches;
-    bool instrumentFallback = false; // a single-instrument map's entries
+    bool instrumentFallback = false; // another instrument's entries
+    std::string playedAs;            // that instrument (Play as, same sound…)
     std::string withheld;            // why the note was not played
     std::string warning;             // e.g. a roll with no roll entry
   } percussion;

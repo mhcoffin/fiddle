@@ -102,8 +102,8 @@ void MainComponent::refreshLiveLibraryMaps() {
       continue;
     const auto percussion = strip->snapshotPercussionMap();
     if (percussion.map) {
-      auto latest = loadPercussionMap(layer.libraryId, percussion.map->entityId);
-      if (latest.map && latest.sourceXml != percussion.sourceXml) {
+      auto latest = keepingPlayAs(loadPercussionMap(layer.libraryId, percussion.map->entityId), percussion.playAs);
+      if (latest.map && (latest.sourceXml != percussion.sourceXml || latest.playAs != percussion.playAs)) {
         strip->setPercussionMapAssignment(std::move(latest));
         changed = true;
       }
@@ -251,15 +251,17 @@ void MainComponent::assignPercussionMap(const juce::String &stripId, PercussionM
     for (const auto &linked : kitLinkedLayers(*layer))
       if (linked.id != layer->id && mixer_.getStrip(juce::String(linked.id)))
         stripIds.push_back(juce::String(linked.id));
-  const auto same = [&](const PercussionMapAssignment &current) {
-    return (current.map ? current.map->entityId : "") == (assignment.map ? assignment.map->entityId : "") &&
-           current.sourceXml == assignment.sourceXml;
+  const auto same = [](const PercussionMapAssignment &a, const PercussionMapAssignment &b) {
+    return (a.map ? a.map->entityId : "") == (b.map ? b.map->entityId : "") && a.sourceXml == b.sourceXml &&
+           a.playAs == b.playAs;
   };
   std::vector<std::unique_ptr<UndoableAction>> actions;
   for (const auto &id : stripIds) {
     auto before = mixer_.getStrip(id)->snapshotPercussionMap();
-    if (!same(before))
-      actions.push_back(std::make_unique<SetPercussionMapAction>(mixer_, id, std::move(before), assignment));
+    // Each chair keeps its own Play as while the new map still lists it.
+    auto after = keepingPlayAs(assignment, before.playAs);
+    if (!same(before, after))
+      actions.push_back(std::make_unique<SetPercussionMapAction>(mixer_, id, std::move(before), std::move(after)));
   }
   if (actions.empty())
     return;
@@ -512,6 +514,27 @@ void MainComponent::setupLibraryMapHandlers() {
     safeCallAsync([this, stripId, entityId] {
       if (auto assignment = loadPercussionMap(layerLibraryId(stripId), entityId); assignment.map)
         assignPercussionMap(stripId, std::move(assignment));
+    });
+  });
+  // Play as: which of the map's instruments this layer plays (empty for
+  // Dorico's choice). Per layer: a kit's linked layers keep their own.
+  jsRouter_.registerHandler("setPercussionPlayAs", [this](const juce::var &payload) {
+    const auto stripId = argument(payload, 0).toString();
+    const auto instrument = argument(payload, 1).toString().toStdString();
+    safeCallAsync([this, stripId, instrument] {
+      auto *strip = mixer_.getStrip(stripId);
+      if (!strip)
+        return;
+      auto before = strip->snapshotPercussionMap();
+      auto after = keepingPlayAs(before, instrument);
+      if (!before.map || after.playAs == before.playAs)
+        return;
+      if (undoManager_.perform(
+              std::make_unique<SetPercussionMapAction>(mixer_, stripId, std::move(before), std::move(after)))) {
+        saveAllStripsToDB(false);
+        pushMixerState();
+        scheduleStateRebuild();
+      }
     });
   });
   jsRouter_.registerHandler("clearPercussionMap", [this](const juce::var &payload) {

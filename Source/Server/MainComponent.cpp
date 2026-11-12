@@ -183,6 +183,11 @@ void MainComponent::initInstrumentBrowser() {
   // Load Dorico instrument browser
   addInitMessage("Loading Dorico instruments...");
   if (instrumentBrowser_.loadFromDorico()) {
+    // Percussion maps play an unlisted instrument as one of the same sound.
+    std::map<std::string, std::string> soundIds;
+    for (const auto &instrument : instrumentBrowser_.getInstruments())
+      soundIds[instrument.entityID.toStdString()] = instrument.musicXMLSoundID.toStdString();
+    setPercussionSoundIds(std::move(soundIds));
     pushLogMessage(
         "<b>[Setup]</b> Loaded " +
         juce::String((int)instrumentBrowser_.getInstruments().size()) +
@@ -1559,6 +1564,7 @@ void MainComponent::saveAllStripsToDB(bool captureLiveState) {
         layer->percussionMapId =
             strips[i]->percussionMap ? strips[i]->percussionMap->entityId
                                      : std::string{};
+        layer->percussionPlayAs = strips[i]->percussionPlayAs;
         routingRepository->upsertLayer(*layer);
       }
     }
@@ -6149,8 +6155,11 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
     target.row.chairId = layer.chairId;
     target.row.patchId = layer.patchId;
     // Bypass is a layer control, not a library default.
-    if (auto *strip = mixer_.getStrip(juce::String(layer.id)))
+    if (auto *strip = mixer_.getStrip(juce::String(layer.id))) {
       target.instrument.bypassed = strip->isPluginBypassed();
+      target.percussionMap = keepingPlayAs(std::move(target.percussionMap), strip->percussionPlayAs);
+      target.row.percussionPlayAs = target.percussionMap.playAs;
+    }
     targets.push_back(std::move(target));
   }
   const auto description = layers.size() == 1
@@ -6224,8 +6233,9 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
 
   const auto currentPercussionMapId =
       strip->percussionMap ? strip->percussionMap->entityId : std::string{};
-  if (currentPercussionMapId != layer.percussionMapId)
-    strip->setPercussionMapAssignment(loadPercussionMap(layer.libraryId, layer.percussionMapId));
+  if (currentPercussionMapId != layer.percussionMapId || strip->percussionPlayAs != layer.percussionPlayAs)
+    strip->setPercussionMapAssignment(
+        keepingPlayAs(loadPercussionMap(layer.libraryId, layer.percussionMapId), layer.percussionPlayAs));
 
   const auto currentMapId =
       strip->expressionMap ? strip->expressionMap->entityID : std::string{};

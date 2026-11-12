@@ -1,3 +1,5 @@
+import { instrumentLabel } from "./percussionMaps.js";
+
 export const techniqueEntries = (record) =>
     Object.entries(record.receivedTechniques || {});
 
@@ -23,7 +25,8 @@ export const percussionState = (record) => {
     if (!p || !p.mapName) return null;
     if (p.withheld) return { kind: "withheld", label: `Not played: ${p.withheld}` };
     const keys = (p.keyswitches || []).length ? ` + KS ${p.keyswitches.join(", ")}` : "";
-    const fallback = p.instrumentFallback ? " (map for another instrument)" : "";
+    const fallback = p.playedAs ? ` (as ${instrumentLabel(p.playedAs)})`
+        : p.instrumentFallback ? " (map for another instrument)" : "";
     return {
         kind: p.warning ? "warning" : "matched",
         label: `${p.entryName || (p.entryTechniques || []).join("+")} → ${p.pitch}${keys}${fallback}`,

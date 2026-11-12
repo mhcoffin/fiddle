@@ -186,8 +186,10 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
                       blob.active, blob.muted, blob.soloed, blob.gainDb,
                       blob.pluginUid, blob.pluginState, blob.expressionMapEntityId,
                       saved.sourcePatchRevision, saved.pluginStateEdited});
-    if (const auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())))
+    if (const auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str()))) {
       layers.back().percussionMapId = map->entityId;
+      layers.back().percussionPlayAs = blob.percussionPlayAs;
+    }
   }
   // replaceTopology validates all identities/references before its atomic
   // transaction. Failure must not silently fall back to a different project.
@@ -239,7 +241,9 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
              sourceXml});
     }
     if (auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())))
-      current->setPercussionMapAssignment({std::move(map), juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())});
+      current->setPercussionMapAssignment(
+          keepingPlayAs({std::move(map), juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())},
+                        blob.percussionPlayAs));
     for (const auto &name : blob.luaPluginFileNames) {
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
       auto plugin = std::make_shared<LuaPlugin>(path.empty() ? name : path);

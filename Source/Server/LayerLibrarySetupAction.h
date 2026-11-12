@@ -76,6 +76,7 @@ private:
       }
       current.row.expressionMapId = current.expressionMap ? current.expressionMap->entityID : "";
       current.row.percussionMapId = current.percussionMap.map ? current.percussionMap.map->entityId : "";
+      current.row.percussionPlayAs = current.percussionMap.playAs;
       captured.push_back(std::move(current));
     }
     // A SQL failure rolls back every row and leaves live state/history intact.

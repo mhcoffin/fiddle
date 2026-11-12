@@ -56,6 +56,7 @@
     let scannedPlugins = $state([]);
     // Every library's maps; Layer Details shows the strip's library's.
     let libraryMaps = $state([]);
+    let doricoInstruments = $state([]);
     let luaPluginCatalog = $state([]);
     let masterAudio = $state({
         id: "master",
@@ -219,6 +220,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     });
     // Populate orchestral score order when Dorico instruments arrive
     onFromCpp("setDoricoInstruments", (arr) => {
+        doricoInstruments = Array.isArray(arr) ? arr : [];
         populateScoreOrder(arr);
     });
     onFromCpp("setChairState", (data) => {
@@ -1868,6 +1870,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onSelectPercussionMap={(entityId) => dispatchCpp("loadPercussionMap", detailsStrip.id, entityId)}
                 onClearPercussionMap={() => dispatchCpp("clearPercussionMap", detailsStrip.id)}
                 onLoadPercussionMapFile={() => dispatchCpp("loadPercussionMapFromFile", detailsStrip.id)}
+                onSetPercussionPlayAs={(instrument) => dispatchCpp("setPercussionPlayAs", detailsStrip.id, instrument)}
+                {doricoInstruments}
                 onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}
                 onRemoveLua={(index) => removeLuaPlugin(detailsStrip.id, index)}
                 onInspectMidi={() => {

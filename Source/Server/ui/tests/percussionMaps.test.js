@@ -4,7 +4,7 @@ import test from "node:test";
 import {
     coversInstrument, duplicatePercussionMap, filterPercussionEntries, formatTechniques, instrumentLabel, isUnpitchedInstrument,
     newPercussionMap, newPercussionMapId, parseKeyswitches, parseTechniques, pitchName, sortForInstrument,
-    validatePercussionMap,
+    playAsChoices, validatePercussionMap,
 } from "../src/lib/percussionMaps.js";
 import { percussionState } from "../src/lib/noteInspection.js";
 
@@ -103,4 +103,38 @@ test("the viewer filters entries by text and instrument, keeping row numbers", (
     assert.deepEqual(filterPercussionEntries(entries, "24").map((e) => e.row), [2], "by keyswitch");
     assert.deepEqual(filterPercussionEntries(entries, "", toms).map((e) => e.row), [3], "an alias matches its instrument");
     assert.deepEqual(filterPercussionEntries(entries, "roll", snare).map((e) => e.row), [2]);
+});
+
+test("Play as offers the map's instruments, named from Dorico's", () => {
+    const low = "instrument.band.unpitched.tomtom.low.alias.tom-low";
+    const medium = "instrument.band.unpitched.tomtom.medium.alias.tom-medium";
+    const instruments = [
+        { entityID: "instrument.band.unpitched.tomtom.low", name: "Tom-tom" },
+        { entityID: "instrument.band.unpitched.tomtom.medium", name: "Tom-tom" },
+    ];
+    const floorTom = {
+        percussionMapEntityID: "vsl.toms", instrumentEntityId: "instrument.band.unpitched.floortom.high",
+        percussionMapInstruments: [low, medium], percussionPlayAs: "",
+        percussionAutomatic: low, percussionAutomaticFallback: true,
+    };
+    const choices = playAsChoices(floorTom, instruments);
+    assert.equal(choices.value, "");
+    assert.deepEqual(choices.options.map((option) => option.label),
+        ["Automatic: Tom-tom (Low), as Dorico plays it", "Tom-tom (Low)", "Tom-tom (Medium)"]);
+    assert.equal(playAsChoices({ ...floorTom, percussionPlayAs: medium }, instruments).value, medium);
+    // A choice the map no longer lists shows as Automatic.
+    assert.equal(playAsChoices({ ...floorTom, percussionPlayAs: "instrument.gone" }, instruments).value, "");
+    // An uncovered chair says so.
+    assert.match(playAsChoices({ ...floorTom, percussionAutomatic: "" }, instruments).options[0].label, /none/);
+    // Nothing to choose: no map, or a single-instrument map on its own chair.
+    assert.equal(playAsChoices({ ...floorTom, percussionMapEntityID: "" }, instruments), null);
+    assert.equal(playAsChoices({ ...floorTom, percussionMapInstruments: [low], percussionAutomaticFallback: false }, instruments), null);
+});
+
+test("the inspector names the instrument a note played as", () => {
+    const state = percussionState({ percussion: {
+        mapName: "VSL toms", entryName: "Natural", pitch: 36, instrumentFallback: true,
+        playedAs: "instrument.band.unpitched.tomtom.low.alias.tom-low",
+    } });
+    assert.match(state.label, /\(as tomtom low · tom-low\)$/);
 });
