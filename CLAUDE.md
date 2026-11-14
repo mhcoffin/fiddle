@@ -19,6 +19,17 @@ A run ID like `basic-rhythm-20261021-143200` names a score test run: use the
 
 ---
 
+## Code review (every commit)
+
+Opus is the main engineer; **every commit is reviewed by GPT-6.1 Sol (high)
+before it lands on `main`.** After the build and tests pass, stage the commit's
+files explicitly, get the staged diff reviewed, fix or rebut the findings, stamp
+it and commit: `.claude/skills/sol-review/SKILL.md`. The git hook
+`.githooks/prepare-commit-msg` refuses an agent's commit whose content doesn't
+match the stamp (your own terminal commits pass).
+
+---
+
 ## Build sequence
 
 Always `pnpm build` **before** `cmake --build` when any `.svelte`/`.js` file changed.

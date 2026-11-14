@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Refuse an agent's commit unless what is being committed passed a Sol review.
+# See .claude/skills/sol-review/SKILL.md.
+#
+# - Runs at commit time against the index git is committing (GIT_INDEX_FILE),
+#   so `git add … && git commit`, `commit -a` and pathspec commits are checked
+#   on what they really commit.
+# - prepare-commit-msg is not skipped by --no-verify.
+# - Only agent commits are checked: Claude Code sets CLAUDECODE=1 in its shells.
+#   Commits you type in your own terminal pass.
+# Installed by `git config core.hooksPath .githooks` (a SessionStart hook in
+# .claude/settings.json does this).
+
+[ -n "${CLAUDECODE:-}" ] || exit 0
+
+# No exemption for merges: git also labels conflicted cherry-pick and revert
+# continuations "merge", and a conflict resolution is new, unreviewed content.
+
+if ! bash scripts/sol-review.sh check; then
+  cat >&2 <<'EOF'
+Fiddle: commit refused. What is being committed has no passed Sol review
+(gpt-6.1-sol, high). Follow .claude/skills/sol-review/SKILL.md: stage the
+commit's files, get the review, fix or rebut its findings, then
+`bash scripts/sol-review.sh stamp "<note>"` and commit the staged index as is.
+Anything staged or changed after the stamp (including commit -a or a
+pathspec commit picking up other changes) needs a new review.
+EOF
+  exit 1
+fi
+exit 0
