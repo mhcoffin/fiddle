@@ -11,19 +11,14 @@ class ExpressionMapLibrary;
 class MixerModel;
 class UndoManager;
 
-/// Where layers' expression maps come from (docs/library-map-import.md).
-/// Each hook is optional; without it the service falls back to Dorico's
-/// library folders, as before per-library maps.
+/// Where layers' expression maps come from (docs/maps.md). Each hook is
+/// optional; without it the service falls back to Dorico's library folders,
+/// as before Fiddle kept its own maps.
 struct ExpressionMapSources {
-  /// The map a strip plays for entityId, from the strip's library. Null data
-  /// when the library has no such map.
-  std::function<ExpressionMapAssignment(const juce::String &stripId, const std::string &entityId)>
-      forStrip;
-  /// A library's map, for the viewer.
-  std::function<ExpressionMapAssignment(const juce::String &libraryId, const std::string &entityId)>
-      forLibrary;
-  /// Import a file's first map into the strip's library; its entity ID, or
-  /// empty on failure.
+  /// Fiddle's stored map with this ID. Null data when there is none.
+  std::function<ExpressionMapAssignment(const std::string &entityId)> stored;
+  /// Import a file's first map into Fiddle's maps for the strip; its entity
+  /// ID, or empty on failure.
   std::function<std::string(const juce::String &stripId, const juce::File &file)> importForStrip;
 };
 
@@ -35,8 +30,7 @@ public:
   void setSources(ExpressionMapSources sources) { sources_ = std::move(sources); }
 
   [[nodiscard]] juce::var catalog() const override;
-  [[nodiscard]] juce::var details(const juce::String &entityId,
-                                  const juce::String &libraryId = {}) override;
+  [[nodiscard]] juce::var details(const juce::String &entityId) override;
   bool assign(const juce::String &stripId,
               const juce::String &entityId) override;
   bool clear(const juce::String &stripId) override;

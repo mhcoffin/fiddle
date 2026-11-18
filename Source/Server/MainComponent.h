@@ -330,28 +330,31 @@ private:
   /// mixer strip, leaving routing and mixer controls unchanged.
   bool refreshLayersFromPatch(const LibraryPatchRow &patch, const std::vector<LayerRow> &layers);
   void layerLibrarySetupSettled(const juce::String &stripId);
-  // Per-library maps (docs/library-map-import.md), in LibraryMapUi.cpp.
-  std::string layerLibraryId(const juce::String &stripId);
+  // Fiddle's expression and percussion maps (docs/maps.md), in LibraryMapUi.cpp.
   /// The layers linked with this one: on the chairs of the same percussion
   /// kit, from the same library patch (docs/percussion-kits.md). The layer
   /// itself comes first; a layer outside a kit is linked only to itself.
   std::vector<LayerRow> kitLinkedLayers(const LayerRow &layer);
-  PercussionMapAssignment loadPercussionMap(const std::string &libraryId, const std::string &entityId);
-  ExpressionMapAssignment loadLibraryExpressionMap(const std::string &libraryId, const std::string &entityId);
+  PercussionMapAssignment loadPercussionMap(const std::string &entityId);
+  ExpressionMapAssignment loadStoredExpressionMap(const std::string &entityId);
   void refreshLiveLibraryMaps();
   void pushLibraryMaps();
-  void libraryMapResult(const juce::String &libraryId, LibraryMapKind kind, const juce::String &action,
-                        bool success, const juce::String &message, const juce::String &entityId = {});
-  bool performLibraryMapEdit(const std::string &libraryId, LibraryMapKind kind, const std::string &entityId,
+  void pushMapUsage();
+  void libraryMapResult(LibraryMapKind kind, const juce::String &action, bool success,
+                        const juce::String &message, const juce::String &entityId = {},
+                        const juce::String &requestId = {}, const juce::StringArray &imported = {});
+  bool performLibraryMapEdit(LibraryMapKind kind, const std::string &entityId,
                              std::optional<LibraryMapRow> target, const juce::String &description);
-  bool importLibraryMap(const std::string &libraryId, const LibraryMapCandidate &candidate);
-  void offerLibraryMapImport(const juce::String &libraryId, LibraryMapKind kind,
-                             const juce::Array<juce::File> &sources, const juce::String &origin);
+  bool importLibraryMap(const LibraryMapCandidate &candidate);
+  void offerLibraryMapImport(LibraryMapKind kind, const juce::Array<juce::File> &sources,
+                             const juce::String &origin, const juce::String &requestId);
   void assignPercussionMap(const juce::String &stripId, PercussionMapAssignment assignment);
-  /// Import a file's map into the strip's library; its entity ID, or empty.
-  std::string importMapFileForStrip(const juce::String &stripId, LibraryMapKind kind, const juce::File &file);
+  /// Import a file's expression map into Fiddle's maps for a layer; its
+  /// entity ID, or empty. Refuses to replace a different copy that other
+  /// patches or layers use.
+  std::string importExpressionMapFileForStrip(const juce::String &stripId, const juce::File &file);
   void migrateLibraryMaps();
-  void checkLibraryMapSources(const juce::String &libraryId);
+  void checkLibraryMapSources();
   ExpressionMapSources libraryExpressionMapSources();
   void setupLibraryMapHandlers();
   void setupLibraryMapSourceHandlers();

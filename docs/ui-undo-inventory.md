@@ -134,7 +134,7 @@ Sources: [MixerPanel](/Users/mhc/fiddle/Source/Server/ui/src/lib/MixerPanel.svel
 | Change a chair's output: `setChairOutput`, `setChairsOutput` (selected chairs, one step) | Connected | Records old/new bus ID. Needs interleaved bus/layer deletion tests and exact persistence verification. |
 | Edit/hide instrument: `showStripEditor`, `toggleStripEditor` | Excluded | Window visibility is not a musical edit; preserve normal plugin-editor-local keyboard handling. |
 | Open/hide MIDI inspector | Excluded | View state; it does not change routing. |
-| Strip delete/group delete: `removeMixerStrip`, `removeGroupStrips` | Partial; legacy helpers | Keep-alive removal. Old endpoints must not mutate chair layers without their repository rows. Free-standing strips are gone: Add, Duplicate and the library label were removed (docs/library-map-import.md). |
+| Strip delete/group delete: `removeMixerStrip`, `removeGroupStrips` | Partial; legacy helpers | Keep-alive removal. Old endpoints must not mutate chair layers without their repository rows. Free-standing strips are gone: Add, Duplicate and the library label were removed (docs/maps.md, "Every layer has a library"). |
 | Input port/channel: `setStripInput` | Connected; no current visible control found | Legacy helper/action. Chairs own current routing; a stray per-layer override would disagree with the chair model. Remove/restrict legacy route-changing entry points. |
 
 Sources: [LayerDetailsPanel](/Users/mhc/fiddle/Source/Server/ui/src/lib/LayerDetailsPanel.svelte),

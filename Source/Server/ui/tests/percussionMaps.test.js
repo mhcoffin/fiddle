@@ -77,8 +77,8 @@ test("layers on unpitched chairs offer a percussion map picker", () => {
     assert.match(details, /strip\.unpitchedPercussion \|\| strip\.percussionMapEntityID/);
     assert.match(mixer, /dispatchCpp\("loadPercussionMap", detailsStrip\.id, entityId\)/);
     assert.match(mixer, /dispatchCpp\("requestLibraryMaps"\)/);
-    // The picker lists only the layer's library's maps.
-    assert.match(details, /mapsFor\(libraryMaps, strip\?\.libraryId \|\| "", "percussion"\)/);
+    // The picker offers all of Fiddle's percussion maps (docs/maps.md).
+    assert.match(details, /<MapPicker\s+kind="percussion"\s+maps=\{libraryMaps\}/);
     const manager = readFileSync(new URL("../src/lib/LibraryManager.svelte", import.meta.url), "utf8");
     assert.match(manager, /percMap:\s+patch\.percMap \|\| ""/);
 });

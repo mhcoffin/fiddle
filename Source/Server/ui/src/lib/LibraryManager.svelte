@@ -2,10 +2,9 @@
   /** @type {import('svelte')} */
   import { onMount } from "svelte";
   import { onFromCpp, dispatchCpp } from "./ipc.js";
-  import ExpressionMapSelect from "./ExpressionMapSelect.svelte";
-  import PercussionMapPicker from "./PercussionMapPicker.svelte";
+  import MapPicker from "./MapPicker.svelte";
   import LibraryMaps from "./LibraryMaps.svelte";
-  import { mapsFor } from "./libraryMaps.js";
+  import { applyMapUsage, mapsOfKind } from "./libraryMaps.js";
   import { keepPlayAsDefaults, playAsDefaults, setPlayAsDefault } from "./percussionMaps.js";
   import ensembleData from "./standard_ensembles.json";
   import { populateScoreOrder, instrumentScoreOrder } from "./orchestralOrder.js";
@@ -15,9 +14,10 @@
   const standardEnsembles = ensembleData.ensembles;
 
   // ── Expression maps from C++ ───────────────────────
-  // Every library's expression and percussion maps (docs/library-map-import.md).
+  // Fiddle's expression and percussion maps, shared by every library (docs/maps.md).
   let libraryMaps = $state([]);
   onFromCpp("setLibraryMaps", (data) => { libraryMaps = Array.isArray(data) ? data : []; });
+  onFromCpp("setLibraryMapUsage", (usage) => { libraryMaps = applyMapUsage(libraryMaps, usage); });
 
   // ── Saved libraries from C++ ────────────────────────
   /** @type {{ id: string, name: string, vendor: string, variant: string }[]} */
@@ -408,17 +408,8 @@
     closeInstrumentChooser();
   };
 
-  let editorExpressionMaps = $derived(mapsFor(libraryMaps, editorLibId, "expression"));
-  let editorPercussionMaps = $derived(mapsFor(libraryMaps, editorLibId, "percussion"));
-  let editorLibrarySaved = $derived(savedLibraries.some((library) => library.id === editorLibId));
-  // Each time a saved library's editor opens, compare its maps with their
-  // source files.
-  let checkedLibraryId = "";
-  $effect(() => {
-    const id = modalView === "editor" && editorLibrarySaved ? editorLibId : "";
-    if (id && id !== checkedLibraryId) dispatchCpp("checkLibraryMapSources", id);
-    checkedLibraryId = id;
-  });
+  let expressionMaps = $derived(mapsOfKind(libraryMaps, "expression"));
+  let percussionMaps = $derived(mapsOfKind(libraryMaps, "percussion"));
 
   const setInstrumentExpressionMap = (
     /** @type {string} */ rowId,
@@ -431,7 +422,7 @@
   };
 
   const setPatchPercussionMap = (/** @type {string} */ rowId, /** @type {string} */ entityId) => {
-    const map = editorPercussionMaps.find((candidate) => candidate.entityId === entityId);
+    const map = percussionMaps.find((candidate) => candidate.entityId === entityId);
     patches = patches.map((patch) => patch.id === rowId
       ? { ...patch, percMap: entityId, percPlayAs: keepPlayAsDefaults(patch.percPlayAs, map) }
       : patch);
@@ -443,7 +434,7 @@
   let playAsPatchId = $state("");
   let playAsPatch = $derived(patches.find((patch) => patch.id === playAsPatchId));
   const playAsFor = (patch) => playAsDefaults(
-    editorPercussionMaps.find((map) => map.entityId === patch?.percMap), allDoricoInstruments, patch?.percPlayAs);
+    percussionMaps.find((map) => map.entityId === patch?.percMap), allDoricoInstruments, patch?.percPlayAs);
   let playAsTable = $derived(playAsFor(playAsPatch));
   // Instruments the map lists play as themselves; show them only on request
   // (or when one already has a default).
@@ -626,6 +617,14 @@
         <button class="lm-create-btn" onclick={openCreate}>+ Add Library</button>
       </div>
     </div>
+    <div class="lm-maps-row">
+      <span class="lm-maps-label">Maps, shared by every library</span>
+      {#each [["expression", "Expression Maps", expressionMaps.length], ["percussion", "Percussion Maps", percussionMaps.length]] as [kind, title, count] (kind)}
+        <button class="lm-create-btn" aria-pressed={mapsPane === kind} onclick={() => { mapsPane = kind; }}>
+          {title}<span class="maps-pane-count">{count}</span>
+        </button>
+      {/each}
+    </div>
     {#if buildResult}
       <div class="lm-build-result {buildResult.startsWith('OK') ? 'lm-build-ok' : 'lm-build-error'}">
         {buildResult}
@@ -724,7 +723,7 @@
           <span class="mh-icon">▦</span>
           <span id="editor-heading" class="editor-top-title">VST LIBRARY EDITOR</span>
           <div class="maps-pane-buttons">
-            {#each [["expression", "Expression Maps", editorExpressionMaps.length], ["percussion", "Percussion Maps", editorPercussionMaps.length]] as [kind, title, count] (kind)}
+            {#each [["expression", "Expression Maps", expressionMaps.length], ["percussion", "Percussion Maps", percussionMaps.length]] as [kind, title, count] (kind)}
               <button class:active={mapsPane === kind} aria-pressed={mapsPane === kind}
                 disabled={saving}
                 onclick={() => { mapsPane = mapsPane === kind ? "" : kind; }}>
@@ -886,9 +885,12 @@
                   {/if}
                 </div>
                 <div class="ir-expr">
-                  <ExpressionMapSelect
-                    maps={editorExpressionMaps}
+                  <MapPicker
+                    kind="expression"
+                    maps={libraryMaps}
+                    patchId={row.id}
                     libraryId={editorLibId}
+                    instrument={row.entityID}
                     selectedId={row.exprMap}
                     onselect={(entityID) =>
                       setInstrumentExpressionMap(row.id, entityID)}
@@ -896,12 +898,13 @@
                   />
                 </div>
                 <div class="ir-percussion">
-                  <PercussionMapPicker
-                    maps={editorPercussionMaps}
+                  <MapPicker
+                    kind="percussion"
+                    maps={libraryMaps}
+                    patchId={row.id}
+                    libraryId={editorLibId}
                     instrument={row.entityID}
                     selectedId={row.percMap || ""}
-                    noneLabel="None"
-                    canLoadFromFile={false}
                     onselect={(entityId) => setPatchPercussionMap(row.id, entityId)}
                     onclear={() => setPatchPercussionMap(row.id, "")}
                   />
@@ -928,17 +931,6 @@
             {/if}
           </div>
         </div>
-        {#each ["expression", "percussion"] as kind (kind)}
-          <LibraryMaps
-            {kind}
-            library={{ id: editorLibId, name: editorLibName, vendor: editorLibVendor }}
-            maps={libraryMaps}
-            saved={editorLibrarySaved}
-            instruments={allDoricoInstruments}
-            open={mapsPane === kind}
-            onclose={() => { mapsPane = ""; }}
-          />
-        {/each}
       </div>
 
       <!-- Editor footer -->
@@ -1035,6 +1027,19 @@
 {/if}
 
 
+<!-- The Maps manager panes (docs/maps.md), opened from the home page or the
+     library editor's header. Mounted once, so messages and update checks
+     survive closing them. -->
+{#each ["expression", "percussion"] as kind (kind)}
+  <LibraryMaps
+    {kind}
+    maps={libraryMaps}
+    instruments={allDoricoInstruments}
+    open={mapsPane === kind}
+    onclose={() => { mapsPane = ""; }}
+  />
+{/each}
+
 <style>
   .draft-history { display: flex; gap: 8px; align-items: center; }
   .draft-history button:not(.editor-close) {
@@ -1072,6 +1077,8 @@
     display: flex; align-items: center;
     justify-content: space-between; margin-bottom: 24px;
   }
+  .lm-maps-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: -8px 0 20px; }
+  .lm-maps-label { color: #a8a7d5; font-size: .78rem; margin-right: 4px; }
   .lm-section-title {
     font-family: "Sora","Inter",sans-serif;
     font-size: 1.15rem; font-weight: 700; margin: 0; color: #e5e3ff;
@@ -1419,15 +1426,16 @@
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
   }
   .ir-instrument-name:hover { color: #b8c3ff; text-decoration: underline; }
-  /* Player, expression map and percussion map: one look, native arrows kept. */
-  .ir-select, .ir-expr :global(.expression-select > select), .ir-percussion :global(select) {
+  /* Player, expression map and percussion map: one look. The map pickers
+     are buttons that open a searchable list (MapPicker.svelte). */
+  .ir-select, .ir-expr :global(.map-picker > .trigger), .ir-percussion :global(.map-picker > .trigger) {
     width: 100%; height: 30px; box-sizing: border-box; padding: 0 8px;
     background: #131342; border: 1px solid #44446c; border-radius: 4px;
     color: #e5e3ff; font: 500 .74rem "Inter", sans-serif;
     outline: none; cursor: pointer;
   }
-  .ir-select:focus, .ir-expr :global(.expression-select > select:focus),
-  .ir-percussion :global(select:focus) { border-color: #95a9ff; }
+  .ir-select:focus, .ir-expr :global(.map-picker > .trigger:focus),
+  .ir-percussion :global(.map-picker > .trigger:focus) { border-color: #95a9ff; }
   .ir-input {
     width: 100%; background: #131342; border: 1px solid #44446c;
     border-radius: 2px; color: #a8a7d5; font-family: "Inter",sans-serif;
@@ -1443,13 +1451,15 @@
   }
   .ir-expr { min-width: 0; }
   .ir-percussion { min-width: 0; }
-  .ir-expr :global(.expression-select > button) {
+  .ir-expr :global(.map-picker > .view), .ir-percussion :global(.map-picker > .view) {
     height: 30px; padding: 0 9px; box-sizing: border-box;
     border: 1px solid #44446c; border-radius: 4px; background: #1a194b;
     color: #d8d7ff; font: 600 .64rem "Inter", sans-serif; cursor: pointer;
   }
-  .ir-expr :global(.expression-select > button:hover:not(:disabled)) { border-color: #95a9ff; background: #292863; }
-  .ir-expr :global(.expression-select > button:disabled) { opacity: .45; cursor: default; }
+  .ir-expr :global(.map-picker > .view:hover:not(:disabled)),
+  .ir-percussion :global(.map-picker > .view:hover:not(:disabled)) { border-color: #95a9ff; background: #292863; }
+  .ir-expr :global(.map-picker > .view:disabled),
+  .ir-percussion :global(.map-picker > .view:disabled) { opacity: .45; cursor: default; }
   .action-vst-edit {
     background: transparent; border: 1px solid #33335c; border-radius: 3px;
     width: 30px; height: 30px; box-sizing: border-box;

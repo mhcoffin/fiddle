@@ -100,10 +100,9 @@ void ExpressionMapJsHandlers::registerHandlers() {
     const auto entityId = arguments[0].toString();
     if (entityId.isEmpty())
       return;
-    const auto libraryId = arguments.size() > 1 ? arguments[1].toString() : juce::String();
-    dispatch([this, entityId, libraryId] {
+    dispatch([this, entityId] {
       if (callbacks_.publishDetails)
-        callbacks_.publishDetails(commands_.details(entityId, libraryId));
+        callbacks_.publishDetails(commands_.details(entityId));
     });
   });
 

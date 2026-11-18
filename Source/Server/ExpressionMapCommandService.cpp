@@ -146,16 +146,16 @@ juce::var ExpressionMapCommandService::catalog() const {
 
 ExpressionMapAssignment
 ExpressionMapCommandService::resolve(const juce::String &stripId, const std::string &entityId) {
-  if (sources_.forStrip)
-    return sources_.forStrip(stripId, entityId);
+  juce::ignoreUnused(stripId);
+  if (sources_.stored)
+    return sources_.stored(entityId);
   return {library_.load(entityId), {}, {}};
 }
 
-juce::var ExpressionMapCommandService::details(const juce::String &entityId,
-                                               const juce::String &libraryId) {
+juce::var ExpressionMapCommandService::details(const juce::String &entityId) {
   const auto requestedId = entityId.toStdString();
-  if (libraryId.isNotEmpty() && sources_.forLibrary) {
-    const auto assignment = sources_.forLibrary(libraryId, requestedId);
+  if (sources_.stored) {
+    const auto assignment = sources_.stored(requestedId);
     if (assignment.data)
       return serializeExpressionMap(*assignment.data, assignment.sourcePath);
   }
@@ -209,8 +209,8 @@ bool ExpressionMapCommandService::clear(const juce::String &stripId) {
       mixer_, stripId, std::move(before), ExpressionMapAssignment{}));
 }
 
-// Each strip takes the map from its own library. Strips whose library has no
-// such map are left alone; nothing changes if none has it.
+// Every strip takes the same stored map. Nothing changes if Fiddle has no
+// such map.
 bool ExpressionMapCommandService::assignGroup(
     const std::vector<juce::String> &stripIds, const juce::String &entityId) {
   std::set<juce::String> uniqueIds;

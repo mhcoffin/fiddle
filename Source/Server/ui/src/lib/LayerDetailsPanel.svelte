@@ -1,14 +1,12 @@
 <script>
-    import ExpressionMapSelect from "./ExpressionMapSelect.svelte";
-    import PercussionMapPicker from "./PercussionMapPicker.svelte";
-    import { mapsFor } from "./libraryMaps.js";
+    import MapPicker from "./MapPicker.svelte";
     import { playAsChoices } from "./percussionMaps.js";
 
     let {
         strip,
         pluginName = "",
         plugins = [],
-        libraryMaps = [],   // every library's maps; this layer uses its library's
+        libraryMaps = [],   // Fiddle's maps, shared by every library (docs/maps.md)
         luaCatalog = [],
         inspectorOpen = false,
         onClose = () => {},
@@ -17,10 +15,8 @@
         onSetProgram = () => {},
         onSelectMap = () => {},
         onClearMap = () => {},
-        onLoadMapFile = () => {},
         onSelectPercussionMap = () => {},
         onClearPercussionMap = () => {},
-        onLoadPercussionMapFile = () => {},
         onSetPercussionPlayAs = () => {},
         doricoInstruments = [],
         onAddLua = () => {},
@@ -39,8 +35,6 @@
     let validPlugins = $derived(plugins.filter((plugin) => plugin.valid !== false));
     // A missing or unscanned player still shows by name in the selector.
     let pluginListed = $derived(validPlugins.some((plugin) => plugin.uid === strip?.pluginUid));
-    let expressionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "expression"));
-    let percussionMaps = $derived(mapsFor(libraryMaps, strip?.libraryId || "", "percussion"));
     let playAs = $derived(playAsChoices(strip, doricoInstruments));
 
     const closeFromBackdrop = (event) => {
@@ -138,20 +132,21 @@
                 <div class="section-heading">
                     <div>
                         <h3>Expression map</h3>
-                        <p>From the {strip.library || "layer's"} library. Load from file adds a map to that library.</p>
+                        <p>Any of Fiddle's maps. Suggestions come from this patch and other layers on this instrument; ☆ marks favorites.</p>
                     </div>
                 </div>
                 <div class="map-picker">
-                <ExpressionMapSelect
-                    maps={expressionMaps}
+                <MapPicker
+                    kind="expression"
+                    maps={libraryMaps}
+                    patchId={strip.patchId || ""}
                     libraryId={strip.libraryId || ""}
+                    instrument={strip.instrumentEntityId || ""}
                     selectedId={strip.expressionMapEntityID || ""}
                     selectedName={strip.expressionMapName || ""}
                     noneLabel="No expression map"
-                    canLoadFromFile={Boolean(strip.libraryId)}
                     onselect={onSelectMap}
                     onclear={onClearMap}
-                    onloadfile={onLoadMapFile}
                 />
                 </div>
             </section>
@@ -165,15 +160,17 @@
                         </div>
                     </div>
                     <div class="map-picker">
-                    <PercussionMapPicker
-                        maps={percussionMaps}
-                        canLoadFromFile={Boolean(strip.libraryId)}
+                    <MapPicker
+                        kind="percussion"
+                        maps={libraryMaps}
+                        patchId={strip.patchId || ""}
+                        libraryId={strip.libraryId || ""}
                         instrument={strip.instrumentEntityId || ""}
                         selectedId={strip.percussionMapEntityID || ""}
                         selectedName={strip.percussionMapName || ""}
+                        noneLabel="No percussion map (pitch 36 passes through)"
                         onselect={onSelectPercussionMap}
                         onclear={onClearPercussionMap}
-                        onloadfile={onLoadPercussionMapFile}
                     />
                     </div>
                     {#if playAs}

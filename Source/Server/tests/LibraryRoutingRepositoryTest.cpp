@@ -671,19 +671,19 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
   const auto kind = fiddle::LibraryMapKind::percussion;
   fiddle::LibraryMapRow map;
-  map.libraryId = "vsl";
   map.kind = kind;
   map.entityId = "drumkitmap.user.snare";
   map.name = "Snare";
   map.xml = "<DrumKitNoteMapDefinition/>";
-  CHECK(repository.upsertLibraryMap(map));
-  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 1);
-  CHECK(repository.upsertLibraryMap(map)); // unchanged: same revision
-  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 1);
+  CHECK(repository.upsertMap(map));
+  CHECK(repository.getMap(kind, map.entityId)->revision == 1);
+  CHECK(repository.upsertMap(map)); // unchanged: same revision
+  CHECK(repository.getMap(kind, map.entityId)->revision == 1);
   map.xml = "<DrumKitNoteMapDefinition><name>Snare</name></DrumKitNoteMapDefinition>";
-  CHECK(repository.upsertLibraryMap(map));
-  CHECK(repository.getLibraryMap("vsl", kind, map.entityId)->revision == 2);
-  CHECK(repository.listLibraryMaps("vsl", kind).size() == 1);
+  CHECK(repository.upsertMap(map));
+  CHECK(repository.getMap(kind, map.entityId)->revision == 2);
+  CHECK(repository.listMaps(kind).size() == 1);
+  CHECK(repository.listMaps(fiddle::LibraryMapKind::expression).empty());
 
   auto patch = soloViolinPatch();
   patch.instrumentEntityId = "instrument.orchestral.unpitched.snare.drum";
@@ -698,8 +698,8 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.outOfDateLayerCount(patch.id) == 0);
 
   // Referenced maps cannot be deleted.
-  CHECK(repository.libraryMapReferences("vsl", kind, map.entityId).size() == 2);
-  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::referenced);
+  CHECK(repository.mapReferences(kind, map.entityId).size() == 2);
+  CHECK(repository.deleteMap(kind, map.entityId) == fiddle::PatchDeleteResult::referenced);
 
   // Play as is stored on the layer; one the patch doesn't set for this
   // chair differs from the library.
@@ -731,8 +731,145 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
   CHECK(repository.upsertPatch(patch));
   CHECK(repository.getPatch(patch.id)->revision == revision + 1);
   CHECK(repository.deleteLayer("snare-layer"));
-  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::deleted);
-  CHECK(repository.deleteLibraryMap("vsl", kind, map.entityId) == fiddle::PatchDeleteResult::notFound);
+  CHECK(repository.deleteMap(kind, map.entityId) == fiddle::PatchDeleteResult::deleted);
+  CHECK(repository.deleteMap(kind, map.entityId) == fiddle::PatchDeleteResult::notFound);
+}
+
+fiddle::LibraryMapRow expressionMap(const std::string &entityId, const std::string &xml) {
+  fiddle::LibraryMapRow map;
+  map.kind = fiddle::LibraryMapKind::expression;
+  map.entityId = entityId;
+  map.name = entityId;
+  map.xml = xml;
+  return map;
+}
+
+// One collection of maps (docs/maps.md): any library's patches and layers
+// use the same row, and the picker learns who uses what.
+void testMapsAreSharedAcrossLibraries() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  const auto kind = fiddle::LibraryMapKind::expression;
+  CHECK(repository.upsertMap(expressionMap("xmap.violin", "<ExpressionMapDefinition/>")));
+
+  auto vsl = soloViolinPatch();
+  vsl.expressionMapId = "xmap.violin";
+  CHECK(repository.upsertPatch(vsl));
+  auto ews = soloViolinPatch();
+  ews.id = "ews-violin";
+  ews.libraryId = "ews";
+  ews.name = "EW Violin";
+  ews.instrumentEntityId = "instrument.strings.violin";
+  ews.expressionMapId = "xmap.violin";
+  CHECK(repository.upsertPatch(ews));
+  auto chair = makeChair("violin-1", fiddle::DoricoRole::section, 1, 1);
+  CHECK(repository.upsertChair(chair));
+  CHECK(repository.createLayerFromPatch("violin-layer", chair.id, ews.id, 0));
+
+  const auto usage = repository.listMapUsage();
+  CHECK(usage.size() == 3);
+  // Patches by library and position, then layers.
+  CHECK(!usage[0].layer && usage[0].patchId == ews.id && usage[0].libraryId == "ews" &&
+        usage[0].label == "EastWest / EW Violin");
+  CHECK(!usage[1].layer && usage[1].patchId == vsl.id && usage[1].libraryId == "vsl" &&
+        usage[1].instrument == "instrument.strings.violin" && usage[1].label == "Vienna / Synchron Solo Violin 1");
+  CHECK(usage[2].layer && usage[2].patchId == ews.id && usage[2].libraryId == "ews" &&
+        usage[2].instrument == chair.instrumentEntityId && usage[2].label == "Layer " + chair.name + " / EW Violin");
+  CHECK(repository.mapReferences(kind, "xmap.violin").size() == 3);
+  CHECK(repository.mapReferences(fiddle::LibraryMapKind::percussion, "xmap.violin").empty());
+  CHECK(repository.deleteMap(kind, "xmap.violin") == fiddle::PatchDeleteResult::referenced);
+
+  // Missing maps are reported by ID alone.
+  auto other = vsl;
+  other.id = "vsl-viola";
+  other.expressionMapId = "xmap.viola";
+  CHECK(repository.upsertPatch(other));
+  const auto missing = repository.missingMapReferences();
+  CHECK(missing.size() == 1 && missing[0].kind == kind && missing[0].entityId == "xmap.viola");
+
+  // Deleting a library, or undoing its edits, leaves the maps alone.
+  CHECK(repository.deleteLayer("violin-layer"));
+  fiddle::LibraryCatalogSnapshot deleted;
+  deleted.id = "ews";
+  CHECK(repository.restoreLibrary(deleted) == fiddle::PatchReplaceResult::replaced);
+  CHECK(repository.getMap(kind, "xmap.violin").has_value());
+  CHECK(repository.listMapUsage().size() == 2);
+}
+
+// The star is a preference: saving or re-importing a map keeps it.
+void testMapFavoritesSurviveEdits() {
+  DatabaseFixture fixture;
+  fiddle::LibraryRoutingRepository repository(fixture.database, fixture.mutex);
+  const auto kind = fiddle::LibraryMapKind::expression;
+  auto map = expressionMap("xmap.violin", "<ExpressionMapDefinition/>");
+  CHECK(repository.upsertMap(map));
+  CHECK(!repository.getMap(kind, map.entityId)->favorite);
+  CHECK(repository.setMapFavorite(kind, map.entityId, true));
+  CHECK(repository.getMap(kind, map.entityId)->favorite);
+  CHECK(repository.getMap(kind, map.entityId)->revision == 1);
+  CHECK(!repository.setMapFavorite(kind, "xmap.missing", true));
+
+  map.xml = "<ExpressionMapDefinition><version>2</version></ExpressionMapDefinition>";
+  map.favorite = false; // an import's row knows nothing of the star
+  CHECK(repository.upsertMap(map));
+  CHECK(repository.getMap(kind, map.entityId)->favorite);
+  CHECK(repository.getMap(kind, map.entityId)->revision == 2);
+
+  // Undoing a delete re-inserts the captured row, star included.
+  const auto before = *repository.getMap(kind, map.entityId);
+  CHECK(repository.deleteMap(kind, map.entityId) == fiddle::PatchDeleteResult::deleted);
+  CHECK(repository.upsertMap(before));
+  CHECK(repository.getMap(kind, map.entityId)->favorite);
+
+  // insertMapIfAbsent never replaces Fiddle's copy.
+  auto other = map;
+  other.xml = "<ExpressionMapDefinition><version>9</version></ExpressionMapDefinition>";
+  CHECK(!repository.insertMapIfAbsent(other));
+  CHECK(repository.getMap(kind, map.entityId)->xml == map.xml);
+  CHECK(repository.insertMapIfAbsent(expressionMap("xmap.new", "<ExpressionMapDefinition/>")));
+  CHECK(repository.getMap(kind, "xmap.new").has_value());
+}
+
+// The per-library maps of 2026-11-04 become one collection. When libraries
+// held different copies of a map, the most recently updated copy wins.
+void testPerLibraryMapsMigrateToOneCollection() {
+  sqlite3 *database = nullptr;
+  CHECK(sqlite3_open(":memory:", &database) == SQLITE_OK);
+  CHECK(execute(database, "CREATE TABLE libraries (id TEXT PRIMARY KEY, name TEXT)"));
+  CHECK(execute(database, R"(
+    CREATE TABLE library_maps (
+      library_id TEXT NOT NULL, kind TEXT NOT NULL, entity_id TEXT NOT NULL, name TEXT NOT NULL,
+      xml TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, source_path TEXT NOT NULL DEFAULT '',
+      source_version INTEGER NOT NULL DEFAULT 0, source_hash TEXT NOT NULL DEFAULT '',
+      edited INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (library_id, kind, entity_id));
+    INSERT INTO library_maps (library_id, kind, entity_id, name, xml, revision, source_path, updated_at) VALUES
+      ('vsl', 'expression', 'xmap.shared', 'Shared', '<a/>', 1, '/vsl.doricolib', 100),
+      ('ews', 'expression', 'xmap.shared', 'Shared', '<a/>', 1, '/vsl.doricolib', 100),
+      ('vsl', 'expression', 'xmap.clash', 'Old', '<old/>', 5, '', 100),
+      ('ews', 'expression', 'xmap.clash', 'New', '<new/>', 1, '', 200),
+      ('vsl', 'percussion', 'xmap.shared', 'Snare', '<p/>', 1, '', 100);
+    INSERT INTO library_maps (library_id, kind, entity_id, name, xml, edited, updated_at) VALUES
+      ('ews', 'percussion', 'drum.edited', 'Edited', '<e/>', 1, 50);
+  )"));
+  CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
+  CHECK(fiddle::LibraryRoutingRepository::ensureSchema(database));
+  std::mutex mutex;
+  fiddle::LibraryRoutingRepository repository(database, mutex);
+  const auto expression = repository.listMaps(fiddle::LibraryMapKind::expression);
+  CHECK(expression.size() == 2);
+  const auto clash = repository.getMap(fiddle::LibraryMapKind::expression, "xmap.clash");
+  CHECK(clash && clash->name == "New" && clash->xml == "<new/>" && clash->revision == 1);
+  const auto shared = repository.getMap(fiddle::LibraryMapKind::expression, "xmap.shared");
+  CHECK(shared && shared->sourcePath == "/vsl.doricolib" && !shared->favorite);
+  CHECK(repository.listMaps(fiddle::LibraryMapKind::percussion).size() == 2);
+  CHECK(repository.getMap(fiddle::LibraryMapKind::percussion, "drum.edited")->edited);
+  sqlite3_stmt *old = nullptr;
+  CHECK(sqlite3_prepare_v2(database, "SELECT 1 FROM sqlite_master WHERE name = 'library_maps'", -1, &old,
+                           nullptr) == SQLITE_OK);
+  CHECK(sqlite3_step(old) == SQLITE_DONE);
+  sqlite3_finalize(old);
+  CHECK(sqlite3_close(database) == SQLITE_OK);
 }
 
 void testPatchPlayAsDefaults() {
@@ -809,6 +946,9 @@ int main() {
   testHistoricalTopologyRestoresMissingCatalogReference();
   testLegacyLayerSchemaDropsCatalogForeignKeyWithoutLosingRows();
   testPercussionMapsAreStoredReferencedAndCopiedToLayers();
+  testMapsAreSharedAcrossLibraries();
+  testMapFavoritesSurviveEdits();
+  testPerLibraryMapsMigrateToOneCollection();
   testPatchPlayAsDefaults();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';

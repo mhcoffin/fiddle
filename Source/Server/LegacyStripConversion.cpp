@@ -141,7 +141,8 @@ LegacyStripConversion convertLegacyStrips(
       }
 
   std::map<std::string, size_t> libraryIndex;
-  std::map<std::string, std::set<std::string>> libraryPatches, libraryMaps;
+  std::map<std::string, std::set<std::string>> libraryPatches;
+  std::set<std::string> mapKeys;
   auto libraryFor = [&](const std::string &label) -> LibraryCatalogSnapshot & {
     const auto id = restoredLibraryId(label);
     const auto [found, inserted] = libraryIndex.emplace(id, result.libraries.size());
@@ -150,16 +151,13 @@ LegacyStripConversion convertLegacyStrips(
       library.id = id;
       library.name = restoredLibraryName(label);
       library.exists = true;
-      library.includesMaps = true;
       result.libraries.push_back(std::move(library));
     }
     return result.libraries[found->second];
   };
-  auto addMap = [&](LibraryCatalogSnapshot &library, std::optional<LibraryMapRow> row) {
-    if (!row || !libraryMaps[library.id].insert(std::string(libraryMapKindName(row->kind)) + ":" + row->entityId).second)
-      return;
-    row->libraryId = library.id;
-    library.maps.push_back(std::move(*row));
+  auto addMap = [&](std::optional<LibraryMapRow> row) {
+    if (row && mapKeys.insert(std::string(libraryMapKindName(row->kind)) + ":" + row->entityId).second)
+      result.maps.push_back(std::move(*row));
   };
 
   for (size_t g = 0; g < groups.size(); ++g) {
@@ -196,8 +194,8 @@ LegacyStripConversion convertLegacyStrips(
       const auto expressionMap = expressionMapRow(blob);
       const auto percussionMap = percussionMapRow(blob);
       const auto percussionMapId = percussionMap ? percussionMap->entityId : std::string();
-      addMap(library, expressionMap);
-      addMap(library, percussionMap);
+      addMap(expressionMap);
+      addMap(percussionMap);
 
       const auto patchId = patchIdFor(library.id, blob, percussionMapId);
       std::string patchName = expressionMap ? expressionMap->name
@@ -253,20 +251,14 @@ LibraryCatalogSnapshot mergeRestoredLibrary(const std::optional<LibraryCatalogSn
   if (!stored || !stored->exists)
     return generated;
   auto merged = *stored;
-  merged.includesMaps = true;
-  std::set<std::string> patchIds, mapKeys;
+  std::set<std::string> patchIds;
   for (const auto &patch : merged.patches)
     patchIds.insert(patch.id);
-  for (const auto &map : merged.maps)
-    mapKeys.insert(std::string(libraryMapKindName(map.kind)) + ":" + map.entityId);
   for (auto patch : generated.patches)
     if (patchIds.insert(patch.id).second) {
       patch.position = static_cast<int>(merged.patches.size());
       merged.patches.push_back(std::move(patch));
     }
-  for (const auto &map : generated.maps)
-    if (mapKeys.insert(std::string(libraryMapKindName(map.kind)) + ":" + map.entityId).second)
-      merged.maps.push_back(map);
   return merged;
 }
 

@@ -2672,11 +2672,13 @@ MainComponent::createAgentGuidedLibrary(const juce::var &params) {
   target.variant = params["variant"].toString().trim().toStdString();
   target.exists = true;
   target.patches = patches;
-  // The library owns copies of its patches' maps (docs/library-map-import.md).
-  target.includesMaps = true;
+  // The patches' maps join Fiddle's maps (docs/maps.md). A map Fiddle
+  // already has is kept as it is: other patches and layers may use it.
+  std::vector<std::unique_ptr<fiddle::UndoableAction>> actions;
   std::set<std::string> importedMaps;
   for (const auto &[mapFile, entityId] : mapSources) {
-    if (!importedMaps.insert(entityId).second)
+    if (!importedMaps.insert(entityId).second ||
+        repository->getMap(fiddle::LibraryMapKind::expression, entityId))
       continue;
     juce::String error;
     for (const auto &candidate :
@@ -2684,7 +2686,6 @@ MainComponent::createAgentGuidedLibrary(const juce::var &params) {
       if (candidate.entityId != entityId)
         continue;
       fiddle::LibraryMapRow row;
-      row.libraryId = target.id;
       row.kind = candidate.kind;
       row.entityId = candidate.entityId;
       row.name = candidate.name;
@@ -2692,14 +2693,17 @@ MainComponent::createAgentGuidedLibrary(const juce::var &params) {
       row.sourcePath = mapFile.getFullPathName().toStdString();
       row.sourceVersion = candidate.version;
       row.sourceHash = candidate.hash.toStdString();
-      target.maps.push_back(std::move(row));
+      actions.push_back(std::make_unique<fiddle::LibraryMapCatalogAction>(
+          *repository, row.kind, row.entityId, row, "Import expression map: " + juce::String(row.name)));
+      break;
     }
   }
-  auto action =
-      std::make_unique<fiddle::LibraryCatalogAction>(*repository, target);
-  if (!libraryUndoManager_.perform(std::move(action)))
+  actions.push_back(std::make_unique<fiddle::LibraryCatalogAction>(*repository, target));
+  if (!libraryUndoManager_.perform(std::make_unique<fiddle::CompoundAction>(
+          "Save library: " + name, std::move(actions))))
     return AgentControlServer::Response::failure(
         "Fiddle could not create the guided library");
+  pushLibraryMaps();
 
   for (const auto &path : sourceDirectories) {
     const juce::File directory(path);
@@ -2914,6 +2918,7 @@ void MainComponent::pushLibraryLayerStatus() {
     status.add(juce::var(item));
   }
   broadcastMessage("setLibraryLayerStatus", status);
+  pushMapUsage();
 }
 
 void MainComponent::pushProjectSettings() {
@@ -4318,6 +4323,7 @@ void MainComponent::setupJsHandlers() {
             if (safeThis != nullptr) {
               safeThis->saveAllStripsToDB(false);
               safeThis->pushMixerState();
+              safeThis->pushMapUsage(); // the picker's suggestions
               safeThis->scheduleStateRebuild();
             }
           }});
@@ -5468,8 +5474,7 @@ void MainComponent::setupJsHandlers() {
           if (const auto *playAs = patchObj->getProperty("percPlayAs").getDynamicObject();
               playAs && !patch.percussionMapId.empty())
             if (auto *repository = db_.getLibraryRoutingRepository())
-              if (const auto row = repository->getLibraryMap(patch.libraryId, LibraryMapKind::percussion,
-                                                             patch.percussionMapId))
+              if (const auto row = repository->getMap(LibraryMapKind::percussion, patch.percussionMapId))
                 if (const auto map = compilePercussionMap(juce::String::fromUTF8(row->xml.c_str()))) {
                   const auto listed = map->instrumentsInOrder();
                   for (const auto &property : playAs->getProperties()) {
@@ -6152,7 +6157,7 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
   setup.row.pluginState = patch.pluginState;
   setup.row.expressionMapId = patch.expressionMapId;
   setup.row.percussionMapId = patch.percussionMapId;
-  setup.percussionMap = loadPercussionMap(patch.libraryId, patch.percussionMapId);
+  setup.percussionMap = loadPercussionMap(patch.percussionMapId);
   setup.row.sourcePatchRevision = patch.revision;
   // Keep a missing player's identity/state even if it isn't in today's scan.
   setup.instrument.description.uniqueId = patch.pluginUid;
@@ -6161,7 +6166,7 @@ bool MainComponent::refreshLayersFromPatch(const LibraryPatchRow &patch,
   if (!patch.pluginState.empty())
     setup.instrument.state.append(patch.pluginState.data(), patch.pluginState.size());
   if (!patch.expressionMapId.empty()) {
-    auto map = loadLibraryExpressionMap(patch.libraryId, patch.expressionMapId);
+    auto map = loadStoredExpressionMap(patch.expressionMapId);
     setup.expressionMap = std::move(map.data);
     setup.expressionMapPath = std::move(map.sourcePath);
     setup.expressionMapSourceXml = std::move(map.sourceXml);
@@ -6256,12 +6261,12 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
       strip->percussionMap ? strip->percussionMap->entityId : std::string{};
   if (currentPercussionMapId != layer.percussionMapId || strip->percussionPlayAs != layer.percussionPlayAs)
     strip->setPercussionMapAssignment(
-        keepingPlayAs(loadPercussionMap(layer.libraryId, layer.percussionMapId), layer.percussionPlayAs));
+        keepingPlayAs(loadPercussionMap(layer.percussionMapId), layer.percussionPlayAs));
 
   const auto currentMapId =
       strip->expressionMap ? strip->expressionMap->entityID : std::string{};
   if (currentMapId != layer.expressionMapId)
-    strip->setExpressionMapAssignment(loadLibraryExpressionMap(layer.libraryId, layer.expressionMapId));
+    strip->setExpressionMapAssignment(loadStoredExpressionMap(layer.expressionMapId));
 
   if (isNew || strip->pluginUid != layer.pluginUid) {
     if (layer.pluginUid == 0) {

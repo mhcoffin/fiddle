@@ -122,6 +122,13 @@ int libraryMapDefinitionVersion(LibraryMapKind kind, const juce::String &definit
   return xml ? childText(*xml, "version").getIntValue() : 0;
 }
 
+ExpressionMapLabels expressionMapLabels(const juce::String &definitionXml) {
+  const auto xml = juce::parseXML(definitionXml);
+  if (!xml)
+    return {};
+  return {childText(*xml, "creator").toStdString(), childText(*xml, "pluginNames").toStdString()};
+}
+
 juce::Array<juce::File> doricoLibraryAdditionDirectories() {
   const auto home = juce::File::getSpecialLocation(juce::File::userHomeDirectory);
   juce::Array<juce::File> result;
@@ -157,9 +164,8 @@ juce::Array<juce::File> doricolibFilesIn(const juce::Array<juce::File> &sources)
 }
 
 namespace {
-LibraryMapRow migratedRow(const std::string &libraryId, const LibraryMapCandidate &candidate, bool keepSource) {
+LibraryMapRow migratedRow(const LibraryMapCandidate &candidate, bool keepSource) {
   LibraryMapRow row;
-  row.libraryId = libraryId;
   row.kind = candidate.kind;
   row.entityId = candidate.entityId;
   row.name = candidate.name;
@@ -188,7 +194,7 @@ migrateLibraryMaps(LibraryRoutingRepository &repository, const std::vector<juce:
     }
     return cache[key];
   };
-  const auto missing = repository.missingLibraryMapReferences();
+  const auto missing = repository.missingMapReferences();
   bool anyExpression = false;
   for (const auto &reference : missing)
     anyExpression = anyExpression || reference.kind == LibraryMapKind::expression;
@@ -215,19 +221,19 @@ migrateLibraryMaps(LibraryRoutingRepository &repository, const std::vector<juce:
       continue;
     std::optional<LibraryMapRow> row;
     if (const auto found = catalog.find(reference.entityId); found != catalog.end()) {
-      row = migratedRow(reference.libraryId, found->second, true);
+      row = migratedRow(found->second, true);
     } else if (savedExpressionMapSource) {
       juce::String error;
       for (const auto &candidate :
            readLibraryMaps(LibraryMapKind::expression, savedExpressionMapSource(reference.entityId), {}, error))
         if (candidate.entityId == reference.entityId)
-          row = migratedRow(reference.libraryId, candidate, false);
+          row = migratedRow(candidate, false);
     }
     if (!row) {
-      report.missing.push_back(reference.libraryId + " / " + reference.entityId);
+      report.missing.push_back(reference.entityId);
       continue;
     }
-    if (repository.upsertLibraryMap(*row))
+    if (repository.upsertMap(*row))
       ++report.expressionCopied;
   }
 
@@ -237,14 +243,14 @@ migrateLibraryMaps(LibraryRoutingRepository &repository, const std::vector<juce:
       if (!file.getFileName().startsWith("Fiddle"))
         for (const auto &candidate : mapsIn(file, LibraryMapKind::percussion))
           dorico.emplace(candidate.entityId, candidate);
-    for (auto row : repository.listLibraryMaps({}, LibraryMapKind::percussion)) {
+    for (auto row : repository.listMaps(LibraryMapKind::percussion)) {
       const auto match = dorico.find(row.entityId);
       if (!row.sourcePath.empty() || match == dorico.end())
         continue;
       row.sourcePath = match->second.file.getFullPathName().toStdString();
       row.sourceVersion = match->second.version;
       row.sourceHash = match->second.hash.toStdString();
-      if (repository.upsertLibraryMap(row))
+      if (repository.upsertMap(row))
         ++report.percussionSourced;
     }
   }

@@ -118,7 +118,7 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   handlers.registerHandlers();
 
   CHECK(!router.handleMessage("notACommand", {}));
-  // Free-standing strip commands are gone (docs/library-map-import.md).
+  // Free-standing strip commands are gone (docs/maps.md, "Every layer has a library").
   CHECK(!router.handleMessage("addMixerStrip", {}));
   CHECK(!router.handleMessage("duplicateStripInput", payload({"strip-a"})));
   CHECK(!router.handleMessage("setStripLibrary", payload({"strip-a", "Berlin"})));

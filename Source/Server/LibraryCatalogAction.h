@@ -54,20 +54,22 @@ private:
   bool executed_ = false;
 };
 
-// Create, edit, import, update or delete one library map (nullopt = absent).
+// Create, edit, import, update or delete one of Fiddle's maps (nullopt =
+// absent). The favorite is a preference, not catalog content: it is neither
+// compared nor changed, except that undoing a delete brings the map back
+// starred as it was.
 class LibraryMapCatalogAction final : public UndoableAction {
 public:
-  LibraryMapCatalogAction(LibraryRoutingRepository &repository, std::string libraryId,
-                          LibraryMapKind kind, std::string entityId,
-                          std::optional<LibraryMapRow> target, juce::String description)
-      : repository_(repository), libraryId_(std::move(libraryId)), kind_(kind),
-        entityId_(std::move(entityId)), after_(std::move(target)),
-        before_(repository.getLibraryMap(libraryId_, kind_, entityId_)),
+  LibraryMapCatalogAction(LibraryRoutingRepository &repository, LibraryMapKind kind,
+                          std::string entityId, std::optional<LibraryMapRow> target,
+                          juce::String description)
+      : repository_(repository), kind_(kind), entityId_(std::move(entityId)),
+        after_(std::move(target)), before_(repository.getMap(kind_, entityId_)),
         description_(std::move(description)) {}
   void execute() override {
     apply(after_);
     // Later Undo/Redo restores exact rows, revision included.
-    if (success_ && after_) after_ = repository_.getLibraryMap(libraryId_, kind_, entityId_);
+    if (success_ && after_) after_ = repository_.getMap(kind_, entityId_);
   }
   void undo() override { apply(before_); }
   bool succeeded() const override { return success_; }
@@ -79,16 +81,14 @@ public:
                        before_->sourceHash == after_->sourceHash && before_->edited == after_->edited);
   }
   juce::String getDescription() const override { return description_; }
-  const std::string &libraryId() const { return libraryId_; }
   LibraryMapKind kind() const { return kind_; }
   const std::string &entityId() const { return entityId_; }
 private:
   void apply(const std::optional<LibraryMapRow> &row) {
-    success_ = row ? repository_.upsertLibraryMap(*row)
-                   : repository_.deleteLibraryMap(libraryId_, kind_, entityId_) == PatchDeleteResult::deleted;
+    success_ = row ? repository_.upsertMap(*row)
+                   : repository_.deleteMap(kind_, entityId_) == PatchDeleteResult::deleted;
   }
   LibraryRoutingRepository &repository_;
-  std::string libraryId_;
   LibraryMapKind kind_;
   std::string entityId_;
   std::optional<LibraryMapRow> after_, before_;

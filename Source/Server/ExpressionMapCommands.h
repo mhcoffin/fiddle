@@ -11,10 +11,9 @@ public:
   virtual ~ExpressionMapCommands() = default;
 
   [[nodiscard]] virtual juce::var catalog() const = 0;
-  /// A map's contents for the viewer: from libraryId's maps when given,
-  /// otherwise from Dorico's library folders.
-  [[nodiscard]] virtual juce::var details(const juce::String &entityId,
-                                          const juce::String &libraryId = {}) = 0;
+  /// A map's contents for the viewer: Fiddle's stored copy when there is
+  /// one, otherwise Dorico's library folders.
+  [[nodiscard]] virtual juce::var details(const juce::String &entityId) = 0;
   virtual bool assign(const juce::String &stripId,
                       const juce::String &entityId) = 0;
   virtual bool clear(const juce::String &stripId) = 0;

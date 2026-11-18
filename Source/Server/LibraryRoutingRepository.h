@@ -44,10 +44,9 @@ enum class LibraryMapKind { expression, percussion };
 const char *libraryMapKindName(LibraryMapKind kind);
 std::optional<LibraryMapKind> libraryMapKindFromName(const std::string &name);
 
-// A map owned by one library (docs/library-map-import.md). xml is the map's
-// own definition element: ExpressionMapDefinition or DrumKitNoteMapDefinition.
+// One map in Fiddle's shared collection (docs/maps.md). xml is the map's own
+// definition element: ExpressionMapDefinition or DrumKitNoteMapDefinition.
 struct LibraryMapRow {
-  std::string libraryId;
   LibraryMapKind kind = LibraryMapKind::expression;
   std::string entityId, name, xml;
   int revision = 1;
@@ -59,19 +58,30 @@ struct LibraryMapRow {
   std::string sourceHash;
   /// Edited in Fiddle since import (percussion maps only).
   bool edited = false;
+  /// Starred in the picker. A preference: upserts keep the stored value, and
+  /// only setMapFavorite() or inserting a new row writes it.
+  bool favorite = false;
+};
+
+/// One patch or layer that uses a map, for the picker's suggestions.
+struct MapUse {
+  LibraryMapKind kind = LibraryMapKind::expression;
+  std::string entityId;
+  bool layer = false;
+  std::string patchId, libraryId;
+  /// The patch's classification, or the layer's chair instrument.
+  std::string instrument;
+  /// "Library / Patch" or "Layer Chair / Patch".
+  std::string label;
 };
 
 // A complete modern catalog entry; absent headers represent deletion. Layer
-// rows belong to the project and are deliberately never included.
+// rows belong to the project and are deliberately never included. Maps are
+// shared by every library and are not part of a library's snapshot.
 struct LibraryCatalogSnapshot {
   std::string id, name, vendor, variant;
   bool exists = false;
   std::vector<LibraryPatchRow> patches;
-  /// The library's maps, used only when includesMaps is set. Captured
-  /// snapshots include them; snapshots built from an editor's patch list leave
-  /// the stored maps alone. Deleting a library always deletes its maps.
-  std::vector<LibraryMapRow> maps;
-  bool includesMaps = false;
 };
 
 struct ChairRow {
@@ -147,24 +157,27 @@ public:
   std::vector<ExpressionMapReference> listExpressionMapReferences() const;
   int patchUsageCount(const std::string &patchId) const;
 
-  /// Maps of one library (all libraries when empty), optionally of one kind.
+  /// Fiddle's maps, optionally of one kind, by name.
   std::vector<LibraryMapRow>
-  listLibraryMaps(const std::string &libraryId = {},
-                  std::optional<LibraryMapKind> kind = std::nullopt) const;
-  std::optional<LibraryMapRow> getLibraryMap(const std::string &libraryId, LibraryMapKind kind,
-                                             const std::string &entityId) const;
+  listMaps(std::optional<LibraryMapKind> kind = std::nullopt) const;
+  std::optional<LibraryMapRow> getMap(LibraryMapKind kind, const std::string &entityId) const;
   /// Insert or replace; the revision advances when the name or XML changes.
-  bool upsertLibraryMap(const LibraryMapRow &map);
-  /// The library's patches ("Library / Patch") and layers ("Layer Chair /
-  /// Patch") that use the map.
-  std::vector<std::string> libraryMapReferences(const std::string &libraryId, LibraryMapKind kind,
-                                                const std::string &entityId) const;
+  /// An existing row keeps its favorite.
+  bool upsertMap(const LibraryMapRow &map);
+  /// Insert only when no map of that kind and ID exists. True when the row
+  /// was inserted.
+  bool insertMapIfAbsent(const LibraryMapRow &map);
+  bool setMapFavorite(LibraryMapKind kind, const std::string &entityId, bool favorite);
+  /// Every patch and layer that uses a map, in patch then layer order.
+  std::vector<MapUse> listMapUsage() const;
+  /// The patches ("Library / Patch") and layers ("Layer Chair / Patch")
+  /// that use the map.
+  std::vector<std::string> mapReferences(LibraryMapKind kind, const std::string &entityId) const;
   /// Refused while referenced.
-  PatchDeleteResult deleteLibraryMap(const std::string &libraryId, LibraryMapKind kind,
-                                     const std::string &entityId);
-  /// (library, map ID) pairs used by patches or layers that have no map row.
-  struct MissingMapReference { std::string libraryId; LibraryMapKind kind; std::string entityId; };
-  std::vector<MissingMapReference> missingLibraryMapReferences() const;
+  PatchDeleteResult deleteMap(LibraryMapKind kind, const std::string &entityId);
+  /// Map IDs used by patches or layers that have no map row.
+  struct MissingMapReference { LibraryMapKind kind; std::string entityId; };
+  std::vector<MissingMapReference> missingMapReferences() const;
   /// Count linked layers whose library-owned setup no longer matches the
   /// current catalog patch. Layer-owned mixer controls are ignored.
   int outOfDateLayerCount(const std::string &patchId) const;

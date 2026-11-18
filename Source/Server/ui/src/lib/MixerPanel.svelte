@@ -2,6 +2,7 @@
     import StereoMeter from "./StereoMeter.svelte";
     import BalanceControl from "./BalanceControl.svelte";
     import { onMount, onDestroy } from "svelte";
+    import { applyMapUsage } from "./libraryMaps.js";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
     import BranchSelector from "./BranchSelector.svelte";
     import AudioDiagnostics from "./AudioDiagnostics.svelte";
@@ -210,6 +211,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     onFromCpp("setLibraryMaps", (data) => {
         libraryMaps = Array.isArray(data) ? data : [];
     });
+    // Who uses each map changes with every layer edit (docs/maps.md).
+    onFromCpp("setLibraryMapUsage", (usage) => { libraryMaps = applyMapUsage(libraryMaps, usage); });
     onFromCpp("setLuaPluginCatalog", (data) => {
         try {
             luaPluginCatalog = Array.isArray(data) ? data : [];
@@ -473,9 +476,6 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             return;
         }
         dispatchCpp("loadExpressionMap", stripId, entityID);
-    };
-    const loadExpressionMapFromFile = (stripId) => {
-        dispatchCpp("loadExpressionMapFromFile", stripId);
     };
     const clearExpressionMap = (stripId) => {
         if (isMultiSelected && selectedIds.has(stripId)) {
@@ -1879,10 +1879,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onSetProgram={(index) => dispatchCpp("setStripProgram", detailsStrip.id, index)}
                 onSelectMap={(entityID) => loadExpressionMap(detailsStrip.id, entityID)}
                 onClearMap={() => clearExpressionMap(detailsStrip.id)}
-                onLoadMapFile={() => loadExpressionMapFromFile(detailsStrip.id)}
                 onSelectPercussionMap={(entityId) => dispatchCpp("loadPercussionMap", detailsStrip.id, entityId)}
                 onClearPercussionMap={() => dispatchCpp("clearPercussionMap", detailsStrip.id)}
-                onLoadPercussionMapFile={() => dispatchCpp("loadPercussionMapFromFile", detailsStrip.id)}
                 onSetPercussionPlayAs={(instrument) => dispatchCpp("setPercussionPlayAs", detailsStrip.id, instrument)}
                 {doricoInstruments}
                 onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}

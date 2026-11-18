@@ -1444,47 +1444,52 @@ try {
     });
     const libraryEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
     const linked = libraryEditor.locator(".inst-row").first();
-    // Player, expression map and percussion map selectors share one look,
-    // and each keeps its native drop-down arrow.
-    const rowSelectLooks = await linked.locator("select").evaluateAll(selects => selects.map(select => {
-        const style = getComputedStyle(select);
+    // The player selector and the expression and percussion map pickers
+    // share one look; the player keeps its native drop-down arrow.
+    const rowSelectLooks = await linked.locator("select.ir-select, .map-picker > .trigger").evaluateAll(controls => controls.map(control => {
+        const style = getComputedStyle(control);
         return [style.height, style.backgroundColor, style.borderColor, style.borderRadius,
-            style.color, style.fontSize, style.appearance].join(" ");
+            style.color, style.fontSize].join(" ");
     }));
     assert.equal(rowSelectLooks.length, 3, "a patch row has player, expression and percussion selectors");
     assert.equal(new Set(rowSelectLooks).size, 1, `patch row selectors differ: ${rowSelectLooks.join(" / ")}`);
-    assert.doesNotMatch(rowSelectLooks[0], / none$/, "patch row selectors keep their drop-down arrow");
-    // The map lists float over the patch list, opened from the header, and
-    // never push the patches out of view.
+    assert.notEqual(await linked.locator("select.ir-select").evaluate(select => getComputedStyle(select).appearance), "none",
+        "the player selector keeps its drop-down arrow");
+    // Fiddle's maps (docs/maps.md) float over the page, opened from the
+    // editor's header or the home page, and never move the patch list.
     const firstRowTop = await linked.evaluate(row => row.getBoundingClientRect().top);
     for (const title of ["Expression Maps", "Percussion Maps"]) {
         await libraryEditor.getByRole("button", { name: new RegExp(`^${title}`) }).click();
-        const pane = libraryEditor.getByRole("dialog", { name: title, exact: true });
+        const pane = libraryPage.getByRole("dialog", { name: title, exact: true });
         assert.ok(await pane.isVisible(), `${title} opens from the editor header`);
-        assert.equal(await libraryEditor.locator(".lmap").count(), 1, "one maps pane at a time");
+        assert.equal(await libraryPage.locator(".lmap").count(), 1, "one maps pane at a time");
         assert.equal(await linked.evaluate(row => row.getBoundingClientRect().top), firstRowTop,
             `${title} leaves the patch list where it was`);
         const gaps = await pane.evaluate(panel => {
-            const area = panel.closest(".editor-body").getBoundingClientRect();
             const box = panel.getBoundingClientRect();
-            return [box.left - area.left, area.right - box.right, box.top - area.top, area.bottom - box.bottom].map(Math.round);
+            return [box.left, innerWidth - box.right, box.top, innerHeight - box.bottom].map(Math.round);
         });
         assert.ok(Math.abs(gaps[0] - gaps[1]) <= 1 && Math.abs(gaps[2] - gaps[3]) <= 1 && gaps[2] > 0,
-            `${title} is centred over the patch list: ${gaps}`);
+            `${title} is centred in the window: ${gaps}`);
+        assert.match(await pane.innerText(), /shared by every library/);
+        await pane.getByRole("button", { name: `Close ${title}`, exact: true }).click();
     }
+    await libraryEditor.getByRole("button", { name: /^Expression Maps/ }).click();
     await libraryPage.keyboard.press("Escape");
-    assert.equal(await libraryEditor.locator(".lmap").count(), 0, "Escape closes the maps pane");
+    assert.equal(await libraryPage.locator(".lmap").count(), 0, "Escape closes the maps pane");
+    assert.ok(await libraryEditor.isVisible(), "Escape on the maps pane leaves the editor open");
     // A percussion map opens read-only from View, like an expression map.
     await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setLibraryMaps", data: [{
-        libraryId: "test-library", kind: "percussion", entityId: "drumkitmap.user.test", name: "Test snares",
+        kind: "percussion", entityId: "drumkitmap.user.test", name: "Test snares", uses: [],
         map: { entityId: "drumkitmap.user.test", name: "Test snares", version: 2, entries: [
             { instrument: "instrument.orchestral.unpitched.snare.drum", techniques: ["pt.natural"], pitch: 36, keyswitches: [], name: "Snare", variant: "" },
             { instrument: "instrument.orchestral.unpitched.snare.drum", techniques: ["pt.tremolo", "pt.rim"], pitch: 38, keyswitches: [24], name: "Rim roll", variant: "" },
         ] },
     }] }));
-    const percussionPicker = linked.locator(".percussion-picker");
+    const percussionPicker = linked.locator(".ir-percussion .map-picker");
     assert.ok(await percussionPicker.getByRole("button", { name: "View", exact: true }).isDisabled(), "nothing to view without a map");
-    await percussionPicker.getByRole("combobox", { name: "Percussion map" }).selectOption("drumkitmap.user.test");
+    await percussionPicker.locator(".trigger").click();
+    await libraryPage.getByRole("listbox", { name: "Percussion Maps" }).getByRole("option", { name: /Test snares/ }).click();
     await percussionPicker.getByRole("button", { name: "View", exact: true }).click();
     const percussionViewer = libraryPage.getByRole("dialog", { name: "Test snares", exact: true });
     assert.match(await percussionViewer.innerText(), /drumkitmap\.user\.test · Version 2 · 2 entries · 1 instrument/);
@@ -1498,7 +1503,82 @@ try {
     await libraryPage.keyboard.press("Escape");
     assert.equal(await percussionViewer.count(), 0, "Escape closes the viewer");
     assert.ok(await libraryEditor.isVisible(), "closing the viewer leaves the editor open");
-    await percussionPicker.getByRole("combobox", { name: "Percussion map" }).selectOption("");
+    await percussionPicker.locator(".trigger").click();
+    await libraryPage.getByRole("listbox", { name: "Percussion Maps" }).getByRole("option", { name: "None", exact: true }).click();
+    assert.match(await percussionPicker.locator(".trigger").innerText(), /^None/);
+
+    // The expression map picker offers every library's maps: this patch's
+    // first, favorites next, the rest by name. It searches, stars and takes
+    // the keyboard; Escape closes only the list.
+    const otherUse = { type: "patch", patchId: "elite-violin", libraryId: "elite", instrument: "instrument.strings.violin", label: "Elite / Violin" };
+    await libraryPage.evaluate((otherUse) => window.__dispatchFromCpp({ type: "setLibraryMaps", data: [
+        { kind: "expression", entityId: "x.mine", name: "Linked patch map", creator: "Me",
+          uses: [{ type: "patch", patchId: "used", libraryId: "test-library", instrument: "", label: "Test library / Linked patch" }] },
+        { kind: "expression", entityId: "x.elite", name: "Elite violins", sourcePath: "/maps/Elite.doricolib", uses: [otherUse] },
+        { kind: "expression", entityId: "x.fav", name: "Zed favorite", favorite: true, uses: [] },
+    ] }), otherUse);
+    const expressionPicker = linked.locator(".ir-expr .map-picker");
+    await expressionPicker.locator(".trigger").click();
+    const list = libraryPage.getByRole("listbox", { name: "Expression Maps" });
+    if (process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR)
+        await libraryPage.screenshot({ path: path.join(process.env.FIDDLE_LAYOUT_SCREENSHOT_DIR, "map-picker.png") });
+    assert.deepEqual(await list.locator(".section").allInnerTexts(), ["SUGGESTED", "FAVORITES", "ALL MAPS"],
+        "suggested, favorites, then the rest");
+    assert.deepEqual(await list.locator(".row-name").allInnerTexts(), ["None", "Linked patch map", "Zed favorite", "Elite violins"]);
+    assert.match(await list.getByRole("option", { name: /Linked patch map/ }).innerText(), /This patch/);
+    await libraryPage.keyboard.type("elite");
+    assert.deepEqual(await list.locator(".row-name").allInnerTexts(), ["None", "Elite violins"]);
+    await list.getByRole("button", { name: "Add Elite violins to favorites", exact: true }).click();
+    assert.ok(await libraryPage.evaluate(() => window.fixtureMessages.some(m => m.type === "setLibraryMapFavorite"
+        && JSON.stringify(m.payload) === JSON.stringify(["expression", "x.elite", true]))), "the star is saved at once");
+    assert.ok(await list.isVisible(), "starring leaves the list open");
+    await libraryPage.keyboard.press("Enter");
+    assert.equal(await list.count(), 0, "Enter chooses the highlighted map");
+    assert.match(await expressionPicker.locator(".trigger").innerText(), /Elite violins/);
+    await expressionPicker.locator(".trigger").click();
+    await libraryPage.keyboard.press("Escape");
+    assert.equal(await libraryPage.getByRole("listbox", { name: "Expression Maps" }).count(), 0, "Escape closes the list");
+    assert.ok(await libraryEditor.isVisible(), "and leaves the editor open");
+    // Enter on a focused filter presses it rather than choosing a map.
+    await expressionPicker.locator(".trigger").click();
+    await list.locator("xpath=..").getByRole("radio", { name: "Favorites", exact: true }).focus();
+    await libraryPage.keyboard.press("Enter");
+    assert.ok(await list.isVisible(), "the list stays open");
+    assert.deepEqual(await list.locator(".section").allInnerTexts(), ["FAVORITES"]);
+    assert.match(await expressionPicker.locator(".trigger").innerText(), /Elite violins/, "the map is unchanged");
+    // The highlighted favorite is unstarred elsewhere and vanishes: Enter
+    // then chooses nothing, rather than clearing the map.
+    assert.match(await list.locator(".row.active").innerText(), /Zed favorite/);
+    await libraryPage.evaluate((otherUse) => window.__dispatchFromCpp({ type: "setLibraryMaps", data: [
+        { kind: "expression", entityId: "x.elite", name: "Elite violins", uses: [otherUse] },
+        { kind: "expression", entityId: "x.fav", name: "Zed favorite", favorite: false, uses: [] },
+    ] }), otherUse);
+    assert.equal(await list.locator(".row.active").count(), 0, "nothing is highlighted");
+    await list.locator("xpath=..").getByRole("searchbox").focus();
+    await libraryPage.keyboard.press("Enter");
+    assert.ok(await list.isVisible(), "Enter with nothing highlighted keeps the list open");
+    assert.match(await expressionPicker.locator(".trigger").innerText(), /Elite violins/, "and keeps the map");
+    await libraryPage.keyboard.press("Escape");
+    // Cancelling the file chooser leaves import working: the next click asks again.
+    await expressionPicker.locator(".trigger").click();
+    const importRequests = () => libraryPage.evaluate(() =>
+        window.fixtureMessages.filter(m => m.type === "chooseLibraryMapFiles").map(m => m.payload[1]));
+    await libraryPage.getByRole("button", { name: "Import .doricolib…", exact: true }).click();
+    const [firstRequest] = await importRequests();
+    await libraryPage.evaluate((requestId) => window.__dispatchFromCpp({ type: "libraryMapImportCandidates",
+        data: { kind: "expression", requestId, cancelled: true } }), firstRequest);
+    await expressionPicker.locator(".trigger").click();
+    await libraryPage.getByRole("button", { name: "Import .doricolib…", exact: true }).click();
+    const requests = await importRequests();
+    assert.equal(requests.length, 2, "a second import asks for files again");
+    assert.notEqual(requests[1], firstRequest);
+    await libraryPage.evaluate((requestId) => window.__dispatchFromCpp({ type: "libraryMapImportCandidates", data: {
+        kind: "expression", requestId, origin: "file", errors: [], maps: [{ entityId: "x.elite", name: "Elite violins",
+            version: 2, file: "/maps/Elite.doricolib", status: "newer", existingVersion: 1, references: 3 }] } }), requests[1]);
+    const importDialog = libraryPage.getByRole("dialog", { name: "Import expression maps", exact: true });
+    assert.match(await importDialog.innerText(), /Replaces Fiddle's copy for the 3 patches and layers using it/);
+    await importDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(await importDialog.count(), 0);
     // Classify Patch keeps its height while search results come and go.
     await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "setDoricoInstruments", data:
         ["Flute", "Alto Flute", "Bass Flute", "Oboe", "Clarinet", "Bassoon", "Horn", "Trumpet", "Trombone", "Tuba",
@@ -1604,13 +1684,13 @@ try {
     // button stays enabled), then a dated summary line reports the result.
     await libraryPage.evaluate(() => {
         window.__dispatchFromCpp({ type: "setLibraryList", data: [{ id: "checked-library", name: "Checked library" }] });
-        window.__dispatchFromCpp({ type: "setLibraryMaps", data: [{ libraryId: "checked-library", kind: "expression",
-            entityId: "x.strings", name: "Strings", sourcePath: "/maps/strings.doricolib", references: [] }] });
+        window.__dispatchFromCpp({ type: "setLibraryMaps", data: [{ kind: "expression",
+            entityId: "x.strings", name: "Strings", sourcePath: "/maps/strings.doricolib", references: [], uses: [] }] });
         window.__dispatchFromCpp({ type: "setLibraryData", data: { id: "checked-library", name: "Checked library", patches: [] } });
     });
     const checkedEditor = libraryPage.getByRole("dialog", { name: "VST LIBRARY EDITOR" });
     await checkedEditor.getByRole("button", { name: /^Expression Maps/ }).click();
-    const mapsPane = checkedEditor.getByRole("dialog", { name: "Expression Maps", exact: true });
+    const mapsPane = libraryPage.getByRole("dialog", { name: "Expression Maps", exact: true });
     const checkButton = mapsPane.getByRole("button", { name: "Check for updates", exact: true });
     await checkButton.click();
     assert.equal(await checkButton.isEnabled(), true, "the button stays enabled while checking");
@@ -1618,7 +1698,7 @@ try {
     assert.equal(await mapsPane.locator(".lmap-check-icon.spinning").count(), 1, "the icon spins while checking");
     assert.ok(await libraryPage.evaluate(() => window.fixtureMessages.some(m => m.type === "checkLibraryMapSources")));
     await libraryPage.evaluate(() => window.__dispatchFromCpp({ type: "libraryMapSourceStatus", data: {
-        libraryId: "checked-library", statuses: [{ kind: "expression", entityId: "x.strings", status: "newer", version: 3 }] } }));
+        statuses: [{ kind: "expression", entityId: "x.strings", status: "newer", version: 3 }] } }));
     assert.equal(await mapsPane.locator(".lmap-check-icon.spinning").count(), 1, "an instant answer still shows the spinner briefly");
     await mapsPane.locator(".lmap-check-icon:not(.spinning)").waitFor();
     assert.match(await mapsPane.locator(".lmap-check-result").innerText(), /Checked .+ · 1 update available/);

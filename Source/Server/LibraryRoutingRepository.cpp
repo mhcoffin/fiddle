@@ -431,8 +431,7 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
       !ensureColumn(database, "layers", "percussion_play_as",
                     "percussion_play_as TEXT NOT NULL DEFAULT ''") ||
       !execute(database, R"(
-    CREATE TABLE IF NOT EXISTS library_maps (
-      library_id     TEXT NOT NULL,
+    CREATE TABLE IF NOT EXISTS maps (
       kind           TEXT NOT NULL CHECK (kind IN ('expression', 'percussion')),
       entity_id      TEXT NOT NULL,
       name           TEXT NOT NULL,
@@ -442,31 +441,55 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
       source_version INTEGER NOT NULL DEFAULT 0,
       source_hash    TEXT NOT NULL DEFAULT '',
       edited         INTEGER NOT NULL DEFAULT 0,
+      favorite       INTEGER NOT NULL DEFAULT 0,
       updated_at     INTEGER NOT NULL DEFAULT (unixepoch()),
-      PRIMARY KEY (library_id, kind, entity_id)
+      PRIMARY KEY (kind, entity_id)
     )
   )"))
     return false;
 
-  // Percussion maps used to be one shared list. Give each library its own
-  // copy of every map its patches or layers use, and drop maps no library
-  // uses (docs/library-map-import.md, Migration).
+  // Percussion maps were once one shared list, before the per-library maps
+  // of 2026-11-04. Both now become Fiddle's one collection (docs/maps.md).
   if (hasTable(database, "library_percussion_maps") && !execute(database, R"(
     BEGIN IMMEDIATE;
-    INSERT OR IGNORE INTO library_maps (library_id, kind, entity_id, name, xml, revision, updated_at)
-      SELECT refs.library_id, 'percussion', m.entity_id, m.name, m.xml, m.revision, m.updated_at
-      FROM library_percussion_maps m
-      JOIN (SELECT library_id, percussion_map_id AS map_id FROM library_patches
-              WHERE percussion_map_id <> '' AND library_id <> ''
-            UNION
-            SELECT library_id, percussion_map_id FROM layers
-              WHERE percussion_map_id <> '' AND library_id <> '') refs
-        ON refs.map_id = m.entity_id;
+    INSERT OR IGNORE INTO maps (kind, entity_id, name, xml, revision, updated_at)
+      SELECT 'percussion', entity_id, name, xml, revision, updated_at
+      FROM library_percussion_maps;
     DROP TABLE library_percussion_maps;
     COMMIT;
   )")) {
     execute(database, "ROLLBACK");
     return false;
+  }
+  if (hasTable(database, "library_maps")) {
+    // Libraries holding different copies of one map: the most recently
+    // updated copy wins. Name the others, since their layers change sound.
+    {
+      Statement clashes(database, R"(
+        SELECT kind, entity_id, GROUP_CONCAT(library_id, ', ') FROM library_maps
+        GROUP BY kind, entity_id HAVING COUNT(DISTINCT xml) > 1
+      )");
+      while (clashes && sqlite3_step(clashes.get()) == SQLITE_ROW)
+        std::cerr << "[LibraryRoutingRepository] Libraries " << columnText(clashes.get(), 2)
+                  << " held different copies of " << columnText(clashes.get(), 0) << " map '"
+                  << columnText(clashes.get(), 1) << "'; keeping the most recently updated" << std::endl;
+    }
+    if (!execute(database, R"(
+      BEGIN IMMEDIATE;
+      INSERT OR IGNORE INTO maps (kind, entity_id, name, xml, revision, source_path, source_version,
+                                  source_hash, edited, updated_at)
+        SELECT kind, entity_id, name, xml, revision, source_path, source_version, source_hash, edited,
+               updated_at
+        FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY kind, entity_id
+                                           ORDER BY updated_at DESC, revision DESC, library_id) AS rank
+              FROM library_maps)
+        WHERE rank = 1;
+      DROP TABLE library_maps;
+      COMMIT;
+    )")) {
+      execute(database, "ROLLBACK");
+      return false;
+    }
   }
 
   // Existing rows predate stable synchronization tracking. Treat their
@@ -602,61 +625,62 @@ LibraryRoutingRepository::listPatches(const std::string &libraryId) const {
 
 namespace {
 constexpr const char *kMapColumns =
-    "library_id, kind, entity_id, name, xml, revision, source_path, source_version, "
-    "source_hash, edited";
+    "kind, entity_id, name, xml, revision, source_path, source_version, source_hash, edited, "
+    "favorite";
 
 LibraryMapRow readMap(sqlite3_stmt *statement) {
   LibraryMapRow row;
-  row.libraryId = columnText(statement, 0);
-  row.kind = libraryMapKindFromName(columnText(statement, 1)).value_or(LibraryMapKind::expression);
-  row.entityId = columnText(statement, 2);
-  row.name = columnText(statement, 3);
-  row.xml = columnText(statement, 4);
-  row.revision = sqlite3_column_int(statement, 5);
-  row.sourcePath = columnText(statement, 6);
-  row.sourceVersion = sqlite3_column_int(statement, 7);
-  row.sourceHash = columnText(statement, 8);
-  row.edited = sqlite3_column_int(statement, 9) != 0;
+  row.kind = libraryMapKindFromName(columnText(statement, 0)).value_or(LibraryMapKind::expression);
+  row.entityId = columnText(statement, 1);
+  row.name = columnText(statement, 2);
+  row.xml = columnText(statement, 3);
+  row.revision = sqlite3_column_int(statement, 4);
+  row.sourcePath = columnText(statement, 5);
+  row.sourceVersion = sqlite3_column_int(statement, 6);
+  row.sourceHash = columnText(statement, 7);
+  row.edited = sqlite3_column_int(statement, 8) != 0;
+  row.favorite = sqlite3_column_int(statement, 9) != 0;
   return row;
 }
 
 // Insert or update one map. With exactRevision the stored revision is
 // written as given (catalog Undo); otherwise it advances on a content change.
+// An update keeps the stored favorite; an insert takes the row's.
 bool writeMapUnlocked(sqlite3 *database, const LibraryMapRow &map, bool exactRevision) {
-  if (map.libraryId.empty() || map.entityId.empty())
+  if (map.entityId.empty())
     return false;
   Statement statement(database, exactRevision ? R"(
-    INSERT INTO library_maps (library_id, kind, entity_id, name, xml, revision, source_path,
-                              source_version, source_hash, edited)
-    VALUES (?1, ?2, ?3, ?4, ?5, MAX(?6, 1), ?7, ?8, ?9, ?10)
-    ON CONFLICT(library_id, kind, entity_id) DO UPDATE SET
+    INSERT INTO maps (kind, entity_id, name, xml, revision, source_path, source_version,
+                      source_hash, edited, favorite)
+    VALUES (?1, ?2, ?3, ?4, MAX(?5, 1), ?6, ?7, ?8, ?9, ?10)
+    ON CONFLICT(kind, entity_id) DO UPDATE SET
       name = excluded.name, xml = excluded.xml, revision = excluded.revision,
       source_path = excluded.source_path, source_version = excluded.source_version,
       source_hash = excluded.source_hash, edited = excluded.edited, updated_at = unixepoch()
   )" : R"(
-    INSERT INTO library_maps (library_id, kind, entity_id, name, xml, revision, source_path,
-                              source_version, source_hash, edited)
-    VALUES (?1, ?2, ?3, ?4, ?5, MAX(?6, 1), ?7, ?8, ?9, ?10)
-    ON CONFLICT(library_id, kind, entity_id) DO UPDATE SET
-      revision = CASE WHEN library_maps.xml <> excluded.xml OR library_maps.name <> excluded.name
-                      THEN MAX(library_maps.revision + 1, excluded.revision)
-                      ELSE library_maps.revision END,
+    INSERT INTO maps (kind, entity_id, name, xml, revision, source_path, source_version,
+                      source_hash, edited, favorite)
+    VALUES (?1, ?2, ?3, ?4, MAX(?5, 1), ?6, ?7, ?8, ?9, ?10)
+    ON CONFLICT(kind, entity_id) DO UPDATE SET
+      revision = CASE WHEN maps.xml <> excluded.xml OR maps.name <> excluded.name
+                      THEN MAX(maps.revision + 1, excluded.revision)
+                      ELSE maps.revision END,
       name = excluded.name, xml = excluded.xml,
       source_path = excluded.source_path, source_version = excluded.source_version,
       source_hash = excluded.source_hash, edited = excluded.edited, updated_at = unixepoch()
   )");
   if (!statement)
     return false;
-  bindText(statement.get(), 1, map.libraryId);
-  bindText(statement.get(), 2, libraryMapKindName(map.kind));
-  bindText(statement.get(), 3, map.entityId);
-  bindText(statement.get(), 4, map.name);
-  bindText(statement.get(), 5, map.xml);
-  sqlite3_bind_int(statement.get(), 6, map.revision);
-  bindText(statement.get(), 7, map.sourcePath);
-  sqlite3_bind_int(statement.get(), 8, map.sourceVersion);
-  bindText(statement.get(), 9, map.sourceHash);
-  sqlite3_bind_int(statement.get(), 10, map.edited ? 1 : 0);
+  bindText(statement.get(), 1, libraryMapKindName(map.kind));
+  bindText(statement.get(), 2, map.entityId);
+  bindText(statement.get(), 3, map.name);
+  bindText(statement.get(), 4, map.xml);
+  sqlite3_bind_int(statement.get(), 5, map.revision);
+  bindText(statement.get(), 6, map.sourcePath);
+  sqlite3_bind_int(statement.get(), 7, map.sourceVersion);
+  bindText(statement.get(), 8, map.sourceHash);
+  sqlite3_bind_int(statement.get(), 9, map.edited ? 1 : 0);
+  sqlite3_bind_int(statement.get(), 10, map.favorite ? 1 : 0);
   const bool ok = sqlite3_step(statement.get()) == SQLITE_DONE;
   if (!ok)
     std::cerr << "[LibraryRoutingRepository] Could not save map '" << map.entityId
@@ -682,107 +706,136 @@ std::optional<LibraryMapKind> libraryMapKindFromName(const std::string &name) {
 }
 
 std::vector<LibraryMapRow>
-LibraryRoutingRepository::listLibraryMaps(const std::string &libraryId,
-                                          std::optional<LibraryMapKind> kind) const {
+LibraryRoutingRepository::listMaps(std::optional<LibraryMapKind> kind) const {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   Statement statement(database_, (std::string("SELECT ") + kMapColumns +
-      " FROM library_maps WHERE (?1 = '' OR library_id = ?1) AND (?2 = '' OR kind = ?2)"
-      " ORDER BY library_id, kind, name COLLATE NOCASE, entity_id").c_str());
+      " FROM maps WHERE (?1 = '' OR kind = ?1) ORDER BY kind, name COLLATE NOCASE, entity_id").c_str());
   std::vector<LibraryMapRow> result;
   if (!statement)
     return result;
-  bindText(statement.get(), 1, libraryId);
-  bindText(statement.get(), 2, kind ? libraryMapKindName(*kind) : "");
+  bindText(statement.get(), 1, kind ? libraryMapKindName(*kind) : "");
   while (sqlite3_step(statement.get()) == SQLITE_ROW)
     result.push_back(readMap(statement.get()));
   return result;
 }
 
 std::optional<LibraryMapRow>
-LibraryRoutingRepository::getLibraryMap(const std::string &libraryId, LibraryMapKind kind,
-                                        const std::string &entityId) const {
+LibraryRoutingRepository::getMap(LibraryMapKind kind, const std::string &entityId) const {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   Statement statement(database_, (std::string("SELECT ") + kMapColumns +
-      " FROM library_maps WHERE library_id = ? AND kind = ? AND entity_id = ?").c_str());
-  if (!statement || libraryId.empty() || entityId.empty())
+      " FROM maps WHERE kind = ? AND entity_id = ?").c_str());
+  if (!statement || entityId.empty())
     return std::nullopt;
-  bindText(statement.get(), 1, libraryId);
-  bindText(statement.get(), 2, libraryMapKindName(kind));
-  bindText(statement.get(), 3, entityId);
+  bindText(statement.get(), 1, libraryMapKindName(kind));
+  bindText(statement.get(), 2, entityId);
   if (sqlite3_step(statement.get()) != SQLITE_ROW)
     return std::nullopt;
   return readMap(statement.get());
 }
 
-bool LibraryRoutingRepository::upsertLibraryMap(const LibraryMapRow &map) {
+bool LibraryRoutingRepository::upsertMap(const LibraryMapRow &map) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   return writeMapUnlocked(database_, map, false);
 }
 
-std::vector<std::string>
-LibraryRoutingRepository::libraryMapReferences(const std::string &libraryId, LibraryMapKind kind,
-                                               const std::string &entityId) const {
+bool LibraryRoutingRepository::insertMapIfAbsent(const LibraryMapRow &map) {
   std::lock_guard<std::mutex> lock(databaseMutex_);
-  std::vector<std::string> result;
-  const std::string column = referenceColumn(kind);
-  Statement patches(database_, ("SELECT COALESCE(l.name, p.library_id), p.name FROM library_patches p "
-                                "LEFT JOIN libraries l ON l.id = p.library_id "
-                                "WHERE p.library_id = ? AND p." + column +
-                                " = ? ORDER BY p.position, p.id").c_str());
-  if (patches) {
-    bindText(patches.get(), 1, libraryId);
-    bindText(patches.get(), 2, entityId);
-    while (sqlite3_step(patches.get()) == SQLITE_ROW)
-      result.push_back(columnText(patches.get(), 0) + " / " + columnText(patches.get(), 1));
-  }
-  Statement layers(database_, ("SELECT COALESCE(c.name, layer.chair_id), layer.patch_name FROM layers layer "
-                               "LEFT JOIN chairs c ON c.id = layer.chair_id "
-                               "WHERE layer.library_id = ? AND layer." + column +
-                               " = ? ORDER BY c.display_order, layer.position").c_str());
-  if (layers) {
-    bindText(layers.get(), 1, libraryId);
-    bindText(layers.get(), 2, entityId);
-    while (sqlite3_step(layers.get()) == SQLITE_ROW)
-      result.push_back("Layer " + columnText(layers.get(), 0) + " / " + columnText(layers.get(), 1));
+  Statement statement(database_, R"(
+    INSERT OR IGNORE INTO maps (kind, entity_id, name, xml, revision, source_path, source_version,
+                                source_hash, edited, favorite)
+    VALUES (?1, ?2, ?3, ?4, MAX(?5, 1), ?6, ?7, ?8, ?9, ?10)
+  )");
+  if (!statement || map.entityId.empty())
+    return false;
+  bindText(statement.get(), 1, libraryMapKindName(map.kind));
+  bindText(statement.get(), 2, map.entityId);
+  bindText(statement.get(), 3, map.name);
+  bindText(statement.get(), 4, map.xml);
+  sqlite3_bind_int(statement.get(), 5, map.revision);
+  bindText(statement.get(), 6, map.sourcePath);
+  sqlite3_bind_int(statement.get(), 7, map.sourceVersion);
+  bindText(statement.get(), 8, map.sourceHash);
+  sqlite3_bind_int(statement.get(), 9, map.edited ? 1 : 0);
+  sqlite3_bind_int(statement.get(), 10, map.favorite ? 1 : 0);
+  return sqlite3_step(statement.get()) == SQLITE_DONE && sqlite3_changes(database_) > 0;
+}
+
+bool LibraryRoutingRepository::setMapFavorite(LibraryMapKind kind, const std::string &entityId,
+                                              bool favorite) {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  Statement statement(database_, "UPDATE maps SET favorite = ? WHERE kind = ? AND entity_id = ?");
+  if (!statement)
+    return false;
+  sqlite3_bind_int(statement.get(), 1, favorite ? 1 : 0);
+  bindText(statement.get(), 2, libraryMapKindName(kind));
+  bindText(statement.get(), 3, entityId);
+  return sqlite3_step(statement.get()) == SQLITE_DONE && sqlite3_changes(database_) > 0;
+}
+
+std::vector<MapUse> LibraryRoutingRepository::listMapUsage() const {
+  std::lock_guard<std::mutex> lock(databaseMutex_);
+  std::vector<MapUse> result;
+  for (const auto kind : {LibraryMapKind::expression, LibraryMapKind::percussion}) {
+    const std::string column = referenceColumn(kind);
+    Statement patches(database_, ("SELECT p." + column + ", p.id, p.library_id, p.instrument_entity_id, "
+                                  "COALESCE(l.name, p.library_id), p.name FROM library_patches p "
+                                  "LEFT JOIN libraries l ON l.id = p.library_id WHERE p." + column +
+                                  " <> '' ORDER BY p.library_id, p.position, p.id").c_str());
+    while (patches && sqlite3_step(patches.get()) == SQLITE_ROW)
+      result.push_back({kind, columnText(patches.get(), 0), false, columnText(patches.get(), 1),
+                        columnText(patches.get(), 2), columnText(patches.get(), 3),
+                        columnText(patches.get(), 4) + " / " + columnText(patches.get(), 5)});
+    Statement layers(database_, ("SELECT layer." + column + ", layer.patch_id, layer.library_id, "
+                                 "COALESCE(c.instrument_entity_id, ''), COALESCE(c.name, layer.chair_id), "
+                                 "layer.patch_name FROM layers layer LEFT JOIN chairs c ON c.id = layer.chair_id "
+                                 "WHERE layer." + column + " <> '' ORDER BY c.display_order, layer.position").c_str());
+    while (layers && sqlite3_step(layers.get()) == SQLITE_ROW)
+      result.push_back({kind, columnText(layers.get(), 0), true, columnText(layers.get(), 1),
+                        columnText(layers.get(), 2), columnText(layers.get(), 3),
+                        "Layer " + columnText(layers.get(), 4) + " / " + columnText(layers.get(), 5)});
   }
   return result;
 }
 
-PatchDeleteResult LibraryRoutingRepository::deleteLibraryMap(const std::string &libraryId,
-                                                             LibraryMapKind kind,
-                                                             const std::string &entityId) {
-  if (!libraryMapReferences(libraryId, kind, entityId).empty())
+std::vector<std::string>
+LibraryRoutingRepository::mapReferences(LibraryMapKind kind, const std::string &entityId) const {
+  std::vector<std::string> patches, layers;
+  for (const auto &use : listMapUsage())
+    if (use.kind == kind && use.entityId == entityId)
+      (use.layer ? layers : patches).push_back(use.label);
+  patches.insert(patches.end(), layers.begin(), layers.end());
+  return patches;
+}
+
+PatchDeleteResult LibraryRoutingRepository::deleteMap(LibraryMapKind kind, const std::string &entityId) {
+  if (!mapReferences(kind, entityId).empty())
     return PatchDeleteResult::referenced;
   std::lock_guard<std::mutex> lock(databaseMutex_);
-  Statement statement(database_,
-      "DELETE FROM library_maps WHERE library_id = ? AND kind = ? AND entity_id = ?");
+  Statement statement(database_, "DELETE FROM maps WHERE kind = ? AND entity_id = ?");
   if (!statement)
     return PatchDeleteResult::error;
-  bindText(statement.get(), 1, libraryId);
-  bindText(statement.get(), 2, libraryMapKindName(kind));
-  bindText(statement.get(), 3, entityId);
+  bindText(statement.get(), 1, libraryMapKindName(kind));
+  bindText(statement.get(), 2, entityId);
   if (sqlite3_step(statement.get()) != SQLITE_DONE)
     return PatchDeleteResult::error;
   return sqlite3_changes(database_) > 0 ? PatchDeleteResult::deleted : PatchDeleteResult::notFound;
 }
 
 std::vector<LibraryRoutingRepository::MissingMapReference>
-LibraryRoutingRepository::missingLibraryMapReferences() const {
+LibraryRoutingRepository::missingMapReferences() const {
   std::lock_guard<std::mutex> lock(databaseMutex_);
   std::vector<MissingMapReference> result;
   for (const auto kind : {LibraryMapKind::expression, LibraryMapKind::percussion}) {
     const std::string column = referenceColumn(kind);
-    Statement statement(database_, ("SELECT library_id, " + column + " FROM library_patches"
-        " WHERE library_id <> '' AND " + column + " <> ''"
-        " UNION SELECT library_id, " + column + " FROM layers"
-        " WHERE library_id <> '' AND " + column + " <> ''"
-        " EXCEPT SELECT library_id, entity_id FROM library_maps WHERE kind = ?"
-        " ORDER BY 1, 2").c_str());
+    Statement statement(database_, ("SELECT " + column + " FROM library_patches WHERE " + column + " <> ''"
+        " UNION SELECT " + column + " FROM layers WHERE " + column + " <> ''"
+        " EXCEPT SELECT entity_id FROM maps WHERE kind = ?"
+        " ORDER BY 1").c_str());
     if (!statement)
       continue;
     bindText(statement.get(), 1, libraryMapKindName(kind));
     while (sqlite3_step(statement.get()) == SQLITE_ROW)
-      result.push_back({columnText(statement.get(), 0), kind, columnText(statement.get(), 1)});
+      result.push_back({kind, columnText(statement.get(), 0)});
   }
   return result;
 }
@@ -1102,15 +1155,6 @@ LibraryRoutingRepository::captureLibrary(const std::string &id) const {
   while ((patchCode = sqlite3_step(patches.get())) == SQLITE_ROW)
     result.patches.push_back(readPatch(patches.get()));
   if (patchCode != SQLITE_DONE) return std::nullopt;
-  Statement maps(database_, (std::string("SELECT ") + kMapColumns +
-    " FROM library_maps WHERE library_id = ? ORDER BY kind, entity_id").c_str());
-  if (!maps) return std::nullopt;
-  bindText(maps.get(), 1, id);
-  int mapCode;
-  while ((mapCode = sqlite3_step(maps.get())) == SQLITE_ROW)
-    result.maps.push_back(readMap(maps.get()));
-  if (mapCode != SQLITE_DONE) return std::nullopt;
-  result.includesMaps = true;
   return result;
 }
 
@@ -1174,22 +1218,6 @@ PatchReplaceResult LibraryRoutingRepository::restoreLibrary(
     Statement remove(database_, "DELETE FROM libraries WHERE id = ?");
     ok = bool(remove);
     if (ok) { bindText(remove.get(), 1, snapshot.id); ok = sqlite3_step(remove.get()) == SQLITE_DONE; }
-  }
-  // The library's maps follow the snapshot exactly, revisions included. A
-  // deleted library (no header) keeps no maps.
-  if (ok && (snapshot.includesMaps || !snapshot.exists)) {
-    Statement clear(database_, "DELETE FROM library_maps WHERE library_id = ?");
-    ok = bool(clear);
-    if (ok) {
-      bindText(clear.get(), 1, snapshot.id);
-      ok = sqlite3_step(clear.get()) == SQLITE_DONE;
-    }
-    for (const auto &map : snapshot.maps) {
-      if (!ok || !snapshot.exists) break;
-      auto row = map;
-      row.libraryId = snapshot.id;
-      ok = writeMapUnlocked(database_, row, true);
-    }
   }
   if (!ok || !execute(database_, "COMMIT")) {
     execute(database_, "ROLLBACK");

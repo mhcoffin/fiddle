@@ -10,8 +10,8 @@
 
 namespace fiddle {
 
-// Reading, fingerprinting and packaging of library maps
-// (docs/library-map-import.md). A stored map is its own definition element:
+// Reading, fingerprinting and packaging of Fiddle's expression and percussion
+// maps (docs/maps.md). A stored map is its own definition element:
 // ExpressionMapDefinition or DrumKitNoteMapDefinition, normalized so the same
 // map always serializes to the same text.
 
@@ -51,6 +51,10 @@ std::shared_ptr<ExpressionMapData> compileExpressionMap(const juce::String &defi
 /// The map's own version number in a stored definition, or 0.
 int libraryMapDefinitionVersion(LibraryMapKind kind, const juce::String &definitionXml);
 
+/// An expression map definition's creator and player labels, for search.
+struct ExpressionMapLabels { std::string creator, pluginNames; };
+ExpressionMapLabels expressionMapLabels(const juce::String &definitionXml);
+
 /// Dorico 5 and 6 DefaultLibraryAdditions folders that exist.
 juce::Array<juce::File> doricoLibraryAdditionDirectories();
 
@@ -62,17 +66,17 @@ juce::Array<juce::File> doricoMapSources();
 /// Every .doricolib under the given files and folders (recursive).
 juce::Array<juce::File> doricolibFilesIn(const juce::Array<juce::File> &sources);
 
-/// What the one-time migration did (docs/library-map-import.md, Migration).
+/// What the startup migration did (docs/maps.md, Migration).
 struct LibraryMapMigrationReport {
   int expressionCopied = 0;
   int percussionSourced = 0;
-  /// "libraryId / entityId" of expression maps found nowhere.
+  /// Entity IDs of expression maps found nowhere.
   std::vector<std::string> missing;
 };
 
-/// Copy each expression map a library uses into that library: from the
-/// catalog files (Dorico's folders and remembered folders), then Dorico's
-/// built-in map files, then a saved project version's copy. With
+/// Copy each expression map a patch or layer uses but Fiddle doesn't have:
+/// from the catalog files (Dorico's folders and remembered folders), then
+/// Dorico's built-in map files, then a saved project version's copy. With
 /// findPercussionSources, record the Dorico file each sourceless percussion
 /// map came from. Safe to rerun: maps already copied are left alone.
 LibraryMapMigrationReport

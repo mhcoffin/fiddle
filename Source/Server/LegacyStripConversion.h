@@ -15,13 +15,14 @@ namespace fiddle {
 // Project versions saved before chairs existed hold free-standing mixer
 // strips: a plug-in on a MIDI port and channel, with a free-text library name
 // and no Dorico instrument. Restoring one converts it to the chair model
-// (docs/library-map-import.md, "Every layer has a library"):
+// (docs/maps.md, "Every layer has a library"):
 //
 // - Strips with the same library name share a generated library, named
 //   "<name> (restored)" or "Unfiled (restored)". Its ID is derived from the
 //   name, so restoring old versions again reuses it.
-// - Each distinct plug-in setup becomes a patch in that library, with the
-//   strip's expression and percussion maps imported into the library.
+// - Each distinct plug-in setup becomes a patch in that library. The strip's
+//   expression and percussion maps join Fiddle's maps unless Fiddle already
+//   has a map with that ID (docs/maps.md).
 // - Each MIDI port and channel becomes a chair at the same input. Where the
 //   current project already has a chair on that input, the new chair copies
 //   its instrument, so playback through Dorico's current template still
@@ -31,9 +32,12 @@ namespace fiddle {
 //   for every channel) leave just the chair.
 
 struct LegacyStripConversion {
-  /// Generated libraries, with only the patches and maps this version needs.
-  /// Merge each with any stored copy (mergeRestoredLibrary) before writing.
+  /// Generated libraries, with only the patches this version needs. Merge
+  /// each with any stored copy (mergeRestoredLibrary) before writing.
   std::vector<LibraryCatalogSnapshot> libraries;
+  /// The maps saved with the strips, one per kind and ID. Add each with
+  /// insertMapIfAbsent: a map Fiddle already has wins.
+  std::vector<LibraryMapRow> maps;
   std::vector<ChairRow> chairs;
   std::vector<LayerRow> layers;
   /// Layer ID -> the strip blob it was made from.
@@ -52,8 +56,8 @@ LegacyStripConversion convertLegacyStrips(
     const std::vector<ChairRow> &liveChairs,
     const std::function<std::string()> &newId);
 
-/// generated plus whatever the stored library already has. Stored patches and
-/// maps win, so restoring never rewrites a patch the user has since edited.
+/// generated plus whatever the stored library already has. Stored patches
+/// win, so restoring never rewrites a patch the user has since edited.
 LibraryCatalogSnapshot mergeRestoredLibrary(const std::optional<LibraryCatalogSnapshot> &stored,
                                             const LibraryCatalogSnapshot &generated);
 

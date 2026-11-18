@@ -1,36 +1,36 @@
 <script>
   import { onFromCpp, dispatchCpp } from "./ipc.js";
+  import MapImportDialog from "./MapImportDialog.svelte";
   import {
-    IMPORT_STATUS_LABELS, KIND_LABELS, SOURCE_STATUS_LABELS, defaultImportSelection, filterCandidates,
-    initialSearch, mapsFor, sourceFileName, summarizeSourceCheck,
+    KIND_LABELS, SOURCE_STATUS_LABELS, mapMatches, mapsOfKind, sourceFileName, summarizeSourceCheck,
   } from "./libraryMaps.js";
   import {
     PERCUSSION_TECHNIQUES, blankEntry, duplicatePercussionMap, formatTechniques, isUnpitchedInstrument,
     newPercussionMap, parseKeyswitches, parseTechniques, pitchName, validatePercussionMap,
   } from "./percussionMaps.js";
 
-  // One library's maps of one kind (docs/library-map-import.md). Imports and
-  // edits are catalog changes, saved at once and undone with "Undo catalog".
-  // The editor keeps this mounted, so messages and update checks survive
-  // closing the pane; it floats over the patch list only while `open`.
+  // The Maps manager: Fiddle's maps of one kind (docs/maps.md), shared by
+  // every library. Imports and edits are catalog changes, saved at once and
+  // undone with "Undo catalog". The Library Manager keeps this mounted, so
+  // messages and update checks survive closing the pane; it floats over the
+  // page only while `open`.
   let {
-    library = { id: "", name: "", vendor: "" },
     kind = "expression",
-    maps = [],          // every library's maps, from setLibraryMaps
-    saved = true,       // false until the library's first Save
+    maps = [],          // every map, from setLibraryMaps
     instruments = [],   // Dorico instruments, for the percussion map editor
-    open = false,       // shown as a floating pane over the patch list
+    open = false,       // shown as a floating pane
     onclose = () => {},
   } = $props();
 
   const labels = $derived(KIND_LABELS[kind]);
-  let ownMaps = $derived(mapsFor(maps, library.id, kind));
+  let ownMaps = $derived(mapsOfKind(maps, kind));
+  let tableSearch = $state("");
+  let shownMaps = $derived(ownMaps.filter((map) => mapMatches(map, tableSearch)));
+  let importing = $state(""); // "", "file" or "dorico"
+  let importRun = $state(0);  // each import is a new dialog and request
   let message = $state(null); // { text, ok }
   let pendingDeleteId = $state("");
   let pendingUpdateId = $state("");
-  let importOffer = $state(null); // { origin, maps, errors }
-  let importSelection = $state(new Set());
-  let search = $state("");
   let sourceStatus = $state({}); // entityId → { status, version, file, movedTo }
   let checking = $state(false);
   // A check is near-instant, so the spinner shows for at least this long and
@@ -43,7 +43,8 @@
   let draftIsNew = $state(false);
   let draftSaving = $state(false);
 
-  const mine = (data) => data?.libraryId === library.id && (!data.kind || data.kind === kind);
+  // Results of edits made here; imports answer their own dialog.
+  const mine = (data) => data?.kind === kind && !data.requestId;
   onFromCpp("libraryMapResult", (result) => {
     if (!mine(result)) return;
     message = { text: result.message, ok: result.success };
@@ -54,16 +55,7 @@
     if (result.action === "delete") pendingDeleteId = "";
     if (result.action === "update") pendingUpdateId = "";
   });
-  onFromCpp("libraryMapImportCandidates", (offer) => {
-    if (!mine(offer)) return;
-    importOffer = offer;
-    importSelection = defaultImportSelection(offer.maps);
-    search = offer.origin === "dorico" ? initialSearch(library) : "";
-    if (!offer.maps?.length)
-      message = { text: offer.errors?.length ? offer.errors.join("; ") : `No ${labels.plural} found`, ok: false };
-  });
   onFromCpp("libraryMapSourceStatus", (data) => {
-    if (data?.libraryId !== library.id) return;
     const next = {};
     for (const status of data.statuses || [])
       if (status.kind === kind) next[status.entityId] = status;
@@ -81,29 +73,21 @@
     if (wait > 0) setTimeout(finish, wait); else finish();
   });
 
-  let visibleCandidates = $derived(importOffer ? filterCandidates(importOffer.maps, search) : []);
-  let chosenCount = $derived(importOffer ? importOffer.maps.filter((c) => importSelection.has(c.entityId)).length : 0);
-  const toggleImport = (id) => {
-    const next = new Set(importSelection);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    importSelection = next;
-  };
-  const confirmImport = () => {
-    const chosen = importOffer.maps.filter((c) => importSelection.has(c.entityId))
-      .map((c) => ({ file: c.file, entityId: c.entityId }));
-    if (chosen.length) dispatchCpp("importLibraryMaps", library.id, kind, chosen);
-    importOffer = null;
-  };
   const checkSources = () => {
     if (checking) return; // already under way; the spinner says so
     checking = true;
     checkStartedAt = Date.now();
-    dispatchCpp("checkLibraryMapSources", library.id);
+    dispatchCpp("checkLibraryMapSources");
   };
+  // The first time the pane opens, compare every map with its source file.
+  let checkedOnce = false;
+  $effect(() => {
+    if (open && !checkedOnce) { checkedOnce = true; dispatchCpp("checkLibraryMapSources"); }
+  });
   const update = (map) => {
     const status = sourceStatus[map.entityId];
     if (map.edited && pendingUpdateId !== map.entityId) { pendingUpdateId = map.entityId; return; }
-    dispatchCpp("updateLibraryMap", library.id, kind, map.entityId, status?.movedTo || "");
+    dispatchCpp("updateLibraryMap", kind, map.entityId, status?.movedTo || "");
   };
   const updateLabel = (map) => {
     const status = sourceStatus[map.entityId];
@@ -143,7 +127,7 @@
   const saveDraft = () => {
     if (problems.length || draftSaving) return;
     draftSaving = true;
-    dispatchCpp("saveLibraryMap", library.id, $state.snapshot(draft));
+    dispatchCpp("saveLibraryMap", $state.snapshot(draft));
   };
   const updateEntry = (index, patch) => {
     draft.entries = draft.entries.map((entry, i) => (i === index ? { ...entry, ...patch } : entry));
@@ -165,7 +149,8 @@
 {#if open}
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="lmap-float" onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}>
+<div class="lmap-float" onclick={(e) => { if (e.target === e.currentTarget) onclose(); }}
+  onkeydown={(e) => { if (e.key === "Escape" && !draft) { e.stopPropagation(); onclose(); } }}>
 <section class="lmap" role="dialog" aria-label={labels.title}>
   <header class="lmap-head">
     <span class="lmap-title">{labels.title}</span>
@@ -173,15 +158,12 @@
     <button class="lmap-close" aria-label="Close {labels.title}" onclick={onclose}>✕</button>
   </header>
   <div class="lmap-body">
-  {#if !saved}
-    <p class="lmap-note">Save the library first, then import its {labels.plural}.</p>
-  {:else}
     <div class="lmap-toolbar">
-      <p class="lmap-sub">This library's {labels.plural}. They're saved as soon as you import them.</p>
+      <p class="lmap-sub">Fiddle's {labels.plural}, shared by every library. They're saved as soon as you import them.</p>
       <div class="lmap-actions">
         {#if kind === "percussion"}<button onclick={startNew}>+ New Map</button>{/if}
-        <button onclick={() => dispatchCpp("chooseLibraryMapFiles", library.id, kind)}>Import .doricolib…</button>
-        <button onclick={() => dispatchCpp("findDoricoLibraryMaps", library.id, kind)}>Find in Dorico Library…</button>
+        <button onclick={() => { importing = "file"; importRun += 1; }}>Import .doricolib…</button>
+        <button onclick={() => { importing = "dorico"; importRun += 1; }}>Find in Dorico Library…</button>
         <button class="lmap-check" aria-busy={checking} disabled={!ownMaps.some((m) => m.sourcePath)}
           title="Compare each imported map with its .doricolib file" onclick={checkSources}>
           <span class="lmap-check-icon" class:spinning={checking} aria-hidden="true">↻</span>Check for updates</button>
@@ -203,12 +185,18 @@
       </div>
     {/if}
     {#if ownMaps.length}
+      <input class="lmap-search" type="search" aria-label="Search {labels.plural}"
+        placeholder="Search by name, vendor or file" bind:value={tableSearch} />
       <table class="lmap-table">
-        <thead><tr><th>Name</th><th>Source</th><th>Used by</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th class="lmap-star-col"><span class="visually-hidden">Favorite</span></th><th>Name</th><th>Source</th><th>Used by</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          {#each ownMaps as map (map.entityId)}
+          {#each shownMaps as map (map.entityId)}
             {@const status = sourceStatus[map.entityId]}
             <tr>
+              <td class="lmap-star-col"><button class="lmap-star" class:starred={map.favorite}
+                aria-pressed={Boolean(map.favorite)}
+                aria-label={map.favorite ? `Remove ${map.name} from favorites` : `Add ${map.name} to favorites`}
+                onclick={() => dispatchCpp("setLibraryMapFavorite", kind, map.entityId, !map.favorite)}>{map.favorite ? "★" : "☆"}</button></td>
               <td><strong>{map.name}</strong>
                 <span class="lmap-id">{map.entityId}{map.version ? ` · v${map.version}` : ""}{kind === "percussion" ? ` · ${map.entryCount} entries` : ""}</span></td>
               <td title={map.sourcePath}>{map.sourcePath ? sourceFileName(map) : "Made in Fiddle"}{map.edited ? " · edited" : ""}</td>
@@ -225,12 +213,12 @@
                   <button onclick={() => edit(map)}>Edit</button>
                   <button onclick={() => duplicate(map)}>Duplicate</button>
                 {/if}
-                <button onclick={() => dispatchCpp("exportLibraryMap", library.id, kind, map.entityId)}>Export</button>
+                <button onclick={() => dispatchCpp("exportLibraryMap", kind, map.entityId)}>Export</button>
                 <button class="danger" class:confirm={pendingDeleteId === map.entityId}
                   disabled={map.references?.length > 0}
                   title={map.references?.length ? `In use: ${map.references.join(", ")}` : "Delete map"}
                   onclick={() => {
-                    if (pendingDeleteId === map.entityId) dispatchCpp("deleteLibraryMap", library.id, kind, map.entityId);
+                    if (pendingDeleteId === map.entityId) dispatchCpp("deleteLibraryMap", kind, map.entityId);
                     else pendingDeleteId = map.entityId;
                   }}>{pendingDeleteId === map.entityId ? "Confirm" : "Delete"}</button>
               </div></td>
@@ -238,53 +226,20 @@
           {/each}
         </tbody>
       </table>
+      {#if !shownMaps.length}<div class="lmap-empty">No {labels.plural} match “{tableSearch}”.</div>{/if}
     {:else}
       <div class="lmap-empty">No {labels.plural} yet. Import a vendor .doricolib or find one in Dorico's library.</div>
     {/if}
-  {/if}
   </div>
 </section>
 </div>
 {/if}
 
-{#if importOffer?.maps?.length}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="lmap-backdrop" onkeydown={(e) => { if (e.key === "Escape") { e.stopPropagation(); importOffer = null; } }}>
-    <div class="lmap-dialog" role="dialog" aria-labelledby="lmap-import-heading-{kind}">
-      <header>
-        <h2 id="lmap-import-heading-{kind}">Import {labels.plural} into {library.name}</h2>
-        <button aria-label="Close" onclick={() => { importOffer = null; }}>✕</button>
-      </header>
-      <div class="lmap-dialog-body">
-        <input class="lmap-search" type="search" aria-label="Search {labels.plural}" placeholder="Search by name, vendor or file"
-          bind:value={search} />
-        <p class="lmap-sub">{visibleCandidates.length} of {importOffer.maps.length} shown · {chosenCount} chosen</p>
-        <ul class="lmap-candidates">
-          {#each visibleCandidates as candidate (candidate.entityId)}
-            <li>
-              <label>
-                <input type="checkbox" checked={importSelection.has(candidate.entityId)}
-                  disabled={candidate.status === "same"}
-                  onchange={() => toggleImport(candidate.entityId)} />
-                <span class="lmap-candidate">
-                  <strong>{candidate.name}</strong>
-                  <span class="lmap-import-status {candidate.status}">{IMPORT_STATUS_LABELS[candidate.status] || candidate.status}{candidate.status === "changed" || candidate.status === "newer" ? ` (library v${candidate.existingVersion}, file v${candidate.version})` : ""}</span>
-                  <span class="lmap-id">{candidate.entityId} · {candidate.file}</span>
-                </span>
-              </label>
-            </li>
-          {/each}
-        </ul>
-        {#if importOffer.errors?.length}
-          <ul class="lmap-problems">{#each importOffer.errors as error}<li>{error}</li>{/each}</ul>
-        {/if}
-      </div>
-      <footer>
-        <button onclick={() => { importOffer = null; }}>Cancel</button>
-        <button class="primary" disabled={chosenCount === 0} onclick={confirmImport}>Import {chosenCount}</button>
-      </footer>
-    </div>
-  </div>
+{#if importing}
+  {#key importRun}
+    <MapImportDialog {kind} origin={importing} onclose={() => { importing = ""; }}
+      ondone={(result) => { message = { text: result.message, ok: result.ok }; }} />
+  {/key}
 {/if}
 
 {#if draft}
@@ -361,8 +316,9 @@
 {/if}
 
 <style>
-  /* Centred over the blurred patch list, a little shorter than it. */
-  .lmap-float { position: absolute; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+    /* Overlays sit above the Library Manager's editor modal (z-index 99999). */
+  /* Centred over the blurred page, a little shorter than the window. */
+  .lmap-float { position: fixed; inset: 0; z-index: 100100; display: flex; align-items: center; justify-content: center;
     background: rgba(3, 3, 20, .62); backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
   .lmap { width: min(1080px, calc(100% - 48px)); height: calc(100% - 48px); display: flex; flex-direction: column;
     overflow: hidden; box-sizing: border-box; background: #0e0d38; border: 1px solid #44446c; border-radius: 12px;
@@ -389,8 +345,7 @@
   @media (prefers-reduced-motion: reduce) {
     .lmap-check-icon.spinning { animation: none; opacity: .5; }
   }
-  .lmap-sub, .lmap-note { margin: 0; color: #a8a7d5; font-size: .76rem; }
-  .lmap-note { padding-bottom: 12px; }
+  .lmap-sub { margin: 0; color: #a8a7d5; font-size: .76rem; }
   @media (max-width: 680px) { .lmap { width: calc(100% - 24px); } }
   .lmap-actions, .lmap-row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
   button { background: transparent; border: 1px solid #95a9ff; color: #95a9ff; font: inherit; font-size: .76rem;
@@ -416,7 +371,7 @@
   .lmap-status.missing { color: #ff8787; }
   .lmap-status.current { color: #69db7c; }
   .lmap-empty { padding: 14px; border: 1px dashed #44446c; border-radius: 4px; color: #a8a7d5; font-size: .8rem; text-align: center; }
-  .lmap-backdrop { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  .lmap-backdrop { position: fixed; inset: 0; z-index: 100200; display: flex; align-items: center; justify-content: center;
     background: rgba(0,0,0,.55); }
   /* Fixed height, so search results never resize it while you type. */
   .lmap-dialog { width: 680px; max-width: 94vw; height: min(820px, 90vh); display: flex; flex-direction: column;
@@ -427,7 +382,11 @@
   .lmap-dialog footer { justify-content: flex-end; border-top: 1px solid #44446c; }
   .lmap-dialog h2 { margin: 0; font-family: "Sora","Inter",sans-serif; font-size: 1rem; }
   .lmap-dialog-body { flex: 1; min-height: 0; padding: 16px 18px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
-  .lmap-search { font-size: .85rem; }
+  .lmap-search { font-size: .85rem; margin-bottom: 10px; }
+  .lmap-star-col { width: 28px; padding-left: 0; padding-right: 0; text-align: center; }
+  .lmap-star { border: 0; padding: 0 4px; font-size: .95rem; color: #72719c; }
+  .lmap-star.starred, .lmap-star:hover:not(:disabled) { color: #fbbf24; background: none; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .lmap-fields { display: grid; grid-template-columns: 2fr 2fr 90px; gap: 12px; }
   label { display: flex; flex-direction: column; gap: 4px; }
   label > span { color: #a8a7d5; font-size: .7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
@@ -442,11 +401,4 @@
   .lmap-add { align-self: flex-start; }
   .lmap-problems { margin: 0; padding: 8px 12px 8px 28px; border: 1px solid rgba(255,107,107,.25); border-radius: 4px;
     background: rgba(255,107,107,.08); color: #ff8787; font-size: .76rem; }
-  .lmap-candidates { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-  .lmap-candidates label { flex-direction: row; align-items: flex-start; gap: 10px; }
-  .lmap-candidates input { width: auto; margin-top: 3px; }
-  .lmap-candidate { display: flex; flex-direction: column; gap: 2px; font-size: .8rem; }
-  .lmap-import-status { font-size: .72rem; color: #a8a7d5; }
-  .lmap-import-status.new, .lmap-import-status.newer { color: #69db7c; }
-  .lmap-import-status.changed { color: #fbbf24; }
 </style>

@@ -169,6 +169,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
         return {false, false, "Could not create the library \"" + generated.name + "\" for this version's strips"};
       generatedLibraries.push_back(generated.name);
     }
+    for (const auto &map : conversion.maps)
+      repository_->insertMapIfAbsent(map);
     chairs = std::move(conversion.chairs);
     layers = std::move(conversion.layers);
     layerHashes = std::move(conversion.layerHashes);
