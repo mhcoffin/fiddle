@@ -289,6 +289,17 @@ add_custom_command(TARGET FiddleServer POST_BUILD
         "$<TARGET_FILE:FiddlePluginScan>"
         "$<TARGET_FILE_DIR:FiddleServer>/FiddlePluginScan"
     COMMENT "Copying FiddlePluginScan into FiddleServer bundle")
+# POST_BUILD runs only when FiddleServer relinks, so a change to the helper
+# alone never reached the bundle. This target runs on every build of
+# FiddleServer (including `./fiddle.sh build`, which builds only that target).
+add_custom_target(FiddleServerPluginScanCopy
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:FiddleServer>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "$<TARGET_FILE:FiddlePluginScan>"
+        "$<TARGET_FILE_DIR:FiddleServer>/FiddlePluginScan"
+    COMMENT "Copying FiddlePluginScan into FiddleServer bundle")
+add_dependencies(FiddleServerPluginScanCopy FiddlePluginScan)
+add_dependencies(FiddleServer FiddleServerPluginScanCopy)
 
 # Copy expression map resource into FiddleServer app bundle
 add_custom_command(TARGET FiddleServer POST_BUILD

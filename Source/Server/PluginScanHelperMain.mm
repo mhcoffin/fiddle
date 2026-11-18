@@ -11,10 +11,7 @@
 #include "PluginCatalogScan.h"
 
 #import <AppKit/AppKit.h>
-#include <CoreFoundation/CoreFoundation.h>
 
-#include <atomic>
-#include <thread>
 #include <unistd.h>
 
 int main(int argc, char *argv[]) {
@@ -33,29 +30,20 @@ int main(int argc, char *argv[]) {
         setActivationPolicy:NSApplicationActivationPolicyProhibited];
   }
 
-  // The main thread is the JUCE message thread and keeps its run loop turning
-  // while a worker thread describes the plug-in, as it was inside FiddleServer.
+  // Describe on the main thread, as Dorico and auval do. Vienna Performer,
+  // created from another thread, hands its setup to the main thread and
+  // waits for it forever.
   juce::MessageManager::getInstance();
   const juce::String bundle = juce::String::fromUTF8(argv[1]);
   const juce::File resultFile(juce::String::fromUTF8(argv[2]));
 
-  std::atomic<bool> done{false};
-  std::atomic<bool> written{false};
-  CFRunLoopRef mainLoop = CFRunLoopGetMain();
-  std::thread worker([&] {
-    {
-      juce::VST3PluginFormatHeadless format;
-      juce::OwnedArray<juce::PluginDescription> results;
-      format.findAllTypesForFile(results, bundle);
-      written = fiddle::writePluginScanResult(resultFile, results);
-    }
-    done = true;
-    CFRunLoopWakeUp(mainLoop);
-  });
-
-  while (!done)
-    CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, true);
-  worker.join();
+  bool written = false;
+  {
+    juce::VST3PluginFormatHeadless format;
+    juce::OwnedArray<juce::PluginDescription> results;
+    format.findAllTypesForFile(results, bundle);
+    written = fiddle::writePluginScanResult(resultFile, results);
+  }
 
   std::_Exit(written ? 0 : 1);
 }
