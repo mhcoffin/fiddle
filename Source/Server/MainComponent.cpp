@@ -1,4 +1,5 @@
 #include "MainComponent.h"
+#include "HostTransport.h"
 #include "FileChooserLaunch.h"
 #include "LaunchWindowPlacement.h"
 #include "AudioDeviceSettings.h"
@@ -523,6 +524,9 @@ void MainComponent::initMidiServer() {
            if (event.has_tempo() && event.tempo().bpm() > 0.0) {
              double bpm = event.tempo().bpm();
              currentBpm_.store(bpm, std::memory_order_relaxed);
+             fiddle::hostTransport().setTempo(
+                 bpm, event.tempo().time_sig_numerator(),
+                 event.tempo().time_sig_denominator());
              harmonicService_.setBpm(bpm);
              std::cerr << "[Tempo] BPM=" << bpm
                        << " timeSig=" << event.tempo().time_sig_numerator()
@@ -588,6 +592,9 @@ void MainComponent::initMidiServer() {
       if (event.has_audio_diagnostics()) {
         const auto receivedMs = juce::Time::getMillisecondCounterHiRes();
         noteTracker.setHostSampleRate(event.audio_diagnostics().sample_rate());
+        if (event.audio_diagnostics().sample_rate() > 0)
+          hostSampleRate_.store(event.audio_diagnostics().sample_rate(),
+                                std::memory_order_relaxed);
         noteStartSettler_.setHostSampleRate(event.audio_diagnostics().sample_rate());
         scoreTestRecorder_.setSampleRate(event.audio_diagnostics().sample_rate());
         safeCallAsync([this, data = event.audio_diagnostics(), receivedMs] {
@@ -615,7 +622,22 @@ void MainComponent::initMidiServer() {
           if (auto *renderAhead =
                   renderAheadForMidi_.load(std::memory_order_acquire))
             renderAhead->setTransportActive(true);
-          mixer_.transportStarted(getDelayedTriggerTimeMs());
+          const auto startMs = getDelayedTriggerTimeMs();
+          {
+            // Hosted plug-ins follow Dorico's position (docs/host-transport.md).
+            // START carries Dorico's rate; an older FiddleNative leaves it
+            // out, and diagnostics may not have reported it yet.
+            auto rate = event.transport().has_sample_rate()
+                            ? event.transport().sample_rate()
+                            : hostSampleRate_.load(std::memory_order_relaxed);
+            if (rate <= 0.0) rate = mixer_.sampleRate();
+            const auto startSeconds =
+                rate > 0.0 ? double(event.host_sample_position()) / rate : 0.0;
+            fiddle::hostTransport().start(startMs, startSeconds);
+            pushLogMessage("<b>[Transport]</b> Dorico started at " +
+                           juce::String(startSeconds, 3) + " s");
+          }
+          mixer_.transportStarted(startMs);
           const auto printStartMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStartMs] {
             if (renderAhead_ && renderAhead_->beginMixPrintAt(printStartMs))
@@ -630,6 +652,7 @@ void MainComponent::initMidiServer() {
           if (auto *renderAhead =
                   renderAheadForMidi_.load(std::memory_order_acquire))
             renderAhead->setTransportActive(false);
+          fiddle::hostTransport().stop(delayedTriggerTimeNowMs());
           const auto printStopMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStopMs] {
             if (renderAhead_ && renderAhead_->endMixPrintAt(printStopMs))
@@ -920,6 +943,8 @@ void MainComponent::initMidiServer() {
           // A lost endpoint cannot send its final transport or NoteOff events.
           // Fail safe to silence and clear all transient performance state.
           isTransportStarted_.store(false, std::memory_order_release);
+          fiddle::hostTransport().stop(delayedTriggerTimeNowMs());
+          hostSampleRate_.store(0.0, std::memory_order_relaxed); // may reconnect at another rate
           if (renderAhead_) {
             renderAhead_->setTransportActive(false);
             renderAhead_->setAuditionNotesActive(false);
@@ -3626,6 +3651,10 @@ int MainComponent::effectivePlaybackDelayMs() const {
 
 double MainComponent::getDelayedTriggerTimeMs() {
   if (!isTransportStarted_.load(std::memory_order_relaxed)) return 0.0;
+  return delayedTriggerTimeNowMs();
+}
+
+double MainComponent::delayedTriggerTimeNowMs() const {
   // The renderer now uses future *presentation* time, so do NOT subtract the
   // reserve again. It naturally consumes MIDI early while rendering ahead.
   return audioStreamTimeMs() + reportedPlaybackDelayMs_.load(std::memory_order_relaxed)

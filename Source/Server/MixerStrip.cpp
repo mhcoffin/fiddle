@@ -1,4 +1,5 @@
 #include "MixerStrip.h"
+#include "HostTransport.h"
 
 #include "ExpressionMapAnnotator.h"
 #include "LuaAnnotator.h"
@@ -426,16 +427,17 @@ void MixerStrip::addDelayedMessage(double triggerTime,
                                    const juce::MidiMessage &msg, uint64_t tag) {
   // Each strip may have a different insert-rack and destination-bus latency.
   // Advance MIDI independently so direct and grouped paths remain aligned.
-  if (triggerTime > 0.0) {
-    const auto sampleRate = currentSampleRate_.load(std::memory_order_relaxed);
-    const auto downstream =
-        downstreamLatencySamples_.load(std::memory_order_relaxed);
-    const double totalLatencyMs =
-        audioEngine_.latencyMs() +
-        (sampleRate > 0.0 ? 1000.0 * downstream / sampleRate : 0.0);
-    triggerTime = juce::jmax(0.0, triggerTime - totalLatencyMs);
-  }
+  if (triggerTime > 0.0)
+    triggerTime = juce::jmax(0.0, triggerTime - midiAdvanceMs());
   midiScheduler_.schedule(triggerTime, msg, tag);
+}
+
+double MixerStrip::midiAdvanceMs() const noexcept {
+  const auto sampleRate = currentSampleRate_.load(std::memory_order_relaxed);
+  const auto downstream =
+      downstreamLatencySamples_.load(std::memory_order_relaxed);
+  return audioEngine_.latencyMs() +
+         (sampleRate > 0.0 ? 1000.0 * downstream / sampleRate : 0.0);
 }
 
 namespace {
@@ -531,6 +533,10 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
   bool metered = false;
   midiScheduler_.renderBlock(currentTime, sampleRate, numSamples,
                              processMidiBuffer_);
+  // This block's MIDI was advanced by the strip's latency; its plug-ins see
+  // the score position that MIDI belongs to (docs/host-transport.md).
+  TransportPlayHead::BlockScope transportBlock(currentTime + midiAdvanceMs(),
+                                               sampleRate, numSamples);
 
   auto runtimeRead = instrumentSlot_.readRuntime();
   auto *runtime = runtimeRead.get();

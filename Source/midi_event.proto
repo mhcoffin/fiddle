@@ -96,6 +96,9 @@ message MidiEvent {
         }
         Type type = 1;
         optional uint64 host_sample_position = 2;
+        // Dorico's sample rate, so the server can turn the position into
+        // seconds before any diagnostics arrive (docs/host-transport.md).
+        optional double sample_rate = 3;
     }
 
     // Live tempo information forwarded from the VST3 host ProcessContext.

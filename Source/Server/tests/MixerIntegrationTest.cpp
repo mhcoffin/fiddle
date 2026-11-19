@@ -1,3 +1,4 @@
+#include "HostTransport.h"
 #include "FiddleDatabase.h"
 #include "ExpressionMapCommandService.h"
 #include "ExpressionMapLibrary.h"
@@ -373,6 +374,131 @@ void testChairBusLatencyAlignsChairs(int workers) {
     }
   }
   REQUIRE(started);
+}
+
+void testPluginsFollowDoricoTransport(int workers, int stripLatency) {
+  // A plug-in's playhead sits where the MIDI it receives belongs on the score:
+  // still before the run's first notes, running with them, resting after the
+  // stop. A strip's latency advances both alike (docs/host-transport.md).
+  auto &transport = fiddle::hostTransport();
+  transport.reset();
+  transport.setTempo(90.0, 3, 4);
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto id = f.instrument(0.1f, 1);
+  auto *processor = SignalProcessor::lastCreated.load();
+  f.instrument(0.2f, 2); // a second layer, so helpers render strips
+  REQUIRE(processor != nullptr && processor != SignalProcessor::lastCreated.load());
+  if (stripLatency > 0)
+    addEffect(f.mixer.getStrip(id)->audioEngine(), "look-ahead", 1.0f, stripLatency);
+  f.mixer.refreshAudioRouting();
+  std::vector<juce::AudioPlayHead::PositionInfo> seen;
+  std::optional<juce::AudioPlayHead::PositionInfo> atNote;
+  processor->onProcess = [&] {
+    auto *playHead = processor->getPlayHead();
+    REQUIRE(playHead != nullptr);
+    seen.push_back(*playHead->getPosition());
+  };
+  processor->onMidi = [&](const juce::MidiMessage &message) {
+    if (message.isNoteOn()) atNote = seen.back();
+  };
+  constexpr double blockMs = 1000.0 * MixerFixture::blockSize / MixerFixture::sampleRate;
+  std::vector<double> blockTimes; // as render() steps them
+  for (double t = f.now; blockTimes.size() < 20; t += blockMs) blockTimes.push_back(t);
+  const double startMs = blockTimes[10], stopMs = blockTimes[15];
+  transport.start(startMs, 2.0);
+  transport.stop(stopMs);
+  f.mixer.routeNoteEvent(0, 1, juce::MidiMessage::noteOn(1, 60, 1.0f), startMs);
+  for (int block = 0; block < 20; ++block) f.render();
+  REQUIRE(seen.size() == 20);
+  const double advanceMs = 1000.0 * stripLatency / MixerFixture::sampleRate;
+  for (int block = 0; block < 20; ++block) {
+    const auto &position = seen[size_t(block)];
+    const double at = blockTimes[size_t(block)] + advanceMs;
+    // A block overlapping the run plays, counted from the run's start.
+    const bool playing = at + blockMs > startMs && at < stopMs;
+    REQUIRE(position.getIsPlaying() == playing);
+    const double seconds = 2.0 + ((playing ? at : std::clamp(at, startMs, stopMs)) - startMs) / 1000.0;
+    REQUIRE(std::abs(*position.getTimeInSeconds() - seconds) < 1e-9);
+    REQUIRE(*position.getTimeInSamples() == std::llround(seconds * MixerFixture::sampleRate));
+    REQUIRE(std::abs(*position.getBpm() - 90.0) < 1e-9);
+    REQUIRE(std::abs(*position.getPpqPosition() - seconds * 1.5) < 1e-9);
+    REQUIRE(position.getTimeSignature()->numerator == 3);
+  }
+  // The run's first note arrives in a block that plays from the run's start.
+  REQUIRE(atNote.has_value() && atNote->getIsPlaying());
+  REQUIRE(std::abs(*atNote->getTimeInSeconds() - 2.0) < blockMs / 1000.0);
+  transport.reset();
+}
+
+void testInsertsSeeTheirInputsScoreTime(int workers) {
+  // Each effect's playhead names the score time of the audio reaching it:
+  // after earlier latency in its rack, and ahead by any latency after it.
+  auto &transport = fiddle::hostTransport();
+  transport.reset();
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto id = f.instrument(0.1f, 1);
+  auto *instrument = SignalProcessor::lastCreated.load();
+  f.instrument(0.2f, 2);
+  auto *strip = f.mixer.getStrip(id);
+  addEffect(strip->audioEngine(), "look-ahead", 1.0f, 48);
+  addEffect(strip->audioEngine(), "after-look-ahead", 1.0f);
+  auto *stripInsert = SignalProcessor::lastCreated.load();
+  auto *chair = f.mixer.chairBusFor(id);
+  addEffect(chair->audioEngine(), "chair-fx", 1.0f, 24);
+  auto *chairInsert = SignalProcessor::lastCreated.load();
+  const auto strings = f.mixer.addGroupBus("Strings");
+  addEffect(f.mixer.getGroupBus(strings)->audioEngine(), "bus-fx", 1.0f, 12);
+  auto *busInsert = SignalProcessor::lastCreated.load();
+  REQUIRE(f.commands.setChairOutput(id, strings));
+  f.mixer.refreshAudioRouting();
+  std::map<SignalProcessor *, std::vector<double>> seconds;
+  for (auto *processor : {instrument, stripInsert, chairInsert, busInsert})
+    processor->onProcess = [&seconds, processor] {
+      const auto position = *processor->getPlayHead()->getPosition();
+      REQUIRE(position.getIsPlaying());
+      seconds[processor].push_back(*position.getTimeInSeconds());
+    };
+  // A run long under way: every block plays.
+  transport.start(f.now - 1000.0, 10.0);
+  for (int block = 0; block < 4; ++block) f.render();
+  const auto aheadOfBus = [&](SignalProcessor *processor, int samples) {
+    REQUIRE(seconds[processor].size() == 4);
+    for (size_t block = 0; block < 4; ++block)
+      REQUIRE(std::abs(seconds[processor][block] - seconds[busInsert][block] -
+                       samples / MixerFixture::sampleRate) < 1e-9);
+  };
+  aheadOfBus(busInsert, 0);
+  aheadOfBus(chairInsert, 24);     // ahead by its own rack
+  aheadOfBus(instrument, 48 + 24); // ahead by its strip rack and chair rack
+  aheadOfBus(stripInsert, 24);     // after the 48-sample look-ahead
+  transport.reset();
+}
+
+void testTransportKeepsRunsStillToBeRendered() {
+  // Presentation times run up to the playback delay ahead, so a quick stop
+  // and restart publishes the next run before the last one is rendered.
+  fiddle::HostTransport transport;
+  auto at = [&](double ms) { return transport.at(ms, 1.0); };
+  REQUIRE(!at(0).playing && at(0).seconds == 0.0);
+  transport.start(100.0, 2.0);
+  transport.stop(200.0);
+  transport.start(300.0, 10.0);
+  REQUIRE(!at(50).playing && std::abs(at(50).seconds - 2.0) < 1e-12);
+  REQUIRE(at(150).playing && std::abs(at(150).seconds - 2.05) < 1e-12);
+  REQUIRE(!at(250).playing && std::abs(at(250).seconds - 2.1) < 1e-12);
+  REQUIRE(at(299.5).playing && std::abs(at(299.5).seconds - 9.9995) < 1e-12);
+  REQUIRE(at(400).playing && std::abs(at(400).seconds - 10.1) < 1e-12);
+  // A start without a stop ends the run before it.
+  transport.start(500.0, 20.0);
+  REQUIRE(at(450).playing && std::abs(at(450).seconds - 10.15) < 1e-12);
+  REQUIRE(at(600).playing && std::abs(at(600).seconds - 20.1) < 1e-12);
+  // Older runs fall away; the oldest kept one still answers for earlier blocks.
+  for (int run = 0; run < fiddle::HostTransport::kRuns; ++run)
+    transport.start(1000.0 + 100.0 * run, 30.0 + run);
+  REQUIRE(!at(0).playing && std::abs(at(0).seconds - 30.0) < 1e-12);
+  REQUIRE(at(1050).playing && std::abs(at(1050).seconds - 30.05) < 1e-12);
 }
 
 void testChairRoutingMigration() {
@@ -4097,6 +4223,11 @@ int main(int argc, char **argv) {
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("chair buses share their layers' routing, fader, inserts, mute and solo", [] { for (int workers : {1, 2, 4}) testChairBusesShareLayers(workers); });
   run("chair bus latency keeps chairs sample-aligned", [] { for (int workers : {1, 2, 4}) testChairBusLatencyAlignsChairs(workers); });
+  run("the transport keeps runs still to be rendered", testTransportKeepsRunsStillToBeRendered);
+  run("each insert sees its input's score time", [] { for (int workers : {1, 2}) testInsertsSeeTheirInputsScoreTime(workers); });
+  run("plug-ins follow Dorico's transport", [] {
+    for (int workers : {1, 2}) for (int latency : {0, 48}) testPluginsFollowDoricoTransport(workers, latency);
+  });
   run("older per-layer routing migrates to one chair bus", testChairRoutingMigration);
   run("synchronized stem files, routing, audibility and Master latency", [] {
     for (int workers : {1, 2, 4}) testStemPrintRouting(workers);

@@ -1,4 +1,5 @@
 #include "MasterAudioEngine.h"
+#include "HostTransport.h"
 
 #include <algorithm>
 #include <utility>
@@ -58,12 +59,14 @@ private:
 
 class HostedEffectGraphProcessor final : public juce::AudioProcessor {
 public:
-  explicit HostedEffectGraphProcessor(std::shared_ptr<HostedPluginSlot> slot)
+  /// @p precedingLatency: samples of latency earlier in the rack, so the
+  /// plug-in's playhead names the score time of the audio it receives.
+  HostedEffectGraphProcessor(std::shared_ptr<HostedPluginSlot> slot, int precedingLatency)
       : juce::AudioProcessor(
             BusesProperties()
                 .withInput("Input", juce::AudioChannelSet::stereo(), true)
                 .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-        slot_(std::move(slot)) {
+        slot_(std::move(slot)), precedingLatency_(precedingLatency) {
     if (auto *processor = slot_->activeProcessor())
       setLatencySamples(processor->getLatencySamples());
   }
@@ -73,6 +76,7 @@ public:
   void releaseResources() override {}
   void processBlock(juce::AudioBuffer<float> &audio,
                     juce::MidiBuffer &midi) override {
+    TransportPlayHead::BlockScope scope(TransportPlayHead::BlockScope::Shift{-precedingLatency_});
     slot_->processBlock(audio, midi);
   }
   void processBlock(juce::AudioBuffer<double> &audio,
@@ -104,6 +108,7 @@ public:
 
 private:
   std::shared_ptr<HostedPluginSlot> slot_;
+  int precedingLatency_ = 0;
 };
 
 bool connectStereo(juce::AudioProcessorGraph &graph,
@@ -536,14 +541,16 @@ void MasterAudioEngine::rebuildGraph() {
           juce::AudioProcessorGraph::AudioGraphIOProcessor::audioInputNode),
       std::nullopt, kNoUpdate);
 
+  int precedingLatency = 0;
   for (const auto &entry : inserts_) {
     entry->graphLatencySamples =
         entry->hosted->activeProcessor()
             ? entry->hosted->activeProcessor()->getLatencySamples()
             : 0;
-    auto node = graph_.addNode(
-        std::make_unique<HostedEffectGraphProcessor>(entry->hosted),
-        std::nullopt, kNoUpdate);
+    auto effect = std::make_unique<HostedEffectGraphProcessor>(entry->hosted,
+                                                               precedingLatency);
+    precedingLatency += effect->getLatencySamples();
+    auto node = graph_.addNode(std::move(effect), std::nullopt, kNoUpdate);
     connectStereo(graph_, previous, node);
     previous = std::move(node);
   }

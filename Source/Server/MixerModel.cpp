@@ -1,4 +1,5 @@
 #include "MixerModel.h"
+#include "HostTransport.h"
 #include "NoteInspection.h"
 
 #include "HarmonicAnalysisService.h"
@@ -572,6 +573,11 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   auto *graph = graphRead.get();
   if (!graph)
     return;
+  // Buses and Master see this block's score position; each strip names its
+  // own latency-advanced one (docs/host-transport.md).
+  TransportPlayHead::BlockScope transportBlock(
+      currentTime, currentSampleRate_.load(std::memory_order_relaxed),
+      audioBuffer.getNumSamples());
 
   // Pre-compute whether any strip is soloed
   bool anySoloed = false;
@@ -633,7 +639,17 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   // through shared returns.
   for (size_t i = 0; i < graph->groupBuses.size(); ++i)
     graph->busAudible[i] = !anyBusSoloed || graph->groupBuses[i]->isSoloed();
+  const double rate = currentSampleRate_.load(std::memory_order_relaxed);
+  const auto scoreAhead = [rate](int latencySamples) {
+    return rate > 0.0 ? 1000.0 * latencySamples / rate : 0.0;
+  };
   for (auto &chair : graph->chairRoutes) {
+    // A chair rack's input is its layers' output, still ahead of the score
+    // by the rack's own latency and everything after it.
+    TransportPlayHead::BlockScope chairBlock(
+        currentTime + scoreAhead(chair.bus->audioEngine().latencySamples() +
+                                 chair.downstreamLatency),
+        rate, frames);
     const bool chairAudible = !anyChairSoloed || chair.bus->isSoloed();
     auto *preFaderTap = chair.preFaderScratch.getNumChannels() ? &chair.preFaderScratch : nullptr;
     juce::AudioBuffer<float> tap;
@@ -655,6 +671,9 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   }
   for (size_t i = 0; i < graph->groupBuses.size(); ++i) {
     auto *bus = graph->groupBuses[i];
+    // Chair outputs and sends arrive aligned to this rack's latency.
+    TransportPlayHead::BlockScope busBlock(
+        currentTime + scoreAhead(bus->audioEngine().latencySamples()), rate, frames);
     bus->processTo(audioBuffer, graph->busAudible[i],
                    capture ? capture->targetFor(bus->id) : nullptr);
   }

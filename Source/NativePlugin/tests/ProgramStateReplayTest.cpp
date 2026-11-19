@@ -63,6 +63,19 @@ void testRealtimeTransportConversion() {
   CHECK(event.transport().host_sample_position() == 98765);
 }
 
+void testTransportStartCarriesDoricosSampleRate() {
+  fiddle::RealtimeMidiEvent source;
+  source.type = fiddle::RealtimeMidiEventType::TransportStart;
+  source.hostSamplePosition = 96000;
+  source.sampleRate = 48000.0;
+  auto event = fiddle::toMidiEvent(source);
+  CHECK(event.transport().type() == fiddle::MidiEvent_TransportEvent_Type_START);
+  CHECK(event.transport().has_sample_rate());
+  CHECK(event.transport().sample_rate() == 48000.0);
+  source.sampleRate = 0.0; // unknown: left out
+  CHECK(!fiddle::toMidiEvent(source).transport().has_sample_rate());
+}
+
 } // namespace
 
 int main() {
@@ -70,6 +83,7 @@ int main() {
   testReplayUsesZeroBasedPortsAndOneBasedChannels();
   testRealtimeEventConversionPreservesAddressAndTiming();
   testRealtimeTransportConversion();
+  testTransportStartCarriesDoricosSampleRate();
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;
   return failed == 0 ? 0 : 1;

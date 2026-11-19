@@ -161,6 +161,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/PluginCommandService.cpp
     Source/Server/PluginCommandService.h
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
     Source/Server/HostedPluginSlot.h
     Source/Server/MasterAudioEngine.cpp
     Source/Server/MasterAudioEngine.h
@@ -1128,6 +1129,7 @@ add_executable(StripAudioEngineTest
     Source/Server/tests/StripAudioEngineTest.cpp
     Source/Server/StripAudioEngine.cpp
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
 )
 
 target_include_directories(StripAudioEngineTest PRIVATE Source/Server Source)
@@ -1147,6 +1149,7 @@ add_executable(GroupBusTest
     Source/Server/GroupBus.cpp
     Source/Server/StripAudioEngine.cpp
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
 )
 
 target_include_directories(GroupBusTest PRIVATE Source/Server Source)
@@ -1207,6 +1210,7 @@ set_tests_properties(strip_audio_js_handlers PROPERTIES
 add_executable(HostedPluginSlotTest
     Source/Server/tests/HostedPluginSlotTest.cpp
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
 )
 
 target_include_directories(HostedPluginSlotTest PRIVATE Source/Server Source)
@@ -1229,6 +1233,7 @@ add_executable(MasterAudioEngineTest
     Source/Server/tests/MasterAudioEngineTest.cpp
     Source/Server/MasterAudioEngine.cpp
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
 )
 
 target_include_directories(MasterAudioEngineTest PRIVATE Source/Server Source)
@@ -1363,6 +1368,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/StripAudioEngine.cpp
     Source/Server/MasterAudioEngine.cpp
     Source/Server/HostedPluginSlot.cpp
+    Source/Server/HostTransport.cpp
     Source/Server/RealtimeMidiScheduler.cpp
     Source/Server/NoteInspection.cpp
     Source/Server/LuaPlugin.cpp

@@ -192,6 +192,9 @@ public:
   [[nodiscard]] int masterLatencySamples() const noexcept {
     return masterAudio_.latencySamples();
   }
+  [[nodiscard]] double sampleRate() const noexcept {
+    return currentSampleRate_.load(std::memory_order_relaxed);
+  }
   [[nodiscard]] double masterLatencyMs() const noexcept {
     return masterAudio_.latencyMs();
   }

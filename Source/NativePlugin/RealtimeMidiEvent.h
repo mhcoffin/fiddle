@@ -31,6 +31,7 @@ struct RealtimeMidiEvent {
   int32_t data1 = 0;
   int32_t data2 = 0;
   double tempo = 0.0;
+  double sampleRate = 0.0; // TransportStart: Dorico's rate
 };
 
 static_assert(std::is_trivially_copyable_v<RealtimeMidiEvent>);
@@ -90,6 +91,7 @@ inline MidiEvent toMidiEvent(const RealtimeMidiEvent &source) {
                         ? MidiEvent_TransportEvent_Type_START
                         : MidiEvent_TransportEvent_Type_STOP);
     value->set_host_sample_position(source.hostSamplePosition);
+    if (source.sampleRate > 0.0) value->set_sample_rate(source.sampleRate);
     break;
   }
   case RealtimeMidiEventType::Other:

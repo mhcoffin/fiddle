@@ -177,6 +177,8 @@ private:
   std::unique_ptr<ProjectRestoreService> projectRestoreService_;
 
   std::atomic<bool> isTransportStarted_{false};
+  // Dorico's sample rate, from FiddleNative's diagnostics; 0 until reported.
+  std::atomic<double> hostSampleRate_{0.0};
   juce::String connectionWarning_;
 
   /// Global harmonic analysis service (joint key/chord HMM).
@@ -184,6 +186,9 @@ private:
   HarmonicAnalysisService harmonicService_;
 
   double getDelayedTriggerTimeMs();
+  /// The presentation time a Dorico event arriving now plays at, whether or
+  /// not the transport is running.
+  double delayedTriggerTimeNowMs() const;
   double delayedOutputPresentationTimeMs() const;
   int effectivePlaybackDelayMs() const;
 

@@ -262,6 +262,7 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
     RealtimeMidiEvent event;
     event.type = RealtimeMidiEventType::TransportStart;
     event.hostSamplePosition = static_cast<uint64_t>(hostSamples);
+    event.sampleRate = cachedSampleRate_.load(std::memory_order_relaxed);
     (void)tcpRelay_->pushRealtimeEvent(event);
   }
 

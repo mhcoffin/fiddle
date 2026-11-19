@@ -1,4 +1,5 @@
 #include "HostedPluginSlot.h"
+#include "HostTransport.h"
 
 #include "PluginEditorWindow.h"
 
@@ -186,6 +187,8 @@ bool HostedPluginSlot::installProcessor(
   runtime->scratchBuffer.setSize(channels, blockSize);
   runtime->timing.prepare(sampleRate);
   processor->setNonRealtime(false);
+  // Every hosted plug-in follows Dorico's transport (docs/host-transport.md).
+  processor->setPlayHead(&hostPlayHead());
   processor->prepareToPlay(sampleRate, blockSize);
   processor->addListener(&changeListener_);
   runtime->processor = std::move(processor);

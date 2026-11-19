@@ -266,6 +266,9 @@ public:
       prepareToPlay(sampleRate, blockSize);
   }
 
+  /// How far ahead of presentation time this strip's MIDI is scheduled: its
+  /// insert-rack and destination-bus latency.
+  [[nodiscard]] double midiAdvanceMs() const noexcept;
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg,
                          uint64_t tag = 0);
 
