@@ -53,6 +53,11 @@ public:
     secondInt = channel;
     return record("input");
   }
+  bool setPluginMidiChannel(const juce::String &id, int channel) override {
+    stripId = id;
+    firstInt = channel;
+    return record("plugin-midi-channel");
+  }
   bool setGain(const juce::String &id, float gainDb) override {
     stripId = id;
     number = gainDb;
@@ -143,6 +148,12 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   CHECK(effects == std::vector<std::string>({"persist", "changed"}));
 
   effects.clear();
+  CHECK(router.handleMessage("setStripPluginMidiChannel", payload({"strip-a", 1})));
+  CHECK(commands.calls.back() == "plugin-midi-channel");
+  CHECK(commands.firstInt == 1);
+  CHECK(effects == std::vector<std::string>({"persist", "changed"}));
+
+  effects.clear();
   CHECK(router.handleMessage("setStripSolo", payload({"strip-a", false})));
   CHECK(commands.calls.back() == "solo");
   CHECK(!commands.flag);
@@ -175,8 +186,8 @@ void testCommandsAreRegisteredAndPayloadsAreAdapted() {
   CHECK(commands.calls.back() == "group-remove");
   CHECK(commands.stripIds.size() == 2);
 
-  CHECK(commands.calls.size() == 10);
-  CHECK(changed == 10);
+  CHECK(commands.calls.size() == 11);
+  CHECK(changed == 11);
 }
 
 void testDispatchAndFailedCommandsControlSideEffects() {

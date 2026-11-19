@@ -188,6 +188,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
                       blob.active, blob.muted, blob.soloed, blob.gainDb,
                       blob.pluginUid, blob.pluginState, blob.expressionMapEntityId,
                       saved.sourcePatchRevision, saved.pluginStateEdited});
+    layers.back().pluginMidiChannel = blob.pluginMidiChannel;
     if (const auto map = compilePercussionMap(juce::String::fromUTF8(blob.percussionMapSourceXml.c_str()))) {
       layers.back().percussionMapId = map->entityId;
       layers.back().percussionPlayAs = blob.percussionPlayAs;
@@ -246,6 +247,7 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
       current->setPercussionMapAssignment(
           keepingPlayAs({std::move(map), juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())},
                         blob.percussionPlayAs));
+    current->setPluginMidiChannel(blob.pluginMidiChannel);
     for (const auto &name : blob.luaPluginFileNames) {
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
       auto plugin = std::make_shared<LuaPlugin>(path.empty() ? name : path);

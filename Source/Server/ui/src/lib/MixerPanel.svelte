@@ -1877,6 +1877,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onSetPlugin={(uid) => setPlugin(detailsStrip.id, uid)}
                 onShowInstrument={() => showEditor(detailsStrip.id)}
                 onSetProgram={(index) => dispatchCpp("setStripProgram", detailsStrip.id, index)}
+                onSetPluginMidiChannel={(channel) => dispatchCpp("setStripPluginMidiChannel", detailsStrip.id, channel)}
                 onSelectMap={(entityID) => loadExpressionMap(detailsStrip.id, entityID)}
                 onClearMap={() => clearExpressionMap(detailsStrip.id)}
                 onSelectPercussionMap={(entityId) => dispatchCpp("loadPercussionMap", detailsStrip.id, entityId)}

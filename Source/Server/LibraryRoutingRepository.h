@@ -127,6 +127,9 @@ struct LayerRow {
   /// The percussion map instrument this layer plays as, or empty for the
   /// chair's own (docs/library-percussion-maps.md, "Play as").
   std::string percussionPlayAs;
+  /// The MIDI channel the layer's plug-in receives, 1-16, or 0 for the
+  /// channel Dorico sends on (docs/plugin-midi-channel.md).
+  int pluginMidiChannel = 0;
 };
 
 enum class PatchDeleteResult { deleted, referenced, notFound, error };

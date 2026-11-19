@@ -299,6 +299,7 @@ LayerRow readLayer(sqlite3_stmt *statement) {
   layer.pluginStateEdited = sqlite3_column_int(statement, 15) != 0;
   layer.percussionMapId = columnText(statement, 16);
   layer.percussionPlayAs = columnText(statement, 17);
+  layer.pluginMidiChannel = sqlite3_column_int(statement, 18);
   return layer;
 }
 
@@ -314,7 +315,7 @@ constexpr const char *kLayerColumns =
     "id, chair_id, patch_id, patch_name, library_id, library_name, position, "
     "active, muted, soloed, gain_db, plugin_uid, plugin_state, "
     "expression_map_id, source_patch_revision, plugin_state_edited, "
-    "percussion_map_id, percussion_play_as";
+    "percussion_map_id, percussion_play_as, plugin_midi_channel";
 
 } // namespace
 
@@ -430,6 +431,8 @@ bool LibraryRoutingRepository::ensureSchema(sqlite3 *database) {
                     "percussion_play_as TEXT NOT NULL DEFAULT ''") ||
       !ensureColumn(database, "layers", "percussion_play_as",
                     "percussion_play_as TEXT NOT NULL DEFAULT ''") ||
+      !ensureColumn(database, "layers", "plugin_midi_channel",
+                    "plugin_midi_channel INTEGER NOT NULL DEFAULT 0") ||
       !execute(database, R"(
     CREATE TABLE IF NOT EXISTS maps (
       kind           TEXT NOT NULL CHECK (kind IN ('expression', 'percussion')),
@@ -1613,8 +1616,8 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        active, muted, soloed, gain_db, plugin_uid, plugin_state,
        expression_map_id, source_patch_revision, plugin_state_edited,
-       percussion_map_id, percussion_play_as)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       percussion_map_id, percussion_play_as, plugin_midi_channel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       chair_id = excluded.chair_id,
       patch_id = excluded.patch_id,
@@ -1632,7 +1635,8 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
       source_patch_revision = excluded.source_patch_revision,
       plugin_state_edited = excluded.plugin_state_edited,
       percussion_map_id = excluded.percussion_map_id,
-      percussion_play_as = excluded.percussion_play_as
+      percussion_play_as = excluded.percussion_play_as,
+      plugin_midi_channel = excluded.plugin_midi_channel
   )");
   if (!statement)
     return false;
@@ -1654,6 +1658,7 @@ bool LibraryRoutingRepository::upsertLayerUnlocked(const LayerRow &layer) {
   sqlite3_bind_int(statement.get(), 16, layer.pluginStateEdited ? 1 : 0);
   bindText(statement.get(), 17, layer.percussionMapId);
   bindText(statement.get(), 18, layer.percussionPlayAs);
+  sqlite3_bind_int(statement.get(), 19, layer.pluginMidiChannel);
   return sqlite3_step(statement.get()) == SQLITE_DONE;
 }
 
@@ -1784,8 +1789,8 @@ bool LibraryRoutingRepository::replaceTopology(
       (id, chair_id, patch_id, patch_name, library_id, library_name, position,
        active, muted, soloed, gain_db, plugin_uid, plugin_state,
        expression_map_id, source_patch_revision, plugin_state_edited,
-       percussion_map_id, percussion_play_as)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       percussion_map_id, percussion_play_as, plugin_midi_channel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )");
   succeeded = succeeded && removeGraveyard && insertChair && insertLayer;
 
@@ -1838,6 +1843,7 @@ bool LibraryRoutingRepository::replaceTopology(
                      layer.pluginStateEdited ? 1 : 0);
     bindText(insertLayer.get(), 17, layer.percussionMapId);
     bindText(insertLayer.get(), 18, layer.percussionPlayAs);
+    sqlite3_bind_int(insertLayer.get(), 19, layer.pluginMidiChannel);
     succeeded = sqlite3_step(insertLayer.get()) == SQLITE_DONE;
   }
 

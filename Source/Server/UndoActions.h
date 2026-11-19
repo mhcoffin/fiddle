@@ -40,6 +40,37 @@ private:
   int oldPort_, oldCh_, newPort_, newCh_;
 };
 
+/// Undo/redo for the MIDI channel a layer's plug-in receives
+/// (docs/plugin-midi-channel.md).
+class SetPluginMidiChannelAction : public UndoableAction {
+public:
+  SetPluginMidiChannelAction(MixerModel &mixer, const juce::String &stripId,
+                             int before, int after)
+      : mixer_(mixer), stripId_(stripId), before_(before), after_(after) {}
+
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
+  juce::String getDescription() const override {
+    return after_ == 0 ? juce::String("Send the plug-in Dorico's MIDI channel")
+                       : "Send the plug-in MIDI channel " + juce::String(after_);
+  }
+
+private:
+  void apply(int channel) {
+    success_ = false;
+    if (auto *strip = mixer_.getStrip(stripId_)) {
+      strip->setPluginMidiChannel(channel);
+      success_ = true;
+    }
+  }
+
+  MixerModel &mixer_;
+  juce::String stripId_;
+  int before_, after_;
+  bool success_ = false;
+};
+
 /// Undo/redo for setStripGain. Supports coalescing for fader drags.
 class SetGainAction : public UndoableAction {
 public:

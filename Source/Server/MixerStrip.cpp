@@ -429,7 +429,20 @@ void MixerStrip::addDelayedMessage(double triggerTime,
   // Advance MIDI independently so direct and grouped paths remain aligned.
   if (triggerTime > 0.0)
     triggerTime = juce::jmax(0.0, triggerTime - midiAdvanceMs());
+  const int channel = pluginMidiChannel();
+  if (channel > 0 && msg.getChannel() > 0 && msg.getChannel() != channel) {
+    auto onChannel = msg;
+    onChannel.setChannel(channel);
+    midiScheduler_.schedule(triggerTime, onChannel, tag);
+    return;
+  }
   midiScheduler_.schedule(triggerTime, msg, tag);
+}
+
+void MixerStrip::setPluginMidiChannel(int channel) {
+  channel = juce::jlimit(0, 16, channel);
+  if (pluginMidiChannel_.exchange(channel, std::memory_order_relaxed) != channel)
+    allNotesOff();
 }
 
 double MixerStrip::midiAdvanceMs() const noexcept {
@@ -736,6 +749,7 @@ juce::var MixerStrip::toJson() const {
     obj->setProperty("percussionAutomatic", juce::String(automatic));
     obj->setProperty("percussionAutomaticFallback", automaticFallback);
   }
+  obj->setProperty("pluginMidiChannel", pluginMidiChannel());
   obj->setProperty("instrumentEntityId", instrumentEntityId);
   obj->setProperty("unpitchedPercussion",
                    bridgeSectionForInstrument(instrumentEntityId) == BridgeSection::UnpitchedPercussion);

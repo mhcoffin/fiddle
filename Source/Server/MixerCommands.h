@@ -18,6 +18,8 @@ public:
   virtual bool setGain(const juce::String &stripId, float gainDb) = 0;
   virtual bool setMute(const juce::String &stripId, bool muted) = 0;
   virtual bool setSolo(const juce::String &stripId, bool soloed) = 0;
+  /// The MIDI channel a layer's plug-in receives: 1-16, or 0 for Dorico's.
+  virtual bool setPluginMidiChannel(const juce::String &stripId, int channel) = 0;
   virtual bool toggleLibraryActive(const juce::String &library) = 0;
   virtual bool setProgram(const juce::String &stripId, int programIndex) = 0;
 

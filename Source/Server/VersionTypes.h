@@ -79,6 +79,9 @@ struct StripBlob {
   std::string percussionMapSourceXml;
   /// The map instrument the layer plays as (Play as), or empty.
   std::string percussionPlayAs;
+  /// The MIDI channel the layer's plug-in receives, or 0 for Dorico's
+  /// (docs/plugin-midi-channel.md).
+  int pluginMidiChannel = 0;
   /// Versions saved before chair buses only: the layer's output (empty =
   /// Master, else a GroupBusBlob ID) and sends. Restoring moves them to the
   /// chair bus (ChairBusMigration.h); new saves leave them empty.
@@ -135,6 +138,11 @@ struct StripBlob {
     if (!percussionPlayAs.empty()) {
       header.append("\0percussionPlayAs\0", 18);
       header.append(percussionPlayAs);
+    }
+    // And for layers that take Dorico's channel.
+    if (pluginMidiChannel != 0) {
+      header.append("\0pluginMidiChannel\0", 19);
+      header.append(std::to_string(pluginMidiChannel));
     }
     return header;
   }

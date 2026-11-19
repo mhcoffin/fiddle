@@ -409,6 +409,8 @@ void SqliteVersionStorage::prepareStatements() {
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN percussion_play_as TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN plugin_midi_channel INTEGER NOT NULL DEFAULT 0",
+               nullptr, nullptr, nullptr);
 
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
     if (sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr) != SQLITE_OK) {
@@ -422,14 +424,16 @@ void SqliteVersionStorage::prepareStatements() {
        "is_solo, input_port, input_channel, plugin_uid, gain_db, "
        "expression_map, plugin_state, active, lua_plugins, muted, soloed, "
        "audio_insert_state, direct_output_bus, expression_map_path, "
-       "expression_map_source, sends_json, percussion_map_source, percussion_play_as) "
-       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "expression_map_source, sends_json, percussion_map_source, percussion_play_as, "
+       "plugin_midi_channel) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
        "active, lua_plugins, muted, soloed, audio_insert_state, "
        "direct_output_bus, expression_map_path, expression_map_source, sends_json, "
-       "percussion_map_source, percussion_play_as FROM strip_blobs WHERE hash = ?",
+       "percussion_map_source, percussion_play_as, plugin_midi_channel "
+       "FROM strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
 
@@ -568,6 +572,7 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
   sqlite3_bind_text(stmtPutStripBlob_, 20, blob.sendsJson.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmtPutStripBlob_, 21, blob.percussionMapSourceXml.c_str(), -1, SQLITE_TRANSIENT);
   sqlite3_bind_text(stmtPutStripBlob_, 22, blob.percussionPlayAs.c_str(), -1, SQLITE_TRANSIENT);
+  sqlite3_bind_int(stmtPutStripBlob_, 23, blob.pluginMidiChannel);
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -630,6 +635,7 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
       blob.percussionMapSourceXml = percussion;
     if (const auto *playAs = reinterpret_cast<const char *>(sqlite3_column_text(stmtGetStripBlob_, 20)))
       blob.percussionPlayAs = playAs;
+    blob.pluginMidiChannel = sqlite3_column_int(stmtGetStripBlob_, 21);
     return blob;
   }
   return std::nullopt;

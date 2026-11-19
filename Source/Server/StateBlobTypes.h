@@ -42,6 +42,7 @@ struct RestoredStripState {
   int inputPort = -1, inputChannel = -1;
   int pluginUid = 0;
   float gainDb = 0.0f;
+  int pluginMidiChannel = 0; // 0: the channel Dorico sends on
   std::string expressionMapEntityID;
   juce::String expressionMapPath;
   juce::String expressionMapSourceXml;

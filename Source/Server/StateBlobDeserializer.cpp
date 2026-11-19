@@ -143,6 +143,9 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
       strip.inputChannel = (int)obj->getProperty("inputChannel");
       strip.pluginUid = (int)obj->getProperty("pluginUid");
       strip.gainDb = (float)(double)obj->getProperty("gainDb");
+      if (obj->hasProperty("pluginMidiChannel"))
+        strip.pluginMidiChannel =
+            juce::jlimit(0, 16, (int)obj->getProperty("pluginMidiChannel"));
       strip.expressionMapEntityID =
           obj->getProperty("expressionMap").toString().toStdString();
       if (obj->hasProperty("expressionMapPath"))

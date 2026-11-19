@@ -13,6 +13,7 @@
         onSetPlugin = () => {},
         onShowInstrument = () => {},
         onSetProgram = () => {},
+        onSetPluginMidiChannel = () => {},
         onSelectMap = () => {},
         onClearMap = () => {},
         onSelectPercussionMap = () => {},
@@ -36,6 +37,9 @@
     // A missing or unscanned player still shows by name in the selector.
     let pluginListed = $derived(validPlugins.some((plugin) => plugin.uid === strip?.pluginUid));
     let playAs = $derived(playAsChoices(strip, doricoInstruments));
+    // The channel Dorico sends this layer on (inputChannel is 0-based).
+    let doricoChannel = $derived(strip.inputChannel >= 0 ? strip.inputChannel + 1 : null);
+    const channels = Array.from({ length: 16 }, (_, index) => index + 1);
 
     const closeFromBackdrop = (event) => {
         if (event.target === event.currentTarget) onClose();
@@ -126,6 +130,18 @@
                         </select>
                     </label>
                 {/if}
+
+                <label class="midi-channel">
+                    <span>MIDI channel</span>
+                    <select aria-label="MIDI channel" value={strip.pluginMidiChannel ?? 0}
+                        onchange={(event) => onSetPluginMidiChannel(Number(event.currentTarget.value))}>
+                        <option value={0}>As Dorico sends{doricoChannel ? ` (channel ${doricoChannel})` : ""}</option>
+                        {#each channels as channel}
+                            <option value={channel}>Channel {channel}</option>
+                        {/each}
+                    </select>
+                </label>
+                <p class="hint">The channel this layer's instrument receives its MIDI on. Choose Channel 1 for an instrument that only listens there.</p>
             </section>
 
             <section>
@@ -283,7 +299,7 @@
     label { display: flex; flex-direction: column; gap: 6px; }
     label > span { color: #94a3b8; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
     .program { margin-top: 14px; }
-    .play-as { margin-top: 14px; }
+    .play-as, .midi-channel { margin-top: 14px; }
     .hint { margin-top: 6px; }
     .notice, .warning, .empty { margin-top: 12px; padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; }
     .warning { display: flex; flex-direction: column; gap: 4px; }

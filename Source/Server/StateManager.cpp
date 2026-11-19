@@ -204,6 +204,7 @@ void StateManager::captureRoutingState(
         fallback.pluginUid = layer.pluginUid;
         fallback.gainDb = layer.gainDb;
         fallback.expressionMapEntityId = layer.expressionMapId;
+        fallback.pluginMidiChannel = layer.pluginMidiChannel;
         fallback.pluginState = layer.pluginState;
         savedLayer.stripHash = fallback.computeHash();
         state.stripHashes.push_back(savedLayer.stripHash);
@@ -296,6 +297,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
     sb.percussionPlayAs = strip->percussionPlayAs;
+    sb.pluginMidiChannel = strip->pluginMidiChannel();
     if (strip->chairId.isEmpty()) {
       // A layer without a chair has a private chair bus that a restore can't
       // find by ID, so its routing stays on the layer record (as in versions
@@ -386,6 +388,8 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
       obj->setProperty("percussionMapSource", strip->percussionMapSourceXml);
     if (!strip->percussionPlayAs.empty())
       obj->setProperty("percussionPlayAs", juce::String(strip->percussionPlayAs));
+    if (strip->pluginMidiChannel() != 0)
+      obj->setProperty("pluginMidiChannel", strip->pluginMidiChannel());
     obj->setProperty(
         "audioInserts",
         serializeStripAudioSnapshot(strip->audioEngine().snapshotAll(captureLiveState))
@@ -484,6 +488,7 @@ versioning::FiddleState StateManager::captureCurrentState(
     sb.expressionMapSourceXml = strip->expressionMapSourceXml.toStdString();
     sb.percussionMapSourceXml = strip->percussionMapSourceXml.toStdString();
     sb.percussionPlayAs = strip->percussionPlayAs;
+    sb.pluginMidiChannel = strip->pluginMidiChannel();
     if (strip->chairId.isEmpty()) {
       // A layer without a chair has a private chair bus that a restore can't
       // find by ID, so its routing stays on the layer record (as in versions

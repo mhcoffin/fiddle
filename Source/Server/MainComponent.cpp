@@ -882,6 +882,7 @@ void MainComponent::initMidiServer() {
               strip->setMuted(rs.muted);
               strip->setSoloed(rs.soloed);
               strip->setInputAssignment(rs.inputPort, rs.inputChannel);
+              strip->setPluginMidiChannel(rs.pluginMidiChannel);
               strip->pluginUid = rs.pluginUid;
               strip->setGainDb(rs.gainDb);
               setupStripPluginSlot(*strip);
@@ -1590,6 +1591,7 @@ void MainComponent::saveAllStripsToDB(bool captureLiveState) {
             strips[i]->percussionMap ? strips[i]->percussionMap->entityId
                                      : std::string{};
         layer->percussionPlayAs = strips[i]->percussionPlayAs;
+        layer->pluginMidiChannel = strips[i]->pluginMidiChannel();
         routingRepository->upsertLayer(*layer);
       }
     }
@@ -6285,6 +6287,8 @@ bool MainComponent::instantiateLayer(const LayerRow &layer,
   strip->setSoloed(layer.soloed);
   strip->setGainDb(layer.gainDb);
   strip->setInstrumentEntityId(juce::String(chair.instrumentEntityId));
+
+  strip->setPluginMidiChannel(layer.pluginMidiChannel);
 
   const auto currentPercussionMapId =
       strip->percussionMap ? strip->percussionMap->entityId : std::string{};

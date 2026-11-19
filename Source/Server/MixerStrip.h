@@ -183,6 +183,15 @@ struct MixerStrip {
   /// The chair's Dorico instrument entity ID, which percussion maps key on.
   juce::String instrumentEntityId;
 
+  /// The MIDI channel the plug-in receives, 1-16, or 0 for the channel
+  /// Dorico sends on (docs/plugin-midi-channel.md). Some plug-ins listen
+  /// only on channel 1. Changing it silences the strip first, so no note is
+  /// left hanging on the old channel.
+  [[nodiscard]] int pluginMidiChannel() const noexcept {
+    return pluginMidiChannel_.load(std::memory_order_relaxed);
+  }
+  void setPluginMidiChannel(int channel);
+
   [[nodiscard]] PercussionMapAssignment snapshotPercussionMap() const;
   void setPercussionMapAssignment(PercussionMapAssignment assignment);
   void setInstrumentEntityId(const juce::String &entityId);
@@ -376,6 +385,7 @@ private:
   std::atomic<float> gainDb_{0.0f};
   StereoMeter meter_;
   std::atomic<int> downstreamLatencySamples_{0};
+  std::atomic<int> pluginMidiChannel_{0};
 
 };
 

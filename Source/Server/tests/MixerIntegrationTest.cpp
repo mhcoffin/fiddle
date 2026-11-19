@@ -501,6 +501,38 @@ void testTransportKeepsRunsStillToBeRendered() {
   REQUIRE(at(1050).playing && std::abs(at(1050).seconds - 30.05) < 1e-12);
 }
 
+void testPluginMidiChannelRemapsWhatThePluginReceives() {
+  // A layer can send its plug-in a fixed channel instead of Dorico's, for
+  // plug-ins that only listen on channel 1 (docs/plugin-midi-channel.md).
+  MixerFixture f;
+  const auto id = f.instrument(0.1f, 15);
+  auto *processor = SignalProcessor::lastCreated.load();
+  std::vector<int> channels;
+  processor->onMidi = [&](const juce::MidiMessage &message) {
+    // Not the all-notes-off a channel change sends on every channel.
+    if (message.isNoteOn() || message.isControllerOfType(1)) channels.push_back(message.getChannel());
+  };
+  const auto play = [&](int channel) {
+    channels.clear();
+    f.mixer.routeNoteEvent(0, 15, juce::MidiMessage::noteOn(channel, 60, 1.0f), f.now);
+    f.mixer.getStrip(id)->addDelayedMessage(f.now, juce::MidiMessage::controllerEvent(channel, 1, 64));
+    for (int block = 0; block < 4; ++block) f.render();
+  };
+  play(15);
+  REQUIRE(!channels.empty() && std::all_of(channels.begin(), channels.end(), [](int c) { return c == 15; }));
+
+  fiddle::UndoManager undo;
+  REQUIRE(undo.perform(std::make_unique<fiddle::SetPluginMidiChannelAction>(f.mixer, id, 0, 1)));
+  REQUIRE(f.mixer.getStrip(id)->pluginMidiChannel() == 1);
+  play(15);
+  REQUIRE(!channels.empty() && std::all_of(channels.begin(), channels.end(), [](int c) { return c == 1; }));
+
+  undo.undo();
+  REQUIRE(f.mixer.getStrip(id)->pluginMidiChannel() == 0);
+  play(15);
+  REQUIRE(!channels.empty() && std::all_of(channels.begin(), channels.end(), [](int c) { return c == 15; }));
+}
+
 void testChairRoutingMigration() {
   int next = 0;
   const auto newId = [&next] { return juce::String("new-") + juce::String(++next); };
@@ -1983,6 +2015,33 @@ void testFxStateUndo() {
   }
 }
 
+void testFallbackSnapshotKeepsPluginMidiChannel() {
+  // A layer with no live strip is saved from its routing row; its plug-in
+  // channel must survive that too (docs/plugin-midi-channel.md).
+  Sandbox sandbox;
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("fallback-channel.sqlite")));
+  auto &repository = *db.getLibraryRoutingRepository();
+  fiddle::ChairRow chair;
+  chair.id = "chair"; chair.name = "Violin"; chair.instrumentEntityId = "test.violin";
+  chair.family = "strings"; chair.role = fiddle::DoricoRole::solo; chair.flatIndex = 14;
+  REQUIRE(repository.upsertChair(chair));
+  fiddle::LayerRow layer;
+  layer.id = "layer"; layer.chairId = chair.id; layer.patchId = "patch";
+  layer.pluginMidiChannel = 1;
+  REQUIRE(repository.upsertLayer(layer));
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.setRoutingRepository(&repository);
+  MixerFixture f; // no strip for the layer
+  const auto saved = state.commitCurrentState(f.mixer, versions.getVersion(root)->branchId);
+  const auto snapshot = versions.getState(versions.getVersion(saved)->stateHash);
+  REQUIRE(snapshot && snapshot->stripHashes.size() == 1);
+  REQUIRE(versions.getStripBlob(snapshot->stripHashes.front())->pluginMidiChannel == 1);
+}
+
 void testChairCommandsUndo() {
   Sandbox sandbox;
   fiddle::FiddleDatabase db;
@@ -2559,6 +2618,7 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     REQUIRE(bus->audioEngine().setBypassed("post", true));
     f.mixer.getStrip(a)->setMuted(true);
     f.mixer.getStrip(b)->setGainDb(-9.0f);
+    f.mixer.getStrip(b)->setPluginMidiChannel(1);
     f.mixer.masterAudio().setGainDb(-6.0f);
     f.mixer.setProjectSettings({725, {"chair-a", "chair-b"}, {{"chair-a", {-3.0, {{"layer-a", 0.6}, {"layer-b", 0.4}}}}}});
 
@@ -2620,6 +2680,7 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     REQUIRE(first && second);
     REQUIRE(first->directOutputBusId == busId && second->directOutputBusId == busId);
     REQUIRE(first->muted && second->gainDb == -9.0f);
+    REQUIRE(first->pluginMidiChannel == 0 && second->pluginMidiChannel == 1);
 
     const auto restored = fiddle::StateManager::deserializeBlob(
         savedBlob.getData(), savedBlob.getSize());
@@ -2628,6 +2689,8 @@ void testSnapshotSurvivesDatabaseReopenAndStateExchange() {
     REQUIRE(!restored->ancestorHashes.empty());
     REQUIRE(restored->ancestorHashes.back() == savedVersion);
     REQUIRE(restored->strips.size() == 2 && restored->strips.front().muted);
+    REQUIRE(restored->strips[0].pluginMidiChannel == 0 &&
+            restored->strips[1].pluginMidiChannel == 1);
   }
 }
 
@@ -4223,6 +4286,8 @@ int main(int argc, char **argv) {
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("chair buses share their layers' routing, fader, inserts, mute and solo", [] { for (int workers : {1, 2, 4}) testChairBusesShareLayers(workers); });
   run("chair bus latency keeps chairs sample-aligned", [] { for (int workers : {1, 2, 4}) testChairBusLatencyAlignsChairs(workers); });
+  run("a layer's MIDI channel remaps what its plug-in receives", testPluginMidiChannelRemapsWhatThePluginReceives);
+  run("a fallback snapshot keeps a layer's MIDI channel", testFallbackSnapshotKeepsPluginMidiChannel);
   run("the transport keeps runs still to be rendered", testTransportKeepsRunsStillToBeRendered);
   run("each insert sees its input's score time", [] { for (int workers : {1, 2}) testInsertsSeeTheirInputsScoreTime(workers); });
   run("plug-ins follow Dorico's transport", [] {

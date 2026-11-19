@@ -36,6 +36,16 @@ bool MixerCommandService::setInput(const juce::String &stripId, int port,
   return true;
 }
 
+bool MixerCommandService::setPluginMidiChannel(const juce::String &stripId,
+                                               int channel) {
+  auto *strip = mixer_.getStrip(stripId);
+  if (strip == nullptr || channel < 0 || channel > 16 ||
+      strip->pluginMidiChannel() == channel)
+    return false;
+  return undoManager_.perform(std::make_unique<SetPluginMidiChannelAction>(
+      mixer_, stripId, strip->pluginMidiChannel(), channel));
+}
+
 bool MixerCommandService::setGain(const juce::String &stripId, float gainDb) {
   auto *strip = mixer_.getStrip(stripId);
   if (strip == nullptr)

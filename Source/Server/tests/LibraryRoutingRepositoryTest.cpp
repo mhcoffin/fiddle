@@ -716,6 +716,20 @@ void testPercussionMapsAreStoredReferencedAndCopiedToLayers() {
     CHECK(repository.upsertLayer(playing));
   }
 
+  // A layer's plug-in MIDI channel is its own: library refreshes keep it.
+  {
+    auto layer = *repository.getLayer("snare-layer");
+    CHECK(layer.pluginMidiChannel == 0);
+    layer.pluginMidiChannel = 1;
+    CHECK(repository.upsertLayer(layer));
+    CHECK(repository.getLayer("snare-layer")->pluginMidiChannel == 1);
+    CHECK(repository.outOfDateLayerCount(patch.id) == 0);
+    CHECK(repository.updateLayerSetups({layer}));
+    CHECK(repository.getLayer("snare-layer")->pluginMidiChannel == 1);
+    layer.pluginMidiChannel = 0;
+    CHECK(repository.upsertLayer(layer));
+  }
+
   // A layer override differs from its patch until refreshed.
   auto layer = *repository.getLayer("snare-layer");
   layer.percussionMapId.clear();

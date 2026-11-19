@@ -74,6 +74,17 @@ void MixerJsHandlers::registerHandlers() {
     });
   });
 
+  router_.registerHandler("setStripPluginMidiChannel", [this](const juce::var &payload) {
+    const auto arguments = payloadArguments(payload);
+    if (arguments.size() < 2)
+      return;
+    const auto stripId = arguments[0].toString();
+    const auto channel = static_cast<int>(arguments[1]);
+    dispatch([this, stripId, channel] {
+      notifyChanged(commands_.setPluginMidiChannel(stripId, channel), true);
+    });
+  });
+
   router_.registerHandler("setStripGain", [this](const juce::var &payload) {
     const auto arguments = payloadArguments(payload);
     if (arguments.size() < 2)

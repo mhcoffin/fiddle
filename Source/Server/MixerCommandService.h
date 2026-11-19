@@ -19,6 +19,7 @@ public:
 
   bool removeStrip(const juce::String &stripId) override;
   bool setInput(const juce::String &stripId, int port, int channel) override;
+  bool setPluginMidiChannel(const juce::String &stripId, int channel) override;
   bool setGain(const juce::String &stripId, float gainDb) override;
   bool setMute(const juce::String &stripId, bool muted) override;
   bool setSolo(const juce::String &stripId, bool soloed) override;
