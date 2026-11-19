@@ -95,19 +95,38 @@ export function registerSetupTools(server: McpServer): void {
   }, async ({ full_rescan }) =>
     callFiddleTool('plugins.scan', defined({ fullRescan: full_rescan })));
 
+  server.registerTool('fiddle_find_patches', {
+    title: 'Find patches',
+    description: 'Search patches across every library, to find what could play a chair. Give words, a Dorico instrument ID (also matches its variants, such as other horns), a player plug-in UID, or any mix. Each result has its library, player, maps, whether its preset is captured, and how many layers use it.',
+    inputSchema: z.object({
+      query: z.string().optional().describe('Words to match in the patch, library, instrument, family, character or player name'),
+      instrument_entity_id: z.string().min(1).optional(),
+      plugin_uid: z.number().int().optional(),
+      limit: z.number().int().min(1).max(500).optional()
+    }),
+    annotations: readOnly
+  }, async ({ query, instrument_entity_id, plugin_uid, limit }) =>
+    callFiddleTool('patches.find', defined({
+      query, instrumentEntityId: instrument_entity_id, pluginUid: plugin_uid, limit
+    })));
+
   server.registerTool('fiddle_list_maps', {
     title: 'List Fiddle maps',
     description: 'List the expression and percussion maps in Fiddle\'s collection, which any patch or layer can use, with how many patches and layers use each.',
     inputSchema: z.object({
       kind: z.enum(['expression', 'percussion']).optional(),
       query: z.string().optional().describe('Words to match in the name, ID, creator, player names or source file'),
+      instrument_entity_id: z.string().min(1).optional()
+        .describe('Only percussion maps that cover this Dorico instrument, such as a hi-hat'),
       favorites_only: z.boolean().optional(),
       limit: z.number().int().min(1).max(1000).optional()
     }),
     annotations: readOnly
-  }, async ({ kind, query, favorites_only, limit }) =>
-    callFiddleTool('maps.list',
-      defined({ kind, query, favoritesOnly: favorites_only, limit })));
+  }, async ({ kind, query, instrument_entity_id, favorites_only, limit }) =>
+    callFiddleTool('maps.list', defined({
+      kind, query, instrumentEntityId: instrument_entity_id,
+      favoritesOnly: favorites_only, limit
+    })));
 
   // ── Libraries ──────────────────────────────────────────────────────────
 
@@ -171,13 +190,19 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_get_chairs', {
     title: 'Get chairs',
-    description: 'Return the chairs Dorico can address (including empty ones), each with its Dorico instrument, role, MIDI port and channel, kit, and layers, plus the percussion kits and whether Dorico\'s installed playback template is out of date (templateStatus.dirty).',
+    description: 'Return the chairs Dorico can address (including empty ones), each with its Dorico instrument, role, MIDI port and channel (1-16), kit, and layers, plus the percussion kits and whether Dorico\'s installed playback template is out of date (templateStatus.dirty). Filters narrow the chairs; kits and template status always cover every chair.',
+    inputSchema: z.object({
+      query: z.string().optional().describe('Words to match in the chair name, instrument, family or kit'),
+      chair_id: z.string().min(1).optional(),
+      without_layers: z.boolean().optional().describe('Only chairs with no layers (nothing plays them)')
+    }),
     annotations: readOnly
-  }, async () => callFiddleTool('chairs.get'));
+  }, async ({ query, chair_id, without_layers }) =>
+    callFiddleTool('chairs.get', defined({ query, chairId: chair_id, withoutLayers: without_layers })));
 
   server.registerTool('fiddle_create_chairs', {
     title: 'Create chairs',
-    description: 'Add chairs, one per Dorico instrument destination, such as "Violin I" (section) or "Flute 1" (solo), as one Undo step. Names default to the Chairs window\'s ("Flute 1", "Flute 2"); roles default to section for strings and choir, solo otherwise. Give kit_id to add an instrument to an existing kit; use fiddle_create_kit for new kits. Changing chairs makes the playback template out of date.',
+    description: 'Add chairs, one per Dorico instrument destination, such as "Violin I" (section) or "Flute 1" (solo), as one Undo step. Names default to the Chairs window\'s ("Flute 1", "Flute 2"); roles default to section for strings and choir, solo otherwise. Give kit_id to add an instrument to an existing kit; use fiddle_create_kit for new kits. Returns the new chairs. Changing chairs makes the playback template out of date.',
     inputSchema: z.object({
       chairs: z.array(z.object({
         instrument_entity_id: z.string().min(1),
@@ -258,7 +283,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_add_layer', {
     title: 'Add layer to chair',
-    description: 'Add a library patch to a chair as a new layer with its own plug-in instance, initialized from the patch. A chair can have several layers. With whole_kit, also adds it to the chair\'s kit-mates that lack it. Layers don\'t change the playback template.',
+    description: 'Add a library patch to a chair as a new layer with its own plug-in instance, initialized from the patch. A chair can have several layers. With whole_kit, also adds it to the chair\'s kit-mates that lack it. Layers don\'t change the playback template. The plug-in loads in the background: the result may say pluginStatus "loading"; check fiddle_get_mixer with layer_id until it is "loaded" or reports an error.',
     inputSchema: z.object({
       chair_id: z.string().min(1),
       patch_id: z.string().min(1).describe('Patch ID from fiddle_get_library'),

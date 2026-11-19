@@ -14,6 +14,13 @@ juce::StringArray words(const juce::String &text) {
   return result;
 }
 
+juce::String compact(const juce::String &text) {
+  juce::String result;
+  for (const auto character : text.toLowerCase())
+    if (juce::CharacterFunctions::isLetterOrDigit(character)) result += character;
+  return result;
+}
+
 int relevance(const BrowsableInstrument &instrument, const juce::String &query) {
   const auto name = instrument.name.toLowerCase();
   if (query.isEmpty()) return 2;
@@ -49,6 +56,30 @@ bool validCharacter(const std::string &character) {
 
 } // namespace
 
+bool matchesSearch(const juce::String &text, const juce::String &query) {
+  const auto terms = words(query);
+  if (terms.isEmpty()) return true;
+  juce::StringArray tokens;
+  juce::String token;
+  for (const auto character : text.toLowerCase() + " ") {
+    if (juce::CharacterFunctions::isLetterOrDigit(character)) {
+      token += character;
+    } else if (token.isNotEmpty()) {
+      tokens.add(token);
+      token.clear();
+    }
+  }
+  const auto whole = compact(text);
+  return std::all_of(terms.begin(), terms.end(), [&](const juce::String &term) {
+    const auto word = compact(term);
+    if (word.isEmpty()) return true;
+    if (std::any_of(tokens.begin(), tokens.end(),
+                    [&](const juce::String &candidate) { return candidate.startsWith(word); }))
+      return true;
+    return word.length() >= 4 && whole.contains(word);
+  });
+}
+
 std::vector<const BrowsableInstrument *>
 searchInstruments(const std::vector<BrowsableInstrument> &instruments,
                   const juce::String &query, const juce::String &family,
@@ -61,9 +92,7 @@ searchInstruments(const std::vector<BrowsableInstrument> &instruments,
     const auto &instrument = instruments[index];
     if (!includeVariants && !instrument.isDefault) continue;
     if (wantedFamily.isNotEmpty() && instrument.family.toLowerCase() != wantedFamily) continue;
-    const auto haystack = instrument.name.toLowerCase() + " " + instrument.entityID.toLowerCase();
-    if (std::all_of(terms.begin(), terms.end(),
-                    [&](const juce::String &term) { return haystack.contains(term); }))
+    if (matchesSearch(instrument.name + " " + instrument.entityID, query))
       matches.emplace_back(index, &instrument);
   }
   std::stable_sort(matches.begin(), matches.end(), [&](const auto &a, const auto &b) {
@@ -78,6 +107,16 @@ searchInstruments(const std::vector<BrowsableInstrument> &instruments,
     result.push_back(match.second);
   }
   return result;
+}
+
+bool coversInstrument(const std::vector<std::string> &listed, const std::string &instrument) {
+  const auto canonical = [](const std::string &id) {
+    const auto at = id.find(".alias.");
+    return at == std::string::npos ? id : id.substr(0, at);
+  };
+  const auto wanted = canonical(instrument);
+  return std::any_of(listed.begin(), listed.end(),
+                     [&](const std::string &id) { return canonical(id) == wanted; });
 }
 
 juce::String suggestedRole(const BrowsableInstrument &instrument) {

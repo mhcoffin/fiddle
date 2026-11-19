@@ -128,6 +128,7 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
     // Setup tools: annotations and the snake_case -> camelCase mapping.
     const tool = name => listed.tools.find(item => item.name === name);
     for (const name of ['fiddle_search_dorico_instruments', 'fiddle_list_plugins',
+      'fiddle_find_patches',
       'fiddle_list_maps', 'fiddle_list_libraries', 'fiddle_get_library',
       'fiddle_get_chairs'])
       assert.equal(tool(name)?.annotations?.readOnlyHint, true, name);
@@ -155,6 +156,15 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
     await call('fiddle_scan_plugins', {}, 'plugins.scan', {});
     await call('fiddle_list_maps', { kind: 'expression', favorites_only: true },
       'maps.list', { kind: 'expression', favoritesOnly: true });
+    await call('fiddle_list_maps', { instrument_entity_id: 'instrument.drum.hihat' },
+      'maps.list', { instrumentEntityId: 'instrument.drum.hihat' });
+    await call('fiddle_find_patches',
+      { query: 'flute', instrument_entity_id: 'instrument.wind.flutes.flute', plugin_uid: 3, limit: 9 },
+      'patches.find',
+      { query: 'flute', instrumentEntityId: 'instrument.wind.flutes.flute', pluginUid: 3, limit: 9 });
+    await call('fiddle_get_mixer', {}, 'mixer.get', {});
+    await call('fiddle_get_mixer', { query: 'flute', chair_id: 'c', layer_id: 'l' },
+      'mixer.get', { query: 'flute', chairId: 'c', layerId: 'l' });
     await call('fiddle_list_libraries', {}, 'library.list', {});
     await call('fiddle_get_library', { library_id: 'lib' }, 'library.get', { libraryId: 'lib' });
     await call('fiddle_save_library', {
@@ -182,6 +192,8 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
     });
     await call('fiddle_delete_library', { library_id: 'lib' }, 'library.delete', { libraryId: 'lib' });
     await call('fiddle_get_chairs', {}, 'chairs.get', {});
+    await call('fiddle_get_chairs', { query: 'flute', chair_id: 'c', without_layers: true },
+      'chairs.get', { query: 'flute', chairId: 'c', withoutLayers: true });
     await call('fiddle_create_chairs', {
       chairs: [
         { instrument_entity_id: 'instrument.strings.violin', name: 'Violin I', role: 'section' },

@@ -88,6 +88,9 @@ void testAuthenticatedRequestAndDescriptorLifecycle() {
           handled.fetch_add(1);
           auto *result = new juce::DynamicObject();
           result->setProperty("method", method);
+          // Larger than one send() can take, so the bridge must keep writing.
+          if (method == "large")
+            result->setProperty("payload", juce::String::repeatedString("x", 600000));
           complete(fiddle::AgentControlServer::Response::success(
               juce::var(result)));
         });
@@ -114,6 +117,11 @@ void testAuthenticatedRequestAndDescriptorLifecycle() {
     CHECK(static_cast<bool>(valid["ok"]));
     CHECK(valid["result"]["method"].toString() == "status");
 
+    const auto large = request(server.listeningPort(),
+                               info["token"].toString(), "large");
+    CHECK(static_cast<bool>(large["ok"]));
+    CHECK(large["result"]["payload"].toString().length() == 600000);
+
     const auto invalid = request(server.listeningPort(), "wrong", "status");
     if (invalid["error"].toString() != "Authentication failed")
       std::cerr << "Invalid response: " << juce::JSON::toString(invalid, true)
@@ -125,11 +133,54 @@ void testAuthenticatedRequestAndDescriptorLifecycle() {
   temp.deleteRecursively();
 }
 
+// A client that asks for a large answer and stops reading must not hold up
+// shutdown: the write loop gives up when the server thread is told to exit.
+void testShutdownWhileClientStopsReading() {
+  auto temp = juce::File::getSpecialLocation(juce::File::tempDirectory)
+                  .getNonexistentChildFile("fiddle-agent-control", {}, false);
+  temp.createDirectory();
+  const auto descriptor = temp.getChildFile("agent-control.json");
+  auto server = std::make_unique<fiddle::AgentControlServer>(
+      descriptor,
+      [](const juce::String &, const juce::var &,
+         fiddle::AgentControlServer::Completion complete) {
+        auto *result = new juce::DynamicObject();
+        result->setProperty("payload", juce::String::repeatedString("x", 8 * 1024 * 1024));
+        complete(fiddle::AgentControlServer::Response::success(juce::var(result)));
+      });
+  server->startThread();
+  CHECK(waitUntil([&] { return server->listeningPort() > 0; }));
+  const auto token = readDescriptor(descriptor)["token"].toString();
+
+  juce::StreamingSocket client;
+  CHECK(client.connect("127.0.0.1", server->listeningPort(), 1000));
+  auto *message = new juce::DynamicObject();
+  message->setProperty("id", "stalled");
+  message->setProperty("token", token);
+  message->setProperty("method", "large");
+  const auto body = juce::JSON::toString(juce::var(message), true) + "\n";
+  CHECK(client.write(body.toRawUTF8(), body.getNumBytesAsUTF8()) ==
+        static_cast<int>(body.getNumBytesAsUTF8()));
+  // Never read: 8 MB is more than loopback buffers hold, so the server waits.
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  const auto start = std::chrono::steady_clock::now();
+  server.reset();
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - start);
+  if (elapsed.count() >= 1500)
+    std::cerr << "Shutdown took " << elapsed.count() << " ms" << std::endl;
+  CHECK(elapsed.count() < 1500); // stopThread(2000) would force-kill otherwise
+  client.close();
+  temp.deleteRecursively();
+}
+
 } // namespace
 
 int main() {
   std::cout << "===== Agent Control Server Tests =====" << std::endl;
   testAuthenticatedRequestAndDescriptorLifecycle();
+  testShutdownWhileClientStopsReading();
   std::cout << "Passed: " << passed << std::endl;
   std::cout << "Failed: " << failed << std::endl;
   return failed == 0 ? 0 : 1;

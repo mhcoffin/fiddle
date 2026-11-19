@@ -311,7 +311,7 @@ private:
   juce::var agentLayerResult(const juce::String &stripId,
                              bool changed);
   juce::var agentLibrarySetupSnapshot(const juce::String &libraryId);
-  juce::var agentChairsSnapshot();
+  juce::var agentChairsSnapshot(const juce::var &filter = {});
   juce::var agentLibrarySnapshot(const juce::String &libraryId);
   AgentResponse createAgentGuidedLibrary(const juce::var &params);
   AgentResponse agentInspectLibrarySources(const juce::var &params);
@@ -322,6 +322,8 @@ private:
   AgentResponse agentSearchDoricoInstruments(const juce::var &params);
   AgentResponse agentListPlugins(const juce::var &params);
   AgentResponse agentScanPlugins(const juce::var &params);
+  AgentResponse agentGetMixer(const juce::var &params);
+  AgentResponse agentFindPatches(const juce::var &params);
   AgentResponse agentListLibraries(const juce::var &params);
   AgentResponse agentGetLibrary(const juce::var &params);
   AgentResponse agentSaveLibrary(const juce::var &params);

@@ -16,15 +16,26 @@
 
 namespace fiddle::agent {
 
-/// Dorico instruments matching a search, best first. Every word of query
-/// must appear in the name or entity ID (case-insensitive); an empty query
-/// matches everything. family filters by the instrument's top-level family.
-/// Variants (instruments with a parent, such as "Clarinet in A") are
+/// Whether text matches a search: every word of query must start a word of
+/// text ("hi" matches "Hi-hat" but not "China"), or, for words of four or
+/// more letters, appear anywhere once punctuation and spaces are ignored
+/// ("hihat" matches "Hi-Hat", "cello" matches "Violoncello"). Case-insensitive;
+/// an empty query matches everything.
+bool matchesSearch(const juce::String &text, const juce::String &query);
+
+/// Dorico instruments matching a search (matchesSearch on the name and entity
+/// ID), best first. An empty query matches everything. family filters by the
+/// instrument's top-level family. Variants (instruments with a parent, such as "Clarinet in A") are
 /// included only when includeVariants is set.
 std::vector<const BrowsableInstrument *>
 searchInstruments(const std::vector<BrowsableInstrument> &instruments,
                   const juce::String &query, const juce::String &family,
                   bool includeVariants, int limit);
+
+/// Whether a percussion map's instruments cover a Dorico instrument, treating
+/// aliases ("instrument.band.unpitched.tomtom.high.alias.tom-high") as their
+/// base instrument, as playback does.
+bool coversInstrument(const std::vector<std::string> &listed, const std::string &instrument);
 
 /// The chair role Fiddle suggests for an instrument: strings and choir
 /// default to sections, everything else to solo players (chairModel.js).

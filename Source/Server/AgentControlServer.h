@@ -53,8 +53,9 @@ private:
   void removeOwnedDescriptor();
   void handleConnection(std::unique_ptr<juce::StreamingSocket> socket);
   bool readLine(juce::StreamingSocket &socket, juce::String &line);
-  static bool writeLine(juce::StreamingSocket &socket,
-                        const juce::var &value);
+  /// Write the whole line, stopping early when the client stops reading
+  /// for kWriteTimeout or the server is shutting down.
+  bool writeLine(juce::StreamingSocket &socket, const juce::var &value);
 
   juce::File descriptorFile_;
   Handler handler_;

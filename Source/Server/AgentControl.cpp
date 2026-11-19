@@ -49,13 +49,10 @@ juce::var historyJson(const UndoManager &history) {
   return juce::var(result);
 }
 
-bool matchesAllWords(const juce::String &haystack, const juce::String &query) {
-  juce::StringArray words;
-  words.addTokens(query.toLowerCase(), " \t", "");
-  words.removeEmptyStrings();
-  const auto lower = haystack.toLowerCase();
-  return std::all_of(words.begin(), words.end(),
-                     [&](const juce::String &word) { return lower.contains(word); });
+juce::var object(std::initializer_list<std::pair<const char *, juce::var>> properties) {
+  auto *result = new juce::DynamicObject();
+  for (const auto &[name, value] : properties) result->setProperty(name, value);
+  return juce::var(result);
 }
 
 juce::String roleName(DoricoRole role) {
@@ -163,7 +160,7 @@ AgentControlServer::Response MainComponent::handleAgentControlRequest(
   };
   static const std::map<juce::String, Handler> handlers{
       {"status", [](MainComponent &self, const juce::var &) { return Response::success(self.agentStatus()); }},
-      {"mixer.get", [](MainComponent &self, const juce::var &) { return Response::success(self.agentMixerSnapshot()); }},
+      {"mixer.get", member(&MainComponent::agentGetMixer)},
       {"layer.setGain", layerControl("layer.setGain")},
       {"layer.setMute", layerControl("layer.setMute")},
       {"layer.setSolo", layerControl("layer.setSolo")},
@@ -189,7 +186,8 @@ AgentControlServer::Response MainComponent::handleAgentControlRequest(
       {"dorico.instruments.search", member(&MainComponent::agentSearchDoricoInstruments)},
       {"plugins.list", member(&MainComponent::agentListPlugins)},
       {"plugins.scan", member(&MainComponent::agentScanPlugins)},
-      {"chairs.get", [](MainComponent &self, const juce::var &) { return Response::success(self.agentChairsSnapshot()); }},
+      {"chairs.get", [](MainComponent &self, const juce::var &p) { return Response::success(self.agentChairsSnapshot(p)); }},
+      {"patches.find", member(&MainComponent::agentFindPatches)},
       {"chairs.create", member(&MainComponent::agentCreateChairs)},
       {"chairs.update", member(&MainComponent::agentUpdateChair)},
       {"chairs.delete", member(&MainComponent::agentDeleteChair)},
@@ -262,8 +260,11 @@ juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
   layer->setProperty("active", state.active);
   layer->setProperty("muted", state.muted);
   layer->setProperty("soloed", state.soloed);
-  layer->setProperty("inputPort", state.inputPort);
-  layer->setProperty("inputChannel", state.inputChannel);
+  // Numbered like fiddle_get_chairs: channel 1-16, or 0 with port -1 when
+  // the layer has no MIDI input.
+  const bool hasInput = state.inputPort >= 0 && state.inputChannel >= 0;
+  layer->setProperty("midiPort", hasInput ? state.inputPort : -1);
+  layer->setProperty("midiChannel", hasInput ? state.inputChannel + 1 : 0);
   layer->setProperty("gainDb", static_cast<double>(state.gainDb));
   layer->setProperty("peakDb", static_cast<double>(state.peakDb));
   layer->setProperty("pluginUid", strip.pluginUid);
@@ -297,6 +298,33 @@ juce::var MainComponent::agentMixerSnapshot() {
                         juce::JSON::parse(mixer_.groupBusesToJson()));
   snapshot->setProperty("master", mixer_.masterAudio().toJson());
   return juce::var(snapshot);
+}
+
+// fiddle_get_mixer. Filters narrow the layers; buses and master always come
+// back, since they are small.
+AgentControlServer::Response MainComponent::agentGetMixer(const juce::var &params) {
+  const auto query = text(params, "query");
+  const auto chairId = text(params, "chairId");
+  const auto layerId = text(params, "layerId");
+  if (query.isEmpty() && chairId.isEmpty() && layerId.isEmpty())
+    return Response::success(agentMixerSnapshot());
+  std::map<juce::String, juce::String> chairNames;
+  if (auto *repository = db_.getLibraryRoutingRepository())
+    for (const auto &chair : repository->listChairs())
+      chairNames[juce::String(chair.id)] = juce::String(chair.name);
+  auto snapshot = agentMixerSnapshot();
+  juce::Array<juce::var> layers;
+  for (const auto *strip : mixer_.getAllStrips()) {
+    if (chairId.isNotEmpty() && strip->chairId != chairId) continue;
+    if (layerId.isNotEmpty() && strip->id != layerId) continue;
+    if (!agent::matchesSearch(strip->layerName + " " + strip->library + " " + strip->family + " " +
+                                  chairNames[strip->chairId],
+                              query))
+      continue;
+    layers.add(agentLayerSnapshot(*strip));
+  }
+  snapshot.getDynamicObject()->setProperty("layers", juce::var(layers));
+  return Response::success(snapshot);
 }
 
 juce::var MainComponent::agentLayerResult(const juce::String &stripId,
@@ -554,13 +582,20 @@ MainComponent::agentUndoRedo(const juce::var &params, bool redo) {
   if (isTransportStarted_.load(std::memory_order_relaxed))
     return Response::failure("Stop Dorico playback before undoing or redoing: a step may "
                              "add or remove chairs, layers or libraries");
-  if (history == "project") {
-    const bool changed = applyAgentUndoRedo(redo);
+  // A short answer: which step moved and where each history now stands. Read
+  // the result with fiddle_get_chairs, fiddle_get_mixer or fiddle_get_library.
+  const auto finish = [&](bool changed, const juce::String &step) {
     auto *result = new juce::DynamicObject();
     result->setProperty("history", history);
     result->setProperty("changed", changed);
-    result->setProperty("mixer", agentMixerSnapshot());
+    result->setProperty(redo ? "redone" : "undone", changed ? step : juce::String());
+    result->setProperty("projectHistory", historyJson(undoManager_));
+    result->setProperty("libraryHistory", historyJson(libraryUndoManager_));
     return Response::success(juce::var(result));
+  };
+  if (history == "project") {
+    const auto step = redo ? undoManager_.redoDescription() : undoManager_.undoDescription();
+    return finish(applyAgentUndoRedo(redo), step);
   }
   // Library Manager allows catalog Undo only outside its editor; an unsaved
   // draft would overwrite the restored catalog when saved.
@@ -568,6 +603,7 @@ MainComponent::agentUndoRedo(const juce::var &params, bool redo) {
     return Response::failure("Library Manager has unsaved edits. Ask the user to save or "
                              "discard them first.");
   auto &manager = libraryUndoManager_;
+  const auto step = redo ? manager.redoDescription() : manager.undoDescription();
   bool changed = false;
   if (redo ? manager.canRedo() : manager.canUndo()) {
     changed = redo ? manager.redo() : manager.undo();
@@ -576,11 +612,7 @@ MainComponent::agentUndoRedo(const juce::var &params, bool redo) {
                                "used by a layer. History has been kept.");
     catalogChangedByAgent({});
   }
-  auto *result = new juce::DynamicObject();
-  result->setProperty("history", history);
-  result->setProperty("changed", changed);
-  result->setProperty("libraryHistory", historyJson(manager));
-  return Response::success(juce::var(result));
+  return finish(changed, step);
 }
 
 void MainComponent::catalogChangedByAgent(const juce::String &libraryId) {
@@ -668,17 +700,40 @@ MainComponent::agentInspectLibrarySources(const juce::var &params) {
   if (mapQuery.isEmpty() && files.size() > 2000)
     return Response::failure(
         "This directory contains " + juce::String(files.size()) +
-        " expression-map files. Supply mapQuery or choose a narrower directory.");
+        " .doricolib files. Supply mapQuery or choose a narrower directory.");
   juce::Array<juce::File> candidateFiles;
   for (const auto &file : files)
     if (mapQuery.isEmpty() || file.getFullPathName().containsIgnoreCase(mapQuery))
       candidateFiles.add(file);
   auto *repository = db_.getLibraryRoutingRepository();
   juce::Array<juce::var> maps;
-  int visitedFiles = 0;
+  int visitedFiles = 0, duplicates = 0;
+  bool moreMaps = false; // unique maps left out at the limit
+  // One entry per map ID. Dorico 5 and 6 folders, backups and copies often
+  // hold the same map; keep the highest version and count the other copies.
+  std::map<juce::String, int> mapIndex;
   const auto addMap = [&](const juce::String &name, const juce::String &entityId, int version,
                           const juce::String &creator, const juce::String &pluginNames,
                           const juce::File &file) {
+    if (const auto found = mapIndex.find(entityId); found != mapIndex.end()) {
+      ++duplicates;
+      auto *existing = maps.getReference(found->second).getDynamicObject();
+      existing->setProperty("copies", static_cast<int>(existing->getProperty("copies")) + 1);
+      if (version > static_cast<int>(existing->getProperty("version"))) {
+        existing->setProperty("name", name);
+        existing->setProperty("version", version);
+        existing->setProperty("creator", creator);
+        existing->setProperty("pluginNames", pluginNames);
+        existing->setProperty("sourcePath", file.getFullPathName());
+      }
+      return;
+    }
+    // Past the limit, keep reading only for newer copies of listed maps.
+    if (maps.size() >= limit) {
+      moreMaps = true;
+      return;
+    }
+    mapIndex[entityId] = maps.size();
     auto *item = new juce::DynamicObject();
     item->setProperty("kind", juce::String(libraryMapKindName(*kind)));
     item->setProperty("name", name);
@@ -688,26 +743,23 @@ MainComponent::agentInspectLibrarySources(const juce::var &params) {
     item->setProperty("pluginNames", pluginNames);
     item->setProperty("sourcePath", file.getFullPathName());
     item->setProperty("inFiddle", repository && repository->getMap(*kind, entityId.toStdString()).has_value());
+    item->setProperty("copies", 1);
     maps.add(juce::var(item));
   };
   for (const auto &file : candidateFiles) {
     ++visitedFiles;
     if (*kind == LibraryMapKind::expression) {
       for (const auto &metadata : scanExpressionMapMetadata(file)) {
-        if (maps.size() >= limit) break;
         addMap(juce::String(metadata.name), juce::String(metadata.entityID), metadata.version,
                juce::String(metadata.creator), juce::String(metadata.pluginNames), file);
       }
     } else {
       juce::String error;
       for (const auto &map : readLibraryMapFile(*kind, file, error)) {
-        if (maps.size() >= limit) break;
         addMap(juce::String(map.name), juce::String(map.entityId), map.version,
                juce::String(map.creator), juce::String(map.pluginNames), file);
       }
     }
-    if (maps.size() >= limit)
-      break;
   }
   const auto query = text(params, "pluginQuery");
   juce::Array<juce::var> plugins;
@@ -728,10 +780,15 @@ MainComponent::agentInspectLibrarySources(const juce::var &params) {
   result->setProperty("kind", juce::String(libraryMapKindName(*kind)));
   result->setProperty("mapQuery", mapQuery);
   result->setProperty("maps", juce::var(maps));
+  // Files found, files whose path matches mapQuery, and files read (all of
+  // them, so a newer copy is found even past the limit); maps are unique by
+  // ID, with duplicateCount extra copies seen.
   result->setProperty("mapFileCount", files.size());
   result->setProperty("matchedMapFileCount", candidateFiles.size());
-  result->setProperty("truncated",
-                      maps.size() >= limit || visitedFiles < candidateFiles.size());
+  result->setProperty("scannedFileCount", visitedFiles);
+  result->setProperty("uniqueMapCount", maps.size());
+  result->setProperty("duplicateCount", duplicates);
+  result->setProperty("truncated", moreMaps);
   result->setProperty("plugins", juce::var(plugins));
   return Response::success(juce::var(result));
 }
@@ -804,7 +861,7 @@ AgentControlServer::Response MainComponent::agentListPlugins(const juce::var &pa
     for (const auto &plugin : *list) {
       if (instrumentsOnly && !static_cast<bool>(plugin["isInstrument"])) continue;
       if (query.isNotEmpty() &&
-          !matchesAllWords(plugin["name"].toString() + " " + plugin["manufacturer"].toString(), query))
+          !agent::matchesSearch(plugin["name"].toString() + " " + plugin["manufacturer"].toString(), query))
         continue;
       if (++matched <= limit) plugins.add(plugin);
     }
@@ -842,6 +899,9 @@ AgentControlServer::Response MainComponent::agentListMaps(const juce::var &param
   }
   const auto query = text(params, "query");
   const bool favoritesOnly = flag(params, "favoritesOnly");
+  // Percussion maps that cover a Dorico instrument; expression maps don't
+  // list instruments, so this filter leaves only percussion maps.
+  const auto instrumentId = text(params, "instrumentEntityId").toStdString();
   const int limit = limitParam(params, "limit", 100, 1000);
   std::map<std::pair<LibraryMapKind, std::string>, int> uses;
   for (const auto &use : repository->listMapUsage()) ++uses[{use.kind, use.entityId}];
@@ -854,8 +914,12 @@ AgentControlServer::Response MainComponent::agentListMaps(const juce::var &param
     std::shared_ptr<const PercussionMap> percussion;
     if (row.kind == LibraryMapKind::expression) labels = expressionMapLabels(definition);
     else percussion = compilePercussionMap(definition);
+    if (!instrumentId.empty()) {
+      if (!percussion) continue;
+      if (!agent::coversInstrument(percussion->instrumentsInOrder(), instrumentId)) continue;
+    }
     if (query.isNotEmpty() &&
-        !matchesAllWords(juce::String(row.name) + " " + juce::String(row.entityId) + " " +
+        !agent::matchesSearch(juce::String(row.name) + " " + juce::String(row.entityId) + " " +
                              juce::String(labels.creator) + " " + juce::String(labels.pluginNames) +
                              " " + juce::String(row.sourcePath),
                          query))
@@ -962,6 +1026,83 @@ juce::var MainComponent::agentLibrarySnapshot(const juce::String &libraryId) {
   }
   result->setProperty("patches", juce::var(patches));
   return juce::var(result);
+}
+
+// fiddle_find_patches: patches across every library. instrumentEntityId also
+// matches instruments that share its Dorico sound (its variants, such as Horn
+// in F and Horn in B-flat).
+AgentControlServer::Response MainComponent::agentFindPatches(const juce::var &params) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return Response::failure("The library catalog is not available");
+  const auto query = text(params, "query");
+  const auto instrumentId = text(params, "instrumentEntityId");
+  const bool byPlugin = params.isObject() && (params["pluginUid"].isInt() || params["pluginUid"].isInt64());
+  const int pluginUid = byPlugin ? static_cast<int>(params["pluginUid"]) : 0;
+  const int limit = limitParam(params, "limit", 50, 500);
+  std::map<juce::String, const BrowsableInstrument *> instruments;
+  for (const auto &instrument : instrumentBrowser_.getInstruments())
+    instruments[instrument.entityID] = &instrument;
+  juce::String wantedSound;
+  if (instrumentId.isNotEmpty()) {
+    const auto found = instruments.find(instrumentId);
+    if (found == instruments.end())
+      return Response::failure("Unknown Dorico instrument ID: " + instrumentId);
+    wantedSound = found->second->musicXMLSoundID;
+  }
+  std::map<std::string, juce::String> libraryNames;
+  for (const auto &library : db_.listLibraries())
+    libraryNames[library.id.toStdString()] = library.name;
+  std::map<int, juce::String> pluginNames;
+  for (const auto &description : pluginScanner_.getKnownPluginList().getTypes())
+    pluginNames[description.uniqueId] = description.name;
+  const auto mapName = [repository](LibraryMapKind kind, const std::string &id) {
+    if (id.empty()) return juce::String();
+    const auto map = repository->getMap(kind, id);
+    return map ? juce::String(map->name) : juce::String("(missing map)");
+  };
+  juce::Array<juce::var> patches;
+  int matched = 0;
+  for (const auto &patch : repository->listPatches()) {
+    const auto instrument = instruments.find(juce::String(patch.instrumentEntityId));
+    const auto instrumentName = instrument != instruments.end() ? instrument->second->name : juce::String();
+    if (byPlugin && patch.pluginUid != pluginUid) continue;
+    if (instrumentId.isNotEmpty() &&
+        juce::String(patch.instrumentEntityId) != instrumentId &&
+        (wantedSound.isEmpty() || instrument == instruments.end() ||
+         instrument->second->musicXMLSoundID != wantedSound))
+      continue;
+    const auto library = libraryNames[patch.libraryId];
+    const auto plugin = pluginNames.count(patch.pluginUid) ? pluginNames[patch.pluginUid]
+                                                            : juce::String("(not installed)");
+    if (!agent::matchesSearch(juce::String(patch.name) + " " + library + " " + instrumentName + " " +
+                                  juce::String(patch.instrumentEntityId) + " " + juce::String(patch.family) +
+                                  " " + juce::String(patch.character) + " " + plugin,
+                              query))
+      continue;
+    if (++matched > limit) continue;
+    auto *item = new juce::DynamicObject();
+    item->setProperty("id", juce::String(patch.id));
+    item->setProperty("name", juce::String(patch.name));
+    item->setProperty("libraryId", juce::String(patch.libraryId));
+    item->setProperty("libraryName", library);
+    item->setProperty("instrumentEntityId", juce::String(patch.instrumentEntityId));
+    item->setProperty("instrumentName", instrumentName);
+    item->setProperty("character", juce::String(patch.character));
+    item->setProperty("pluginUid", patch.pluginUid);
+    item->setProperty("pluginName", plugin);
+    item->setProperty("expressionMapName", mapName(LibraryMapKind::expression, patch.expressionMapId));
+    item->setProperty("percussionMapName", mapName(LibraryMapKind::percussion, patch.percussionMapId));
+    item->setProperty("awaitingPresetCapture", !patch.expectedPresetName.empty() && !patch.setupComplete);
+    item->setProperty("hasPluginState", !patch.pluginState.empty());
+    item->setProperty("layerCount", repository->patchUsageCount(patch.id));
+    patches.add(juce::var(item));
+  }
+  auto *result = new juce::DynamicObject();
+  result->setProperty("patches", juce::var(patches));
+  result->setProperty("matchedCount", matched);
+  result->setProperty("truncated", matched > limit);
+  return Response::success(juce::var(result));
 }
 
 AgentControlServer::Response MainComponent::agentGetLibrary(const juce::var &params) {
@@ -1091,24 +1232,50 @@ AgentControlServer::Response MainComponent::agentDeleteLibrary(const juce::var &
 
 // ── Chairs, kits and layers ──────────────────────────────────────────────
 
-juce::var MainComponent::agentChairsSnapshot() {
+// filter (all optional): chairIds (array) or chairId, query (matchesSearch
+// on name, instrument, family and kit), withoutLayers. Kits and the template
+// status always cover every chair.
+juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
   auto *repository = db_.getLibraryRoutingRepository();
   std::map<juce::String, const BrowsableInstrument *> instruments;
   for (const auto &instrument : instrumentBrowser_.getInstruments())
     instruments[instrument.entityID] = &instrument;
+  std::optional<std::set<juce::String>> wanted;
+  if (const auto *ids = filter.isObject() ? filter["chairIds"].getArray() : nullptr) {
+    wanted.emplace();
+    for (const auto &id : *ids) wanted->insert(id.toString());
+  } else if (text(filter, "chairId").isNotEmpty()) {
+    wanted = std::set<juce::String>{text(filter, "chairId")};
+  }
+  const auto query = text(filter, "query");
+  const bool withoutLayers = flag(filter, "withoutLayers");
   juce::Array<juce::var> chairs;
   std::map<std::string, std::pair<std::string, juce::Array<juce::var>>> kits;
   std::vector<std::string> kitOrder;
   if (repository)
     for (const auto &chair : repository->listChairs()) {
-      auto *item = new juce::DynamicObject();
+      if (!chair.kitId.empty()) {
+        if (!kits.count(chair.kitId)) kitOrder.push_back(chair.kitId);
+        auto &kit = kits[chair.kitId];
+        kit.first = chair.kitName;
+        kit.second.add(juce::String(chair.id));
+      }
       const auto instrument = instruments.find(juce::String(chair.instrumentEntityId));
+      const auto instrumentName = instrument != instruments.end() ? instrument->second->name
+                                                                  : juce::String("(unknown to Dorico)");
+      const auto layerRows = repository->listLayers(chair.id);
+      if ((wanted && !wanted->count(juce::String(chair.id))) ||
+          (withoutLayers && !layerRows.empty()) ||
+          !agent::matchesSearch(juce::String(chair.name) + " " + juce::String(chair.instrumentEntityId) +
+                                    " " + instrumentName + " " + juce::String(chair.family) + " " +
+                                    juce::String(chair.kitName),
+                                query))
+        continue;
+      auto *item = new juce::DynamicObject();
       item->setProperty("id", juce::String(chair.id));
       item->setProperty("name", juce::String(chair.name));
       item->setProperty("instrumentEntityId", juce::String(chair.instrumentEntityId));
-      item->setProperty("instrumentName", instrument != instruments.end()
-                                              ? instrument->second->name
-                                              : juce::String("(unknown to Dorico)"));
+      item->setProperty("instrumentName", instrumentName);
       item->setProperty("family", juce::String(chair.family));
       item->setProperty("role", roleName(chair.role));
       item->setProperty("ordinal", chair.ordinal);
@@ -1118,7 +1285,7 @@ juce::var MainComponent::agentChairsSnapshot() {
       item->setProperty("midiPort", chair.flatIndex / 16);
       item->setProperty("midiChannel", chair.flatIndex % 16 + 1);
       juce::Array<juce::var> layers;
-      for (const auto &layer : repository->listLayers(chair.id)) {
+      for (const auto &layer : layerRows) {
         auto *row = new juce::DynamicObject();
         row->setProperty("id", juce::String(layer.id));
         row->setProperty("patchId", juce::String(layer.patchId));
@@ -1130,12 +1297,6 @@ juce::var MainComponent::agentChairsSnapshot() {
       }
       item->setProperty("layers", juce::var(layers));
       chairs.add(juce::var(item));
-      if (!chair.kitId.empty()) {
-        if (!kits.count(chair.kitId)) kitOrder.push_back(chair.kitId);
-        auto &kit = kits[chair.kitId];
-        kit.first = chair.kitName;
-        kit.second.add(juce::String(chair.id));
-      }
     }
   juce::Array<juce::var> kitList;
   for (const auto &id : kitOrder) {
@@ -1232,7 +1393,8 @@ AgentControlServer::Response MainComponent::agentCreateChairs(const juce::var &p
   for (const auto &id : ids) created.add(juce::String(id));
   auto *result = new juce::DynamicObject();
   result->setProperty("createdChairIds", juce::var(created));
-  result->setProperty("chairs", agentChairsSnapshot());
+  // Just the new chairs; fiddle_get_chairs has the rest.
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairIds", juce::var(created)}})));
   return Response::success(juce::var(result));
 }
 
@@ -1261,7 +1423,7 @@ AgentControlServer::Response MainComponent::agentUpdateChair(const juce::var &pa
     return Response::failure("Could not change the chair; nothing was changed");
   auto *result = new juce::DynamicObject();
   result->setProperty("changed", changed);
-  result->setProperty("chairs", agentChairsSnapshot());
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairId", juce::String(chairId)}})));
   return Response::success(juce::var(result));
 }
 
@@ -1279,7 +1441,7 @@ AgentControlServer::Response MainComponent::agentDeleteChair(const juce::var &pa
   auto *result = new juce::DynamicObject();
   result->setProperty("deleted", true);
   result->setProperty("removedLayerCount", layerCount);
-  result->setProperty("chairs", agentChairsSnapshot());
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairIds", juce::var(juce::Array<juce::var>())}})));
   return Response::success(juce::var(result));
 }
 
@@ -1345,7 +1507,7 @@ AgentControlServer::Response MainComponent::agentCreateKit(const juce::var &para
   auto *result = new juce::DynamicObject();
   result->setProperty("kitId", juce::String(kitId));
   result->setProperty("chairIds", juce::var(chairIds));
-  result->setProperty("chairs", agentChairsSnapshot());
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairIds", juce::var(chairIds)}})));
   return Response::success(juce::var(result));
 }
 
@@ -1358,9 +1520,13 @@ AgentControlServer::Response MainComponent::agentRenameKit(const juce::var &para
   if (name.empty())
     return Response::failure("A kit needs a name");
   std::vector<EditChairsAction::Edit> edits;
+  juce::Array<juce::var> kitChairIds;
   if (repository && !kitId.empty())
     for (const auto &chair : repository->listChairs())
-      if (chair.kitId == kitId) edits.push_back({chair.id, std::nullopt, std::nullopt, name});
+      if (chair.kitId == kitId) {
+        edits.push_back({chair.id, std::nullopt, std::nullopt, name});
+        kitChairIds.add(juce::String(chair.id));
+      }
   if (edits.empty())
     return Response::failure("Kit not found");
   auto action = std::make_unique<EditChairsAction>(*repository, mixer_, edits,
@@ -1370,7 +1536,7 @@ AgentControlServer::Response MainComponent::agentRenameKit(const juce::var &para
     return Response::failure("Could not rename the kit; nothing was changed");
   auto *result = new juce::DynamicObject();
   result->setProperty("changed", changed);
-  result->setProperty("chairs", agentChairsSnapshot());
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairIds", juce::var(kitChairIds)}})));
   return Response::success(juce::var(result));
 }
 
@@ -1395,7 +1561,7 @@ AgentControlServer::Response MainComponent::agentDeleteKit(const juce::var &para
   result->setProperty("deleted", true);
   result->setProperty("removedChairCount", chairCount);
   result->setProperty("removedLayerCount", layerCount);
-  result->setProperty("chairs", agentChairsSnapshot());
+  result->setProperty("chairs", agentChairsSnapshot(object({{"chairIds", juce::var(juce::Array<juce::var>())}})));
   return Response::success(juce::var(result));
 }
 

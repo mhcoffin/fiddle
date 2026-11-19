@@ -30,15 +30,16 @@ Read-only:
 | Tool | Returns |
 | --- | --- |
 | `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits and a running plug-in scan. |
-| `fiddle_get_mixer` | Layers, group buses, master state and stable layer IDs. |
+| `fiddle_get_mixer` | Layers (with plug-in status), group buses, master state and stable layer IDs; filter by words, chair or layer. |
 | `fiddle_search_dorico_instruments` | Canonical Dorico instrument IDs by name, with family, suggested chair role and a kit's instruments. |
 | `fiddle_list_plugins` | Known plug-ins with UIDs, instrument/effect compatibility and whether each loaded; `scanning` while a scan runs. |
-| `fiddle_list_maps` | Fiddle's expression and percussion maps and how many patches and layers use each. |
+| `fiddle_list_maps` | Fiddle's expression and percussion maps and how many patches and layers use each; percussion maps can be filtered by an instrument they cover. |
 | `fiddle_inspect_library_sources` | Expression- or percussion-map metadata in `.doricolib` files (a given folder, or the folders Dorico loads libraries from), whether Fiddle has each map, and matching instrument plug-ins. |
 | `fiddle_list_libraries` | Libraries with patch counts, patches awaiting a preset capture, and layer counts. |
 | `fiddle_get_library` | One library's patches in full. |
+| `fiddle_find_patches` | Patches across every library, by words, Dorico instrument (and its variants) or player. |
 | `fiddle_get_library_setup` | Guided-setup progress for one library. |
-| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit and layers; kits; and whether Dorico's playback template is out of date. |
+| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit and layers; kits; and whether Dorico's playback template is out of date. Filter by words, chair, or chairs without layers. |
 | `fiddle_list_score_test_runs` | Recent score test runs with pass/fail and note counts. |
 | `fiddle_get_score_test_run` | A score test run explained by its ID: failed, missing and extra notes, part bindings, bridge state, and optionally one note's checks and the MIDI around it. |
 
@@ -59,6 +60,19 @@ Edits:
 | `fiddle_add_layer`, `fiddle_remove_layer` | Add a library patch to a chair as a layer, or remove one (optionally across a kit). | project |
 | `fiddle_install_playback_template` | Write the Dorico playback template for the current chairs. | none |
 | `fiddle_undo`, `fiddle_redo` | Step the project history (default) or the library history. | either |
+
+Conventions:
+
+- MIDI channels are numbered 1-16 in both `fiddle_get_chairs` and
+  `fiddle_get_mixer` (a layer with no input has port -1, channel 0).
+- Searches (`query`) match when every word starts a word in the text, or,
+  for words of four or more letters, appears anywhere once spaces and
+  punctuation are ignored: "hi" finds "Hi-hat" but not "China", and "hihat"
+  finds "Hi-Hat".
+- A new layer's plug-in loads in the background; `fiddle_get_mixer` with its
+  layer ID shows when it is `loaded` or reports an error.
+- Undo and Redo answer with the step they moved and both histories, not the
+  whole mixer. Chair edits return only the chairs they touched.
 
 Tools are annotated for MCP clients: reads are read-only; deletions, layer
 removal and template installation are destructive; setters are idempotent.
@@ -81,7 +95,8 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
 1. **Find the player.** `fiddle_list_plugins`; if the plug-in is missing,
    `fiddle_scan_plugins` and poll `fiddle_list_plugins` until `scanning` is
    false.
-2. **Find maps.** `fiddle_list_maps` for maps Fiddle already has;
+2. **Find what exists.** `fiddle_find_patches` for patches Fiddle already has for
+   the instrument; `fiddle_list_maps` for maps Fiddle already has;
    `fiddle_inspect_library_sources` (no folder needed for maps installed in
    Dorico) for the library's own `.doricolib` maps.
 3. **Build the library.** `fiddle_save_library` with one patch per sound:

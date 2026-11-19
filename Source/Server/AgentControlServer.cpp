@@ -16,6 +16,7 @@ namespace {
 constexpr int kMaximumRequestBytes = 1024 * 1024;
 constexpr auto kRequestTimeout = std::chrono::seconds(10);
 constexpr auto kReadTimeout = std::chrono::seconds(5);
+constexpr auto kWriteTimeout = std::chrono::seconds(5);
 
 juce::var makeWireResponse(const juce::var &id,
                            const AgentControlServer::Response &response) {
@@ -163,8 +164,29 @@ bool AgentControlServer::readLine(juce::StreamingSocket &socket,
 bool AgentControlServer::writeLine(juce::StreamingSocket &socket,
                                    const juce::var &value) {
   const auto text = juce::JSON::toString(value, true) + "\n";
-  return socket.write(text.toRawUTF8(), text.getNumBytesAsUTF8()) ==
-         text.getNumBytesAsUTF8();
+  const auto *bytes = text.toRawUTF8();
+  const auto total = static_cast<int>(text.getNumBytesAsUTF8());
+  // One send() takes only what fits in the socket's buffer (about 150 KB on
+  // macOS loopback), so keep writing as the client reads. Give up when the
+  // client reads nothing for kWriteTimeout.
+  auto deadline = std::chrono::steady_clock::now() + kWriteTimeout;
+  int written = 0;
+  while (written < total) {
+    if (threadShouldExit() || std::chrono::steady_clock::now() >= deadline)
+      return false;
+    const int ready = socket.waitUntilReady(false, 200);
+    if (ready < 0)
+      return false;
+    if (ready == 0)
+      continue;
+    const int count = socket.write(bytes + written, total - written);
+    if (count < 0)
+      return false;
+    if (count > 0)
+      deadline = std::chrono::steady_clock::now() + kWriteTimeout;
+    written += count;
+  }
+  return true;
 }
 
 void AgentControlServer::handleConnection(

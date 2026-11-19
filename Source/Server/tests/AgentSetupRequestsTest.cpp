@@ -112,6 +112,28 @@ void testSearch() {
   CHECK(agent::suggestedRole(instruments[4]) == "solo");
 }
 
+void testMatching() {
+  CHECK(agent::matchesSearch("Hi-hat", "hi"));
+  CHECK(!agent::matchesSearch("China (Opera) Gongs", "hi"));
+  CHECK(agent::matchesSearch("VSL Hi-Hat", "hihat"));
+  CHECK(agent::matchesSearch("Violoncello instrument.strings.violoncello", "cello"));
+  CHECK(agent::matchesSearch("AC Syn Brass — Horn 1", "horn brass"));
+  CHECK(!agent::matchesSearch("AC Syn Brass — Horn 1", "horn flute"));
+  CHECK(agent::matchesSearch("anything", ""));
+  CHECK(agent::matchesSearch("instrument.wind.flutes.flute", "flutes"));
+  CHECK(!agent::matchesSearch("Trumpet", "rum")); // short words must start a word
+}
+
+void testCoversInstrument() {
+  const std::vector<std::string> listed{"instrument.band.unpitched.tomtom.high.alias.tom-high",
+                                        "instrument.drumset.snare"};
+  CHECK(agent::coversInstrument(listed, "instrument.band.unpitched.tomtom.high"));
+  CHECK(agent::coversInstrument(listed, "instrument.band.unpitched.tomtom.high.alias.other"));
+  CHECK(agent::coversInstrument(listed, "instrument.drumset.snare"));
+  CHECK(!agent::coversInstrument(listed, "instrument.band.unpitched.tomtom.low"));
+  CHECK(!agent::coversInstrument(listed, "instrument.drumset"));
+}
+
 void testKitNames() {
   const auto names = agent::kitChairNames({"Snare", "Wood Block", "Wood Block", "Kick"});
   CHECK(names[0] == "Snare");
@@ -259,6 +281,8 @@ void testPercussion() {
 
 int main() {
   testSearch();
+  testMatching();
+  testCoversInstrument();
   testKitNames();
   testCreateLibrary();
   testUpdateLibrary();

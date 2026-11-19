@@ -8,8 +8,9 @@ export function toolResult(value: unknown) {
       ? value as JsonObject
       : { value };
   return {
+    // Compact: clients that read the text get the same data at half the size.
     content: [{ type: 'text' as const,
-                text: JSON.stringify(structuredContent, null, 2) }],
+                text: JSON.stringify(structuredContent) }],
     structuredContent
   };
 }
