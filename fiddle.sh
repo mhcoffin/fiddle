@@ -18,10 +18,10 @@ case "${1:-open}" in
     ;;
   restart)
     # Same as Fiddle's own Restart Fiddle (ApplicationRestart.cpp): quit
-    # normally, then relaunch in the background with --relaunched. Fiddle
-    # waits in the Stage Manager strip, and when brought forward its windows
-    # return to their saved places. A plain `open` brings Fiddle forward at
-    # once, so Stage Manager's placement would be saved as the windows' places.
+    # normally, then relaunch in the foreground with --relaunched, so Fiddle
+    # comes forward with its window showing. --relaunched returns its windows
+    # to their saved places once it is active (LaunchWindowPlacement.h), so a
+    # window manager's placement isn't saved as theirs.
     if [[ ! -d "$fiddle_app" ]]; then
       echo "Fiddle has not been built here. Run: $fiddle_repo/fiddle.sh build" >&2
       exit 1
@@ -39,8 +39,8 @@ case "${1:-open}" in
         exit 1
       fi
     fi
-    echo "Relaunching $fiddle_app in the background, as Restart Fiddle does."
-    open -g -n "$fiddle_app" --args --relaunched
+    echo "Relaunching $fiddle_app, as Restart Fiddle does."
+    open -n "$fiddle_app" --args --relaunched
     ;;
   build)
     if [[ ! -f "$fiddle_build/CMakeCache.txt" ]]; then
@@ -58,7 +58,7 @@ case "${1:-open}" in
   help|-h|--help)
     echo "Usage: $0 [open|restart|build|path|reveal]"
     echo "Defaults to opening the existing Release app; build compiles without launching."
-    echo "restart quits Fiddle normally and relaunches it in the background, like Restart Fiddle."
+    echo "restart quits Fiddle normally and relaunches it in front, like Restart Fiddle."
     echo "Never kills Fiddle, changes versions, or installs the Dorico plugin."
     ;;
   *)

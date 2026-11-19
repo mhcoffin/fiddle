@@ -9,9 +9,9 @@ namespace fiddle {
 /// Keeps reopened windows where they were saved until the user first brings
 /// Fiddle forward.
 ///
-/// Restart Fiddle relaunches in the background (open -g), so Stage Manager
-/// parks Fiddle in its strip. When the user drags Fiddle into a group, Stage
-/// Manager leaves the windows wherever they were dropped. Those moves are the
+/// Restart Fiddle relaunches Fiddle in front. Stage Manager or a window
+/// manager may move the reopened windows as they appear, and with Stage
+/// Manager the user may drop Fiddle into a group. Those moves are the
 /// system's, not the user's: until Fiddle has been active, the saved geometry
 /// stays as it was at launch, and shortly after activation every reopened
 /// window goes back to it.

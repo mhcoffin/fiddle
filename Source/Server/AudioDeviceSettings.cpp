@@ -102,9 +102,9 @@ public:
         controls_.setReturnWindowsAfterRestart(returnWindows_.getToggleState());
     };
     returnWindowsHelp_.setText(
-        "Restart Fiddle reopens it in the background. With Stage Manager it waits in "
-        "the strip; when you bring it forward, its windows go back to where they were "
-        "instead of where you dropped them. Remembered on this Mac.",
+        "After Restart Fiddle reopens it, its windows go back to where they were, "
+        "even if Stage Manager or a window manager moved them as it opened. "
+        "Remembered on this Mac.",
         juce::dontSendNotification);
     returnWindowsHelp_.setJustificationType(juce::Justification::topLeft);
 

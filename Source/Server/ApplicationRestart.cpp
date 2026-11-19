@@ -19,9 +19,10 @@ juce::StringArray makeMacHelperArguments(int processId,
       "/bin/sh",
       "-c",
       "while /bin/kill -0 \"$1\" 2>/dev/null; do /bin/sleep 0.1; done; "
-      // -g: launch behind the current app so Stage Manager keeps the user's
-      // layout; Fiddle waits in the strip instead of taking over the stage.
-      "exec /usr/bin/open -g -n \"$2\" --args " +
+      // In the foreground: a background launch (-g) left Fiddle with no
+      // visible window unless Stage Manager parked it in its strip.
+      // LaunchWindowPlacement still returns the windows to their places.
+      "exec /usr/bin/open -n \"$2\" --args " +
           juce::String(kRelaunchedArgument),
       "fiddle-restart",
       juce::String(processId),

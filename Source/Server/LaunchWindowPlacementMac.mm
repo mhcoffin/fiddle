@@ -13,8 +13,8 @@ void settleLaunchPlacementOnFirstActivation(int delayMs) {
     settleSoon();
     return;
   }
-  // Launched in the background: wait for the user to bring Fiddle forward
-  // (dragging it into a Stage Manager group activates it).
+  // Not active yet (activation follows launch, or the user launched it
+  // behind another app): wait until Fiddle comes forward.
   __block id observer = [[NSNotificationCenter defaultCenter]
       addObserverForName:NSApplicationDidBecomeActiveNotification
                   object:NSApp

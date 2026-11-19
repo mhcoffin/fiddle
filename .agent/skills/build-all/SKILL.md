@@ -35,15 +35,15 @@ See `docs/automated-testing.md` for labels and browser regressions.
 Only restart the user's app when requested. First check it has no unsaved
 changes and isn't playing (the MCP `fiddle_get_status`, or the agent-control
 `status` method: `dirty`, `transportPlaying`). Then run `./fiddle.sh restart`,
-which quits Fiddle normally and relaunches it in the background with
+which quits Fiddle normally and relaunches it in front with
 `--relaunched`, exactly as the app's Restart Fiddle does. Opening a running app
 will not reload a new binary.
 
-Don't relaunch with a plain `./fiddle.sh open` or `open`: that brings Fiddle
-forward at once, so it saves wherever Stage Manager puts its windows as their
-places, overwriting the user's layout. After `restart`, Fiddle waits in the
-Stage Manager strip until the user brings it forward, then its windows return
-to their saved places (`LaunchWindowPlacement.h`).
+Don't relaunch with a plain `./fiddle.sh open` or `open`: without
+`--relaunched`, Fiddle saves wherever Stage Manager or the window manager puts
+its windows as their places, overwriting the user's layout. After `restart`,
+Fiddle comes forward and its windows return to their saved places once it is
+active (`LaunchWindowPlacement.h`).
 
 Do not force-kill Fiddle or delete WebView caches as a routine build step.
 
