@@ -2,6 +2,7 @@
 #include "../AudioDiagnostics.h"
 #include "../AudioStreamRing.h"
 #include "../RealtimeObjectPublisher.h"
+#include "HostTransport.h"
 #include "RealtimeMixPrinter.h"
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
@@ -33,6 +34,10 @@ public:
   void notePerformanceActivity() noexcept;
   void setAuditionNotesActive(bool active) noexcept;
   uint64_t streamId() const noexcept;
+  /// The current stream's frame presented at @p presentationMs, from the
+  /// consumer's latest clock; unknown when there is no stream or clock yet.
+  /// Hosted plug-ins' playheads count frames from it (docs/host-transport.md).
+  StreamFrame frameAt(double presentationMs) const noexcept;
   double reserveMs() const noexcept;
   juce::var diagnostics() const;
 private:

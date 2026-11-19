@@ -562,7 +562,8 @@ void MixerModel::capturePluginStateCachesForSave() {
 }
 
 void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
-                              double currentTime, BusPrintCapture *capture) {
+                              double currentTime, BusPrintCapture *capture,
+                              StreamFrame streamFrame) {
   AudioProcessingGate::Render render;
   if (!render) { audioBuffer.clear(); return; }
   if (audioBuffer.getNumSamples() <= 0 || audioBuffer.getNumSamples() > currentBlockSize_) {
@@ -577,7 +578,7 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   // own latency-advanced one (docs/host-transport.md).
   TransportPlayHead::BlockScope transportBlock(
       currentTime, currentSampleRate_.load(std::memory_order_relaxed),
-      audioBuffer.getNumSamples());
+      audioBuffer.getNumSamples(), streamFrame);
 
   // Pre-compute whether any strip is soloed
   bool anySoloed = false;
@@ -605,13 +606,14 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       double time;
       int frames;
       bool anySoloed;
-    } block{*graph, currentTime, audioBuffer.getNumSamples(), anySoloed};
+      StreamFrame streamFrame;
+    } block{*graph, currentTime, audioBuffer.getNumSamples(), anySoloed, streamFrame};
     const auto renderStrip = [](void *context, size_t index) {
       auto &b = *static_cast<Block *>(context);
       auto &route = b.graph.stripRoutes[index];
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2, b.frames);
       scratch.clear();
-      route.strip->processBlock(scratch, b.time, b.anySoloed, true, nullptr);
+      route.strip->processBlock(scratch, b.time, b.anySoloed, true, nullptr, b.streamFrame);
     };
     const auto helperPluginMs = renderPool_.process(graph->stripRoutes.size(), &block,
                                                    renderStrip, render);
@@ -621,7 +623,7 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
       juce::AudioBuffer<float> scratch(route.scratch.getArrayOfWritePointers(), 2,
                                        audioBuffer.getNumSamples());
       scratch.clear();
-      route.strip->processBlock(scratch, currentTime, anySoloed, true, nullptr);
+      route.strip->processBlock(scratch, currentTime, anySoloed, true, nullptr, streamFrame);
     }
   }
 
@@ -646,10 +648,9 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   for (auto &chair : graph->chairRoutes) {
     // A chair rack's input is its layers' output, still ahead of the score
     // by the rack's own latency and everything after it.
-    TransportPlayHead::BlockScope chairBlock(
-        currentTime + scoreAhead(chair.bus->audioEngine().latencySamples() +
-                                 chair.downstreamLatency),
-        rate, frames);
+    const int chairAhead = chair.bus->audioEngine().latencySamples() + chair.downstreamLatency;
+    TransportPlayHead::BlockScope chairBlock(currentTime + scoreAhead(chairAhead), rate,
+                                             frames, streamFrame.ahead(chairAhead));
     const bool chairAudible = !anyChairSoloed || chair.bus->isSoloed();
     auto *preFaderTap = chair.preFaderScratch.getNumChannels() ? &chair.preFaderScratch : nullptr;
     juce::AudioBuffer<float> tap;
@@ -672,8 +673,9 @@ void MixerModel::processBlock(juce::AudioBuffer<float> &audioBuffer,
   for (size_t i = 0; i < graph->groupBuses.size(); ++i) {
     auto *bus = graph->groupBuses[i];
     // Chair outputs and sends arrive aligned to this rack's latency.
-    TransportPlayHead::BlockScope busBlock(
-        currentTime + scoreAhead(bus->audioEngine().latencySamples()), rate, frames);
+    const int busAhead = bus->audioEngine().latencySamples();
+    TransportPlayHead::BlockScope busBlock(currentTime + scoreAhead(busAhead), rate, frames,
+                                           streamFrame.ahead(busAhead));
     bus->processTo(audioBuffer, graph->busAudible[i],
                    capture ? capture->targetFor(bus->id) : nullptr);
   }

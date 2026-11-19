@@ -633,7 +633,10 @@ void MainComponent::initMidiServer() {
             if (rate <= 0.0) rate = mixer_.sampleRate();
             const auto startSeconds =
                 rate > 0.0 ? double(event.host_sample_position()) / rate : 0.0;
-            fiddle::hostTransport().start(startMs, startSeconds);
+            auto *renderAhead = renderAheadForMidi_.load(std::memory_order_acquire);
+            fiddle::hostTransport().start(startMs, startSeconds,
+                                          renderAhead ? renderAhead->frameAt(startMs)
+                                                      : fiddle::StreamFrame{});
             pushLogMessage("<b>[Transport]</b> Dorico started at " +
                            juce::String(startSeconds, 3) + " s");
           }
@@ -652,7 +655,12 @@ void MainComponent::initMidiServer() {
           if (auto *renderAhead =
                   renderAheadForMidi_.load(std::memory_order_acquire))
             renderAhead->setTransportActive(false);
-          fiddle::hostTransport().stop(delayedTriggerTimeNowMs());
+          {
+            const auto stopMs = delayedTriggerTimeNowMs();
+            auto *renderAhead = renderAheadForMidi_.load(std::memory_order_acquire);
+            fiddle::hostTransport().stop(stopMs, renderAhead ? renderAhead->frameAt(stopMs)
+                                                             : fiddle::StreamFrame{});
+          }
           const auto printStopMs = delayedOutputPresentationTimeMs();
           safeCallAsync([this, printStopMs] {
             if (renderAhead_ && renderAhead_->endMixPrintAt(printStopMs))
@@ -944,7 +952,11 @@ void MainComponent::initMidiServer() {
           // A lost endpoint cannot send its final transport or NoteOff events.
           // Fail safe to silence and clear all transient performance state.
           isTransportStarted_.store(false, std::memory_order_release);
-          fiddle::hostTransport().stop(delayedTriggerTimeNowMs());
+          {
+            const auto stopMs = delayedTriggerTimeNowMs();
+            fiddle::hostTransport().stop(stopMs, renderAhead_ ? renderAhead_->frameAt(stopMs)
+                                                              : fiddle::StreamFrame{});
+          }
           hostSampleRate_.store(0.0, std::memory_order_relaxed); // may reconnect at another rate
           if (renderAhead_) {
             renderAhead_->setTransportActive(false);

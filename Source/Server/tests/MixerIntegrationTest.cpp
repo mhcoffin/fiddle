@@ -533,6 +533,98 @@ void testPluginMidiChannelRemapsWhatThePluginReceives() {
   REQUIRE(!channels.empty() && std::all_of(channels.begin(), channels.end(), [](int c) { return c == 15; }));
 }
 
+void testPositionsCountStreamFramesNotClockTime(int workers, int stripLatency) {
+  // Presentation times follow Dorico's clock and wander by a few samples per
+  // block. With stream frames, positions still step by exactly one block,
+  // so a timeline-following plug-in never sees a relocation
+  // (docs/host-transport.md).
+  auto &transport = fiddle::hostTransport();
+  transport.reset();
+  MixerFixture f;
+  f.mixer.setRenderWorkerCount(workers);
+  const auto id = f.instrument(0.1f, 1);
+  auto *processor = SignalProcessor::lastCreated.load();
+  f.instrument(0.2f, 2);
+  if (stripLatency > 0)
+    addEffect(f.mixer.getStrip(id)->audioEngine(), "look-ahead", 1.0f, stripLatency);
+  f.mixer.refreshAudioRouting();
+  std::vector<juce::AudioPlayHead::PositionInfo> seen;
+  processor->onProcess = [&] { seen.push_back(*processor->getPlayHead()->getPosition()); };
+  constexpr int block = MixerFixture::blockSize;
+  constexpr double rate = MixerFixture::sampleRate;
+  constexpr double blockMs = 1000.0 * block / rate;
+  const int64_t firstFrame = 480000;
+  const double firstMs = f.now;
+  // The run starts 10 blocks in, mid-block, at score time 2 s.
+  const int64_t startFrame = firstFrame + 10 * block + 17;
+  transport.start(firstMs + (startFrame - firstFrame) * 1000.0 / rate, 2.0, {startFrame, 1});
+  const int64_t stopFrame = startFrame + 30 * block;
+  transport.stop(firstMs + (stopFrame - firstFrame) * 1000.0 / rate, {stopFrame, 1});
+  for (int i = 0; i < 50; ++i) {
+    juce::AudioBuffer<float> audio(2, block);
+    audio.clear();
+    const double jitterMs = ((i * 7) % 5 - 2) * 0.05; // up to 2 samples either way
+    f.mixer.processBlock(audio, firstMs + i * blockMs + jitterMs, nullptr,
+                       {firstFrame + int64_t(i) * block, 1});
+  }
+  REQUIRE(seen.size() == 50);
+  const int64_t startSample = std::llround(2.0 * rate);
+  for (int i = 0; i < 50; ++i) {
+    const int64_t frame = firstFrame + int64_t(i) * block + stripLatency;
+    const bool playing = frame + block > startFrame && frame < stopFrame;
+    REQUIRE(seen[size_t(i)].getIsPlaying() == playing);
+    const int64_t expected = playing ? startSample + (frame - startFrame)
+                             : frame < startFrame ? startSample
+                                                  : startSample + (stopFrame - startFrame);
+    REQUIRE(*seen[size_t(i)].getTimeInSamples() == expected);
+    REQUIRE(std::abs(*seen[size_t(i)].getTimeInSeconds() - double(expected) / rate) < 1e-12);
+    if (i > 0 && playing && seen[size_t(i - 1)].getIsPlaying())
+      REQUIRE(*seen[size_t(i)].getTimeInSamples() - *seen[size_t(i - 1)].getTimeInSamples() == block);
+  }
+  transport.reset();
+}
+
+void testFramedRunsFallBackWithoutFrames() {
+  // A block with no stream frame (a test, a preview) still gets a position
+  // from presentation time, and a run without frames ignores block frames.
+  fiddle::HostTransport transport;
+  transport.start(100.0, 2.0, {4800, 1});
+  REQUIRE(transport.at(150.0, 1.0).playing);
+  REQUIRE(std::abs(transport.at(150.0, 1.0).seconds - 2.05) < 1e-12);
+  REQUIRE(!transport.at(150.0, 1.0).samples);
+  fiddle::HostTransport unframed;
+  unframed.start(100.0, 2.0);
+  const auto position = unframed.at({150.0, 1.0, {999999, 1}, 48, 48000.0});
+  REQUIRE(position.playing && !position.samples && std::abs(position.seconds - 2.05) < 1e-12);
+  // A framed run stopped by a disconnect without a frame falls back as a whole.
+  transport.stop(200.0);
+  REQUIRE(!transport.at({250.0, 1.0, {4800 + 7200, 1}, 48, 48000.0}).playing);
+}
+
+void testFramesCompareOnlyWithinAStream() {
+  // A device restart starts a new render stream whose frames count from its
+  // own start. A run anchored in the old stream uses presentation time for
+  // the new stream's blocks, and a stop in the new stream ends it by time.
+  constexpr double rate = 48000.0;
+  fiddle::HostTransport transport;
+  transport.start(100.0, 2.0, {4800, 1});
+  const auto old = transport.at({150.3, 1.0, {4800 + 2400, 1}, 48, rate});
+  REQUIRE(old.playing && old.samples && *old.samples == 96000 + 2400);
+  // Frame 96 of the new stream is before the run's start frame, but not
+  // comparable with it.
+  const auto fresh = transport.at({150.3, 1.0, {96, 2}, 48, rate});
+  REQUIRE(fresh.playing && !fresh.samples && std::abs(fresh.seconds - 2.0503) < 1e-9);
+  transport.stop(200.0, {96 + 2400, 2});
+  const auto rested = transport.at({250.0, 1.0, {300, 2}, 48, rate});
+  REQUIRE(!rested.playing && std::abs(rested.seconds - 2.1) < 1e-12);
+  const auto late = transport.at({150.0, 1.0, {4800 + 2400, 1}, 48, rate});
+  REQUIRE(late.playing && !late.samples && std::abs(late.seconds - 2.05) < 1e-12);
+  // The next run starts in the new stream and counts its frames.
+  transport.start(300.0, 5.0, {5000, 2});
+  const auto next = transport.at({350.0, 1.0, {5000 + 480, 2}, 48, rate});
+  REQUIRE(next.playing && next.samples && *next.samples == 240000 + 480);
+}
+
 void testChairRoutingMigration() {
   int next = 0;
   const auto newId = [&next] { return juce::String("new-") + juce::String(++next); };
@@ -4288,6 +4380,11 @@ int main(int argc, char **argv) {
   run("chair bus latency keeps chairs sample-aligned", [] { for (int workers : {1, 2, 4}) testChairBusLatencyAlignsChairs(workers); });
   run("a layer's MIDI channel remaps what its plug-in receives", testPluginMidiChannelRemapsWhatThePluginReceives);
   run("a fallback snapshot keeps a layer's MIDI channel", testFallbackSnapshotKeepsPluginMidiChannel);
+  run("positions count stream frames, not clock time", [] {
+    for (int workers : {1, 2}) for (int latency : {0, 48}) testPositionsCountStreamFramesNotClockTime(workers, latency);
+  });
+  run("runs and blocks without frames use presentation time", testFramedRunsFallBackWithoutFrames);
+  run("frames compare only within a render stream", testFramesCompareOnlyWithinAStream);
   run("the transport keeps runs still to be rendered", testTransportKeepsRunsStillToBeRendered);
   run("each insert sees its input's score time", [] { for (int workers : {1, 2}) testInsertsSeeTheirInputsScoreTime(workers); });
   run("plug-ins follow Dorico's transport", [] {

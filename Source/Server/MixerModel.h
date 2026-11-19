@@ -210,8 +210,11 @@ public:
   [[nodiscard]] juce::var pluginTimings(double now);
   [[nodiscard]] double maximumPathLatencyMs() const;
 
+  /// @p streamFrame: the render stream's frame for this block, so hosted
+  /// plug-ins see a sample-exact position (docs/host-transport.md); unknown
+  /// in tests and previews.
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
-                    BusPrintCapture *capture = nullptr);
+                    BusPrintCapture *capture = nullptr, StreamFrame streamFrame = {});
   /// Render thread only, while the renderer is idle and processBlock doesn't
   /// run: every meter (layers, chairs, buses, Master) falls as if it had heard
   /// `seconds` of silence, so peaks and holds drop away after playback stops.

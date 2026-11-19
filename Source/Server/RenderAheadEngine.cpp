@@ -213,7 +213,8 @@ void RenderAheadEngine::run() {
     }
     mixPrinter_.renderAndPush(s.scratch, plan.presentationTimeMs, plan.startFrame,
         [&](BusPrintCapture *capture) {
-          mixer_.processBlock(s.scratch, plan.presentationTimeMs, capture);
+          mixer_.processBlock(s.scratch, plan.presentationTimeMs, capture,
+                              StreamFrame{static_cast<int64_t>(plan.startFrame), ring.streamId});
         });
     const bool pushed = ring.push(plan.startFrame, s.scratch.getReadPointer(0),
                                    s.scratch.getReadPointer(1), ring.blockSize);
@@ -287,6 +288,20 @@ double RenderAheadEngine::reserveMs() const noexcept {
   auto s = stream_.read();
   return s.get() ? 1000.0 * s.get()->ring->targetFrames / s.get()->ring->sampleRate : 0;
 }
+StreamFrame RenderAheadEngine::frameAt(double presentationMs) const noexcept {
+  auto stream = stream_.read();
+  if (!stream.get() || !stream.get()->ring) return {};
+  const auto &ring = *stream.get()->ring;
+  AudioStreamRing::Clock clock;
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    if (ring.readClock(clock))
+      return {static_cast<int64_t>(std::llround(
+                  double(clock.frame) + (presentationMs - clock.timeMs) * ring.sampleRate / 1000.0)),
+              ring.streamId};
+  }
+  return {};
+}
+
 juce::var RenderAheadEngine::diagnostics() const {
   auto *data = new juce::DynamicObject();
   data->setProperty("enabled", true);

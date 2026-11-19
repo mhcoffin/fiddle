@@ -453,6 +453,11 @@ double MixerStrip::midiAdvanceMs() const noexcept {
          (sampleRate > 0.0 ? 1000.0 * downstream / sampleRate : 0.0);
 }
 
+int MixerStrip::midiAdvanceSamples() const noexcept {
+  return audioEngine_.latencySamples() +
+         downstreamLatencySamples_.load(std::memory_order_relaxed);
+}
+
 namespace {
 // Older note-offs cannot overlap notes still to come; drop their records.
 constexpr double kPitchHistoryMs = 60000.0;
@@ -527,7 +532,8 @@ void MixerStrip::allNotesOff() {
 
 void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
                               double currentTime, bool anySoloed,
-                              bool routeAudible, juce::AudioBuffer<float> *preFaderOutput) {
+                              bool routeAudible, juce::AudioBuffer<float> *preFaderOutput,
+                              StreamFrame streamFrame) {
   if (preFaderOutput) preFaderOutput->clear();
   AudioProcessingGate::Render render;
   if (!render) return;
@@ -548,8 +554,9 @@ void MixerStrip::processBlock(juce::AudioBuffer<float> &audioBuffer,
                              processMidiBuffer_);
   // This block's MIDI was advanced by the strip's latency; its plug-ins see
   // the score position that MIDI belongs to (docs/host-transport.md).
-  TransportPlayHead::BlockScope transportBlock(currentTime + midiAdvanceMs(),
-                                               sampleRate, numSamples);
+  TransportPlayHead::BlockScope transportBlock(
+      currentTime + midiAdvanceMs(), sampleRate, numSamples,
+      streamFrame.ahead(midiAdvanceSamples()));
 
   auto runtimeRead = instrumentSlot_.readRuntime();
   auto *runtime = runtimeRead.get();

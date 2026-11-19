@@ -6,6 +6,7 @@
 #include "AnnotatorChain.h"
 #include "ExpressionMapData.h"
 #include "HostedPluginSlot.h"
+#include "HostTransport.h"
 #include "IncomingSwitchTracker.h"
 #include "MidiCaptureLog.h"
 #include "PercussionMap.h"
@@ -278,6 +279,7 @@ public:
   /// How far ahead of presentation time this strip's MIDI is scheduled: its
   /// insert-rack and destination-bus latency.
   [[nodiscard]] double midiAdvanceMs() const noexcept;
+  [[nodiscard]] int midiAdvanceSamples() const noexcept;
   void addDelayedMessage(double triggerTime, const juce::MidiMessage &msg,
                          uint64_t tag = 0);
 
@@ -304,7 +306,8 @@ public:
 
   void processBlock(juce::AudioBuffer<float> &audioBuffer, double currentTime,
                     bool anySoloed = false, bool routeAudible = true,
-                    juce::AudioBuffer<float> *preFaderOutput = nullptr);
+                    juce::AudioBuffer<float> *preFaderOutput = nullptr,
+                    StreamFrame streamFrame = {});
 
   /// Load a plugin from a description. Must be called on the message thread.
   /// Initial state belongs to the strip, even if it leaves the mixer while

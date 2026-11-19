@@ -1,6 +1,7 @@
 # Host transport for hosted plug-ins
 
-Status: implemented 2026-11-18. Not yet tried with Vienna Performer in Dorico.
+Status: implemented 2026-11-18. Works with Vienna Performer in Dorico: it
+captures the passage and its render plays back cleanly.
 
 ## Why
 
@@ -34,21 +35,45 @@ tempo mark.
 FiddleNative already sends `TransportStart` and `TransportStop` with Dorico's
 `projectTimeSamples`. FiddleServer handles them in `MainComponent`:
 
-- **Start:** `hostTransport().start(startMs, startSeconds)`. `startMs` is the
-  presentation time at which the start's notes are scheduled (the same
-  `getDelayedTriggerTimeMs()`). `startSeconds` is Dorico's position divided by
-  Dorico's sample rate.
+- **Start:** `hostTransport().start(startMs, startSeconds, startFrame)`.
+  `startMs` is the presentation time at which the start's notes are scheduled
+  (the same `getDelayedTriggerTimeMs()`). `startSeconds` is Dorico's position
+  divided by Dorico's sample rate. `startFrame` is the render-ahead stream
+  frame that presents at `startMs` (`RenderAheadEngine::frameAt`).
   - FiddleNative sends the rate with START (`TransportEvent.sample_rate`), so
     it is right even before the first diagnostics arrive.
   - An older FiddleNative leaves the rate out. The server then uses the rate
     from diagnostics, or else its own device rate. A disconnect forgets the
     diagnostics rate.
   - The log shows `[Transport] Dorico started at N s`.
-- **Stop:** `stop(...)` at the presentation time a Dorico event arriving now
-  plays at. A lost connection stops the transport too.
+- **Stop:** `stop(stopMs, stopFrame)` at the presentation time a Dorico event
+  arriving now plays at, and its stream frame. A lost connection stops the
+  transport too.
 - **Tempo:** `setTempo(bpm, numerator, denominator)`.
 
 A block presented at time `t` sits at `startSeconds + (t − startMs) / 1000`.
+
+- **Counting frames.** A block's presentation time is projected from
+  Dorico's clock, which wanders by a few samples from block to block. The
+  render-ahead engine's stream frames are contiguous, so when a run and a
+  block both have frames, the position counts them instead: the block at
+  frame `f` sits at sample `round(startSeconds × rate) + (f − startFrame)`.
+  Each block then starts exactly where the one before it ended.
+  - This matters. Vienna Performer reads any jump in the playhead as a
+    relocation. With positions from clock time, about one block in ten
+    jumped by 1–5 samples. Its captures came out as a handful of 30–75 ms
+    notes, and its renders played as bursts of static.
+  - A trace of 83 s of playback after the fix showed every step was exactly
+    one block (64 samples).
+  - Frame times are converted once, at start and stop. Blocks without a
+    frame (tests, previews, an older caller) and runs without one fall back
+    to presentation time.
+  - **Streams.** Each render-ahead stream counts frames from its own start,
+    and a device restart (a new device, rate or buffer size) starts a new
+    one. Frames therefore carry their stream's id (`StreamFrame`), and a run
+    counts only frames of the stream it started in. If the device restarts
+    mid-run, the rest of that run uses presentation time, and a stop in the
+    new stream ends it by time too. The next start counts frames again.
 
 - **Recent runs:** presentation times run up to the playback delay ahead.
   After a quick stop and restart, blocks of the previous run are therefore
@@ -67,6 +92,7 @@ A block presented at time `t` sits at `startSeconds + (t − startMs) / 1000`.
   - Each strip schedules its MIDI early by its insert-rack and downstream bus
     latency (`MixerStrip::midiAdvanceMs()`). Its instrument sees
     `t + midiAdvanceMs()`, so a note and the playhead in the same block agree.
+    Its frame is advanced by `midiAdvanceSamples()`.
   - A chair bus's rack sees `t +` its own latency and everything after it.
   - An audio bus's rack sees `t +` its own latency. Master sees `t`.
   - Within any rack, an insert sees its rack's time minus the latency of the
@@ -76,7 +102,7 @@ A block presented at time `t` sits at `startSeconds + (t − startMs) / 1000`.
 with a thread-local `TransportPlayHead::BlockScope`. Plug-ins query the
 playhead from inside `processBlock` on that thread; JUCE's VST3 and AU wrappers
 do. A query from another thread, such as an editor, gets the most recently
-rendered block.
+rendered block, by presentation time only (no frame).
 
 `HostTransport` is one process-wide object, because there is one Dorico. Its
 writers take a spin lock. Render threads read it through a two-copy seqcount
@@ -91,9 +117,9 @@ descheduled mid-update therefore never stalls a render thread.
   same way. The playhead agrees with the notes Fiddle plays, but both can be
   up to one Dorico block from the score's exact time. Scheduling notes from
   Dorico's sample positions would fix both; that is separate work.
-- **Clock drift:** the position is projected from the start on Fiddle's stream
-  clock and not re-anchored during playback. Drift between Dorico's audio
-  clock and the host clock is a few ms over several minutes.
+- **Clock drift:** the position counts Fiddle's stream frames from the start
+  and is not re-anchored during playback. Drift between Dorico's audio clock
+  and Fiddle's is a few ms over several minutes.
 - **No loop or record state.** Dorico doesn't loop playback, and Fiddle never
   claims to record.
 - **Fiddle's mute and solo don't stop MIDI.** Strips process MIDI even when
@@ -116,3 +142,10 @@ descheduled mid-update therefore never stalls a render thread.
 - "each insert sees its input's score time" checks the offsets for an insert
   after a look-ahead insert, a chair-bus insert, an audio-bus insert and the
   instrument.
+- "positions count stream frames, not clock time" jitters each block's
+  presentation time and checks that positions still step by exactly one
+  block, with and without strip latency.
+- "runs and blocks without frames use presentation time" covers the
+  fallback.
+- "frames compare only within a render stream" covers a device restart
+  during a run, and the stop and next start after it.
