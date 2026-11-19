@@ -299,17 +299,48 @@ private:
   void pushScoreTestState();
   void armScoreTest(const juce::String &testId);
   void finishScoreTest();
-  AgentControlServer::Response
-  handleAgentControlRequest(const juce::String &method,
-                            const juce::var &params);
+  // Agent control (AgentControl.cpp, docs/mcp-control.md). Every request
+  // runs on the message thread; edits go through the same Undo histories as
+  // the UI.
+  using AgentResponse = AgentControlServer::Response;
+  AgentResponse handleAgentControlRequest(const juce::String &method,
+                                          const juce::var &params);
   juce::var agentStatus() const;
   juce::var agentLayerSnapshot(const MixerStrip &strip) const;
   juce::var agentMixerSnapshot();
   juce::var agentLayerResult(const juce::String &stripId,
                              bool changed);
   juce::var agentLibrarySetupSnapshot(const juce::String &libraryId);
-  AgentControlServer::Response
-  createAgentGuidedLibrary(const juce::var &params);
+  juce::var agentChairsSnapshot();
+  juce::var agentLibrarySnapshot(const juce::String &libraryId);
+  AgentResponse createAgentGuidedLibrary(const juce::var &params);
+  AgentResponse agentInspectLibrarySources(const juce::var &params);
+  AgentResponse agentOpenGuidedLibrary(const juce::var &params);
+  AgentResponse agentUndoRedo(const juce::var &params, bool redo);
+  AgentResponse agentSetLayerControl(const juce::String &method,
+                                     const juce::var &params);
+  AgentResponse agentSearchDoricoInstruments(const juce::var &params);
+  AgentResponse agentListPlugins(const juce::var &params);
+  AgentResponse agentScanPlugins(const juce::var &params);
+  AgentResponse agentListLibraries(const juce::var &params);
+  AgentResponse agentGetLibrary(const juce::var &params);
+  AgentResponse agentSaveLibrary(const juce::var &params);
+  AgentResponse agentDeleteLibrary(const juce::var &params);
+  AgentResponse agentListMaps(const juce::var &params);
+  AgentResponse agentCreateChairs(const juce::var &params);
+  AgentResponse agentUpdateChair(const juce::var &params);
+  AgentResponse agentDeleteChair(const juce::var &params);
+  AgentResponse agentCreateKit(const juce::var &params);
+  AgentResponse agentRenameKit(const juce::var &params);
+  AgentResponse agentDeleteKit(const juce::var &params);
+  AgentResponse agentAddLayer(const juce::var &params);
+  AgentResponse agentRemoveLayer(const juce::var &params);
+  AgentResponse agentInstallTemplate(const juce::var &params);
+  /// Why a setup edit can't run now, or empty.
+  juce::String agentSetupBlocker(bool catalog) const;
+  /// Refresh every view after a catalog edit; an open, unedited Library
+  /// Manager editor reloads libraryId (or any library, when empty).
+  void catalogChangedByAgent(const juce::String &libraryId);
   void scanPersistedExpressionMapSources();
   void rememberExpressionMapSourceDirectory(const juce::File &directory);
   void agentMixerChanged();
@@ -340,6 +371,17 @@ private:
   /// kit, from the same library patch (docs/percussion-kits.md). The layer
   /// itself comes first; a layer outside a kit is linked only to itself.
   std::vector<LayerRow> kitLinkedLayers(const LayerRow &layer);
+  struct LayerEditResult {
+    bool ok = false;
+    juce::String error;
+    std::vector<std::string> layerIds;
+  };
+  /// Add patchId to chairId (with wholeKit, also to the chair's kit-mates that
+  /// lack it) as one Undo step.
+  LayerEditResult addChairLayers(const std::string &chairId,
+                                 const std::string &patchId, bool wholeKit);
+  /// Remove a layer (with wholeKit, its linked kit copies) as one Undo step.
+  LayerEditResult removeChairLayers(const std::string &layerId, bool wholeKit);
   PercussionMapAssignment loadPercussionMap(const std::string &entityId);
   ExpressionMapAssignment loadStoredExpressionMap(const std::string &entityId);
   void refreshLiveLibraryMaps();
@@ -364,6 +406,11 @@ private:
   void setupLibraryMapHandlers();
   void setupLibraryMapSourceHandlers();
   void installChairPlaybackTemplate();
+  struct TemplateInstallResult {
+    bool ok = false;
+    juce::String message;
+  };
+  TemplateInstallResult installChairPlaybackTemplateNow();
   void masterAudioChanged();
   void stripAudioChanged(const juce::String &stripId);
   void groupBusAudioChanged(const juce::String &busId);

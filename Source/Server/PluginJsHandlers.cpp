@@ -42,7 +42,7 @@ void PluginJsHandlers::dispatch(Task task) {
     task();
 }
 
-void PluginJsHandlers::beginScan(bool fullRescan) {
+bool PluginJsHandlers::beginScan(bool fullRescan) {
   const auto callbacks = callbacks_;
   const auto accepted = commands_.beginScan(
       fullRescan, [callbacks, fullRescan](PluginCatalogState state) {
@@ -59,12 +59,13 @@ void PluginJsHandlers::beginScan(bool fullRescan) {
       });
 
   if (!accepted || !callbacks_.logMessage)
-    return;
+    return accepted;
 
   callbacks_.logMessage(
       fullRescan
           ? "<b>[Plugins]</b> Full rescan of VST3 plugins..."
           : "<b>[Plugins]</b> Scanning for VST3 plugins (incremental)...");
+  return true;
 }
 
 void PluginJsHandlers::registerHandlers() {

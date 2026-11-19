@@ -121,6 +121,8 @@ public:
   juce::String getDescription() const override {
     return "Add layer '" + juce::String(name_) + "'";
   }
+  /// The new layer's ID, fixed when the action is made.
+  const std::string &layerId() const { return id_; }
 
 private:
   LibraryRoutingRepository &repository_;

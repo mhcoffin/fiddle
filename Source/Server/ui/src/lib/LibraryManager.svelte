@@ -166,6 +166,15 @@
     syncPreviewHistory();
   };
   onFromCpp("setLibraryCatalogHistory", data => { catalogHistory = data; });
+  // An agent changed the catalog (docs/mcp-control.md). The server refuses
+  // while the editor has unsaved edits, so an open editor can reload safely:
+  // otherwise a later save would put back the old patches. "" means any library.
+  onFromCpp("libraryCatalogChanged", (libraryId) => {
+    if (modalView !== "editor" || editorDirty || saving) return;
+    if (libraryId && libraryId !== editorLibId) return;
+    if (savedLibraries.some((library) => library.id === editorLibId)) dispatchCpp("loadLibrary", editorLibId);
+    else modalView = "none";
+  });
   onFromCpp("librarySaveResult", result => {
     if (result.id !== editorLibId || !saving) return;
     saving = false;

@@ -124,6 +124,95 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
         expectedPresetName: 'BBCSO Discover Violin 1'
       }]
     });
+
+    // Setup tools: annotations and the snake_case -> camelCase mapping.
+    const tool = name => listed.tools.find(item => item.name === name);
+    for (const name of ['fiddle_search_dorico_instruments', 'fiddle_list_plugins',
+      'fiddle_list_maps', 'fiddle_list_libraries', 'fiddle_get_library',
+      'fiddle_get_chairs'])
+      assert.equal(tool(name)?.annotations?.readOnlyHint, true, name);
+    for (const name of ['fiddle_delete_chair', 'fiddle_delete_kit',
+      'fiddle_delete_library', 'fiddle_remove_layer',
+      'fiddle_install_playback_template'])
+      assert.equal(tool(name)?.annotations?.destructiveHint, true, name);
+    for (const name of ['fiddle_save_library', 'fiddle_create_chairs',
+      'fiddle_create_kit', 'fiddle_add_layer', 'fiddle_scan_plugins',
+      'fiddle_update_chair', 'fiddle_rename_kit'])
+      assert.equal(tool(name)?.annotations?.readOnlyHint, false, name);
+
+    const call = async (name, args, method, params) => {
+      await client.callTool({ name, arguments: args });
+      assert.equal(requests.at(-1)?.method, method);
+      assert.deepEqual(requests.at(-1)?.params, params);
+    };
+    await call('fiddle_inspect_library_sources', { kind: 'percussion' },
+      'library.inspectSources', { kind: 'percussion' });
+    await call('fiddle_search_dorico_instruments',
+      { query: 'violin', include_variants: true, limit: 5 },
+      'dorico.instruments.search', { query: 'violin', includeVariants: true, limit: 5 });
+    await call('fiddle_list_plugins', { query: 'BBC', instruments_only: true },
+      'plugins.list', { query: 'BBC', instrumentsOnly: true });
+    await call('fiddle_scan_plugins', {}, 'plugins.scan', {});
+    await call('fiddle_list_maps', { kind: 'expression', favorites_only: true },
+      'maps.list', { kind: 'expression', favoritesOnly: true });
+    await call('fiddle_list_libraries', {}, 'library.list', {});
+    await call('fiddle_get_library', { library_id: 'lib' }, 'library.get', { libraryId: 'lib' });
+    await call('fiddle_save_library', {
+      library_id: 'lib',
+      plugin_uid: 7,
+      remove_patch_ids: ['old'],
+      patches: [
+        { id: 'p1', expression_map_id: '' },
+        { name: 'Cello', instrument_entity_id: 'instrument.strings.cello',
+          character: 'section', percussion_play_as: { a: 'b' },
+          expression_map_id: 'm', expression_map_path: '/m.doricolib',
+          expected_preset_name: 'Cellos' }
+      ]
+    }, 'library.save', {
+      libraryId: 'lib',
+      pluginUid: 7,
+      removePatchIds: ['old'],
+      patches: [
+        { id: 'p1', expressionMapId: '' },
+        { name: 'Cello', instrumentEntityId: 'instrument.strings.cello',
+          character: 'section', percussionPlayAs: { a: 'b' },
+          expressionMapId: 'm', expressionMapPath: '/m.doricolib',
+          expectedPresetName: 'Cellos' }
+      ]
+    });
+    await call('fiddle_delete_library', { library_id: 'lib' }, 'library.delete', { libraryId: 'lib' });
+    await call('fiddle_get_chairs', {}, 'chairs.get', {});
+    await call('fiddle_create_chairs', {
+      chairs: [
+        { instrument_entity_id: 'instrument.strings.violin', name: 'Violin I', role: 'section' },
+        { instrument_entity_id: 'instrument.wind.flutes.flute' },
+        { instrument_entity_id: 'instrument.drum.snare', kit_id: 'kit' }
+      ]
+    }, 'chairs.create', {
+      chairs: [
+        { instrumentEntityId: 'instrument.strings.violin', name: 'Violin I', role: 'section' },
+        { instrumentEntityId: 'instrument.wind.flutes.flute' },
+        { instrumentEntityId: 'instrument.drum.snare', kitId: 'kit' }
+      ]
+    });
+    await call('fiddle_update_chair', { chair_id: 'c', role: 'solo' },
+      'chairs.update', { chairId: 'c', role: 'solo' });
+    await call('fiddle_delete_chair', { chair_id: 'c' }, 'chairs.delete', { chairId: 'c' });
+    await call('fiddle_create_kit', { name: 'Blocks', from_dorico_kit: 'instrument.kit.blocks' },
+      'kits.create', { name: 'Blocks', fromDoricoKit: 'instrument.kit.blocks' });
+    await call('fiddle_create_kit',
+      { name: 'Drums', instruments: [{ instrument_entity_id: 'a' }, { instrument_entity_id: 'b', name: 'B' }] },
+      'kits.create',
+      { name: 'Drums', instruments: [{ instrumentEntityId: 'a' }, { instrumentEntityId: 'b', name: 'B' }] });
+    await call('fiddle_rename_kit', { kit_id: 'k', name: 'N' }, 'kits.rename', { kitId: 'k', name: 'N' });
+    await call('fiddle_delete_kit', { kit_id: 'k' }, 'kits.delete', { kitId: 'k' });
+    await call('fiddle_add_layer', { chair_id: 'c', patch_id: 'p', whole_kit: true },
+      'layers.add', { chairId: 'c', patchId: 'p', wholeKit: true });
+    await call('fiddle_remove_layer', { layer_id: 'l' }, 'layers.remove', { layerId: 'l' });
+    await call('fiddle_install_playback_template', {}, 'template.install', {});
+    await call('fiddle_undo', {}, 'history.undo', {});
+    await call('fiddle_undo', { history: 'library' }, 'history.undo', { history: 'library' });
+    await call('fiddle_redo', { history: 'project' }, 'history.redo', { history: 'project' });
   } finally {
     await client.close();
     await new Promise(resolve => backend.close(resolve));

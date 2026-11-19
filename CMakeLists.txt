@@ -134,8 +134,11 @@ juce_add_gui_app(FiddleServer
 target_sources(FiddleServer PRIVATE
     Source/Server/Main.cpp
     Source/Server/ApplicationRestart.cpp
+    Source/Server/AgentControl.cpp
     Source/Server/AgentControlServer.cpp
     Source/Server/AgentControlServer.h
+    Source/Server/AgentSetupRequests.cpp
+    Source/Server/AgentSetupRequests.h
     Source/Server/AudioDeviceSettings.cpp
     Source/Server/RenderAheadEngine.cpp
     Source/Server/RealtimeMixPrinter.cpp
@@ -930,6 +933,28 @@ juce_generate_juce_header(AgentControlServerTest)
 add_test(NAME agent_control_server COMMAND AgentControlServerTest)
 set_tests_properties(agent_control_server PROPERTIES
     LABELS "agent;mcp;connection;regression;stable"
+)
+
+# ==============================================================================
+# AgentSetupRequestsTest — request logic behind the MCP setup tools
+# ==============================================================================
+juce_add_console_app(AgentSetupRequestsTest
+    PRODUCT_NAME "AgentSetupRequestsTest"
+)
+
+target_sources(AgentSetupRequestsTest PRIVATE
+    Source/Server/tests/AgentSetupRequestsTest.cpp
+    Source/Server/AgentSetupRequests.cpp
+)
+
+target_include_directories(AgentSetupRequestsTest PRIVATE Source/Server)
+target_link_libraries(AgentSetupRequestsTest PRIVATE juce::juce_core SQLite::SQLite3)
+target_compile_features(AgentSetupRequestsTest PRIVATE cxx_std_17)
+juce_generate_juce_header(AgentSetupRequestsTest)
+
+add_test(NAME agent_setup_requests COMMAND AgentSetupRequestsTest)
+set_tests_properties(agent_setup_requests PROPERTIES
+    LABELS "agent;mcp;regression;stable"
 )
 
 # ==============================================================================

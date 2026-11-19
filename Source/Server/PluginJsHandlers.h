@@ -25,10 +25,12 @@ public:
                    Callbacks callbacks);
 
   void registerHandlers();
+  /// Start a plug-in scan as the Scan buttons do, publishing the list when it
+  /// finishes. Returns false when a scan is already running.
+  bool beginScan(bool fullRescan);
 
 private:
   void dispatch(Task task);
-  void beginScan(bool fullRescan);
 
   MessageRouter &router_;
   PluginCommands &commands_;

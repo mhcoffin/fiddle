@@ -2,54 +2,16 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
-import { callFiddle } from './fiddle-client.js';
+import { registerSetupTools } from './setup-tools.js';
+import { callFiddleTool, localTool } from './tool-results.js';
 import { getRun, listRuns } from './score-test-runs.js';
-
-type JsonObject = Record<string, unknown>;
-
-function toolResult(value: unknown) {
-  const structuredContent: JsonObject =
-    value && typeof value === 'object' && !Array.isArray(value)
-      ? value as JsonObject
-      : { value };
-  return {
-    content: [{ type: 'text' as const,
-                text: JSON.stringify(structuredContent, null, 2) }],
-    structuredContent
-  };
-}
-
-async function callFiddleTool(method: string,
-                              params: Record<string, unknown> = {}) {
-  try {
-    return toolResult(await callFiddle(method, params));
-  } catch (error) {
-    return {
-      content: [{ type: 'text' as const,
-                  text: error instanceof Error ? error.message : String(error) }],
-      isError: true
-    };
-  }
-}
-
-async function localTool(read: () => Promise<unknown>) {
-  try {
-    return toolResult(await read());
-  } catch (error) {
-    return {
-      content: [{ type: 'text' as const,
-                  text: error instanceof Error ? error.message : String(error) }],
-      isError: true
-    };
-  }
-}
 
 function createServer(): McpServer {
   const server = new McpServer(
     { name: 'fiddle', version: '0.1.0' },
     {
       instructions:
-        'Inspect Fiddle before editing. Layer IDs come from fiddle_get_mixer. Library imports should begin with fiddle_inspect_library_sources; use map_query when the supplied directory contains multiple products. Present the proposed patches before fiddle_create_guided_library. Fiddle records edits in Undo. Do not change controls while Dorico is playing unless the user explicitly asks. Score test run IDs (from the Score Tests window) are explained by fiddle_get_score_test_run.'
+        'Inspect Fiddle before editing. Setup runs in this order: make sure the player plug-in is known (fiddle_list_plugins; fiddle_scan_plugins after the user installs one), build a library of patches (fiddle_save_library, or fiddle_create_guided_library when the user must pick presets in the player), create chairs for the instruments Dorico should play (fiddle_search_dorico_instruments for IDs, then fiddle_create_chairs or fiddle_create_kit), give each chair layers (fiddle_add_layer), and finally install the playback template (fiddle_install_playback_template). Read existing state first (fiddle_get_chairs, fiddle_list_libraries, fiddle_list_maps) so you extend rather than duplicate it. Present a plan to the user before creating libraries or several chairs, and before installing the template. Chair, kit and layer edits are on the project Undo history; library and map edits are on the library history (fiddle_undo with history "library"). Layer IDs come from fiddle_get_mixer or fiddle_get_chairs. Do not change anything while Dorico is playing unless the user explicitly asks; setup tools, Undo and Redo refuse during playback. Score test run IDs (from the Score Tests window) are explained by fiddle_get_score_test_run.'
     }
   );
 
@@ -73,10 +35,12 @@ function createServer(): McpServer {
 
   server.registerTool('fiddle_inspect_library_sources', {
     title: 'Inspect library setup sources',
-    description: 'Read expression-map metadata under a local directory and find installed instrument plug-ins. Use this to prepare a guided library import without changing the catalog.',
+    description: 'Read expression- or percussion-map metadata from .doricolib files and find installed instrument plug-ins, without changing the catalog. Without a directory it searches the folders Dorico loads libraries from. Each map says whether Fiddle already has it (inFiddle).',
     inputSchema: z.object({
-      expression_map_directory: z.string().min(1)
-        .describe('Local directory containing .doricolib files'),
+      expression_map_directory: z.string().min(1).optional()
+        .describe('Local directory containing .doricolib files; omit to search Dorico\'s library folders'),
+      kind: z.enum(['expression', 'percussion']).optional()
+        .describe('Which maps to list (default expression)'),
       map_query: z.string().optional()
         .describe('Case-insensitive path filter for expression maps, such as "BBC Symphony Orchestra Discovery"'),
       plugin_query: z.string().optional()
@@ -87,9 +51,10 @@ function createServer(): McpServer {
       readOnlyHint: true, destructiveHint: false, idempotentHint: true,
       openWorldHint: false
     }
-  }, async ({ expression_map_directory, map_query, plugin_query, max_maps }) =>
+  }, async ({ expression_map_directory, kind, map_query, plugin_query, max_maps }) =>
     callFiddleTool('library.inspectSources', {
-      expressionMapDirectory: expression_map_directory,
+      ...(expression_map_directory ? { expressionMapDirectory: expression_map_directory } : {}),
+      ...(kind ? { kind } : {}),
       ...(map_query ? { mapQuery: map_query } : {}),
       ...(plugin_query ? { pluginQuery: plugin_query } : {}),
       ...(max_maps ? { maxMaps: max_maps } : {})
@@ -232,23 +197,32 @@ function createServer(): McpServer {
   }, async ({ run_id, note, midi_window_ms, limit }) =>
     localTool(() => getRun(run_id, { note, midiWindowMs: midi_window_ms, limit })));
 
+  const historySchema = z.object({
+    history: z.enum(['project', 'library']).optional()
+      .describe('project (default): mixer, chair, kit and layer edits. library: library and map catalog edits.')
+  });
+
   server.registerTool('fiddle_undo', {
     title: 'Undo Fiddle change',
-    description: 'Undo the most recent change in Fiddle and return the resulting mixer state.',
+    description: 'Undo the most recent change in one of Fiddle\'s two histories. The project history holds mixer, chair, kit and layer edits; the library history holds library and map edits, including ones made by fiddle_save_library. fiddle_get_status shows both. Refused while Dorico plays.',
+    inputSchema: historySchema,
     annotations: {
       readOnlyHint: false, destructiveHint: false, idempotentHint: false,
       openWorldHint: false
     }
-  }, async () => callFiddleTool('history.undo'));
+  }, async ({ history }) => callFiddleTool('history.undo', history ? { history } : {}));
 
   server.registerTool('fiddle_redo', {
     title: 'Redo Fiddle change',
-    description: 'Redo the next change in Fiddle history and return the resulting mixer state.',
+    description: 'Redo the next change in one of Fiddle\'s two histories (see fiddle_undo). Refused while Dorico plays.',
+    inputSchema: historySchema,
     annotations: {
       readOnlyHint: false, destructiveHint: false, idempotentHint: false,
       openWorldHint: false
     }
-  }, async () => callFiddleTool('history.redo'));
+  }, async ({ history }) => callFiddleTool('history.redo', history ? { history } : {}));
+
+  registerSetupTools(server);
 
   return server;
 }
