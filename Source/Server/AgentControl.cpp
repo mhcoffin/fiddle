@@ -300,8 +300,8 @@ juce::var MainComponent::agentMixerSnapshot() {
   return juce::var(snapshot);
 }
 
-// fiddle_get_mixer. Filters narrow the layers; buses and master always come
-// back, since they are small.
+// fiddle_get_mixer. Filters narrow the layers and leave out the buses and
+// master, which an unfiltered call returns.
 AgentControlServer::Response MainComponent::agentGetMixer(const juce::var &params) {
   const auto query = text(params, "query");
   const auto chairId = text(params, "chairId");
@@ -323,7 +323,10 @@ AgentControlServer::Response MainComponent::agentGetMixer(const juce::var &param
       continue;
     layers.add(agentLayerSnapshot(*strip));
   }
-  snapshot.getDynamicObject()->setProperty("layers", juce::var(layers));
+  auto *filtered = snapshot.getDynamicObject();
+  filtered->setProperty("layers", juce::var(layers));
+  filtered->removeProperty("groupBuses");
+  filtered->removeProperty("master");
   return Response::success(snapshot);
 }
 
@@ -1028,15 +1031,23 @@ juce::var MainComponent::agentLibrarySnapshot(const juce::String &libraryId) {
   return juce::var(result);
 }
 
-// fiddle_find_patches: patches across every library. instrumentEntityId also
-// matches instruments that share its Dorico sound (its variants, such as Horn
-// in F and Horn in B-flat).
+// fiddle_find_patches: patches across every library. An instrument (given, or
+// a chair's) matches patches classified as it or as an instrument sharing its
+// Dorico sound (its variants, such as Horn in F and Horn in B-flat), and
+// patches whose percussion map covers it, whatever their classification.
 AgentControlServer::Response MainComponent::agentFindPatches(const juce::var &params) {
   auto *repository = db_.getLibraryRoutingRepository();
   if (!repository)
     return Response::failure("The library catalog is not available");
   const auto query = text(params, "query");
-  const auto instrumentId = text(params, "instrumentEntityId");
+  auto instrumentId = text(params, "instrumentEntityId");
+  if (const auto chairId = text(params, "chairId"); chairId.isNotEmpty()) {
+    const auto chair = repository->getChair(chairId.toStdString());
+    if (!chair) return Response::failure("Chair not found");
+    if (instrumentId.isNotEmpty() && instrumentId != juce::String(chair->instrumentEntityId))
+      return Response::failure("Give chairId or instrumentEntityId, not both");
+    instrumentId = juce::String(chair->instrumentEntityId);
+  }
   const bool byPlugin = params.isObject() && (params["pluginUid"].isInt() || params["pluginUid"].isInt64());
   const int pluginUid = byPlugin ? static_cast<int>(params["pluginUid"]) : 0;
   const int limit = limitParam(params, "limit", 50, 500);
@@ -1061,17 +1072,38 @@ AgentControlServer::Response MainComponent::agentFindPatches(const juce::var &pa
     const auto map = repository->getMap(kind, id);
     return map ? juce::String(map->name) : juce::String("(missing map)");
   };
+  // Percussion maps' instruments, compiled once per map.
+  std::map<std::string, std::vector<std::string>> mapInstruments;
+  const auto percussionCovers = [&](const std::string &mapId) {
+    if (mapId.empty()) return false;
+    auto found = mapInstruments.find(mapId);
+    if (found == mapInstruments.end()) {
+      std::vector<std::string> listed;
+      if (const auto row = repository->getMap(LibraryMapKind::percussion, mapId))
+        if (const auto map = compilePercussionMap(juce::String::fromUTF8(row->xml.c_str())))
+          listed = map->instrumentsInOrder();
+      found = mapInstruments.emplace(mapId, std::move(listed)).first;
+    }
+    return agent::coversInstrument(found->second, instrumentId.toStdString());
+  };
   juce::Array<juce::var> patches;
   int matched = 0;
   for (const auto &patch : repository->listPatches()) {
     const auto instrument = instruments.find(juce::String(patch.instrumentEntityId));
     const auto instrumentName = instrument != instruments.end() ? instrument->second->name : juce::String();
     if (byPlugin && patch.pluginUid != pluginUid) continue;
-    if (instrumentId.isNotEmpty() &&
-        juce::String(patch.instrumentEntityId) != instrumentId &&
-        (wantedSound.isEmpty() || instrument == instruments.end() ||
-         instrument->second->musicXMLSoundID != wantedSound))
-      continue;
+    juce::String reason;
+    if (instrumentId.isNotEmpty()) {
+      if (juce::String(patch.instrumentEntityId) == instrumentId)
+        reason = "instrument";
+      else if (wantedSound.isNotEmpty() && instrument != instruments.end() &&
+               instrument->second->musicXMLSoundID == wantedSound)
+        reason = "variant";
+      else if (percussionCovers(patch.percussionMapId))
+        reason = "percussion map";
+      else
+        continue;
+    }
     const auto library = libraryNames[patch.libraryId];
     const auto plugin = pluginNames.count(patch.pluginUid) ? pluginNames[patch.pluginUid]
                                                             : juce::String("(not installed)");
@@ -1096,9 +1128,11 @@ AgentControlServer::Response MainComponent::agentFindPatches(const juce::var &pa
     item->setProperty("awaitingPresetCapture", !patch.expectedPresetName.empty() && !patch.setupComplete);
     item->setProperty("hasPluginState", !patch.pluginState.empty());
     item->setProperty("layerCount", repository->patchUsageCount(patch.id));
+    if (reason.isNotEmpty()) item->setProperty("matchedBy", reason);
     patches.add(juce::var(item));
   }
   auto *result = new juce::DynamicObject();
+  if (instrumentId.isNotEmpty()) result->setProperty("instrumentEntityId", instrumentId);
   result->setProperty("patches", juce::var(patches));
   result->setProperty("matchedCount", matched);
   result->setProperty("truncated", matched > limit);
@@ -1233,8 +1267,8 @@ AgentControlServer::Response MainComponent::agentDeleteLibrary(const juce::var &
 // ── Chairs, kits and layers ──────────────────────────────────────────────
 
 // filter (all optional): chairIds (array) or chairId, query (matchesSearch
-// on name, instrument, family and kit), withoutLayers. Kits and the template
-// status always cover every chair.
+// on name, instrument, family and kit), withoutLayers. A filtered answer lists
+// only the returned chairs' kits; the template status covers every chair.
 juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
   auto *repository = db_.getLibraryRoutingRepository();
   std::map<juce::String, const BrowsableInstrument *> instruments;
@@ -1249,6 +1283,8 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
   }
   const auto query = text(filter, "query");
   const bool withoutLayers = flag(filter, "withoutLayers");
+  const bool filtered = wanted.has_value() || query.isNotEmpty() || withoutLayers;
+  std::set<std::string> returnedKits;
   juce::Array<juce::var> chairs;
   std::map<std::string, std::pair<std::string, juce::Array<juce::var>>> kits;
   std::vector<std::string> kitOrder;
@@ -1271,6 +1307,7 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
                                     juce::String(chair.kitName),
                                 query))
         continue;
+      if (!chair.kitId.empty()) returnedKits.insert(chair.kitId);
       auto *item = new juce::DynamicObject();
       item->setProperty("id", juce::String(chair.id));
       item->setProperty("name", juce::String(chair.name));
@@ -1300,6 +1337,7 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
     }
   juce::Array<juce::var> kitList;
   for (const auto &id : kitOrder) {
+    if (filtered && !returnedKits.count(id)) continue;
     auto *kit = new juce::DynamicObject();
     kit->setProperty("kitId", juce::String(id));
     kit->setProperty("name", juce::String(kits[id].first));

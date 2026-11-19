@@ -59,7 +59,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_search_dorico_instruments', {
     title: 'Search Dorico instruments',
-    description: 'Find canonical Dorico instrument IDs for chairs and library patches. Every word must match the name or ID. Results give the family, the suggested chair role, and, for a Dorico kit, its instruments.',
+    description: 'Dorico instrument IDs for chairs and patches, with family, suggested chair role, and a kit\'s instruments.',
     inputSchema: z.object({
       query: z.string().optional().describe('Words such as "violin" or "bass clarinet"'),
       family: z.string().optional().describe('Top-level family: strings, wind, brass, keyboard, voice, pluck, drum, metal, wood, pitched-percussion, …'),
@@ -74,7 +74,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_list_plugins', {
     title: 'List plug-ins',
-    description: 'List the plug-ins Fiddle knows from its last scan, with UIDs, whether each is an instrument, and whether it loaded (valid). scanning is true while a scan runs.',
+    description: 'Plug-ins from the last scan: UID, instrument or effect, loads (valid). scanning is true during a scan.',
     inputSchema: z.object({
       query: z.string().optional().describe('Words to match in the name or manufacturer'),
       instruments_only: z.boolean().optional(),
@@ -87,7 +87,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_scan_plugins', {
     title: 'Scan for plug-ins',
-    description: 'Start a VST3 scan in the background, as the Scan button does, so Fiddle finds newly installed players. It returns at once; call fiddle_list_plugins until scanning is false. A full rescan re-probes every plug-in and is slow.',
+    description: 'Start a background VST3 scan for newly installed players; poll fiddle_list_plugins until scanning is false. full_rescan is slow.',
     inputSchema: z.object({
       full_rescan: z.boolean().optional().describe('Re-probe every plug-in (default: only new or changed ones)')
     }),
@@ -97,22 +97,24 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_find_patches', {
     title: 'Find patches',
-    description: 'Search patches across every library, to find what could play a chair. Give words, a Dorico instrument ID (also matches its variants, such as other horns), a player plug-in UID, or any mix. Each result has its library, player, maps, whether its preset is captured, and how many layers use it.',
+    description: 'Patches across all libraries that could play a chair or instrument: same instrument, a variant, or a percussion map covering it (matchedBy). Also by words or player.',
     inputSchema: z.object({
-      query: z.string().optional().describe('Words to match in the patch, library, instrument, family, character or player name'),
+      query: z.string().optional().describe('Words in the patch, library, instrument, character or player name'),
+      chair_id: z.string().min(1).optional().describe('Match the chair\'s instrument'),
       instrument_entity_id: z.string().min(1).optional(),
       plugin_uid: z.number().int().optional(),
       limit: z.number().int().min(1).max(500).optional()
     }),
     annotations: readOnly
-  }, async ({ query, instrument_entity_id, plugin_uid, limit }) =>
+  }, async ({ query, chair_id, instrument_entity_id, plugin_uid, limit }) =>
     callFiddleTool('patches.find', defined({
-      query, instrumentEntityId: instrument_entity_id, pluginUid: plugin_uid, limit
+      query, chairId: chair_id, instrumentEntityId: instrument_entity_id,
+      pluginUid: plugin_uid, limit
     })));
 
   server.registerTool('fiddle_list_maps', {
     title: 'List Fiddle maps',
-    description: 'List the expression and percussion maps in Fiddle\'s collection, which any patch or layer can use, with how many patches and layers use each.',
+    description: 'Expression and percussion maps in Fiddle, with how many patches and layers use each.',
     inputSchema: z.object({
       kind: z.enum(['expression', 'percussion']).optional(),
       query: z.string().optional().describe('Words to match in the name, ID, creator, player names or source file'),
@@ -132,13 +134,13 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_list_libraries', {
     title: 'List libraries',
-    description: 'List Fiddle\'s sample libraries with patch counts, patches still waiting for a preset capture, and how many layers use them.',
+    description: 'Libraries with patch, awaiting-capture and layer counts.',
     annotations: readOnly
   }, async () => callFiddleTool('library.list'));
 
   server.registerTool('fiddle_get_library', {
     title: 'Get library',
-    description: 'Return one library\'s patches: instrument, player plug-in, maps, Play as defaults, expected preset, whether the player state is captured, and how many layers use each.',
+    description: 'One library\'s patches in full.',
     inputSchema: z.object({ library_id: z.string().min(1) }),
     annotations: readOnly
   }, async ({ library_id }) =>
@@ -146,7 +148,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_save_library', {
     title: 'Create or edit a library',
-    description: 'Create a library (omit library_id) or change one: rename it, add patches, change patches, or remove patches that no layer uses. Patch fields you omit keep their values. Maps can come from Fiddle\'s collection or be imported from a .doricolib path. Patches may use different player plug-ins and need not have a map. A patch with expected_preset_name waits for the user to load that preset and capture it in Library Manager (fiddle_open_guided_library). One step on the library Undo history. Refused while Dorico plays or while Library Manager has unsaved edits. Present the plan to the user first.',
+    description: 'Create a library (no library_id) or edit one: add, change or remove unused patches; omitted fields keep their values. Maps come from Fiddle or a .doricolib path; a map is optional, the player is per patch. expected_preset_name makes the user capture that preset (fiddle_open_guided_library). One library-history step.',
     inputSchema: z.object({
       library_id: z.string().min(1).optional().describe('Omit to create a new library'),
       name: z.string().min(1).optional().describe('Required for a new library'),
@@ -190,7 +192,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_get_chairs', {
     title: 'Get chairs',
-    description: 'Return the chairs Dorico can address (including empty ones), each with its Dorico instrument, role, MIDI port and channel (1-16), kit, and layers, plus the percussion kits and whether Dorico\'s installed playback template is out of date (templateStatus.dirty). Filters narrow the chairs; kits and template status always cover every chair.',
+    description: 'Chairs (including empty ones) with instrument, role, MIDI port and channel 1-16, kit and layers; kits; and templateStatus.dirty when Dorico\'s template needs reinstalling.',
     inputSchema: z.object({
       query: z.string().optional().describe('Words to match in the chair name, instrument, family or kit'),
       chair_id: z.string().min(1).optional(),
@@ -202,7 +204,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_create_chairs', {
     title: 'Create chairs',
-    description: 'Add chairs, one per Dorico instrument destination, such as "Violin I" (section) or "Flute 1" (solo), as one Undo step. Names default to the Chairs window\'s ("Flute 1", "Flute 2"); roles default to section for strings and choir, solo otherwise. Give kit_id to add an instrument to an existing kit; use fiddle_create_kit for new kits. Returns the new chairs. Changing chairs makes the playback template out of date.',
+    description: 'Add chairs in one step, e.g. "Violin I" (section) or "Flute 1" (solo). Name and role default sensibly; kit_id adds to an existing kit. Makes the template out of date.',
     inputSchema: z.object({
       chairs: z.array(z.object({
         instrument_entity_id: z.string().min(1),
@@ -283,7 +285,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_add_layer', {
     title: 'Add layer to chair',
-    description: 'Add a library patch to a chair as a new layer with its own plug-in instance, initialized from the patch. A chair can have several layers. With whole_kit, also adds it to the chair\'s kit-mates that lack it. Layers don\'t change the playback template. The plug-in loads in the background: the result may say pluginStatus "loading"; check fiddle_get_mixer with layer_id until it is "loaded" or reports an error.',
+    description: 'Add a patch to a chair as a new layer (own plug-in instance). whole_kit adds it across the kit. The plug-in loads in the background: poll fiddle_get_mixer with layer_id until pluginStatus is "loaded" or an error.',
     inputSchema: z.object({
       chair_id: z.string().min(1),
       patch_id: z.string().min(1).describe('Patch ID from fiddle_get_library'),
@@ -306,7 +308,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_install_playback_template', {
     title: 'Install Dorico playback template',
-    description: 'Write the Fiddle playback template for the current chairs into Dorico\'s user library, replacing the installed one. Ask the user first and have them quit Dorico. Afterwards Dorico must be restarted and the Fiddle template reapplied in open projects. Refused while Dorico plays.',
+    description: 'Write Dorico\'s Fiddle playback template for the current chairs. Ask the user first and have them quit Dorico; afterwards they restart it and reapply the template in open projects.',
     annotations: destructive
   }, async () => callFiddleTool('template.install'));
 }

@@ -30,16 +30,16 @@ Read-only:
 | Tool | Returns |
 | --- | --- |
 | `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits and a running plug-in scan. |
-| `fiddle_get_mixer` | Layers (with plug-in status), group buses, master state and stable layer IDs; filter by words, chair or layer. |
+| `fiddle_get_mixer` | Layers (with plug-in status) and stable layer IDs, plus group buses and master state; filtering by words, chair or layer returns only the layers. |
 | `fiddle_search_dorico_instruments` | Canonical Dorico instrument IDs by name, with family, suggested chair role and a kit's instruments. |
 | `fiddle_list_plugins` | Known plug-ins with UIDs, instrument/effect compatibility and whether each loaded; `scanning` while a scan runs. |
 | `fiddle_list_maps` | Fiddle's expression and percussion maps and how many patches and layers use each; percussion maps can be filtered by an instrument they cover. |
 | `fiddle_inspect_library_sources` | Expression- or percussion-map metadata in `.doricolib` files (a given folder, or the folders Dorico loads libraries from), whether Fiddle has each map, and matching instrument plug-ins. |
 | `fiddle_list_libraries` | Libraries with patch counts, patches awaiting a preset capture, and layer counts. |
 | `fiddle_get_library` | One library's patches in full. |
-| `fiddle_find_patches` | Patches across every library, by words, Dorico instrument (and its variants) or player. |
+| `fiddle_find_patches` | Patches across every library that could play a chair or instrument: the same instrument, a variant, or a percussion map that covers it (`matchedBy`). Also by words or player. |
 | `fiddle_get_library_setup` | Guided-setup progress for one library. |
-| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit and layers; kits; and whether Dorico's playback template is out of date. Filter by words, chair, or chairs without layers. |
+| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit and layers; kits; and whether Dorico's playback template is out of date. Filter by words, chair, or chairs without layers; a filtered answer lists only those chairs' kits. |
 | `fiddle_list_score_test_runs` | Recent score test runs with pass/fail and note counts. |
 | `fiddle_get_score_test_run` | A score test run explained by its ID: failed, missing and extra notes, part bindings, bridge state, and optionally one note's checks and the MIDI around it. |
 

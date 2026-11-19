@@ -11,7 +11,7 @@ function createServer(): McpServer {
     { name: 'fiddle', version: '0.1.0' },
     {
       instructions:
-        'Inspect Fiddle before editing. Setup runs in this order: make sure the player plug-in is known (fiddle_list_plugins; fiddle_scan_plugins after the user installs one), build a library of patches (fiddle_save_library, or fiddle_create_guided_library when the user must pick presets in the player), create chairs for the instruments Dorico should play (fiddle_search_dorico_instruments for IDs, then fiddle_create_chairs or fiddle_create_kit), give each chair layers (fiddle_add_layer), and finally install the playback template (fiddle_install_playback_template). Read existing state first (fiddle_get_chairs, fiddle_find_patches, fiddle_list_libraries, fiddle_list_maps) so you extend rather than duplicate it. Present a plan to the user before creating libraries or several chairs, and before installing the template. Chair, kit and layer edits are on the project Undo history; library and map edits are on the library history (fiddle_undo with history "library"). Layer IDs come from fiddle_get_mixer or fiddle_get_chairs. Do not change anything while Dorico is playing unless the user explicitly asks; setup tools, Undo and Redo refuse during playback. Score test run IDs (from the Score Tests window) are explained by fiddle_get_score_test_run.'
+        'Fiddle hosts sample libraries for Dorico. Setup order: player plug-in (fiddle_list_plugins, fiddle_scan_plugins) → library patches (fiddle_save_library) → chairs (fiddle_create_chairs, fiddle_create_kit) → layers (fiddle_add_layer) → playback template (fiddle_install_playback_template). Read before writing (fiddle_get_chairs, fiddle_find_patches). Present a plan before creating libraries or several chairs, and before installing the template. Don\'t change anything while Dorico plays unless the user asks; setup edits, Undo and Redo refuse then. Score test run IDs go to fiddle_get_score_test_run.'
     }
   );
 
@@ -26,7 +26,7 @@ function createServer(): McpServer {
 
   server.registerTool('fiddle_get_mixer', {
     title: 'Get Fiddle mixer',
-    description: 'Return Fiddle\'s layers (each with its plug-in status: loading, loaded or an error), group buses, master state, project identity, and Undo/Redo state. Layer MIDI channels are numbered 1-16 like fiddle_get_chairs (0 when a layer has no input). Filters narrow the layers; buses and master always come back.',
+    description: 'Layers (with plug-in status: loading, loaded or an error; MIDI channel 1-16, 0 for none), plus group buses and master when unfiltered.',
     inputSchema: z.object({
       query: z.string().optional().describe('Words to match in the layer, library, family or chair name'),
       chair_id: z.string().min(1).optional(),
@@ -44,7 +44,7 @@ function createServer(): McpServer {
 
   server.registerTool('fiddle_inspect_library_sources', {
     title: 'Inspect library setup sources',
-    description: 'Read expression- or percussion-map metadata from .doricolib files and find installed instrument plug-ins, without changing the catalog. Without a directory it searches the folders Dorico loads libraries from. Maps are listed once per ID (the highest version found, with how many copies were seen); each says whether Fiddle already has it (inFiddle). map_query filters file paths, not map names.',
+    description: 'List maps in .doricolib files (default: Dorico\'s library folders), once per ID at the highest version, with inFiddle, plus installed instrument plug-ins. map_query filters file paths.',
     inputSchema: z.object({
       expression_map_directory: z.string().min(1).optional()
         .describe('Local directory containing .doricolib files; omit to search Dorico\'s library folders'),
@@ -213,7 +213,7 @@ function createServer(): McpServer {
 
   server.registerTool('fiddle_undo', {
     title: 'Undo Fiddle change',
-    description: 'Undo the most recent change in one of Fiddle\'s two histories. The project history holds mixer, chair, kit and layer edits; the library history holds library and map edits, including ones made by fiddle_save_library. Returns the step undone and both histories; read the result with fiddle_get_chairs, fiddle_get_mixer or fiddle_get_library. Refused while Dorico plays.',
+    description: 'Undo the last step of the project history (mixer, chairs, kits, layers; default) or the library history (libraries, maps). Returns the step undone.',
     inputSchema: historySchema,
     annotations: {
       readOnlyHint: false, destructiveHint: false, idempotentHint: false,
@@ -223,7 +223,7 @@ function createServer(): McpServer {
 
   server.registerTool('fiddle_redo', {
     title: 'Redo Fiddle change',
-    description: 'Redo the next change in one of Fiddle\'s two histories (see fiddle_undo). Returns the step redone and both histories. Refused while Dorico plays.',
+    description: 'Redo the next step of the project or library history (see fiddle_undo).',
     inputSchema: historySchema,
     annotations: {
       readOnlyHint: false, destructiveHint: false, idempotentHint: false,

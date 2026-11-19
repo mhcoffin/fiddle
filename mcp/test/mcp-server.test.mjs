@@ -162,6 +162,7 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
       { query: 'flute', instrument_entity_id: 'instrument.wind.flutes.flute', plugin_uid: 3, limit: 9 },
       'patches.find',
       { query: 'flute', instrumentEntityId: 'instrument.wind.flutes.flute', pluginUid: 3, limit: 9 });
+    await call('fiddle_find_patches', { chair_id: 'c' }, 'patches.find', { chairId: 'c' });
     await call('fiddle_get_mixer', {}, 'mixer.get', {});
     await call('fiddle_get_mixer', { query: 'flute', chair_id: 'c', layer_id: 'l' },
       'mixer.get', { query: 'flute', chairId: 'c', layerId: 'l' });
