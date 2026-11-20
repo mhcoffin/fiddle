@@ -6,10 +6,30 @@ FiddleServer resolves that identity in this order:
 
 1. the exact saved version, selecting its owning branch;
 2. the current head of the saved branch UUID if the version was removed;
-3. the current head of the legacy branch name for older Dorico projects.
+3. the current head of the legacy branch name, only for older Dorico projects
+   that recorded no IDs (a project with IDs never falls back to a branch that
+   merely shares its name, such as a fresh database's unrelated "Main").
 
-If none of those identities exists, Fiddle keeps the current branch and reports
-the problem instead of silently loading an unrelated version.
+If none of those identities exists, Fiddle keeps the current branch and the
+project keeps its own identity: config status and Dorico saves echo the
+project's IDs back to the plug-in, and Fiddle's state isn't committed under
+them, until the user chooses a setup: **Use current setup** in the restore
+banner, checking out a branch or version, or creating a branch. Merges and
+other History maintenance don't count as choosing. Unsaved Fiddle edits are saved as a version before Fiddle
+switches to the project's setup; if they can't be saved, Fiddle doesn't switch
+and offers **Load project setup** once the user has saved or undone them.
+
+## Restore report
+
+Each connection that loads or fails to load a project's setup produces a report
+(`ProjectRestoreReport.h`) shown as a banner in the main window and returned by
+`fiddle_get_status` as `projectRestore`: which setup loaded and by which route
+(exact version, latest version of the branch, by branch name), or why not. The
+banner also lists layers that can't play as saved: plug-ins not installed or
+that failed to load, and Fiddle scripts not found. A plain exact restore shows
+the banner only when there is such a problem, or when unsaved edits were saved
+first. Reconnecting to the version already loaded produces no report unless it
+was reached by a fallback.
 
 Branch checkout, branch creation, merges into the current branch, and explicit
 Fiddle saves all publish the updated branch/version identity to the native VST3

@@ -853,6 +853,10 @@ void testDoricoProjectRestoreResolution() {
 
   CHECK(!store.resolveProjectRestoreTarget("missing", "missing", "missing")
              .has_value());
+  // A project with IDs that aren't here never falls back to a branch that
+  // merely shares its name.
+  CHECK(!store.resolveProjectRestoreTarget("missing", "missing", "B2").has_value());
+  CHECK(!store.resolveProjectRestoreTarget({}, "missing", "B2").has_value());
 }
 
 void testBranchVersionsRetainIndependentRoutingTopology() {

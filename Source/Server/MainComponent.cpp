@@ -12,6 +12,7 @@
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
+#include "ProjectRestoreReport.h"
 #include "ProjectRestoreService.h"
 #include "DoricoConfigGenerator.h"
 #include "ExpressionMapCommandService.h"
@@ -945,6 +946,11 @@ void MainComponent::initMidiServer() {
         returnDiagnosticsReceivedMs_ = 0;
         returnDiagnostics_.Clear();
         doricoConnected_ = connected;
+        if (!connected) {
+          pendingDoricoProject_.reset();
+          unresolvedProject_.reset();
+          setRestoreReport({});
+        }
         broadcastMessage("setConnectionState", connected);
         if (connected) {
           pushConfigStatus();
@@ -983,10 +989,11 @@ void MainComponent::initMidiServer() {
       safeCallAsync([this, host]() {
         const juce::String message =
             "More than one Fiddle plug-in tried to connect. Fiddle supports "
-            "one connection at a time. In Dorico, this usually means the "
-            "playback template does not provide enough matching chairs, so "
-            "Dorico loaded another Fiddle instance. Check Chair Manager, "
-            "then reinstall and reapply the playback template.";
+            "one connection at a time. Either a second Dorico project is "
+            "open (close it; when the first one closes, the second takes "
+            "over Fiddle), or the playback template doesn't provide enough "
+            "matching chairs, so Dorico loaded another Fiddle instance: check "
+            "Chair Manager, then reinstall and reapply the playback template.";
         connectionWarning_ = message;
         broadcastMessage("setConnectionWarning", message);
         pushLogMessage("<span style=\"color: #fbbf24\"><b>[Additional "
@@ -1506,6 +1513,23 @@ void MainComponent::handleDoricoSaveRequest(uint64_t requestId) {
   for (auto *strip : mixer_.getAllStrips())
     strip->audioEngine().consumePluginChanges(suppressPlaybackChanges);
 
+  if (unresolvedProject_) {
+    // The project's own setup isn't loaded: keep its identity and don't
+    // commit Fiddle's current state under it.
+    fiddle::MidiEvent response;
+    response.set_timestamp_samples(0);
+    auto *saved = response.mutable_save_config_response();
+    saved->set_request_id(requestId);
+    saved->set_success(true);
+    saved->set_config_name(unresolvedProject_->legacyBranchName);
+    saved->set_config_version("");
+    saved->set_branch_id(unresolvedProject_->branchId);
+    saved->set_version_id(unresolvedProject_->versionId);
+    if (server)
+      server->sendToClient(response);
+    return;
+  }
+
   const bool saveSucceeded = !stateManager_.isDirty() || saveConfig();
 
   fiddle::MidiEvent response;
@@ -1557,8 +1581,16 @@ void MainComponent::pushConfigStatus() {
   cs->set_branch_id(currentBranchId_);
   cs->set_version_id(currentVersionId_);
 
-  // Cache for immediate push on future client connections
+  // Cache for immediate push on future client connections. The cache holds
+  // Fiddle's own identity: the echo below is for the connected project only.
   server->setCachedConfigStatus(msg);
+  if (unresolvedProject_) {
+    // The project keeps its own identity until the user picks a setup.
+    cs->set_config_name(unresolvedProject_->legacyBranchName);
+    cs->set_branch_id(unresolvedProject_->branchId);
+    cs->set_version_id(unresolvedProject_->versionId);
+    cs->set_dirty(false);
+  }
   server->sendToClient(msg);
 }
 
@@ -2275,13 +2307,29 @@ void MainComponent::restoreDoricoProject(
         DoricoProjectRequest{legacyBranchName, savedBranchId, savedVersionId};
     return;
   }
+  const DoricoProjectRequest request{legacyBranchName, savedBranchId, savedVersionId};
+  unresolvedProject_.reset();
 
-  const auto target = versionStore_->resolveProjectRestoreTarget(
+  RestoreReportInput report;
+  report.savedBranchName = juce::String(legacyBranchName);
+  const auto keepProjectIdentity = [&](RestoreOutcome outcome, const juce::String &error) {
+    // Dorico keeps the project's own identity (pushConfigStatus and Dorico
+    // saves echo it) until the user picks a setup, so the original link
+    // isn't overwritten with whatever Fiddle happens to have loaded.
+    unresolvedProject_ = request;
+    report.outcome = outcome;
+    report.branchName = branchNameOf(currentBranchId_);
+    report.error = error;
+    pushLogMessage("<span style=\"color: #fbbf24\"><b>[Project]</b> " +
+                   buildRestoreReport(report)["message"].toString() + "</span>");
+    setRestoreReport(buildRestoreReport(report));
+    pushConfigStatus();
+  };
+
+  auto target = versionStore_->resolveProjectRestoreTarget(
       savedBranchId, savedVersionId, legacyBranchName);
   if (!target) {
-    pushLogMessage("<span style=\"color: #fbbf24\"><b>[Project]</b> "
-                   "Saved Fiddle branch/version was not found; keeping the "
-                   "current branch.</span>");
+    keepProjectIdentity(RestoreOutcome::notFound, {});
     return;
   }
 
@@ -2289,28 +2337,80 @@ void MainComponent::restoreDoricoProject(
       target->versionId == currentVersionId_) {
     // The native plug-in announces its saved identity again after every TCP
     // reconnect. Do not reload the mixer and discard unsaved edits when it is
-    // already attached to that same project version.
+    // already attached to that same project version. A fallback (the saved
+    // version is gone, or only the branch name was saved) is still reported;
+    // a banner about an earlier unresolved setup no longer applies.
+    if (target->match != versioning::ProjectRestoreTarget::Match::ExactVersion) {
+      report.outcome = target->match == versioning::ProjectRestoreTarget::Match::BranchId
+                           ? RestoreOutcome::newerOnBranch
+                           : RestoreOutcome::byBranchName;
+      report.branchName = branchNameOf(target->branchId);
+      setRestoreReport(buildRestoreReport(report));
+    } else if (restoreReport_["action"].toString().isNotEmpty()) {
+      setRestoreReport({});
+    }
     pushConfigStatus();
     return;
   }
 
+  // Switching versions replaces the mixer and clears Undo, so unsaved edits
+  // are saved as a version first rather than lost.
+  if (stateManager_.isDirty()) {
+    const auto versionBefore = currentVersionId_;
+    if (!saveConfig()) {
+      keepProjectIdentity(RestoreOutcome::notSwitched,
+                          "your unsaved Fiddle changes couldn't be saved first");
+      return;
+    }
+    if (currentVersionId_ != versionBefore)
+      report.savedEditsBranch = branchNameOf(currentBranchId_);
+    // A save on the target's branch moves its head.
+    target = versionStore_->resolveProjectRestoreTarget(savedBranchId, savedVersionId,
+                                                        legacyBranchName);
+    if (!target) {
+      keepProjectIdentity(RestoreOutcome::notFound, {});
+      return;
+    }
+  }
+
   if (!loadStoredVersion(target->versionId, target->branchId, true)) {
-    pushLogMessage("<span style=\"color: red\"><b>[Project]</b> Failed to "
-                   "restore the saved Fiddle version.</span>",
-                   true);
+    keepProjectIdentity(RestoreOutcome::notSwitched, "its saved version couldn't be loaded");
     return;
   }
 
-  juce::String resolution = "exact saved version";
-  if (target->match == versioning::ProjectRestoreTarget::Match::BranchId)
-    resolution = "saved branch head (saved version unavailable)";
-  else if (target->match ==
-           versioning::ProjectRestoreTarget::Match::LegacyBranchName)
-    resolution = "legacy branch name";
-  const auto branch = versionStore_->getStorage().getBranch(target->branchId);
-  const auto branchName =
-      branch ? juce::String(branch->first) : juce::String(legacyBranchName);
-  pushLogMessage("<b>[Project]</b> Restored " + resolution + ": " + branchName);
+  report.outcome = target->match == versioning::ProjectRestoreTarget::Match::ExactVersion
+                       ? RestoreOutcome::exact
+                   : target->match == versioning::ProjectRestoreTarget::Match::BranchId
+                       ? RestoreOutcome::newerOnBranch
+                       : RestoreOutcome::byBranchName;
+  report.branchName = branchNameOf(target->branchId);
+  const auto built = buildRestoreReport(report);
+  pushLogMessage("<b>[Project]</b> " + built["message"].toString());
+  setRestoreReport(built);
+}
+
+juce::String MainComponent::branchNameOf(const versioning::BranchId &branchId) const {
+  if (!versionStore_ || branchId.empty())
+    return {};
+  const auto branch = versionStore_->getStorage().getBranch(branchId);
+  return branch ? juce::String(branch->first) : juce::String();
+}
+
+void MainComponent::bindUnresolvedProject() {
+  if (!unresolvedProject_) {
+    // A later choice while the "now uses" banner is up keeps it accurate.
+    if (restoreReport_["kind"].toString() == "boundToCurrent")
+      setRestoreReport(boundToCurrentReport(branchNameOf(currentBranchId_)));
+    return;
+  }
+  unresolvedProject_.reset();
+  setRestoreReport(boundToCurrentReport(branchNameOf(currentBranchId_)));
+  pushConfigStatus();
+}
+
+void MainComponent::setRestoreReport(const juce::var &report) {
+  restoreReport_ = report;
+  broadcastMessage("setRestoreReport", report);
 }
 
 MainComponent::~MainComponent() {
@@ -3878,6 +3978,8 @@ void MainComponent::setupJsHandlers() {
 
     if (connectionWarning_.isNotEmpty())
       broadcastMessage("setConnectionWarning", connectionWarning_);
+    if (!restoreReport_.isVoid())
+      broadcastMessage("setRestoreReport", restoreReport_);
 
     // Push current BPM
     double bpm = currentBpm_.load(std::memory_order_relaxed);
@@ -5303,6 +5405,21 @@ void MainComponent::setupJsHandlers() {
     safeCallAsync([this]() { showLibraryManagerWindow(); });
     return;
   });
+  jsRouter_.registerHandler("dismissRestoreReport", [this](const juce::var &) {
+    safeCallAsync([this]() { setRestoreReport({}); });
+  });
+  // A project whose setup isn't here uses the current one from now on.
+  jsRouter_.registerHandler("useCurrentSetupForProject", [this](const juce::var &) {
+    safeCallAsync([this]() { bindUnresolvedProject(); });
+  });
+  // Try again to load the connected project's setup (after saving edits).
+  jsRouter_.registerHandler("retryProjectRestore", [this](const juce::var &) {
+    safeCallAsync([this]() {
+      if (!unresolvedProject_) return;
+      const auto request = *unresolvedProject_;
+      restoreDoricoProject(request.legacyBranchName, request.branchId, request.versionId);
+    });
+  });
   jsRouter_.registerHandler("dismissConnectionWarning", [this](
                                                           const juce::var &) {
     safeCallAsync([this]() {
@@ -5329,7 +5446,8 @@ void MainComponent::setupJsHandlers() {
           (args.size() > 1) ? args[1].toString().toStdString() : "";
       safeCallAsync([this, branchName, fromVersionId]() {
         if (fromVersionId.empty()) {
-          saveConfig(branchName);
+          if (saveConfig(branchName))
+            bindUnresolvedProject();
           return;
         }
         if (branchName.empty() ||
@@ -5347,6 +5465,8 @@ void MainComponent::setupJsHandlers() {
         if (!checkoutBranchById(newBranchId))
           std::cerr << "[createBranch] Failed to check out new branch: "
                     << newBranchId << std::endl;
+        else
+          bindUnresolvedProject();
       });
     }
     return;
@@ -5364,6 +5484,7 @@ void MainComponent::setupJsHandlers() {
         } else {
           std::cerr << "[checkoutBranch] Checked out branch id: " << branchId
                     << std::endl;
+          bindUnresolvedProject();
         }
       });
     }
@@ -5386,6 +5507,8 @@ void MainComponent::setupJsHandlers() {
         if (!loadStoredVersion(versionHash, verOpt->branchId, true)) {
           std::cerr << "[checkoutVersion] State not found for: " << versionHash
                     << std::endl;
+        } else {
+          bindUnresolvedProject();
         }
       });
     }

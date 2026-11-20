@@ -243,6 +243,9 @@ juce::var MainComponent::agentStatus() const {
   status->setProperty("versionId", juce::String(currentVersionId_));
   status->setProperty("layerCount", mixer_.size());
   status->setProperty("doricoConnected", doricoConnected_);
+  // What the user was told when the Dorico project connected.
+  if (!restoreReport_.isVoid())
+    status->setProperty("projectRestore", restoreReport_);
   if (connectionWarning_.isNotEmpty())
     status->setProperty("connectionWarning", connectionWarning_);
 

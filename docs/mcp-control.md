@@ -29,7 +29,7 @@ Read-only:
 
 | Tool | Returns |
 | --- | --- |
-| `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits, a running plug-in scan, whether Dorico is connected, and the warning Fiddle shows when Dorico tried to connect a second Fiddle (its template has too few chairs). |
+| `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits, a running plug-in scan, whether Dorico is connected, what the user was told when the Dorico project connected (`projectRestore`), and the warning Fiddle shows when Dorico tried to connect a second Fiddle (a second open project, or a template with too few chairs). |
 | `fiddle_get_mixer` | Layers (with plug-in status) and stable layer IDs, plus group buses and master state; filtering by words, chair or layer returns only the layers. |
 | `fiddle_search_dorico_instruments` | Canonical Dorico instrument IDs by name, with family, suggested chair role and a kit's instruments. |
 | `fiddle_list_plugins` | Known plug-ins with UIDs, instrument/effect compatibility and whether each loaded; `scanning` while a scan runs. |

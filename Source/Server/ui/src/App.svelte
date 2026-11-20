@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import Timeline from "./lib/Timeline.svelte";
   import EventLog from "./lib/EventLog.svelte";
+  import RestoreReport from "./lib/RestoreReport.svelte";
 
   import PluginsPanel from "./lib/PluginsPanel.svelte";
   import MidiCapture from "./lib/MidiCapture.svelte";
@@ -451,6 +452,9 @@
         }}>Dismiss</button
       >
     </div>
+  {/if}
+  {#if windowMode === "main" && viewMode === "default"}
+    <RestoreReport />
   {/if}
   {#if windowMode === "debug"}
     <!-- DEBUG WINDOW: tab bar with timeline, eventlog, plugins -->

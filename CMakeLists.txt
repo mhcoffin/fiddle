@@ -958,6 +958,27 @@ set_tests_properties(agent_setup_requests PROPERTIES
 )
 
 # ==============================================================================
+# ProjectRestoreReportTest — what the user is told when a Dorico project connects
+# ==============================================================================
+juce_add_console_app(ProjectRestoreReportTest
+    PRODUCT_NAME "ProjectRestoreReportTest"
+)
+
+target_sources(ProjectRestoreReportTest PRIVATE
+    Source/Server/tests/ProjectRestoreReportTest.cpp
+)
+
+target_include_directories(ProjectRestoreReportTest PRIVATE Source/Server)
+target_link_libraries(ProjectRestoreReportTest PRIVATE juce::juce_core)
+target_compile_features(ProjectRestoreReportTest PRIVATE cxx_std_17)
+juce_generate_juce_header(ProjectRestoreReportTest)
+
+add_test(NAME project_restore_report COMMAND ProjectRestoreReportTest)
+set_tests_properties(project_restore_report PROPERTIES
+    LABELS "versioning;regression;stable"
+)
+
+# ==============================================================================
 # ProgramStateReplayTest — verifies zero-based replay port numbering
 # ==============================================================================
 add_executable(ProgramStateReplayTest

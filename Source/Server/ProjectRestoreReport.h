@@ -1,0 +1,102 @@
+#pragma once
+
+// What Fiddle tells the user when a Dorico project connects and Fiddle looks
+// for the setup the project was saved with (docs/dorico-project-identity-results.md).
+// The main window shows it as a banner; fiddle_get_status reports it to agents.
+
+#include <juce_core/juce_core.h>
+
+namespace fiddle {
+
+enum class RestoreOutcome {
+  exact,         // the version the project was saved with
+  newerOnBranch, // that version is gone; the latest version of its branch
+  byBranchName,  // a project saved before Fiddle recorded IDs, by branch name
+  notFound,      // the project's setup isn't in this Fiddle database
+  notSwitched    // Fiddle couldn't save unsaved edits (or load the version), so kept the current setup
+};
+
+struct RestoreReportInput {
+  RestoreOutcome outcome = RestoreOutcome::exact;
+  juce::String savedBranchName; // the branch name the project recorded
+  juce::String branchName;      // the branch Fiddle uses now
+  juce::String savedEditsBranch; // unsaved edits were saved here before switching
+  juce::String error;
+};
+
+/// {kind, severity (info or warning), title, message, action, savedEdits}. action is
+/// "useCurrentSetup" when the project still points at a setup Fiddle doesn't
+/// have, "retry" when Fiddle didn't switch, and empty otherwise.
+inline juce::var buildRestoreReport(const RestoreReportInput &in) {
+  const auto quoted = [](const juce::String &name) {
+    return name.isEmpty() ? juce::String("an unnamed branch") : "branch \"" + name + "\"";
+  };
+  juce::String kind, severity = "warning", title, message, action;
+  switch (in.outcome) {
+  case RestoreOutcome::exact:
+    kind = "exact";
+    severity = "info";
+    title = "Dorico project connected";
+    message = "Fiddle loaded the setup this project was saved with (" + quoted(in.branchName) + ").";
+    break;
+  case RestoreOutcome::newerOnBranch:
+    kind = "newerOnBranch";
+    title = "This project's saved Fiddle version is gone";
+    message = "The Fiddle version this project was saved with no longer exists, so Fiddle loaded the "
+              "latest version of " + quoted(in.branchName) + ". It may not sound the way the project "
+              "did when it was saved.";
+    break;
+  case RestoreOutcome::byBranchName:
+    kind = "byBranchName";
+    title = "Loaded by branch name";
+    message = "This project was saved before Fiddle recorded exact versions, so Fiddle loaded the latest "
+              "version of " + quoted(in.branchName) + ". It may not sound the way the project did when "
+              "it was saved.";
+    break;
+  case RestoreOutcome::notFound:
+    kind = "notFound";
+    title = "This project's Fiddle setup isn't on this Mac";
+    message = "This project was saved with a Fiddle setup (" + quoted(in.savedBranchName) +
+              ") that isn't in this Mac's Fiddle database, so Fiddle is still using " +
+              quoted(in.branchName) + ". The project keeps its link to its own setup, even if you "
+              "save it in Dorico. Choose Use current setup to have it use " + quoted(in.branchName) +
+              " from now on.";
+    action = "useCurrentSetup";
+    break;
+  case RestoreOutcome::notSwitched:
+    kind = "notSwitched";
+    title = "Fiddle didn't switch to this project's setup";
+    message = "Fiddle couldn't switch to the setup this project was saved with (" +
+              quoted(in.savedBranchName) + ")" +
+              (in.error.isNotEmpty() ? ": " + in.error : juce::String()) +
+              ". It is still using " + quoted(in.branchName) + ", and the project keeps its link to "
+              "its own setup. Save or undo your changes in Fiddle, then choose Load project setup.";
+    action = "retry";
+    break;
+  }
+  if (in.savedEditsBranch.isNotEmpty())
+    message += " Your unsaved Fiddle changes were saved first, as a new version of " +
+               quoted(in.savedEditsBranch) + ".";
+  auto *report = new juce::DynamicObject();
+  report->setProperty("kind", kind);
+  report->setProperty("severity", severity);
+  report->setProperty("title", title);
+  report->setProperty("message", message);
+  report->setProperty("action", action);
+  report->setProperty("savedEdits", in.savedEditsBranch.isNotEmpty());
+  return juce::var(report);
+}
+
+/// After the user chooses Use current setup for a project whose setup isn't here.
+inline juce::var boundToCurrentReport(const juce::String &branchName) {
+  auto *report = new juce::DynamicObject();
+  report->setProperty("kind", "boundToCurrent");
+  report->setProperty("severity", "info");
+  report->setProperty("title", "Project now uses the current setup");
+  report->setProperty("message", "This project now uses branch \"" + branchName +
+                                     "\". Save the project in Dorico to keep that.");
+  report->setProperty("action", juce::String());
+  return juce::var(report);
+}
+
+} // namespace fiddle

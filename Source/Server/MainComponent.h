@@ -273,6 +273,15 @@ private:
     versioning::VersionId versionId;
   };
   std::optional<DoricoProjectRequest> pendingDoricoProject_;
+  // The connected project's setup isn't loaded (not found, or Fiddle
+  // couldn't switch): Dorico keeps this identity until the user chooses.
+  std::optional<DoricoProjectRequest> unresolvedProject_;
+  juce::var restoreReport_; // ProjectRestoreReport.h; void when none
+  void setRestoreReport(const juce::var &report);
+  /// The user chose a setup (Use current setup, a checkout, a new branch):
+  /// a connected project whose own setup wasn't loaded now uses it.
+  void bindUnresolvedProject();
+  juce::String branchNameOf(const versioning::BranchId &branchId) const;
   bool projectRestoreReady_ = false;
 
   /// Debug window (created eagerly, visibility toggled from View menu)

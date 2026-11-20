@@ -136,7 +136,10 @@ std::optional<ProjectRestoreTarget> VersionStore::resolveProjectRestoreTarget(
     }
   }
 
-  if (!legacyBranchName.empty()) {
+  // Only projects saved before Fiddle recorded IDs go by branch name. A
+  // project whose IDs aren't here would otherwise get whatever branch happens
+  // to share its name, such as a fresh database's unrelated "Main".
+  if (!legacyBranchName.empty() && savedBranchId.empty() && savedVersionId.empty()) {
     if (auto branchId = storage_.findBranchByName(legacyBranchName)) {
       if (auto branch = storage_.getBranch(*branchId)) {
         return ProjectRestoreTarget{
