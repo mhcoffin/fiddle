@@ -344,6 +344,52 @@ void testPlaybackTemplateRecord() {
   CHECK(!PlaybackTemplateRecord::load(file).known);
   file.deleteFile();
   CHECK(!PlaybackTemplateRecord::load(file).known);
+
+  // An old project restored exactly: the chairs differ from the installed
+  // template but match the template it was saved with, so it has its own copy.
+  const PlaybackTemplateRecord::Lines older{{"fl", "flute|0"}, {"ob", "oboe|1"}};
+  // Never installed (a version saved before Install): still out of date.
+  status = record.compare(older, &older);
+  CHECK(status.dirty && !status.projectCopy);
+  // Installed once, then replaced by today's template: the project's own copy.
+  {
+    PlaybackTemplateRecord history;
+    history.recordInstall(older);
+    history.recordInstall(record.chairs);
+    CHECK(history.wasInstalled(older) && history.wasInstalled(record.chairs));
+    CHECK(history.history.size() == 1);
+    // Reinstalling the same template doesn't grow the history.
+    history.recordInstall(record.chairs);
+    CHECK(history.history.size() == 1);
+    // The history survives a save and load.
+    const auto historyFile = juce::File::createTempFile(".json");
+    CHECK(history.save(historyFile));
+    CHECK(PlaybackTemplateRecord::load(historyFile).wasInstalled(older));
+    historyFile.deleteFile();
+    record = history;
+  }
+  status = record.compare(older, &older);
+  CHECK(status.known && !status.dirty && status.projectCopy);
+  CHECK(status.added.empty() && status.changed.empty() && status.removed == 0);
+  CHECK(bool(status.toJson()["projectCopy"]));
+  // Changing a chair after opening it needs the template again.
+  const PlaybackTemplateRecord::Lines edited{{"fl", "flute|0"}, {"ob", "oboe|7"}};
+  status = record.compare(edited, &older);
+  CHECK(status.dirty && !status.projectCopy && status.changed == std::vector<juce::String>{"ob"});
+  // Matching the installed template is simply current.
+  CHECK(!record.compare(record.chairs, &older).projectCopy);
+  // Without a record nothing is known, project copy or not.
+  CHECK(PlaybackTemplateRecord{}.compare(older, &older).dirty);
+
+  // Template lines: a chair's identity and destination, plus the bridge map
+  // pinned to its port (0-based) and channel (1-based).
+  const std::vector<PlaybackTemplateRecord::Chair> chairs{
+      {"vn", "instrument.strings.violin", "Violin 1", "strings", false, 1, 0, 17},
+      {"fl", "instrument.wind.flutes.flute", "Flute 1", "woodwinds", true, 1, 1, 3}};
+  const auto lines = PlaybackTemplateRecord::linesFor(
+      chairs, "{\"assignments\":[{\"port\":1,\"channel\":2,\"map\":\"strings-r5\"}]}");
+  CHECK(lines.at("vn") == "instrument.strings.violin|Violin 1|strings|T|1|0|17|strings-r5");
+  CHECK(lines.at("fl") == "instrument.wind.flutes.flute|Flute 1|woodwinds|S|1|1|3|");
 }
 
 void tests() {

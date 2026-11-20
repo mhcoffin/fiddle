@@ -192,7 +192,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_get_chairs', {
     title: 'Get chairs',
-    description: 'Chairs (including empty ones) with instrument, role, MIDI port and channel 1-16, kit, layers and bridge (whether Dorico\'s bridge map lets the chair play, with notes not played); kits; and templateStatus.dirty when Dorico\'s template needs reinstalling.',
+    description: 'Chairs (including empty ones) with instrument, role, MIDI port and channel 1-16, kit, layers and bridge (whether Dorico\'s bridge map lets the chair play, with notes not played); kits; and templateStatus.dirty when Dorico\'s template needs reinstalling (templateStatus.projectCopy: the chairs differ from the installed template but the open Dorico project was saved with them, so it needs no reinstall).',
     inputSchema: z.object({
       query: z.string().optional().describe('Words to match in the chair name, instrument, family or kit'),
       chair_id: z.string().min(1).optional(),

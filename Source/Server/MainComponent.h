@@ -590,6 +590,13 @@ private:
   /// One line per chair: what the playback template holds for it (identity,
   /// MIDI destination, pinned bridge map).
   PlaybackTemplateRecord::Lines chairTemplateLines();
+  /// The template a stored version was saved with (its chairs and pinned
+  /// bridge maps); nullopt for a version from before chairs.
+  std::optional<PlaybackTemplateRecord::Lines> templateLinesForVersion(const versioning::VersionId &versionId);
+  /// The template of the version the open Dorico project was saved with,
+  /// when Fiddle restored exactly that version for it.
+  std::optional<PlaybackTemplateRecord::Lines> projectTemplate_;
+  PlaybackTemplateRecord::Status templateStatus();
 
   /// Broadcast the playback template's status to all UIs: whether it is out
   /// of date, and which chairs are new or changed since it was installed.

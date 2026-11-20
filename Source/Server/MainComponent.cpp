@@ -950,6 +950,8 @@ void MainComponent::initMidiServer() {
           pendingDoricoProject_.reset();
           unresolvedProject_.reset();
           setRestoreReport({});
+          projectTemplate_.reset();
+          broadcastTemplateDirty();
         }
         broadcastMessage("setConnectionState", connected);
         if (connected) {
@@ -2288,6 +2290,10 @@ bool MainComponent::loadStoredVersion(const versioning::VersionId &versionId,
     broadcastMessage("setDirtyState", false);
   }
   scheduleStateRebuild(); // Deliberately a no-op for a detached version.
+  // Whatever the open Dorico project was saved with, this isn't known to be
+  // it; restoreDoricoProject sets it again when it loaded exactly that.
+  projectTemplate_.reset();
+  broadcastTemplateDirty(); // the bridge-map callback during the load used the old one
 
   pushBranches();
   pushDagHistory();
@@ -2326,6 +2332,8 @@ void MainComponent::restoreDoricoProject(
     // saves echo it) until the user picks a setup, so the original link
     // isn't overwritten with whatever Fiddle happens to have loaded.
     unresolvedProject_ = request;
+    projectTemplate_.reset();
+    broadcastTemplateDirty();
     report.outcome = outcome;
     report.branchName = branchNameOf(currentBranchId_);
     report.error = error;
@@ -2360,6 +2368,10 @@ void MainComponent::restoreDoricoProject(
     } else if (restoreReport_["action"].toString().isNotEmpty()) {
       setRestoreReport({});
     }
+    projectTemplate_ = target->match == versioning::ProjectRestoreTarget::Match::ExactVersion
+                           ? templateLinesForVersion(target->versionId)
+                           : std::nullopt;
+    broadcastTemplateDirty();
     pushConfigStatus();
     return;
   }
@@ -2389,6 +2401,12 @@ void MainComponent::restoreDoricoProject(
     return;
   }
 
+  // The project has its own copy of the template it was saved with; only an
+  // exact restore knows which one that is.
+  if (target->match == versioning::ProjectRestoreTarget::Match::ExactVersion) {
+    projectTemplate_ = templateLinesForVersion(target->versionId);
+    broadcastTemplateDirty();
+  }
   report.outcome = target->match == versioning::ProjectRestoreTarget::Match::ExactVersion
                        ? RestoreOutcome::exact
                    : target->match == versioning::ProjectRestoreTarget::Match::BranchId
@@ -6120,8 +6138,7 @@ MainComponent::TemplateInstallResult MainComponent::installChairPlaybackTemplate
   pushMixerState();
 
   auto &record = installedTemplate();
-  record.chairs = chairTemplateLines();
-  record.known = true;
+  record.recordInstall(chairTemplateLines());
   if (!record.save(FiddleConfig::getAppDataDir().getChildFile("installed-playback-template.json")))
     juce::Logger::writeToLog("Could not save the installed playback template record");
   broadcastTemplateDirty();
@@ -6140,33 +6157,39 @@ PlaybackTemplateRecord &MainComponent::installedTemplate() {
 
 PlaybackTemplateRecord::Lines MainComponent::chairTemplateLines() {
   auto *repository = db_.getLibraryRoutingRepository();
-  const auto chairs = repository ? repository->listChairs()
-                                  : std::vector<ChairRow>{};
-  // Draft/unassigned revisions do not change the installed template. Pinned
-  // endpoint/revision changes do, including Undo and version checkout.
-  std::map<std::pair<int, int>, juce::String> maps;
-  const auto bridgeJson = juce::JSON::parse(juce::String(mixer_.projectSettings().bridgeMapsJson));
-  if (const auto *routes = bridgeJson["assignments"].getArray())
-    for (const auto &route : *routes)
-      maps[{int(route["port"]), int(route["channel"])}] = route["map"].toString();
-  PlaybackTemplateRecord::Lines lines;
-  for (const auto &chair : chairs) {
-    const auto map = maps.find({chair.flatIndex / 16, chair.flatIndex % 16 + 1});
-    lines[juce::String(chair.id)] =
-        juce::String(chair.instrumentEntityId) + "|" +
-        juce::String(chair.name) + "|" + juce::String(chair.family) +
-        "|" + (chair.role == DoricoRole::solo ? "S" : "T") + "|" +
-        juce::String(chair.ordinal) + "|" +
-        juce::String(chair.displayOrder) + "|" +
-        juce::String(chair.flatIndex) + "|" +
-        (map != maps.end() ? map->second : juce::String());
-  }
-  return lines;
+  std::vector<PlaybackTemplateRecord::Chair> chairs;
+  if (repository)
+    for (const auto &chair : repository->listChairs())
+      chairs.push_back({juce::String(chair.id), juce::String(chair.instrumentEntityId),
+                        juce::String(chair.name), juce::String(chair.family),
+                        chair.role == DoricoRole::solo, chair.ordinal, chair.displayOrder,
+                        chair.flatIndex});
+  return PlaybackTemplateRecord::linesFor(chairs, juce::String(mixer_.projectSettings().bridgeMapsJson));
+}
+
+std::optional<PlaybackTemplateRecord::Lines>
+MainComponent::templateLinesForVersion(const versioning::VersionId &versionId) {
+  const auto version = versionStore_ ? versionStore_->getVersion(versionId) : std::nullopt;
+  const auto state = version ? versionStore_->getState(version->stateHash) : std::nullopt;
+  // A version from before chairs has no template of its own to compare.
+  if (!state || state->routingState.schemaVersion == 0)
+    return std::nullopt;
+  std::vector<PlaybackTemplateRecord::Chair> chairs;
+  for (const auto &chair : state->routingState.chairs)
+    chairs.push_back({juce::String(chair.id), juce::String(chair.instrumentEntityId),
+                      juce::String(chair.name), juce::String(chair.family), chair.isSolo,
+                      chair.ordinal, chair.displayOrder, chair.flatIndex});
+  return PlaybackTemplateRecord::linesFor(
+      chairs, juce::String(state->globalState.projectSettings.bridgeMapsJson));
+}
+
+PlaybackTemplateRecord::Status MainComponent::templateStatus() {
+  return installedTemplate().compare(chairTemplateLines(),
+                                     projectTemplate_ ? &*projectTemplate_ : nullptr);
 }
 
 void MainComponent::broadcastTemplateDirty() {
-  broadcastMessage("setTemplateDirty",
-                   installedTemplate().compare(chairTemplateLines()).toJson());
+  broadcastMessage("setTemplateDirty", templateStatus().toJson());
 }
 
 } // namespace fiddle

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chairTemplateNote, parseTemplateStatus, templateBanner } from "../src/lib/templateStatus.js";
+import { canInstallTemplate, chairTemplateNote, parseTemplateStatus, templateBanner } from "../src/lib/templateStatus.js";
 
 test("a current template shows no banner or notes", () => {
     const status = parseTemplateStatus({ known: true, dirty: false });
@@ -24,4 +24,16 @@ test("without a record Fiddle says so and doesn't guess per chair", () => {
     // Older senders sent a bare boolean.
     assert.equal(parseTemplateStatus(false).dirty, false);
     assert.equal(templateBanner(parseTemplateStatus(true)).title, "Fiddle has no record of the installed playback template");
+});
+
+test("an older project with its own copy needs no reinstall, but may still install", () => {
+    const status = parseTemplateStatus({ known: true, dirty: false, projectCopy: true });
+    const banner = templateBanner(status);
+    assert.equal(banner.info, true);
+    assert.match(banner.title, /its own copy of an older playback template/);
+    assert.match(banner.detail, /doesn't need a reinstall/);
+    assert.equal(chairTemplateNote(status, "fl"), "");
+    assert.equal(canInstallTemplate(status), true);
+    assert.equal(canInstallTemplate(parseTemplateStatus({ known: true, dirty: false })), false);
+    assert.equal(canInstallTemplate(parseTemplateStatus({ known: true, dirty: true })), true);
 });

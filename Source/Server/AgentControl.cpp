@@ -1369,7 +1369,7 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
   result->setProperty("kits", juce::var(kitList));
   // known: Fiddle has a record of an install; dirty: Dorico's template no
   // longer matches the chairs and needs fiddle_install_playback_template.
-  result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  result->setProperty("templateStatus", templateStatus().toJson());
   result->setProperty("history", historyJson(undoManager_));
   return juce::var(result);
 }
@@ -1674,7 +1674,7 @@ AgentControlServer::Response MainComponent::agentInstallTemplate(const juce::var
   auto *result = new juce::DynamicObject();
   result->setProperty("installed", true);
   result->setProperty("message", install.message);
-  result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  result->setProperty("templateStatus", templateStatus().toJson());
   return Response::success(juce::var(result));
 }
 
@@ -1842,7 +1842,7 @@ AgentControlServer::Response MainComponent::agentUpdateBridgeMaps(const juce::va
   result->setProperty("changed", juce::JSON::toString(sections) != before);
   result->setProperty("sections", sections);
   // Dorico has the old maps until the template is installed again.
-  result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  result->setProperty("templateStatus", templateStatus().toJson());
   result->setProperty("history", historyJson(undoManager_));
   return Response::success(juce::var(result));
 }

@@ -5,7 +5,7 @@
     import { groupChairs, searchDoricoInstruments, suggestedChairName, suggestedChairRole } from "./chairModel.js";
     import { isKitInstrument, kitChairNames, kitPayload, suggestedKitName } from "./kitModel.js";
     import { bridgeForChair, isPlaying, mapName, statusTitle, verificationText, withheldText } from "./bridgeStatus.js";
-    import { chairTemplateNote, parseTemplateStatus, templateBanner } from "./templateStatus.js";
+    import { canInstallTemplate, chairTemplateNote, parseTemplateStatus, templateBanner } from "./templateStatus.js";
     import BridgeMaps from "./BridgeMaps.svelte";
 
     let { onClose = () => {} } = $props();
@@ -27,7 +27,7 @@
         .filter((instrument) => !isKitInstrument(instrument)));
     let kitDraftNames = $derived(kitDraft ? kitChairNames(kitDraft.entityIds, instruments) : []);
     let templateStatus = $state(parseTemplateStatus(true));
-    let templateDirty = $derived(templateStatus.dirty);
+    let canInstall = $derived(canInstallTemplate(templateStatus));
     let banner = $derived(templateBanner(templateStatus));
     let installing = $state(false);
     let message = $state("");
@@ -245,7 +245,7 @@
                 <button
                     class="install"
                     onclick={installTemplate}
-                    disabled={installing || chairs.length === 0 || !templateDirty}
+                    disabled={installing || chairs.length === 0 || !canInstall}
                     title={chairs.length === 0 ? "Add a chair first" : "Install these chairs in Dorico"}
                 >{installing ? "Installing…" : "Install Playback Template"}</button>
                 <button onclick={onClose}>Close</button>
@@ -265,7 +265,7 @@
             <BridgeMaps {bridgeState} />
 
             {#if banner}
-                <div class="template-warning" role="status">
+                <div class="template-warning" class:info={banner.info} role="status">
                     <strong>{banner.title}</strong>
                     <span>{banner.detail}</span>
                 </div>
@@ -457,6 +457,8 @@
     .template-warning { display:flex; flex-direction:column; gap:3px; margin-bottom:16px; padding:13px 15px; border:1px solid rgba(251,191,36,.45); border-radius:7px; background:rgba(251,191,36,.09); }
     .template-warning strong { color:#fde68a; }
     .template-warning span { color:#cbd5e1; font-size:.8rem; }
+    .template-warning.info { border-color:rgba(96,165,250,.45); background:rgba(96,165,250,.09); }
+    .template-warning.info strong { color:#bfdbfe; }
     .message { margin-bottom:16px; padding:10px 13px; border:1px solid rgba(34,197,94,.35); border-radius:6px; background:rgba(34,197,94,.1); color:#86efac; }
     .message.error { border-color:rgba(248,113,113,.4); background:rgba(248,113,113,.1); color:#fca5a5; }
     .empty { min-height:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; border:1px dashed #334155; border-radius:10px; color:#cbd5e1; text-align:center; }

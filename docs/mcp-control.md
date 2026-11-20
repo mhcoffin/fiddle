@@ -121,7 +121,10 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
 7. **Install the template.** If `fiddle_get_chairs` reports
    `templateStatus.dirty`, ask the user to quit Dorico, then
    `fiddle_install_playback_template`. The user restarts Dorico and applies
-   the Fiddle template in open projects.
+   the Fiddle template in open projects. `templateStatus.projectCopy` means
+   the chairs differ from the installed template but match the one the open
+   Dorico project was saved with: that project needs no reinstall, and
+   installing would change the template other projects get.
 8. **Check that Dorico plays it.** `fiddle_get_status` shows whether Dorico is
    connected. Have the user start playback in Dorico, then
    `fiddle_get_bridge_maps`: each chair with a bridge map reports when

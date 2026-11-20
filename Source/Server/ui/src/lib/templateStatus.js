@@ -2,7 +2,7 @@
 // whether Dorico's installed template matches the chairs, and which chairs are
 // new or changed since it was installed (PlaybackTemplateRecord.h).
 
-const EMPTY = Object.freeze({ known: false, dirty: true, newChairIds: [], changedChairIds: [], removedCount: 0 });
+const EMPTY = Object.freeze({ known: false, dirty: true, newChairIds: [], changedChairIds: [], removedCount: 0, projectCopy: false });
 
 /** Accepts the status object, or a bare boolean from older senders. */
 export function parseTemplateStatus(data) {
@@ -15,6 +15,12 @@ const REINSTALL = "With Dorico closed, choose Install Playback Template, then re
 
 /** The banner above the chair list, or null when the template is current. */
 export function templateBanner(status) {
+    // An older project restored exactly: it has its own copy of its template.
+    if (status.projectCopy)
+        return { info: true, title: "This project uses its own copy of an older playback template",
+            detail: "These chairs differ from the template installed in Dorico, which new projects use, but "
+                + "match the template this project was saved with, so this project doesn't need a reinstall. "
+                + "Install only to make new projects, and projects where you reapply the template, use these chairs." };
     if (!status.dirty) return null;
     if (!status.known)
         return { title: "Fiddle has no record of the installed playback template",
@@ -25,6 +31,9 @@ export function templateBanner(status) {
     if (status.removedCount) parts.push(`${count(status.removedCount, "chair")} removed`);
     return { title: `The playback template is out of date: ${parts.join(", ")}`, detail: REINSTALL };
 }
+
+/** Whether Install Playback Template has anything to do. */
+export const canInstallTemplate = (status) => status.dirty || status.projectCopy;
 
 /** A chair's note in its row: why it needs a reinstall, or "" when it's installed. */
 export function chairTemplateNote(status, chairId) {

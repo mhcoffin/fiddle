@@ -1144,6 +1144,13 @@ try {
     assert.match(await chairRow("Flute 4").locator(".midi").innerText(), /Not in the installed template yet · reinstall/);
     assert.match(await chairRow("Flute 1").locator(".midi").innerText(), /Changed since the template was installed · reinstall/);
     assert.doesNotMatch(await chairRow("Flute 1").locator(".midi").innerText(), /woodwinds map/);
+    // An older project restored exactly, with its own copy of a template Fiddle
+    // installed earlier: an info banner, no reinstall notes, Install still offered.
+    await templateStatus({ known: true, dirty: false, newChairIds: [], changedChairIds: [], removedCount: 0, projectCopy: true });
+    assert.equal(await manager.locator(".template-warning.info").count(), 1);
+    assert.match(await manager.locator(".template-warning strong").innerText(), /its own copy of an older playback template/);
+    assert.ok(!(await installTemplate.isDisabled()));
+    assert.match(await chairRow("Flute 1").locator(".midi").innerText(), /woodwinds map/);
     // Without a record of the install, Fiddle says so rather than guessing per chair.
     await templateStatus({ known: false, dirty: true, newChairIds: [], changedChairIds: [], removedCount: 0 });
     assert.match(await manager.locator(".template-warning strong").innerText(), /no record of the installed playback template/);

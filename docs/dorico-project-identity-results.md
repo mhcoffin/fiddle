@@ -36,6 +36,23 @@ again), choose another branch or version, or leave the project linked to its
 own setup, which matters when that setup may come back from a backup. Reconnecting to the version already loaded produces no report unless it
 was reached by a fallback.
 
+## Playback template
+
+Dorico's playback template is global, and Fiddle records what it last installed
+(`installed-playback-template.json`). Each Dorico project also keeps its own
+copy of the template it was applied with. After an exact restore, Fiddle knows
+that copy: the chairs and pinned bridge maps of the version the project was
+saved with (`templateLinesForVersion`). If the chairs still match it, and Fiddle
+really installed that template at some point (the record keeps fingerprints of
+every earlier install, since 2026-11-20), the Chairs window says the project
+uses its own copy of an older template and needs no reinstall, instead of "out
+of date" (`PlaybackTemplateRecord::Status::projectCopy`). A version saved
+before its chairs were installed, such as a Dorico save right after adding a
+chair, still counts as out of date.
+Install stays available, since installing is how to make new projects use
+these chairs. Any other version load, an unresolved project, or a disconnect
+forgets the project's copy.
+
 Branch checkout, branch creation, merges into the current branch, and explicit
 Fiddle saves all publish the updated branch/version identity to the native VST3
 plug-in. The plug-in appends the IDs to its previous length-prefixed state
