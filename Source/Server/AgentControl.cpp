@@ -1759,6 +1759,10 @@ AgentControlServer::Response MainComponent::agentOpenPatchPlayer(const juce::var
           return;
         if (success) {
           session->second.status = "loaded";
+          // The host has just shown the editor; noting that now (not at the
+          // next poll) lets a close before that poll still end the session.
+          if (safeThis->agentPatchPlayers_.isEditorVisible(patchId))
+            session->second.editorShown = true;
         } else {
           session->second.status = "failed";
           session->second.error = error.isNotEmpty() ? error : juce::String("Could not open the player");

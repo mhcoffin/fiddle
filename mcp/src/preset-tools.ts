@@ -100,11 +100,21 @@ async function finish(patchId: string, session: string, action: string,
     });
     return toolResult(result);
   } catch (error) {
-    // The window stays open, so the agent can ask again in chat and capture.
+    // If the window the user answered about is still open, the agent can ask
+    // again in chat and capture it.
     return toolResult({
-      captured: false, patchId, playerStillOpen: true,
+      captured: false, patchId, playerStillOpen: await stillOpen(patchId, session),
       reason: error instanceof Error ? error.message : String(error)
     });
+  }
+}
+
+async function stillOpen(patchId: string, session: string): Promise<boolean> {
+  try {
+    const state = await callFiddle('patch.player.status', { patchId }) as PlayerState;
+    return state.open === true && state.session === session;
+  } catch {
+    return false;
   }
 }
 

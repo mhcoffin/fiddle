@@ -11,11 +11,12 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-async function withFiddle(run, { replaceWhileLoading = false } = {}) {
+async function withFiddle(run, { replaceWhileLoading = false, captureRefused } = {}) {
   const descriptor = join(tmpdir(), `fiddle-preset-${process.pid}-${Math.random()}.json`);
   const token = 'preset-test-token';
   const calls = [];
   let statusCalls = 0;
+  let refused = false;
   const backend = createServer(socket => {
     let input = '';
     socket.on('data', chunk => {
@@ -27,6 +28,17 @@ async function withFiddle(run, { replaceWhileLoading = false } = {}) {
       // Loaded on the second look, so the adapter has to poll; or, to test a
       // window replaced meanwhile, another session by then.
       if (request.method === 'patch.player.status') ++statusCalls;
+      // A refused capture: the window was closed meanwhile ('closed') or is
+      // still open ('open').
+      if (request.method === 'patch.player.capture' && captureRefused) {
+        refused = true;
+        socket.end(JSON.stringify({ id: request.id, ok: false, error: 'Capture refused' }) + '\n');
+        return;
+      }
+      if (request.method === 'patch.player.status' && refused && captureRefused === 'closed') {
+        socket.end(JSON.stringify({ id: request.id, ok: true, result: { patchId: request.params.patchId, open: false } }) + '\n');
+        return;
+      }
       const results = {
         'patch.player.open': { ...player, status: 'loading', expectedPresetName: 'Concert D-274' },
         'patch.player.status': statusCalls > 1
@@ -139,6 +151,21 @@ test('a window replaced while loading is never asked about or captured', () => w
     await client.close();
   }
 }, { replaceWhileLoading: true }));
+
+for (const where of ['open', 'closed'])
+  test(`a refused capture says whether the player is still open (${where})`, () => withFiddle(async (descriptor) => {
+    const { client } = await connect(descriptor, {
+      mode: 'legacy', answer: { action: 'accept', content: {} }
+    });
+    try {
+      const result = await client.callTool({ name: 'fiddle_set_patch_preset_with_user', arguments: { patch_id: 'p1' } });
+      assert.equal(result.structuredContent.captured, false);
+      assert.match(result.structuredContent.reason, /Capture refused/);
+      assert.equal(result.structuredContent.playerStillOpen, where === 'open');
+    } finally {
+      await client.close();
+    }
+  }, { captureRefused: where }));
 
 test('a client that cannot ask gets instructions and the player stays open', () => withFiddle(async (descriptor, calls) => {
   const { client } = await connect(descriptor, { mode: 'legacy' });
