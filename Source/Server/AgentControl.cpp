@@ -5,6 +5,7 @@
 #include "MainComponent.h"
 
 #include "AgentSetupRequests.h"
+#include "BridgeMapCommands.h"
 #include "ChairActions.h"
 #include "ChairLayerActions.h"
 #include "FiddleConfig.h"
@@ -197,6 +198,9 @@ AgentControlServer::Response MainComponent::handleAgentControlRequest(
       {"layers.add", member(&MainComponent::agentAddLayer)},
       {"layers.remove", member(&MainComponent::agentRemoveLayer)},
       {"template.install", member(&MainComponent::agentInstallTemplate)},
+      {"layers.refresh", member(&MainComponent::agentRefreshLayers)},
+      {"bridge.get", member(&MainComponent::agentGetBridgeMaps)},
+      {"bridge.update", member(&MainComponent::agentUpdateBridgeMaps)},
       {"patch.player.open", member(&MainComponent::agentOpenPatchPlayer)},
       {"patch.player.status", member(&MainComponent::agentPatchPlayerStatus)},
       {"patch.player.capture", member(&MainComponent::agentCapturePatchPlayer)},
@@ -238,6 +242,9 @@ juce::var MainComponent::agentStatus() const {
   status->setProperty("branchId", juce::String(currentBranchId_));
   status->setProperty("versionId", juce::String(currentVersionId_));
   status->setProperty("layerCount", mixer_.size());
+  status->setProperty("doricoConnected", doricoConnected_);
+  if (connectionWarning_.isNotEmpty())
+    status->setProperty("connectionWarning", connectionWarning_);
 
   auto *history = new juce::DynamicObject();
   history->setProperty("canUndo", undoManager_.canUndo());
@@ -1288,6 +1295,7 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
   const auto query = text(filter, "query");
   const bool withoutLayers = flag(filter, "withoutLayers");
   const bool filtered = wanted.has_value() || query.isNotEmpty() || withoutLayers;
+  const auto bridges = agentBridgeChecks();
   std::set<std::string> returnedKits;
   juce::Array<juce::var> chairs;
   std::map<std::string, std::pair<std::string, juce::Array<juce::var>>> kits;
@@ -1325,6 +1333,9 @@ juce::var MainComponent::agentChairsSnapshot(const juce::var &filter) {
       // The MIDI destination Dorico sends this chair on.
       item->setProperty("midiPort", chair.flatIndex / 16);
       item->setProperty("midiChannel", chair.flatIndex % 16 + 1);
+      if (const auto bridge = bridges.find({chair.flatIndex / 16, chair.flatIndex % 16 + 1});
+          bridge != bridges.end())
+        item->setProperty("bridge", bridge->second);
       juce::Array<juce::var> layers;
       for (const auto &layer : layerRows) {
         auto *row = new juce::DynamicObject();
@@ -1630,8 +1641,8 @@ AgentControlServer::Response MainComponent::agentAddLayer(const juce::var &param
                                             ? juce::String("the player's default state")
                                             : juce::String("the patch's previously captured state, "
                                                            "not that preset")) +
-                                       ". Finish the library's guided setup, then press Update "
-                                       "from Library in the layer's details.");
+                                       ". Once the preset is captured, update the layer with "
+                                       "fiddle_update_layers_from_library.");
   return Response::success(juce::var(result));
 }
 
@@ -1659,6 +1670,175 @@ AgentControlServer::Response MainComponent::agentInstallTemplate(const juce::var
   result->setProperty("installed", true);
   result->setProperty("message", install.message);
   result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  return Response::success(juce::var(result));
+}
+
+// ── Finishing and checking setup ───────────────────────────────────────
+
+AgentControlServer::Response MainComponent::agentRefreshLayers(const juce::var &params) {
+  if (const auto blocker = agentSetupBlocker(false); blocker.isNotEmpty())
+    return Response::failure(blocker);
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return Response::failure("The chair list is not available");
+  const auto layerId = text(params, "layerId").toStdString();
+  const auto patchId = text(params, "patchId").toStdString();
+  if (layerId.empty() == patchId.empty())
+    return Response::failure("Give layerId or patchId");
+  std::vector<LayerRow> layers;
+  if (!layerId.empty()) {
+    const auto layer = repository->getLayer(layerId);
+    if (!layer)
+      return Response::failure("Layer not found");
+    if (layer->patchId.empty())
+      return Response::failure("This layer doesn't come from a library patch");
+    // A kit's linked layers update together, as in the layer's details.
+    layers = kitLinkedLayers(*layer);
+  } else {
+    for (const auto &chair : repository->listChairs())
+      for (const auto &layer : repository->listLayers(chair.id))
+        if (layer.patchId == patchId) layers.push_back(layer);
+    if (layers.empty())
+      return Response::failure("No layer uses this patch");
+  }
+  const auto patch = repository->getPatch(layers.front().patchId);
+  if (!patch)
+    return Response::failure("The layer's library patch no longer exists");
+  for (const auto &layer : layers)
+    if (!mixer_.getStrip(juce::String(layer.id)))
+      return Response::failure("A layer using this patch isn't in the mixer");
+  if (!refreshLayersFromPatch(*patch, layers))
+    return Response::failure("Could not update the layers from the library");
+  pushMixerState();
+  scheduleStateRebuild();
+  juce::Array<juce::var> ids;
+  for (const auto &layer : layers) ids.add(juce::String(layer.id));
+  auto *result = new juce::DynamicObject();
+  result->setProperty("updatedLayerIds", juce::var(ids));
+  result->setProperty("patchName", juce::String(patch->name));
+  result->setProperty("history", historyJson(undoManager_));
+  return Response::success(juce::var(result));
+}
+
+std::map<std::pair<int, int>, juce::var> MainComponent::agentBridgeChecks() const {
+  std::map<std::pair<int, int>, juce::var> checks;
+  if (!bridgeMapCommands_) return checks;
+  const auto status = bridgeMapCommands_->status();
+  const auto *assignments = status["assignments"].getArray();
+  if (!assignments) return checks;
+  bool reported = false;
+  for (const auto &assignment : *assignments) {
+    const auto beacon = assignment["beacon"].toString();
+    reported = reported || beacon == "matched" || beacon == "mismatched";
+  }
+  for (const auto &assignment : *assignments) {
+    const auto hash = assignment["hash"].toString();
+    const auto beacon = assignment["beacon"].toString();
+    juce::String label;
+    if (const auto *sections = status["sections"].getArray())
+      for (const auto &section : *sections)
+        if (section["hash"].toString() == hash) label = section["label"].toString();
+    if (label.isEmpty())
+      if (const auto *documents = status["documents"].getArray())
+        for (const auto &document : *documents)
+          if (document["hash"].toString() == hash) label = document["name"].toString();
+    // Dorico sends every chair in its template its map's version when
+    // playback starts, so once any chair has reported, a silent one isn't in
+    // this project's template.
+    const auto check = agent::bridgeCheck(beacon, static_cast<bool>(assignment["verified"]), reported);
+    auto *item = new juce::DynamicObject();
+    item->setProperty("map", label.isNotEmpty() ? label : juce::String("Bridge map"));
+    item->setProperty("state", check.state);
+    item->setProperty("message", check.message);
+    if (const auto withheld = static_cast<juce::int64>(assignment["withheldNotes"]); withheld > 0) {
+      item->setProperty("notesNotPlayed", withheld);
+      item->setProperty("notPlayedByReason", assignment["withheldByReason"]);
+    }
+    checks[{static_cast<int>(assignment["port"]), static_cast<int>(assignment["channel"])}] = juce::var(item);
+  }
+  return checks;
+}
+
+namespace {
+/// Bridge-map sections for the agent: what is installed and whether this
+/// Fiddle has a newer built-in version.
+juce::var bridgeSectionsJson(const juce::var &status) {
+  std::map<juce::String, juce::var> revisions;
+  if (const auto *documents = status["documents"].getArray())
+    for (const auto &document : *documents)
+      revisions[document["hash"].toString()] = document["revision"];
+  juce::Array<juce::var> sections;
+  if (const auto *list = status["sections"].getArray())
+    for (const auto &section : *list) {
+      const auto hash = section["hash"].toString();
+      auto *item = new juce::DynamicObject();
+      item->setProperty("section", section["key"]);
+      item->setProperty("label", section["label"]);
+      item->setProperty("installed", hash.isNotEmpty());
+      if (hash.isNotEmpty()) item->setProperty("revision", revisions[hash]);
+      item->setProperty("builtInRevision", section["builtInRevision"]);
+      item->setProperty("updateAvailable", static_cast<bool>(section["updateAvailable"]));
+      sections.add(juce::var(item));
+    }
+  return juce::var(sections);
+}
+} // namespace
+
+AgentControlServer::Response MainComponent::agentGetBridgeMaps(const juce::var &) {
+  if (!bridgeMapCommands_)
+    return Response::failure("Bridge maps are not available");
+  const auto status = bridgeMapCommands_->status();
+  // Chairs whose notes aren't all playing, by name, including withheld notes
+  // on a chair whose map checks out.
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto checks = agentBridgeChecks();
+  juce::Array<juce::var> attention;
+  std::map<juce::String, int> counts;
+  if (repository)
+    for (const auto &chair : repository->listChairs()) {
+      const auto check = checks.find({chair.flatIndex / 16, chair.flatIndex % 16 + 1});
+      if (check == checks.end()) continue;
+      const auto state = check->second["state"].toString();
+      ++counts[state];
+      if (agent::bridgeNeedsAttention(state, static_cast<juce::int64>(check->second["notesNotPlayed"]))) {
+        auto *item = new juce::DynamicObject();
+        item->setProperty("chairId", juce::String(chair.id));
+        item->setProperty("chairName", juce::String(chair.name));
+        item->setProperty("bridge", check->second);
+        attention.add(juce::var(item));
+      }
+    }
+  auto *byState = new juce::DynamicObject();
+  for (const auto &[state, count] : counts) byState->setProperty(state, count);
+  auto *result = new juce::DynamicObject();
+  result->setProperty("sections", bridgeSectionsJson(status));
+  result->setProperty("chairsByState", juce::var(byState));
+  result->setProperty("chairsNeedingAttention", juce::var(attention));
+  if (status["error"].toString().isNotEmpty()) result->setProperty("error", status["error"]);
+  return Response::success(juce::var(result));
+}
+
+AgentControlServer::Response MainComponent::agentUpdateBridgeMaps(const juce::var &params) {
+  if (const auto blocker = agentSetupBlocker(false); blocker.isNotEmpty())
+    return Response::failure(blocker);
+  if (!bridgeMapCommands_)
+    return Response::failure("Bridge maps are not available");
+  const auto section = text(params, "section");
+  if (section.isNotEmpty() &&
+      std::none_of(bridgeSections().begin(), bridgeSections().end(),
+                   [&](const auto &info) { return section == info.key; }))
+    return Response::failure("Unknown bridge-map section: " + section);
+  const auto before = juce::JSON::toString(bridgeSectionsJson(bridgeMapCommands_->status()));
+  if (!bridgeMapCommands_->useBuiltInSections(section.isEmpty() ? std::vector<juce::String>{}
+                                                                : std::vector<juce::String>{section}))
+    return Response::failure(bridgeMapCommands_->status()["error"].toString());
+  const auto sections = bridgeSectionsJson(bridgeMapCommands_->status());
+  auto *result = new juce::DynamicObject();
+  result->setProperty("changed", juce::JSON::toString(sections) != before);
+  result->setProperty("sections", sections);
+  // Dorico has the old maps until the template is installed again.
+  result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  result->setProperty("history", historyJson(undoManager_));
   return Response::success(juce::var(result));
 }
 
@@ -1884,7 +2064,7 @@ AgentControlServer::Response MainComponent::agentCapturePatchPlayer(const juce::
   result->setProperty("layerCount", layers);
   if (layers > 0)
     result->setProperty("note", "Layers already using this patch keep their earlier player state "
-                                "until the user presses Update from Library in each layer's details.");
+                                "until updated with fiddle_update_layers_from_library.");
   result->setProperty("libraryHistory", historyJson(libraryUndoManager_));
   return Response::success(juce::var(result));
 }

@@ -72,6 +72,27 @@ PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
                                   const std::string &requestedSession, bool allowUnchanged,
                                   const std::string &currentBaseline);
 
+/// Whether a chair's bridge map lets its notes play, as the Chairs window
+/// says it (ui/src/lib/bridgeStatus.js). state is one of: playing,
+/// differentVersion (Dorico has an older or edited copy; notes are muted),
+/// notInProjectTemplate (Dorico sent other chairs their maps but nothing to
+/// this one), checkOnPlayback (checked when playback starts), unchecked (the
+/// map sends no version ID and isn't verified; notes are muted).
+struct BridgeCheck {
+  juce::String state;
+  juce::String message;
+};
+
+/// beacon is the live check's result (unsupported, absent, matched or
+/// mismatched), empty when there is none. othersReported: another chair's
+/// map has reported a version since playback started.
+BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported);
+
+/// Whether fiddle_get_bridge_maps lists a chair as needing attention: its
+/// notes are muted or not sent, or some notes weren't played, even when the
+/// map itself checks out (out of range, pitch not in the percussion map).
+bool bridgeNeedsAttention(const juce::String &state, juce::int64 notesNotPlayed);
+
 /// The chair role Fiddle suggests for an instrument: strings and choir
 /// default to sections, everything else to solo players (chairModel.js).
 juce::String suggestedRole(const BrowsableInstrument &instrument);

@@ -29,7 +29,7 @@ Read-only:
 
 | Tool | Returns |
 | --- | --- |
-| `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits and a running plug-in scan. |
+| `fiddle_get_status` | Application, transport, project, dirty and history status, including the library history, unsaved Library Manager edits, a running plug-in scan, whether Dorico is connected, and the warning Fiddle shows when Dorico tried to connect a second Fiddle (its template has too few chairs). |
 | `fiddle_get_mixer` | Layers (with plug-in status) and stable layer IDs, plus group buses and master state; filtering by words, chair or layer returns only the layers. |
 | `fiddle_search_dorico_instruments` | Canonical Dorico instrument IDs by name, with family, suggested chair role and a kit's instruments. |
 | `fiddle_list_plugins` | Known plug-ins with UIDs, instrument/effect compatibility and whether each loaded; `scanning` while a scan runs. |
@@ -39,7 +39,8 @@ Read-only:
 | `fiddle_get_library` | One library's patches in full. |
 | `fiddle_find_patches` | Patches across every library that could play a chair or instrument: the same instrument, a variant, or a percussion map that covers it (`matchedBy`). Also by words or player. |
 | `fiddle_get_library_setup` | Guided-setup progress for one library. |
-| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit and layers; kits; and whether Dorico's playback template is out of date. Filter by words, chair, or chairs without layers; a filtered answer lists only those chairs' kits. |
+| `fiddle_get_chairs` | Chairs (including empty ones) with instrument, role, MIDI port and channel, kit, layers and bridge-map check (`bridge`); kits; and whether Dorico's playback template is out of date. Filter by words, chair, or chairs without layers; a filtered answer lists only those chairs' kits. |
+| `fiddle_get_bridge_maps` | Whether Dorico plays the chairs: installed bridge-map sections and available built-in updates, chair counts by bridge state, and the chairs that need attention, with what to do. |
 | `fiddle_list_score_test_runs` | Recent score test runs with pass/fail and note counts. |
 | `fiddle_get_score_test_run` | A score test run explained by its ID: failed, missing and extra notes, part bindings, bridge state, and optionally one note's checks and the MIDI around it. |
 
@@ -59,6 +60,8 @@ Edits:
 | `fiddle_create_kit`, `_rename_kit`, `_delete_kit` | Percussion kits ([percussion kits](percussion-kits.md)). | project |
 | `fiddle_add_layer`, `fiddle_remove_layer` | Add a library patch to a chair as a layer, or remove one (optionally across a kit). | project |
 | `fiddle_install_playback_template` | Write the Dorico playback template for the current chairs. | none |
+| `fiddle_update_layers_from_library` | Reload a layer (and its kit's linked copies), or every layer using a patch, from the library patch, as Update from Library does. | project |
+| `fiddle_update_bridge_maps` | Use this Fiddle's built-in bridge maps for one section or every section with an update. | project |
 | `fiddle_set_patch_preset_with_user` | Open a patch's player window, ask the user to choose its preset there, and capture it. | library |
 | `fiddle_open_patch_player`, `fiddle_get_patch_player`, `fiddle_capture_patch_player`, `fiddle_close_patch_player` | The same steps one at a time, for clients that can't ask the user. | library (capture) |
 | `fiddle_undo`, `fiddle_redo` | Step the project history (default) or the library history. | either |
@@ -77,7 +80,7 @@ Conventions:
   whole mixer. Chair edits return only the chairs they touched.
 
 Tools are annotated for MCP clients: reads are read-only; deletions, layer
-removal and template installation are destructive; setters are idempotent.
+removal and updating, and template installation are destructive; setters are idempotent.
 The score test tools read run records from
 `~/Library/Application Support/Fiddle/ScoreTests/runs` directly
 (`FIDDLE_SCORE_TEST_RUNS_DIR` overrides it), so they work when Fiddle is not
@@ -119,6 +122,23 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
    `templateStatus.dirty`, ask the user to quit Dorico, then
    `fiddle_install_playback_template`. The user restarts Dorico and applies
    the Fiddle template in open projects.
+8. **Check that Dorico plays it.** `fiddle_get_status` shows whether Dorico is
+   connected. Have the user start playback in Dorico, then
+   `fiddle_get_bridge_maps`: each chair with a bridge map reports when
+   playback starts, and the chairs needing attention say what to do.
+
+A chair's `bridge.state` is the check the Chairs window shows: `playing`;
+`differentVersion` (Dorico has an older or edited copy of the map, so Fiddle
+mutes the chair: reinstall the template and reapply it); `notInProjectTemplate`
+(Dorico sent other chairs their maps but nothing to this one: restart Dorico
+if the template is new, then reapply it in the project); `checkOnPlayback`
+(not yet checked; play to check); or `unchecked` (the map sends no version
+ID, so the chair is muted until the user verifies a Dorico export in the
+Chairs window). `notesNotPlayed` counts notes Fiddle withheld, by reason; a
+chair with withheld notes needs attention even when its map checks out.
+
+When a patch's preset is captured again, layers that use it keep their old
+player state until `fiddle_update_layers_from_library` with the patch ID.
 
 ## Choosing presets with the user
 
@@ -238,14 +258,15 @@ whether the user can take it back.
   edits on the project history; library and map edits on the library history.
   Every agent edit except a plug-in scan and a template install can be undone
   with `fiddle_undo`.
-- Setup edits (libraries, chairs, kits, layers, the template), and Undo and
+- Setup edits (libraries, chairs, kits, layers, bridge maps, the template), and Undo and
   Redo in either history, are refused while Dorico is playing. The adapter tells agents not to change anything
   else during playback unless the user asks.
 - Library edits are refused while Library Manager has unsaved edits, because
   saving that draft would overwrite them. After an agent edit, an open,
   unedited Library Manager editor reloads.
 - Deleting a library, or removing a patch, is refused while a layer uses it.
-- Deletions and template installation are annotated destructive, so MCP
+- Deletions, updating layers from the library (it replaces changes made to
+  their player in the mixer) and template installation are annotated destructive, so MCP
   clients ask before running them. The tool descriptions tell agents to
   present a plan before creating libraries or several chairs, and to have the
   user quit Dorico before installing the template.

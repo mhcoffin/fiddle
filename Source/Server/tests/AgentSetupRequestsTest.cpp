@@ -336,6 +336,31 @@ void testPercussion() {
       checks(), ids()).ok);
 }
 
+void testBridgeCheck() {
+  using agent::bridgeCheck;
+  // A different version mutes notes, even if an export was verified earlier.
+  CHECK(bridgeCheck("mismatched", true, true).state == "differentVersion");
+  CHECK(bridgeCheck("matched", false, false).state == "playing");
+  CHECK(bridgeCheck("absent", true, true).state == "playing");
+  CHECK(bridgeCheck("unsupported", true, false).state == "playing");
+  // Nothing arrived: missing from the project's template only once other
+  // chairs have reported since playback started.
+  CHECK(bridgeCheck("absent", false, true).state == "notInProjectTemplate");
+  CHECK(bridgeCheck("absent", false, false).state == "checkOnPlayback");
+  CHECK(bridgeCheck("unsupported", false, true).state == "unchecked");
+  CHECK(bridgeCheck("", false, false).state == "unchecked");
+  CHECK(bridgeCheck("mismatched", false, false).message.contains("playback template"));
+
+  // Attention: muted or unsent chairs, and withheld notes in any state.
+  CHECK(!agent::bridgeNeedsAttention("playing", 0));
+  CHECK(!agent::bridgeNeedsAttention("checkOnPlayback", 0));
+  CHECK(agent::bridgeNeedsAttention("playing", 3));
+  CHECK(agent::bridgeNeedsAttention("checkOnPlayback", 1));
+  CHECK(agent::bridgeNeedsAttention("differentVersion", 0));
+  CHECK(agent::bridgeNeedsAttention("notInProjectTemplate", 0));
+  CHECK(agent::bridgeNeedsAttention("unchecked", 0));
+}
+
 } // namespace
 
 int main() {
@@ -343,6 +368,7 @@ int main() {
   testMatching();
   testCoversInstrument();
   testPlayerCapture();
+  testBridgeCheck();
   testKitNames();
   testCreateLibrary();
   testUpdateLibrary();

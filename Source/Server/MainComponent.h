@@ -202,6 +202,7 @@ private:
   // Dorico's sample rate, from FiddleNative's diagnostics; 0 until reported.
   std::atomic<double> hostSampleRate_{0.0};
   juce::String connectionWarning_;
+  bool doricoConnected_ = false; // Fiddle's Dorico plug-in is connected
 
   /// Global harmonic analysis service (joint key/chord HMM).
   /// Owned here; MixerModel holds a raw ptr.
@@ -360,6 +361,12 @@ private:
   AgentResponse agentAddLayer(const juce::var &params);
   AgentResponse agentRemoveLayer(const juce::var &params);
   AgentResponse agentInstallTemplate(const juce::var &params);
+  AgentResponse agentRefreshLayers(const juce::var &params);
+  /// Each bridge-assigned endpoint's check, keyed by (0-based port,
+  /// 1-based channel) as BridgeMapCommands reports it.
+  std::map<std::pair<int, int>, juce::var> agentBridgeChecks() const;
+  AgentResponse agentGetBridgeMaps(const juce::var &params);
+  AgentResponse agentUpdateBridgeMaps(const juce::var &params);
   AgentResponse agentOpenPatchPlayer(const juce::var &params);
   AgentResponse agentPatchPlayerStatus(const juce::var &params);
   AgentResponse agentCapturePatchPlayer(const juce::var &params);

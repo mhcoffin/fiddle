@@ -192,7 +192,7 @@ export function registerSetupTools(server: McpServer): void {
 
   server.registerTool('fiddle_get_chairs', {
     title: 'Get chairs',
-    description: 'Chairs (including empty ones) with instrument, role, MIDI port and channel 1-16, kit and layers; kits; and templateStatus.dirty when Dorico\'s template needs reinstalling.',
+    description: 'Chairs (including empty ones) with instrument, role, MIDI port and channel 1-16, kit, layers and bridge (whether Dorico\'s bridge map lets the chair play, with notes not played); kits; and templateStatus.dirty when Dorico\'s template needs reinstalling.',
     inputSchema: z.object({
       query: z.string().optional().describe('Words to match in the chair name, instrument, family or kit'),
       chair_id: z.string().min(1).optional(),
@@ -311,4 +311,32 @@ export function registerSetupTools(server: McpServer): void {
     description: 'Write Dorico\'s Fiddle playback template for the current chairs. Ask the user first and have them quit Dorico; afterwards they restart it and reapply the template in open projects.',
     annotations: destructive
   }, async () => callFiddleTool('template.install'));
+
+  server.registerTool('fiddle_update_layers_from_library', {
+    title: 'Update layers from library',
+    description: 'Reload layers from their library patch (player, captured preset, maps), replacing changes made to their player in the mixer: one layer (with its kit\'s linked copies), or with patch_id every layer using that patch, e.g. after its preset was captured again. Undo with fiddle_undo.',
+    inputSchema: z.object({
+      layer_id: z.string().min(1).optional(),
+      patch_id: z.string().min(1).optional()
+    }).refine(value => (value.layer_id === undefined) !== (value.patch_id === undefined),
+              'Give layer_id or patch_id'),
+    annotations: destructive
+  }, async ({ layer_id, patch_id }) =>
+    callFiddleTool('layers.refresh', defined({ layerId: layer_id, patchId: patch_id })));
+
+  server.registerTool('fiddle_get_bridge_maps', {
+    title: 'Get bridge maps',
+    description: 'Whether Dorico plays the chairs: bridge-map sections installed and whether this Fiddle has newer built-in versions (updateAvailable), counts of chairs by bridge state, and the chairs needing attention (notes muted, not sent, or some not played), with what to do. Chairs report when Dorico starts playback.',
+    annotations: readOnly
+  }, async () => callFiddleTool('bridge.get'));
+
+  server.registerTool('fiddle_update_bridge_maps', {
+    title: 'Update bridge maps',
+    description: 'Use this Fiddle\'s built-in bridge maps for one section, or every section with an update. Undo with fiddle_undo. Dorico keeps the old maps until fiddle_install_playback_template and reapplying the template.',
+    inputSchema: z.object({
+      section: z.string().min(1).optional().describe('Section from fiddle_get_bridge_maps; omit for every section with an update')
+    }),
+    annotations: additive
+  }, async ({ section }) =>
+    callFiddleTool('bridge.update', defined({ section })));
 }

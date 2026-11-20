@@ -944,6 +944,7 @@ void MainComponent::initMidiServer() {
       safeCallAsync([this, connected, host]() {
         returnDiagnosticsReceivedMs_ = 0;
         returnDiagnostics_.Clear();
+        doricoConnected_ = connected;
         broadcastMessage("setConnectionState", connected);
         if (connected) {
           pushConfigStatus();

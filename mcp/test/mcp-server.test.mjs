@@ -130,11 +130,11 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
     for (const name of ['fiddle_search_dorico_instruments', 'fiddle_list_plugins',
       'fiddle_find_patches',
       'fiddle_list_maps', 'fiddle_list_libraries', 'fiddle_get_library',
-      'fiddle_get_chairs'])
+      'fiddle_get_chairs', 'fiddle_get_bridge_maps'])
       assert.equal(tool(name)?.annotations?.readOnlyHint, true, name);
     for (const name of ['fiddle_delete_chair', 'fiddle_delete_kit',
       'fiddle_delete_library', 'fiddle_remove_layer',
-      'fiddle_install_playback_template'])
+      'fiddle_install_playback_template', 'fiddle_update_layers_from_library'])
       assert.equal(tool(name)?.annotations?.destructiveHint, true, name);
     for (const name of ['fiddle_save_library', 'fiddle_create_chairs',
       'fiddle_create_kit', 'fiddle_add_layer', 'fiddle_scan_plugins',
@@ -223,6 +223,18 @@ test('MCP adapter advertises tools and calls the Fiddle bridge', async () => {
       'layers.add', { chairId: 'c', patchId: 'p', wholeKit: true });
     await call('fiddle_remove_layer', { layer_id: 'l' }, 'layers.remove', { layerId: 'l' });
     await call('fiddle_install_playback_template', {}, 'template.install', {});
+    await call('fiddle_update_layers_from_library', { layer_id: 'l' }, 'layers.refresh', { layerId: 'l' });
+    await call('fiddle_update_layers_from_library', { patch_id: 'p' }, 'layers.refresh', { patchId: 'p' });
+    await call('fiddle_get_bridge_maps', {}, 'bridge.get', {});
+    await call('fiddle_update_bridge_maps', {}, 'bridge.update', {});
+    await call('fiddle_update_bridge_maps', { section: 'strings' }, 'bridge.update', { section: 'strings' });
+    // Exactly one of layer_id and patch_id.
+    for (const args of [{}, { layer_id: 'l', patch_id: 'p' }]) {
+      const before = requests.length;
+      const result = await client.callTool({ name: 'fiddle_update_layers_from_library', arguments: args });
+      assert.equal(result.isError, true, JSON.stringify(args));
+      assert.equal(requests.length, before);
+    }
     await call('fiddle_undo', {}, 'history.undo', {});
     await call('fiddle_undo', { history: 'library' }, 'history.undo', { history: 'library' });
     await call('fiddle_redo', { history: 'project' }, 'history.redo', { history: 'project' });

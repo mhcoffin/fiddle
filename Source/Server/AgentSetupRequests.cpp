@@ -141,6 +141,34 @@ PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
   return PlayerCapture::capture;
 }
 
+BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported) {
+  if (beacon == "mismatched")
+    return {"differentVersion",
+            "Dorico is playing an older or edited copy of this chair's bridge map, so Fiddle mutes its "
+            "notes. Have the user quit Dorico, install the playback template, then reapply the Fiddle "
+            "playback template in open projects."};
+  if (beacon == "matched")
+    return {"playing", "When playback started, Dorico sent this map's version ID and it matches."};
+  if (verified)
+    return {"playing", "The user confirmed from a Dorico export that Dorico has this map."};
+  if (beacon == "absent" && othersReported)
+    return {"notInProjectTemplate",
+            "When playback started, Dorico sent other chairs their map's version ID but nothing to this "
+            "one, so this project's playback template doesn't include it. If Dorico hasn't been restarted "
+            "since the template was installed, restart it; then reapply the Fiddle playback template in "
+            "this project."};
+  if (beacon == "absent")
+    return {"checkOnPlayback",
+            "Fiddle checks this map's version when Dorico starts playback; play in Dorico to check."};
+  return {"unchecked",
+          "This map sends no version ID, so Fiddle can't check it and mutes its notes. The user can export "
+          "the map from Dorico and choose Verify assigned map under Bridge maps in Fiddle's Chairs window."};
+}
+
+bool bridgeNeedsAttention(const juce::String &state, juce::int64 notesNotPlayed) {
+  return notesNotPlayed > 0 || (state != "playing" && state != "checkOnPlayback");
+}
+
 juce::String suggestedRole(const BrowsableInstrument &instrument) {
   const auto family = instrument.family.toLowerCase();
   const bool section = family == "strings" || family == "string" || family == "choir" ||
