@@ -101,6 +101,14 @@ the Library Manager's home page.
 
 Imports, updates and deletes are still undoable catalog edits ("Undo catalog").
 
+Only a change to a map itself reaches the layers: importing, updating or
+editing a map (or undoing that) gives the layers using that map the new copy.
+Fiddle compares the collection before and after each catalog change
+(`syncLayersToChangedMaps`, `changedMaps` in `LibraryMaps.h`), so other catalog
+changes (library edits, preset captures, an agent's library edits, and their
+Undo) leave every layer's map alone. A restored older version keeps its own
+copies of maps until one of those maps is itself changed.
+
 The old **Load from file…** buttons are gone: the picker's import does the
 same job and shows the clash warnings. `loadPercussionMapFromFile` is removed.
 `loadExpressionMapFromFile` stays on the expression-map command boundary

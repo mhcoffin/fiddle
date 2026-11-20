@@ -4,8 +4,11 @@
 #include "LibraryRoutingRepository.h"
 #include <juce_core/juce_core.h>
 #include <functional>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fiddle {
@@ -37,6 +40,17 @@ std::vector<LibraryMapCandidate> readLibraryMaps(LibraryMapKind kind, const juce
                                                  const juce::File &file, juce::String &error);
 std::vector<LibraryMapCandidate> readLibraryMapFile(LibraryMapKind kind, const juce::File &file,
                                                     juce::String &error);
+
+/// A map in Fiddle's collection, by kind and entity ID.
+using MapKey = std::pair<LibraryMapKind, std::string>;
+
+/// Each map's definition, by kind and ID: a snapshot of the collection for
+/// telling which maps a change touched.
+std::map<MapKey, std::string> mapDefinitions(const std::vector<LibraryMapRow> &rows);
+
+/// Maps added, removed or changed between two snapshots.
+std::set<MapKey> changedMaps(const std::map<MapKey, std::string> &before,
+                             const std::map<MapKey, std::string> &after);
 
 /// SHA-256 of a normalized definition, as lowercase hex.
 juce::String libraryMapHash(const juce::String &definitionXml);

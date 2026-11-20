@@ -1084,6 +1084,8 @@ void MainComponent::initDatabase() {
   scanPersistedExpressionMapSources();
   migrateLegacyLibraryPatches();
   migrateLibraryMaps();
+  if (auto *repository = db_.getLibraryRoutingRepository())
+    catalogMapSnapshot_ = mapDefinitions(repository->listMaps());
 
   // Create the VersionStore backed by the database's SqliteVersionStorage.
   // This must happen immediately after db_.open() so that all downstream
@@ -2213,6 +2215,10 @@ void MainComponent::reportInexactChairRouting(const std::vector<std::string> &ch
 bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
   const auto result = projectRestoreService().restore(state);
   if (!result.accepted) {
+    // A failed pre-chair restore may still have added maps; they are
+    // part of the collection now, not a later change for layers to take.
+    if (auto *repository = db_.getLibraryRoutingRepository())
+      catalogMapSnapshot_ = mapDefinitions(repository->listMaps());
     pushLogMessage("<b>[Restore]</b> Failed: " + juce::String(result.error), true);
     return false;
   }
@@ -2229,6 +2235,8 @@ bool MainComponent::applyVersionState(const versioning::FiddleState &state) {
                    "these libraries: " + names.joinIntoString(", "));
     migrateLibraryMaps();
     refreshLiveLibraryMaps();
+    if (auto *repository = db_.getLibraryRoutingRepository())
+      catalogMapSnapshot_ = mapDefinitions(repository->listMaps());
     pushLibraryCatalogHistory();
     pushLayerCatalog();
     pushLibraryMaps();
@@ -3488,7 +3496,7 @@ void MainComponent::setupJsHandlers() {
           juce::var("Catalog history could not be applied. A patch may now be used by a layer. History has been kept."));
         pushLibraryCatalogHistory();
         pushLayerCatalog();
-        refreshLiveLibraryMaps();
+        syncLayersToChangedMaps();
         pushLibraryMaps();
         pushMixerState(false);
         pushLibraryLayerStatus();

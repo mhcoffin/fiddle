@@ -557,6 +557,39 @@ void testLegacyStripsBecomeChairsLayersAndLibraries() {
   CHECK(kept && kept->name == "My clarinet");
 }
 
+// Which maps a change to the collection touched: only those maps' layers are
+// brought up to date, so an old project's other maps keep their copies.
+void testChangedMapsAreOnlyThoseTouched() {
+  using fiddle::LibraryMapKind;
+  const auto row = [](LibraryMapKind kind, const char *id, const char *xml) {
+    fiddle::LibraryMapRow map;
+    map.kind = kind;
+    map.entityId = id;
+    map.xml = xml;
+    return map;
+  };
+  const auto before = fiddle::mapDefinitions({row(LibraryMapKind::expression, "strings", "<a/>"),
+                                              row(LibraryMapKind::expression, "brass", "<b/>"),
+                                              row(LibraryMapKind::percussion, "kit", "<k/>"),
+                                              row(LibraryMapKind::percussion, "old", "<o/>")});
+  // Nothing changed (a library edit, a preset capture).
+  CHECK(fiddle::changedMaps(before, before).empty());
+  const auto after = fiddle::mapDefinitions({row(LibraryMapKind::expression, "strings", "<a2/>"),
+                                             row(LibraryMapKind::expression, "brass", "<b/>"),
+                                             row(LibraryMapKind::percussion, "kit", "<k/>"),
+                                             row(LibraryMapKind::percussion, "new", "<n/>")});
+  const auto changed = fiddle::changedMaps(before, after);
+  CHECK(changed.size() == 3);
+  CHECK(changed.count({LibraryMapKind::expression, "strings"}) == 1); // edited
+  CHECK(changed.count({LibraryMapKind::percussion, "new"}) == 1);     // added
+  CHECK(changed.count({LibraryMapKind::percussion, "old"}) == 1);     // removed
+  CHECK(changed.count({LibraryMapKind::expression, "brass"}) == 0);
+  // The same ID as another kind is a different map.
+  const auto expressionKit = fiddle::mapDefinitions({row(LibraryMapKind::expression, "kit", "<k/>")});
+  CHECK(fiddle::changedMaps(fiddle::mapDefinitions({row(LibraryMapKind::percussion, "kit", "<k/>")}),
+                            expressionKit).size() == 2);
+}
+
 } // namespace
 
 int main() {
@@ -568,6 +601,7 @@ int main() {
   testSharedPercussionMapsMigrateToFiddlesMaps();
   testMigrationCopiesMissingExpressionMaps();
   testLegacyStripsBecomeChairsLayersAndLibraries();
+  testChangedMapsAreOnlyThoseTouched();
   std::cout << "LibraryMapsTest: " << passed << " passed, " << failed << " failed" << std::endl;
   return failed == 0 ? 0 : 1;
 }

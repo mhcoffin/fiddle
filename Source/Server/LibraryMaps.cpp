@@ -257,4 +257,25 @@ migrateLibraryMaps(LibraryRoutingRepository &repository, const std::vector<juce:
   return report;
 }
 
+std::map<MapKey, std::string> mapDefinitions(const std::vector<LibraryMapRow> &rows) {
+  std::map<MapKey, std::string> definitions;
+  for (const auto &row : rows)
+    definitions[{row.kind, row.entityId}] = row.xml;
+  return definitions;
+}
+
+std::set<MapKey> changedMaps(const std::map<MapKey, std::string> &before,
+                             const std::map<MapKey, std::string> &after) {
+  std::set<MapKey> changed;
+  for (const auto &[key, xml] : after) {
+    const auto old = before.find(key);
+    if (old == before.end() || old->second != xml)
+      changed.insert(key);
+  }
+  for (const auto &[key, xml] : before)
+    if (!after.count(key))
+      changed.insert(key);
+  return changed;
+}
+
 } // namespace fiddle

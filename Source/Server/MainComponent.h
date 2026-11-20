@@ -428,7 +428,14 @@ private:
   LayerEditResult removeChairLayers(const std::string &layerId, bool wholeKit);
   PercussionMapAssignment loadPercussionMap(const std::string &entityId);
   ExpressionMapAssignment loadStoredExpressionMap(const std::string &entityId);
-  void refreshLiveLibraryMaps();
+  /// Give live layers the collection's current copy of their maps: every
+  /// map, or only those in `only`.
+  void refreshLiveLibraryMaps(const std::set<MapKey> *only = nullptr);
+  /// After a change to the map collection, update the layers using the maps
+  /// that change touched, and no others: a layer keeping an older copy of an
+  /// untouched map (an old project's) keeps it.
+  void syncLayersToChangedMaps();
+  std::map<MapKey, std::string> catalogMapSnapshot_;
   void pushLibraryMaps();
   void pushMapUsage();
   void libraryMapResult(LibraryMapKind kind, const juce::String &action, bool success,

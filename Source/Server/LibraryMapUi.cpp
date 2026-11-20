@@ -82,17 +82,31 @@ ExpressionMapAssignment MainComponent::loadStoredExpressionMap(const std::string
   return {std::move(data), juce::String(row->sourcePath), expressionMapLibraryXml(definition)};
 }
 
-void MainComponent::refreshLiveLibraryMaps() {
+void MainComponent::syncLayersToChangedMaps() {
   auto *repository = db_.getLibraryRoutingRepository();
   if (!repository)
     return;
+  auto now = mapDefinitions(repository->listMaps());
+  const auto changed = changedMaps(catalogMapSnapshot_, now);
+  catalogMapSnapshot_ = std::move(now);
+  if (!changed.empty())
+    refreshLiveLibraryMaps(&changed);
+}
+
+void MainComponent::refreshLiveLibraryMaps(const std::set<MapKey> *only) {
+  auto *repository = db_.getLibraryRoutingRepository();
+  if (!repository)
+    return;
+  const auto wanted = [only](LibraryMapKind kind, const std::string &entityId) {
+    return !only || only->count({kind, entityId}) > 0;
+  };
   bool changed = false;
   for (const auto &layer : repository->listLayers()) {
     auto *strip = mixer_.getStrip(juce::String(layer.id));
     if (!strip)
       continue;
     const auto percussion = strip->snapshotPercussionMap();
-    if (percussion.map) {
+    if (percussion.map && wanted(LibraryMapKind::percussion, percussion.map->entityId)) {
       auto latest = keepingPlayAs(loadPercussionMap(percussion.map->entityId), percussion.playAs);
       if (latest.map && (latest.sourceXml != percussion.sourceXml || latest.playAs != percussion.playAs)) {
         strip->setPercussionMapAssignment(std::move(latest));
@@ -100,7 +114,7 @@ void MainComponent::refreshLiveLibraryMaps() {
       }
     }
     const auto expression = strip->snapshotExpressionMap();
-    if (expression.data) {
+    if (expression.data && wanted(LibraryMapKind::expression, expression.data->entityID)) {
       auto latest = loadStoredExpressionMap(expression.data->entityID);
       if (latest.data && latest.sourceXml != expression.sourceXml) {
         strip->setExpressionMapAssignment(std::move(latest));
@@ -111,6 +125,7 @@ void MainComponent::refreshLiveLibraryMaps() {
   if (changed) {
     saveAllStripsToDB(false);
     scheduleStateRebuild();
+    pushMixerState(false); // the layers' map names, whichever path changed them
   }
 }
 
@@ -221,7 +236,7 @@ bool MainComponent::performLibraryMapEdit(LibraryMapKind kind, const std::string
                                                           description);
   const bool success = action->isNoOp() || libraryUndoManager_.perform(std::move(action));
   if (success) {
-    refreshLiveLibraryMaps();
+    syncLayersToChangedMaps();
     pushLibraryCatalogHistory();
     pushMixerState(false);
   }

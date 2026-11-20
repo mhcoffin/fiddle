@@ -574,6 +574,8 @@ MainComponent::createAgentGuidedLibrary(const juce::var &params) {
           "Save library: " + name, std::move(actions))))
     return AgentControlServer::Response::failure(
         "Fiddle could not create the guided library");
+  // Maps it imported reach the layers using them now, like any map import.
+  syncLayersToChangedMaps();
   pushLibraryMaps();
 
   for (const auto &path : sourceDirectories) {
@@ -635,7 +637,7 @@ MainComponent::agentUndoRedo(const juce::var &params, bool redo) {
 void MainComponent::catalogChangedByAgent(const juce::String &libraryId) {
   pushLibraryCatalogHistory();
   pushLayerCatalog();
-  refreshLiveLibraryMaps();
+  syncLayersToChangedMaps();
   pushLibraryMaps();
   pushMixerState(false);
   pushLibraryLayerStatus();
