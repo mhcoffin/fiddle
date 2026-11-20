@@ -406,6 +406,14 @@ StripAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) co
   return result;
 }
 
+std::vector<juce::PluginDescription> StripAudioEngine::insertDescriptions() const {
+  std::vector<juce::PluginDescription> descriptions;
+  for (const auto *rack : {&preFaderInserts_, &postFaderInserts_})
+    for (const auto &entry : *rack)
+      descriptions.push_back(entry->description);
+  return descriptions;
+}
+
 StripAudioSnapshot StripAudioEngine::snapshotAll(bool captureLiveState) const {
   StripAudioSnapshot result;
   result.balance = balance();

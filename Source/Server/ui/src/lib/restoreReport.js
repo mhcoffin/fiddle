@@ -33,12 +33,14 @@ export function restoreProblems(strips) {
 
 /**
  * Whether to show the banner: always for warnings and for the user's own
- * choices; a plain successful restore only when something can't play as saved
- * or unsaved edits were saved first.
+ * choices; a plain successful restore only when something can't play as saved,
+ * something it depends on changed since it was saved, or unsaved edits were
+ * saved first.
  */
 export function showRestoreReport(report, problems) {
     if (!report || !report.kind) return false;
     // Edits saved before switching are always worth saying.
-    if (report.kind === "exact") return problems.length > 0 || report.savedEdits === true;
+    if (report.kind === "exact")
+        return problems.length > 0 || report.savedEdits === true || (report.changes?.length ?? 0) > 0;
     return true;
 }

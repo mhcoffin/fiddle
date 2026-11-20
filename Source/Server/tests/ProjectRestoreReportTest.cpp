@@ -1,6 +1,8 @@
 // What the user is told when a Dorico project connects (ProjectRestoreReport.h).
+#include "../ProjectEnvironment.h"
 #include "../ProjectRestoreReport.h"
 
+#include <algorithm>
 #include <iostream>
 
 namespace {
@@ -101,12 +103,82 @@ void testBoundToCurrent() {
   CHECK(bound["message"].toString().contains("Save the project in Dorico"));
 }
 
+void testEnvironmentChanges() {
+  ProjectEnvironment saved;
+  saved.appVersion = "1.0.51";
+  saved.sampleRate = 48000.0;
+  // Realistic millisecond file times (past 32 bits) and a negative VST3 ID.
+  saved.plugins[1] = {"Synchron Player", "VSL", "1.2.0", 1763600000000, "/VST3/Synchron Player.vst3", true};
+  saved.plugins[-2] = {"Pianoteq", "Modartt", "8.1", 1763600000001, "/VST3/Pianoteq 8.vst3", true};
+  saved.plugins[3] = {"Gone Instrument", "Nobody", "1.0", 1763600000002, "/VST3/Gone.vst3", true};
+  saved.plugins[4] = {"Big Reverb", "Acme", "2.0", 1763600000003, "/VST3/Big Reverb.vst3", false};
+  saved.scripts["humanize"] = {"/scripts/humanize.lua", ProjectEnvironment::fingerprintOf("a")};
+  saved.scripts["missing"] = {"/scripts/missing.lua", ProjectEnvironment::fingerprintOf("m")};
+
+  // Nothing changed: nothing to say.
+  CHECK(environmentChanges(saved, saved).empty());
+
+  ProjectEnvironment now = saved;
+  now.appVersion = "1.0.60";
+  now.sampleRate = 44100.0;
+  now.plugins[1].version = "1.3.0";        // updated
+  now.plugins[-2].fileTime = 1763699999999; // same version, file replaced
+  now.plugins.erase(3);                    // a missing instrument: the mixer reports it
+  now.plugins.erase(4);                    // a missing effect: nothing else would say
+  now.scripts["humanize"].fingerprint = ProjectEnvironment::fingerprintOf("b");
+  now.scripts.erase("missing");            // missing: the mixer reports it
+  const auto changes = environmentChanges(saved, now);
+  CHECK(changes.size() == 6);
+  const auto has = [&changes](const juce::String &text) {
+    return std::any_of(changes.begin(), changes.end(), [&](const juce::String &c) { return c.contains(text); });
+  };
+  if (changes.size() == 6) {
+    CHECK(changes[0].contains("Fiddle has been updated (1.0.51 to 1.0.60)"));
+    CHECK(changes[1] == "The audio sample rate was 48 kHz when this project was saved and is 44.1 kHz now.");
+  }
+  CHECK(has("Synchron Player has been updated (1.2.0 to 1.3.0)."));
+  CHECK(has("Pianoteq has been reinstalled or changed"));
+  CHECK(has("The effect plug-in Big Reverb is no longer installed"));
+  CHECK(!has("Gone Instrument"));
+  CHECK(has("\"humanize\" has been edited"));
+  // Unknown values (no audio device, an old record) aren't changes.
+  ProjectEnvironment quiet = saved;
+  quiet.sampleRate = 0.0;
+  quiet.appVersion = {};
+  CHECK(environmentChanges(saved, quiet).empty());
+
+  // The record survives JSON; a foreign or missing one is ignored.
+  const auto loaded = ProjectEnvironment::fromJson(juce::JSON::parse(juce::JSON::toString(saved.toJson())));
+  CHECK(loaded.has_value());
+  if (loaded) {
+    CHECK(environmentChanges(saved, *loaded).empty());
+    CHECK(loaded->plugins.at(1).manufacturer == "VSL");
+    CHECK(loaded->plugins.at(-2).fileTime == 1763600000001);
+    CHECK(loaded->plugins.at(1).instrument && !loaded->plugins.at(4).instrument);
+    CHECK(loaded->plugins.at(4).path == "/VST3/Big Reverb.vst3");
+    CHECK(loaded->scripts.at("humanize").filePath == "/scripts/humanize.lua");
+  }
+  CHECK(!ProjectEnvironment::fromJson(juce::var()).has_value());
+  CHECK(!ProjectEnvironment::fromJson(juce::JSON::parse("{\"schema\": 2}")).has_value());
+
+  // The restore report carries the changes, and the log line includes them.
+  RestoreReportInput in;
+  in.outcome = RestoreOutcome::exact;
+  in.branchName = "Main";
+  in.changes = changes;
+  const auto built = buildRestoreReport(in);
+  CHECK(built["changes"].size() == 6);
+  CHECK(restoreReportText(built).contains("Synchron Player has been updated"));
+  CHECK(report(RestoreOutcome::exact)["changes"].size() == 0);
+}
+
 } // namespace
 
 int main() {
   testOutcomes();
   testSavedEdits();
   testBoundToCurrent();
+  testEnvironmentChanges();
   std::cout << passed << " passed, " << failed << " failed" << std::endl;
   return failed == 0 ? 0 : 1;
 }

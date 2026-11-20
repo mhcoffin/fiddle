@@ -1504,6 +1504,10 @@ bool MainComponent::saveConfig(const std::optional<std::string> &newBranchName) 
     pushCurrentVersion();
   });
   scheduleStateRebuild(); // Unchanged historical saves keep their exact identity.
+  // A new version gets a record of what it depends on. An unchanged save
+  // keeps the existing version's record (Dorico saves refresh it).
+  if (result.kind != versioning::ProjectSaveResult::Kind::Unchanged)
+    recordEnvironment(currentVersionId_);
   return true;
 }
 
@@ -1559,6 +1563,14 @@ void MainComponent::handleDoricoSaveRequest(uint64_t requestId) {
 
   if (server)
     server->sendToClient(response);
+
+  if (success) {
+    // After answering Dorico: the project was saved with what is installed
+    // now, so the banner's list of changes no longer applies.
+    recordEnvironment(currentVersionId_);
+    if (const auto *changes = restoreReport_["changes"].getArray(); changes && !changes->isEmpty())
+      setRestoreReport(withoutChanges(restoreReport_));
+  }
 }
 
 void MainComponent::pushConfigStatus() {
@@ -2365,8 +2377,21 @@ void MainComponent::restoreDoricoProject(
                            : RestoreOutcome::byBranchName;
       report.branchName = branchNameOf(target->branchId);
       setRestoreReport(buildRestoreReport(report));
+    } else if (const auto changes = environmentChangesSince(target->versionId);
+               !changes.empty() && changesKey(target->versionId, changes) != dismissedChanges_) {
+      // Already loaded (say, after restarting Fiddle), but something it
+      // depends on changed since the project was saved. Not again on a
+      // reconnect if the user dismissed this same list.
+      report.outcome = RestoreOutcome::exact;
+      report.branchName = branchNameOf(target->branchId);
+      report.changes = changes;
+      const auto built = buildRestoreReport(report);
+      pushLogMessage("<b>[Project]</b> " + restoreReportText(built));
+      setRestoreReport(built);
     } else if (restoreReport_["action"].toString().isNotEmpty()) {
       setRestoreReport({});
+    } else if (const auto *stale = restoreReport_["changes"].getArray(); stale && !stale->isEmpty()) {
+      setRestoreReport(withoutChanges(restoreReport_));
     }
     projectTemplate_ = target->match == versioning::ProjectRestoreTarget::Match::ExactVersion
                            ? templateLinesForVersion(target->versionId)
@@ -2406,6 +2431,7 @@ void MainComponent::restoreDoricoProject(
   if (target->match == versioning::ProjectRestoreTarget::Match::ExactVersion) {
     projectTemplate_ = templateLinesForVersion(target->versionId);
     broadcastTemplateDirty();
+    report.changes = environmentChangesSince(target->versionId);
   }
   report.outcome = target->match == versioning::ProjectRestoreTarget::Match::ExactVersion
                        ? RestoreOutcome::exact
@@ -2416,6 +2442,21 @@ void MainComponent::restoreDoricoProject(
   const auto built = buildRestoreReport(report);
   pushLogMessage("<b>[Project]</b> " + restoreReportText(built));
   setRestoreReport(built);
+}
+
+juce::String MainComponent::changesKey(const versioning::VersionId &versionId,
+                                       const std::vector<juce::String> &changes) {
+  juce::String key(versionId);
+  for (const auto &change : changes) key << '\n' << change;
+  return key;
+}
+
+juce::var MainComponent::withoutChanges(const juce::var &report) {
+  auto *copy = report.getDynamicObject() ? report.getDynamicObject()->clone().release() : nullptr;
+  if (!copy)
+    return report;
+  copy->setProperty("changes", juce::Array<juce::var>());
+  return juce::var(copy);
 }
 
 juce::String MainComponent::branchNameOf(const versioning::BranchId &branchId) const {
@@ -2435,6 +2476,117 @@ void MainComponent::bindUnresolvedProject() {
   unresolvedProject_.reset();
   setRestoreReport(boundToCurrentReport(branchNameOf(currentBranchId_)));
   pushConfigStatus();
+}
+
+namespace {
+/// A plug-in's details read from its bundle on disk, not Fiddle's scan cache
+/// (which keeps neither version nor date), so an update shows even before the
+/// next scan. nullopt when the bundle isn't there.
+std::optional<ProjectEnvironment::Plugin> pluginOnDisk(const juce::PluginDescription &description,
+                                                       bool instrument) {
+  const auto path = description.fileOrIdentifier;
+  if (!juce::File::isAbsolutePath(path))
+    return std::nullopt;
+  const juce::File bundle(path);
+  if (!bundle.exists())
+    return std::nullopt;
+  return ProjectEnvironment::Plugin{description.name, description.manufacturerName,
+                                    bundle.getVersion(),
+                                    bundle.getLastModificationTime().toMilliseconds(), path,
+                                    instrument};
+}
+
+std::optional<juce::String> scriptFingerprint(const juce::String &path) {
+  if (!juce::File::isAbsolutePath(path))
+    return std::nullopt;
+  const juce::File file(path);
+  if (!file.existsAsFile())
+    return std::nullopt;
+  return ProjectEnvironment::fingerprintOf(file.loadFileAsString());
+}
+} // namespace
+
+ProjectEnvironment MainComponent::captureEnvironment() {
+  ProjectEnvironment environment;
+  if (auto *app = juce::JUCEApplicationBase::getInstance())
+    environment.appVersion = app->getApplicationVersion();
+  if (auto *device = deviceManager.getCurrentAudioDevice())
+    environment.sampleRate = device->getCurrentSampleRate();
+  std::set<int> instrumentUids;
+  std::vector<juce::PluginDescription> effects;
+  for (auto *strip : mixer_.getAllStrips()) {
+    // The instrument the layer is set to, including one still loading.
+    if (const auto uid = strip->requestedPluginUid() != 0 ? strip->requestedPluginUid() : strip->pluginUid; uid != 0)
+      instrumentUids.insert(uid);
+    for (auto &description : strip->audioEngine().insertDescriptions())
+      effects.push_back(std::move(description));
+    // Loaded scripts only: an unloaded placeholder names a missing file.
+    for (const auto &lua : strip->luaPlugins) {
+      const auto &meta = lua->meta();
+      const auto name = juce::String(meta.name);
+      if (!lua->isLoaded() || name.isEmpty() || environment.scripts.count(name))
+        continue;
+      const auto path = juce::String(meta.filePath);
+      if (const auto fingerprint = scriptFingerprint(path))
+        environment.scripts[name] = {path, *fingerprint};
+    }
+  }
+  for (auto *bus : mixer_.getAllBuses())
+    for (auto &description : bus->audioEngine().insertDescriptions())
+      effects.push_back(std::move(description));
+  for (auto &description : mixer_.masterAudio().insertDescriptions())
+    effects.push_back(std::move(description));
+  for (const auto &description : pluginScanner_.getKnownPluginList().getTypes())
+    if (instrumentUids.count(description.uniqueId))
+      if (const auto plugin = pluginOnDisk(description, true))
+        environment.plugins[description.uniqueId] = *plugin;
+  for (const auto &description : effects)
+    if (description.uniqueId != 0 && !environment.plugins.count(description.uniqueId))
+      if (const auto plugin = pluginOnDisk(description, false))
+        environment.plugins[description.uniqueId] = *plugin;
+  return environment;
+}
+
+void MainComponent::recordEnvironment(const versioning::VersionId &versionId) {
+  if (versionId.empty())
+    return;
+  db_.saveSetting("environment." + versionId,
+                  juce::JSON::toString(captureEnvironment().toJson(), true).toStdString());
+  // The record now reflects what's installed: a later change is news again,
+  // even if it reads like a list the user dismissed before.
+  dismissedChanges_.clear();
+}
+
+std::vector<juce::String> MainComponent::environmentChangesSince(const versioning::VersionId &versionId) {
+  const auto stored = versionId.empty() ? std::string() : db_.loadSetting("environment." + versionId, "");
+  const auto saved = stored.empty() ? std::nullopt
+                                    : ProjectEnvironment::fromJson(juce::JSON::parse(juce::String(stored)));
+  if (!saved)
+    return {};
+  // Now, for the same plug-ins and scripts, read from disk. A plug-in whose
+  // bundle moved is found again by its ID in the scan.
+  ProjectEnvironment now;
+  if (auto *app = juce::JUCEApplicationBase::getInstance())
+    now.appVersion = app->getApplicationVersion();
+  if (auto *device = deviceManager.getCurrentAudioDevice())
+    now.sampleRate = device->getCurrentSampleRate();
+  for (const auto &[uid, plugin] : saved->plugins) {
+    juce::PluginDescription description;
+    description.name = plugin.name;
+    description.manufacturerName = plugin.manufacturer;
+    description.fileOrIdentifier = plugin.path;
+    auto found = pluginOnDisk(description, plugin.instrument);
+    if (!found)
+      for (const auto &known : pluginScanner_.getKnownPluginList().getTypes())
+        if (known.uniqueId == uid && (found = pluginOnDisk(known, plugin.instrument)))
+          break;
+    if (found)
+      now.plugins[uid] = *found;
+  }
+  for (const auto &[name, script] : saved->scripts)
+    if (const auto fingerprint = scriptFingerprint(script.filePath))
+      now.scripts[name] = {script.filePath, *fingerprint};
+  return environmentChanges(*saved, now);
 }
 
 void MainComponent::setRestoreReport(const juce::var &report) {
@@ -5435,7 +5587,16 @@ void MainComponent::setupJsHandlers() {
     return;
   });
   jsRouter_.registerHandler("dismissRestoreReport", [this](const juce::var &) {
-    safeCallAsync([this]() { setRestoreReport({}); });
+    safeCallAsync([this]() {
+      // A dismissed list of changes stays dismissed across reconnects for
+      // this run of Fiddle.
+      if (const auto *changes = restoreReport_["changes"].getArray(); changes && !changes->isEmpty()) {
+        std::vector<juce::String> list;
+        for (const auto &change : *changes) list.push_back(change.toString());
+        dismissedChanges_ = changesKey(currentVersionId_, list);
+      }
+      setRestoreReport({});
+    });
   });
   // A project whose setup isn't here uses the current one from now on.
   jsRouter_.registerHandler("useCurrentSetupForProject", [this](const juce::var &) {

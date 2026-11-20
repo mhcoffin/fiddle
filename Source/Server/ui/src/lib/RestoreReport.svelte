@@ -34,6 +34,14 @@
                     {/each}
                 </ul>
             {/if}
+            {#if report.changes?.length}
+                <span class="since">Since this project was saved:</span>
+                <ul class="options">
+                    {#each report.changes as change}
+                        <li>{change}</li>
+                    {/each}
+                </ul>
+            {/if}
             {#each problems as problem}
                 <span class="problem">{problem}</span>
             {/each}
@@ -73,6 +81,7 @@
     .warning strong { color: #fde68a; }
     span { font-size: 0.9rem; }
     .problem::before { content: "• "; }
+    .since { font-weight: 600; margin-top: 2px; }
     .options { margin: 2px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; font-size: 0.9rem; }
     .actions { display: flex; gap: 8px; flex: 0 0 auto; }
     button {

@@ -9,6 +9,7 @@
 #include "ExpressionMapLibrary.h"
 #include "ExpressionMapCommandService.h"
 #include "LibraryMaps.h"
+#include "ProjectEnvironment.h"
 #include "FiddleDatabase.h"
 #include "PlaybackTemplateRecord.h"
 #include "HistoryWindow.h"
@@ -278,6 +279,18 @@ private:
   std::optional<DoricoProjectRequest> unresolvedProject_;
   juce::var restoreReport_; // ProjectRestoreReport.h; void when none
   void setRestoreReport(const juce::var &report);
+  /// What the project's sound depends on now (ProjectEnvironment.h), saved
+  /// with each version on every Fiddle or Dorico save.
+  ProjectEnvironment captureEnvironment();
+  void recordEnvironment(const versioning::VersionId &versionId);
+  /// What changed since the version was last saved, for the restore banner;
+  /// empty for a version saved before Fiddle recorded this.
+  std::vector<juce::String> environmentChangesSince(const versioning::VersionId &versionId);
+  static juce::String changesKey(const versioning::VersionId &versionId,
+                                 const std::vector<juce::String> &changes);
+  /// The report with its list of changes emptied (after a Dorico save).
+  static juce::var withoutChanges(const juce::var &report);
+  juce::String dismissedChanges_; // changesKey of a list the user dismissed
   /// The user chose a setup (Use current setup, a checkout, a new branch):
   /// a connected project whose own setup wasn't loaded now uses it.
   void bindUnresolvedProject();

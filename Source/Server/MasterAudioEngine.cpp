@@ -225,6 +225,13 @@ MasterAudioEngine::snapshot(const juce::String &slotId, bool captureLiveState) c
   return result;
 }
 
+std::vector<juce::PluginDescription> MasterAudioEngine::insertDescriptions() const {
+  std::vector<juce::PluginDescription> descriptions;
+  for (const auto &entry : inserts_)
+    descriptions.push_back(entry->description);
+  return descriptions;
+}
+
 MasterAudioSnapshot MasterAudioEngine::snapshotAll(bool captureLiveState) const {
   MasterAudioSnapshot result;
   result.gainDb = gainDb();

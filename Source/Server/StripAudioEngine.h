@@ -56,6 +56,8 @@ public:
   [[nodiscard]] std::optional<AudioInsertSnapshot>
   snapshot(const juce::String &slotId, bool captureLiveState = true) const;
   [[nodiscard]] StripAudioSnapshot snapshotAll(bool captureLiveState = true) const;
+  /// The plug-ins in this rack, without copying their state.
+  [[nodiscard]] std::vector<juce::PluginDescription> insertDescriptions() const;
 
   bool insert(const AudioInsertSnapshot &snapshot, StripInsertPosition position,
               int index, juce::AudioPluginFormatManager &formatManager,

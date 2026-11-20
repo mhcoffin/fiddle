@@ -27,14 +27,38 @@ Each connection that loads or fails to load a project's setup produces a report
 (exact version, latest version of the branch, by branch name), or why not. The
 banner also lists layers that can't play as saved: plug-ins not installed or
 that failed to load, and Fiddle scripts not found. A plain exact restore shows
-the banner only when there is such a problem, or when unsaved edits were saved
-first.
+the banner only when there is such a problem, when something the project
+depends on changed since it was saved (below), or when unsaved edits were
+saved first.
 
 When the project's own setup isn't loaded, the report also lists the user's
 choices (`options`): use the current setup (or, after a failed switch, try
 again), choose another branch or version, or leave the project linked to its
 own setup, which matters when that setup may come back from a backup. Reconnecting to the version already loaded produces no report unless it
-was reached by a fallback.
+was reached by a fallback or something it depends on changed since it was
+saved (a list the user dismissed stays dismissed across reconnects).
+
+## What changed since the project was saved
+
+A Fiddle version holds the project's setup, but its sound also depends on
+things outside it: the Fiddle release, the audio sample rate, the installed
+plug-ins and the Fiddle scripts (Lua files) its layers use. Every Fiddle save
+and every Dorico save records these for the current version
+(`ProjectEnvironment.h`, stored in the `settings` table as
+`environment.<version ID>`). After an exact restore, Fiddle compares the record
+with now and the restore banner lists what changed under "Since this project
+was saved": a newer Fiddle, a different sample rate, a plug-in updated or
+reinstalled (the bundle's own version, or its date, read from disk rather than
+from the scan cache, which keeps neither), a script edited, or an effect
+plug-in no longer installed. A missing instrument or script is listed by the
+banner's own check of the mixer instead. Saving the project in Dorico records
+the current state and clears the list. A Fiddle save records a new version's
+state; an unchanged save leaves the record alone. Versions saved before this
+record existed have no list.
+
+The record belongs to a Fiddle version, not a Dorico project: two Dorico
+projects saved at the same version share it, so saving one of them with a new
+setup clears the list for the other too.
 
 ## Playback template
 

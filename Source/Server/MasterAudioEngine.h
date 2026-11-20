@@ -50,6 +50,8 @@ public:
   [[nodiscard]] std::optional<MasterInsertSnapshot>
   snapshot(const juce::String &slotId, bool captureLiveState = true) const;
   [[nodiscard]] MasterAudioSnapshot snapshotAll(bool captureLiveState = true) const;
+  /// The plug-ins in this rack, without copying their state.
+  [[nodiscard]] std::vector<juce::PluginDescription> insertDescriptions() const;
 
   /// Inserts the slot immediately in loading/pass-through state, then creates
   /// the processor asynchronously. The stable slot ID is preserved on undo,

@@ -18,7 +18,7 @@ function createServer(era: 'legacy' | 'modern'): McpServer {
 
   server.registerTool('fiddle_get_status', {
     title: 'Get Fiddle status',
-    description: 'Report whether Fiddle is ready, playing, dirty, or detached, whether Dorico is connected (with connectionWarning when Dorico tried to connect more than one Fiddle), projectRestore (what the user was told when the Dorico project connected: which Fiddle setup loaded, or why not), plus its current Undo/Redo state.',
+    description: 'Report whether Fiddle is ready, playing, dirty, or detached, whether Dorico is connected (with connectionWarning when Dorico tried to connect more than one Fiddle), projectRestore (what the user was told when the Dorico project connected: which Fiddle setup loaded, or why not, and what changed since it was saved), plus its current Undo/Redo state.',
     annotations: {
       readOnlyHint: true, destructiveHint: false, idempotentHint: true,
       openWorldHint: false

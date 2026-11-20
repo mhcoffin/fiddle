@@ -6,6 +6,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include <vector>
+
 namespace fiddle {
 
 enum class RestoreOutcome {
@@ -23,10 +25,14 @@ struct RestoreReportInput {
   juce::String savedEditsBranch; // unsaved edits were saved here before switching
   juce::String error;
   bool retryAfterEdits = false; // notSwitched because unsaved edits couldn't be saved
+  /// What may sound different since the project was saved
+  /// (environmentChanges in ProjectEnvironment.h).
+  std::vector<juce::String> changes;
 };
 
 /// {kind, severity (info or warning), title, message, action, savedEdits,
-/// options}. options lists the user's choices ({label, text}) when the
+/// options, changes}. changes lists what may sound different since the
+/// project was saved. options lists the user's choices ({label, text}) when the
 /// project's own setup isn't loaded; the message then ends "You can:". action is
 /// "useCurrentSetup" when the project still points at a setup Fiddle doesn't
 /// have, "retry" when Fiddle didn't switch, and empty otherwise.
@@ -111,6 +117,9 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
   report->setProperty("action", action);
   report->setProperty("savedEdits", in.savedEditsBranch.isNotEmpty());
   report->setProperty("options", juce::var(options));
+  juce::Array<juce::var> changes;
+  for (const auto &change : in.changes) changes.add(change);
+  report->setProperty("changes", changes);
   return juce::var(report);
 }
 
@@ -120,6 +129,9 @@ inline juce::String restoreReportText(const juce::var &report) {
   if (const auto *options = report["options"].getArray())
     for (const auto &option : *options)
       text += " " + option["label"].toString() + ": " + option["text"].toString();
+  if (const auto *changes = report["changes"].getArray())
+    for (const auto &change : *changes)
+      text += " " + change.toString();
   return text;
 }
 

@@ -150,6 +150,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/ChairBusMigration.h
     Source/Server/MainComponent.cpp
     Source/Server/ProjectRestoreService.cpp
+    Source/Server/ProjectEnvironment.cpp
     Source/Server/LegacyStripConversion.cpp
     Source/Server/ExpressionMapCommandService.cpp
     Source/Server/ExpressionMapCommandService.h
@@ -966,6 +967,7 @@ juce_add_console_app(ProjectRestoreReportTest
 
 target_sources(ProjectRestoreReportTest PRIVATE
     Source/Server/tests/ProjectRestoreReportTest.cpp
+    Source/Server/ProjectEnvironment.cpp
 )
 
 target_include_directories(ProjectRestoreReportTest PRIVATE Source/Server)
@@ -1401,6 +1403,7 @@ target_sources(MixerIntegrationTest PRIVATE
     Source/Server/RenderAheadEngine.cpp
     Source/Server/RealtimeMixPrinter.cpp
     Source/Server/ProjectRestoreService.cpp
+    Source/Server/ProjectEnvironment.cpp
     Source/Server/LegacyStripConversion.cpp
     Source/Server/LibraryMaps.cpp
     Source/Server/MixerCommandService.cpp
