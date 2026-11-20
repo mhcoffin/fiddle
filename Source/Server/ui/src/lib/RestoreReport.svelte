@@ -27,6 +27,13 @@
         <div class="text">
             <strong>{report.title}</strong>
             <span>{report.message}</span>
+            {#if report.options?.length}
+                <ul class="options">
+                    {#each report.options as option}
+                        <li><b>{option.label}</b>{option.text ? `: ${option.text}` : ""}</li>
+                    {/each}
+                </ul>
+            {/if}
             {#each problems as problem}
                 <span class="problem">{problem}</span>
             {/each}
@@ -66,6 +73,7 @@
     .warning strong { color: #fde68a; }
     span { font-size: 0.9rem; }
     .problem::before { content: "• "; }
+    .options { margin: 2px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 2px; font-size: 0.9rem; }
     .actions { display: flex; gap: 8px; flex: 0 0 auto; }
     button {
         padding: 7px 13px;

@@ -2312,7 +2312,8 @@ void MainComponent::restoreDoricoProject(
 
   RestoreReportInput report;
   report.savedBranchName = juce::String(legacyBranchName);
-  const auto keepProjectIdentity = [&](RestoreOutcome outcome, const juce::String &error) {
+  const auto keepProjectIdentity = [&](RestoreOutcome outcome, const juce::String &error,
+                                       bool retryAfterEdits = false) {
     // Dorico keeps the project's own identity (pushConfigStatus and Dorico
     // saves echo it) until the user picks a setup, so the original link
     // isn't overwritten with whatever Fiddle happens to have loaded.
@@ -2320,9 +2321,11 @@ void MainComponent::restoreDoricoProject(
     report.outcome = outcome;
     report.branchName = branchNameOf(currentBranchId_);
     report.error = error;
+    report.retryAfterEdits = retryAfterEdits;
+    const auto built = buildRestoreReport(report);
     pushLogMessage("<span style=\"color: #fbbf24\"><b>[Project]</b> " +
-                   buildRestoreReport(report)["message"].toString() + "</span>");
-    setRestoreReport(buildRestoreReport(report));
+                   restoreReportText(built) + "</span>");
+    setRestoreReport(built);
     pushConfigStatus();
   };
 
@@ -2359,7 +2362,7 @@ void MainComponent::restoreDoricoProject(
     const auto versionBefore = currentVersionId_;
     if (!saveConfig()) {
       keepProjectIdentity(RestoreOutcome::notSwitched,
-                          "your unsaved Fiddle changes couldn't be saved first");
+                          "your unsaved Fiddle changes couldn't be saved first", true);
       return;
     }
     if (currentVersionId_ != versionBefore)
@@ -2385,7 +2388,7 @@ void MainComponent::restoreDoricoProject(
                        : RestoreOutcome::byBranchName;
   report.branchName = branchNameOf(target->branchId);
   const auto built = buildRestoreReport(report);
-  pushLogMessage("<b>[Project]</b> " + built["message"].toString());
+  pushLogMessage("<b>[Project]</b> " + restoreReportText(built));
   setRestoreReport(built);
 }
 

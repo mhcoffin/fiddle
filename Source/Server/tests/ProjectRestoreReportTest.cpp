@@ -48,10 +48,42 @@ void testOutcomes() {
   CHECK(missing["action"] == "useCurrentSetup");
   CHECK(missing["message"].toString().contains("\"Main\""));
   CHECK(missing["message"].toString().contains("\"Strings test\""));
+  CHECK(missing["message"].toString().endsWith("You can:"));
+  // Three choices: use the current setup, pick another, or keep the link.
+  const auto *choices = missing["options"].getArray();
+  CHECK(choices != nullptr && choices->size() == 3);
+  if (choices && choices->size() == 3) {
+    CHECK((*choices)[0]["label"] == "Use current setup");
+    CHECK((*choices)[0]["text"].toString().contains("\"Strings test\""));
+    CHECK((*choices)[1]["label"] == "Choose another branch or version in Fiddle");
+    CHECK((*choices)[1]["text"] == "the project uses that one instead.");
+    CHECK((*choices)[2]["label"] == "Leave it");
+    CHECK((*choices)[2]["text"].toString().contains("backup"));
+  }
 
   const auto kept = report(RestoreOutcome::notSwitched, {}, "plug-ins are still loading");
   CHECK(kept["action"] == "retry");
   CHECK(kept["message"].toString().contains("plug-ins are still loading"));
+  const auto *keptChoices = kept["options"].getArray();
+  CHECK(keptChoices != nullptr && keptChoices->size() == 3);
+  if (keptChoices && !keptChoices->isEmpty()) {
+    CHECK((*keptChoices)[0]["label"] == "Load project setup");
+    // Saving or undoing edits is advice only when the edits were the problem.
+    CHECK(!(*keptChoices)[0]["text"].toString().contains("saved or undone"));
+  }
+  RestoreReportInput edits;
+  edits.outcome = RestoreOutcome::notSwitched;
+  edits.retryAfterEdits = true;
+  CHECK((*buildRestoreReport(edits)["options"].getArray())[0]["text"].toString().contains("saved or undone"));
+
+  // The log line carries the choices too.
+  const auto line = restoreReportText(missing);
+  CHECK(line.contains("You can: Use current setup: the project uses"));
+  CHECK(line.contains("Leave it: if the original setup"));
+
+  // Reports that need no choice list none.
+  CHECK(report(RestoreOutcome::exact)["options"].getArray()->isEmpty());
+  CHECK(!report(RestoreOutcome::newerOnBranch)["message"].toString().contains("You can:"));
 }
 
 void testSavedEdits() {

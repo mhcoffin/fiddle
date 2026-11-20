@@ -28,7 +28,12 @@ Each connection that loads or fails to load a project's setup produces a report
 banner also lists layers that can't play as saved: plug-ins not installed or
 that failed to load, and Fiddle scripts not found. A plain exact restore shows
 the banner only when there is such a problem, or when unsaved edits were saved
-first. Reconnecting to the version already loaded produces no report unless it
+first.
+
+When the project's own setup isn't loaded, the report also lists the user's
+choices (`options`): use the current setup (or, after a failed switch, try
+again), choose another branch or version, or leave the project linked to its
+own setup, which matters when that setup may come back from a backup. Reconnecting to the version already loaded produces no report unless it
 was reached by a fallback.
 
 Branch checkout, branch creation, merges into the current branch, and explicit

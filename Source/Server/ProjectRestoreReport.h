@@ -22,9 +22,12 @@ struct RestoreReportInput {
   juce::String branchName;      // the branch Fiddle uses now
   juce::String savedEditsBranch; // unsaved edits were saved here before switching
   juce::String error;
+  bool retryAfterEdits = false; // notSwitched because unsaved edits couldn't be saved
 };
 
-/// {kind, severity (info or warning), title, message, action, savedEdits}. action is
+/// {kind, severity (info or warning), title, message, action, savedEdits,
+/// options}. options lists the user's choices ({label, text}) when the
+/// project's own setup isn't loaded; the message then ends "You can:". action is
 /// "useCurrentSetup" when the project still points at a setup Fiddle doesn't
 /// have, "retry" when Fiddle didn't switch, and empty otherwise.
 inline juce::var buildRestoreReport(const RestoreReportInput &in) {
@@ -32,6 +35,22 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
     return name.isEmpty() ? juce::String("an unnamed branch") : "branch \"" + name + "\"";
   };
   juce::String kind, severity = "warning", title, message, action;
+  // The user's choices when the project's own setup isn't loaded, each a
+  // {label, text} pair shown as a list under the message.
+  juce::Array<juce::var> options;
+  const auto option = [&options](const juce::String &label, const juce::String &text) {
+    auto *item = new juce::DynamicObject();
+    item->setProperty("label", label);
+    item->setProperty("text", text);
+    options.add(juce::var(item));
+  };
+  const auto chooseAnother = [&] {
+    option("Choose another branch or version in Fiddle", "the project uses that one instead.");
+  };
+  const auto leaveIt = [&](const juce::String &when) {
+    const juce::String keeps = "project keeps its link to its own setup, even when you save it in Dorico.";
+    option("Leave it", when.isEmpty() ? "the " + keeps : when + "The " + keeps);
+  };
   switch (in.outcome) {
   case RestoreOutcome::exact:
     kind = "exact";
@@ -57,10 +76,11 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
     kind = "notFound";
     title = "This project's Fiddle setup isn't on this Mac";
     message = "This project was saved with a Fiddle setup (" + quoted(in.savedBranchName) +
-              ") that isn't in this Mac's Fiddle database, so Fiddle is still using " +
-              quoted(in.branchName) + ". The project keeps its link to its own setup, even if you "
-              "save it in Dorico. Choose Use current setup to have it use " + quoted(in.branchName) +
-              " from now on.";
+              ") that isn't in this Mac's Fiddle database. For now, Fiddle is playing it with " +
+              quoted(in.branchName) + ".";
+    option("Use current setup", "the project uses " + quoted(in.branchName) + " from now on.");
+    chooseAnother();
+    leaveIt("if the original setup may come back, for example from a backup of Fiddle's database. ");
     action = "useCurrentSetup";
     break;
   case RestoreOutcome::notSwitched:
@@ -69,14 +89,20 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
     message = "Fiddle couldn't switch to the setup this project was saved with (" +
               quoted(in.savedBranchName) + ")" +
               (in.error.isNotEmpty() ? ": " + in.error : juce::String()) +
-              ". It is still using " + quoted(in.branchName) + ", and the project keeps its link to "
-              "its own setup. Save or undo your changes in Fiddle, then choose Load project setup.";
+              ". For now, Fiddle is playing it with " + quoted(in.branchName) + ".";
+    option("Load project setup", in.retryAfterEdits
+                                     ? "try again once your changes in Fiddle are saved or undone."
+                                     : "try loading the project's setup again.");
+    chooseAnother();
+    leaveIt({});
     action = "retry";
     break;
   }
   if (in.savedEditsBranch.isNotEmpty())
     message += " Your unsaved Fiddle changes were saved first, as a new version of " +
                quoted(in.savedEditsBranch) + ".";
+  if (!options.isEmpty())
+    message += " You can:";
   auto *report = new juce::DynamicObject();
   report->setProperty("kind", kind);
   report->setProperty("severity", severity);
@@ -84,7 +110,17 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
   report->setProperty("message", message);
   report->setProperty("action", action);
   report->setProperty("savedEdits", in.savedEditsBranch.isNotEmpty());
+  report->setProperty("options", juce::var(options));
   return juce::var(report);
+}
+
+/// The report as one line of text, choices included (for the Debug log).
+inline juce::String restoreReportText(const juce::var &report) {
+  auto text = report["message"].toString();
+  if (const auto *options = report["options"].getArray())
+    for (const auto &option : *options)
+      text += " " + option["label"].toString() + ": " + option["text"].toString();
+  return text;
 }
 
 /// After the user chooses Use current setup for a project whose setup isn't here.

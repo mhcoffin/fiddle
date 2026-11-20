@@ -35,6 +35,7 @@ test("the main window shows the restore report with its actions", () => {
     const app = readFileSync(new URL("../src/App.svelte", import.meta.url), "utf8");
     assert.match(app, /<RestoreReport \/>/);
     const banner = readFileSync(new URL("../src/lib/RestoreReport.svelte", import.meta.url), "utf8");
+    assert.match(banner, /report\.options/);
     for (const message of ["dismissRestoreReport", "useCurrentSetupForProject", "retryProjectRestore"])
         assert.match(banner, new RegExp(`dispatchCpp\\("${message}"\\)`));
 });
