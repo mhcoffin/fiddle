@@ -197,6 +197,10 @@ AgentControlServer::Response MainComponent::handleAgentControlRequest(
       {"layers.add", member(&MainComponent::agentAddLayer)},
       {"layers.remove", member(&MainComponent::agentRemoveLayer)},
       {"template.install", member(&MainComponent::agentInstallTemplate)},
+      {"patch.player.open", member(&MainComponent::agentOpenPatchPlayer)},
+      {"patch.player.status", member(&MainComponent::agentPatchPlayerStatus)},
+      {"patch.player.capture", member(&MainComponent::agentCapturePatchPlayer)},
+      {"patch.player.close", member(&MainComponent::agentClosePatchPlayer)},
   };
   const auto handler = handlers.find(method);
   if (handler == handlers.end())
@@ -1655,6 +1659,251 @@ AgentControlServer::Response MainComponent::agentInstallTemplate(const juce::var
   result->setProperty("installed", true);
   result->setProperty("message", install.message);
   result->setProperty("templateStatus", installedTemplate().compare(chairTemplateLines()).toJson());
+  return Response::success(juce::var(result));
+}
+
+// ── Player windows for preset capture ───────────────────────────────────
+// Some players (Synchron Player, Kontakt) choose presets only in their own
+// editor, so the user picks the preset and the agent captures the result.
+// The window runs in agentPatchPlayers_, outside the mixer, the audio graph
+// and project versions, like Library Manager's player windows.
+
+void MainComponent::noteAgentPatchPlayerChanges() {
+  for (const auto &patchId : agentPatchPlayers_.consumeChangedPatchIds()) {
+    const auto session = agentPatchPlayerSessions_.find(patchId);
+    // Loading and restoring the saved state are the baseline, not a change.
+    if (session != agentPatchPlayerSessions_.end() && session->second.status == "loaded")
+      session->second.changed = true;
+  }
+  // The user closing the window ends its session: an answer still pending
+  // for it is then stale, and opening again starts a new session.
+  for (auto session = agentPatchPlayerSessions_.begin(); session != agentPatchPlayerSessions_.end();) {
+    if (session->second.status == "loaded") {
+      const bool visible = agentPatchPlayers_.isEditorVisible(session->first);
+      if (visible) {
+        session->second.editorShown = true;
+      } else if (session->second.editorShown) {
+        agentPatchPlayers_.discard(session->first);
+        session = agentPatchPlayerSessions_.erase(session);
+        continue;
+      }
+    }
+    ++session;
+  }
+}
+
+juce::var MainComponent::agentPatchPlayerJson(const std::string &patchId) {
+  auto *result = new juce::DynamicObject();
+  result->setProperty("patchId", juce::String(patchId));
+  const auto session = agentPatchPlayerSessions_.find(patchId);
+  result->setProperty("open", session != agentPatchPlayerSessions_.end());
+  if (session != agentPatchPlayerSessions_.end()) {
+    result->setProperty("session", session->second.sessionId);
+    result->setProperty("status", session->second.status);
+    result->setProperty("windowTitle", session->second.title);
+    result->setProperty("changed", session->second.changed);
+    if (session->second.error.isNotEmpty()) result->setProperty("error", session->second.error);
+  }
+  return juce::var(result);
+}
+
+AgentControlServer::Response MainComponent::agentOpenPatchPlayer(const juce::var &params) {
+  if (const auto blocker = agentSetupBlocker(false); blocker.isNotEmpty())
+    return Response::failure(blocker);
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto patchId = text(params, "patchId").toStdString();
+  const auto patch = repository && !patchId.empty() ? repository->getPatch(patchId) : std::nullopt;
+  if (!patch)
+    return Response::failure("Patch not found");
+  std::optional<juce::PluginDescription> description;
+  for (const auto &candidate : pluginScanner_.getKnownPluginList().getTypes())
+    if (candidate.uniqueId == patch->pluginUid && candidate.isInstrument) {
+      description = candidate;
+      break;
+    }
+  if (!description)
+    return Response::failure("The patch's player plug-in is not installed");
+  juce::String libraryName;
+  for (const auto &library : db_.listLibraries())
+    if (library.id.toStdString() == patch->libraryId) libraryName = library.name;
+  const auto title = libraryName + " — " + juce::String(patch->name);
+
+  noteAgentPatchPlayerChanges();
+  auto existing = agentPatchPlayerSessions_.find(patchId);
+  const bool reuse = existing != agentPatchPlayerSessions_.end() &&
+                     existing->second.pluginUid == patch->pluginUid &&
+                     existing->second.status != "failed" &&
+                     existing->second.baseline == agent::patchBaseline(*patch);
+  if (!reuse) {
+    agentPatchPlayers_.discard(patchId);
+    AgentPatchPlayer session;
+    session.pluginUid = patch->pluginUid;
+    session.generation = ++agentPatchPlayerGeneration_;
+    session.sessionId = juce::Uuid().toString();
+    session.title = title;
+    session.baseline = agent::patchBaseline(*patch);
+    agentPatchPlayerSessions_[patchId] = session;
+  }
+  const int generation = agentPatchPlayerSessions_[patchId].generation;
+  juce::MemoryBlock state;
+  if (!patch->pluginState.empty())
+    state.append(patch->pluginState.data(), patch->pluginState.size());
+  juce::Component::SafePointer<MainComponent> safeThis(this);
+  const bool started = agentPatchPlayers_.open(
+      patchId, title, *description, state,
+      [safeThis, patchId, generation](bool success, const juce::String &error) {
+        if (safeThis == nullptr) return;
+        const auto session = safeThis->agentPatchPlayerSessions_.find(patchId);
+        if (session == safeThis->agentPatchPlayerSessions_.end() ||
+            session->second.generation != generation)
+          return;
+        if (success) {
+          session->second.status = "loaded";
+        } else {
+          session->second.status = "failed";
+          session->second.error = error.isNotEmpty() ? error : juce::String("Could not open the player");
+        }
+      });
+  if (!started) {
+    agentPatchPlayerSessions_.erase(patchId);
+    return Response::failure("Could not open the player");
+  }
+
+  auto result = agentPatchPlayerJson(patchId);
+  auto *object = result.getDynamicObject();
+  object->setProperty("patchName", juce::String(patch->name));
+  object->setProperty("libraryName", libraryName);
+  object->setProperty("pluginName", description->name);
+  object->setProperty("expectedPresetName", juce::String(patch->expectedPresetName));
+  object->setProperty("message",
+      "The player window \"" + title + "\" opens in Fiddle. Ask the user to choose " +
+      (patch->expectedPresetName.empty() ? juce::String("the preset this patch should use")
+                                         : "the preset \"" + juce::String(patch->expectedPresetName) + "\"") +
+      " in it, then call fiddle_capture_patch_player.");
+  return Response::success(result);
+}
+
+AgentControlServer::Response MainComponent::agentPatchPlayerStatus(const juce::var &params) {
+  const auto patchId = text(params, "patchId").toStdString();
+  if (patchId.empty())
+    return Response::failure("patchId is required");
+  noteAgentPatchPlayerChanges();
+  return Response::success(agentPatchPlayerJson(patchId));
+}
+
+AgentControlServer::Response MainComponent::agentCapturePatchPlayer(const juce::var &params) {
+  if (const auto blocker = agentSetupBlocker(true); blocker.isNotEmpty())
+    return Response::failure(blocker);
+  auto *repository = db_.getLibraryRoutingRepository();
+  const auto patchId = text(params, "patchId").toStdString();
+  noteAgentPatchPlayerChanges();
+  const auto patch = repository && !patchId.empty() ? repository->getPatch(patchId) : std::nullopt;
+  if (!patch)
+    return Response::failure("Patch not found");
+  const auto session = agentPatchPlayerSessions_.find(patchId);
+  agent::PlayerSessionState state;
+  if (session != agentPatchPlayerSessions_.end()) {
+    state.open = true;
+    state.session = session->second.sessionId.toStdString();
+    state.status = session->second.status;
+    state.changed = session->second.changed;
+    state.baseline = session->second.baseline;
+  }
+  if (const auto captured = agentPatchPlayerCaptured_.find(patchId); captured != agentPatchPlayerCaptured_.end())
+    state.lastCaptured = captured->second;
+  const auto requestedSession = text(params, "session").toStdString();
+  switch (agent::decidePlayerCapture(state, requestedSession, flag(params, "allowUnchanged"),
+                                     agent::patchBaseline(*patch))) {
+  case agent::PlayerCapture::capture:
+    break;
+  case agent::PlayerCapture::alreadyCaptured: {
+    auto *result = new juce::DynamicObject();
+    result->setProperty("captured", true);
+    result->setProperty("alreadyCaptured", true);
+    result->setProperty("patchId", juce::String(patchId));
+    return Response::success(juce::var(result));
+  }
+  case agent::PlayerCapture::stale:
+    return Response::failure("This answer is for a player window that has since closed or been "
+                             "reopened, so nothing was captured.");
+  case agent::PlayerCapture::notOpen:
+    return Response::failure("No player window is open for this patch. Call fiddle_open_patch_player first.");
+  case agent::PlayerCapture::loading:
+    return Response::failure("The player is still loading. Try again in a moment.");
+  case agent::PlayerCapture::failed:
+    return Response::failure("The player failed to open: " + session->second.error);
+  case agent::PlayerCapture::unchanged:
+    // The same rule as Library Manager's Capture & continue: a capture
+    // records a choice the user made, never the default or stale state.
+    return Response::failure("The player hasn't changed since its window opened, so nothing was "
+                             "captured. Ask the user to choose the preset in the window. If it "
+                             "was already right, call again with allow_unchanged.");
+  case agent::PlayerCapture::patchChanged:
+    return Response::failure("The patch was changed (in Library Manager or by another tool) while "
+                             "its window was open, so nothing was captured. Open the player again.");
+  }
+  if (patch->pluginUid != session->second.pluginUid)
+    return Response::failure("The patch's player changed while the window was open. Open it again.");
+  std::vector<std::uint8_t> captured;
+  if (!agentPatchPlayers_.captureState(patchId, patch->pluginUid, captured))
+    return Response::failure("Could not read the player's state");
+  auto library = repository->captureLibrary(patch->libraryId);
+  if (!library || !library->exists)
+    return Response::failure("The patch's library could not be read");
+  bool found = false;
+  for (auto &row : library->patches)
+    if (row.id == patchId) {
+      row.pluginState = std::move(captured);
+      row.setupComplete = true;
+      found = true;
+    }
+  if (!found)
+    return Response::failure("Patch not found in its library");
+  // Identical state on a finished patch is a successful capture with
+  // nothing to save, not an error (Undo refuses no-op steps).
+  auto action = std::make_unique<LibraryCatalogAction>(*repository, *library);
+  const bool changedCatalog = !action->isNoOp();
+  if (changedCatalog && !libraryUndoManager_.perform(std::move(action)))
+    return Response::failure("Fiddle could not save the captured preset");
+  agentPatchPlayerCaptured_[patchId] = session->second.sessionId.toStdString();
+  agentPatchPlayers_.discard(patchId); // closes the window
+  agentPatchPlayerSessions_.erase(patchId);
+  if (changedCatalog)
+    catalogChangedByAgent(juce::String(patch->libraryId));
+
+  const int layers = repository->patchUsageCount(patchId);
+  auto *result = new juce::DynamicObject();
+  result->setProperty("captured", true);
+  result->setProperty("changed", changedCatalog);
+  result->setProperty("patchId", juce::String(patchId));
+  result->setProperty("patchName", juce::String(patch->name));
+  result->setProperty("layerCount", layers);
+  if (layers > 0)
+    result->setProperty("note", "Layers already using this patch keep their earlier player state "
+                                "until the user presses Update from Library in each layer's details.");
+  result->setProperty("libraryHistory", historyJson(libraryUndoManager_));
+  return Response::success(juce::var(result));
+}
+
+AgentControlServer::Response MainComponent::agentClosePatchPlayer(const juce::var &params) {
+  const auto patchId = text(params, "patchId").toStdString();
+  if (patchId.empty())
+    return Response::failure("patchId is required");
+  const auto session = agentPatchPlayerSessions_.find(patchId);
+  const auto requestedSession = text(params, "session");
+  // An answer for an earlier window leaves a reopened one alone.
+  if (session != agentPatchPlayerSessions_.end() && requestedSession.isNotEmpty() &&
+      requestedSession != session->second.sessionId) {
+    auto *stale = new juce::DynamicObject();
+    stale->setProperty("closed", false);
+    stale->setProperty("stale", true);
+    return Response::success(juce::var(stale));
+  }
+  const bool wasOpen = session != agentPatchPlayerSessions_.end();
+  if (wasOpen) agentPatchPlayerSessions_.erase(session);
+  agentPatchPlayers_.discard(patchId);
+  auto *result = new juce::DynamicObject();
+  result->setProperty("closed", wasOpen);
   return Response::success(juce::var(result));
 }
 

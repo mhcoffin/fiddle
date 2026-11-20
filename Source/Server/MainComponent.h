@@ -149,6 +149,28 @@ private:
   juce::var scoreTestLastRun_;
   juce::String scoreTestError_;
   LibraryPatchPreviewHost libraryPatchPreviewHost_;
+  // Player windows an agent opens for the user to choose a preset
+  // (AgentControl.cpp). A host of their own, so Library Manager's preview
+  // housekeeping never closes them.
+  LibraryPatchPreviewHost agentPatchPlayers_;
+  struct AgentPatchPlayer {
+    int pluginUid = 0;
+    int generation = 0;       // matches load completions to this window
+    juce::String sessionId;   // random, so answers can't match across restarts
+    juce::String title;
+    juce::String status = "loading"; // loading, loaded or failed
+    juce::String error;
+    bool changed = false; // the player's state changed since it loaded
+    std::string baseline; // agent::patchBaseline() when the window opened
+    bool editorShown = false; // the window has been seen open
+  };
+  std::map<std::string, AgentPatchPlayer> agentPatchPlayerSessions_;
+  // Session number of each patch's last capture, so a repeated answer is
+  // recognised instead of capturing again.
+  std::map<std::string, std::string> agentPatchPlayerCaptured_;
+  int agentPatchPlayerGeneration_ = 0;
+  void noteAgentPatchPlayerChanges();
+  juce::var agentPatchPlayerJson(const std::string &patchId);
   ExpressionMapLibrary xmapLibrary_;
   UndoManager undoManager_;
   UndoManager libraryUndoManager_;
@@ -338,6 +360,10 @@ private:
   AgentResponse agentAddLayer(const juce::var &params);
   AgentResponse agentRemoveLayer(const juce::var &params);
   AgentResponse agentInstallTemplate(const juce::var &params);
+  AgentResponse agentOpenPatchPlayer(const juce::var &params);
+  AgentResponse agentPatchPlayerStatus(const juce::var &params);
+  AgentResponse agentCapturePatchPlayer(const juce::var &params);
+  AgentResponse agentClosePatchPlayer(const juce::var &params);
   /// Why a setup edit can't run now, or empty.
   juce::String agentSetupBlocker(bool catalog) const;
   /// Refresh every view after a catalog edit; an open, unedited Library

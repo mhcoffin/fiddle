@@ -59,6 +59,8 @@ Edits:
 | `fiddle_create_kit`, `_rename_kit`, `_delete_kit` | Percussion kits ([percussion kits](percussion-kits.md)). | project |
 | `fiddle_add_layer`, `fiddle_remove_layer` | Add a library patch to a chair as a layer, or remove one (optionally across a kit). | project |
 | `fiddle_install_playback_template` | Write the Dorico playback template for the current chairs. | none |
+| `fiddle_set_patch_preset_with_user` | Open a patch's player window, ask the user to choose its preset there, and capture it. | library |
+| `fiddle_open_patch_player`, `fiddle_get_patch_player`, `fiddle_capture_patch_player`, `fiddle_close_patch_player` | The same steps one at a time, for clients that can't ask the user. | library (capture) |
 | `fiddle_undo`, `fiddle_redo` | Step the project history (default) or the library history. | either |
 
 Conventions:
@@ -105,8 +107,10 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
    different players (one plug-in per instrument, as in SWAM) and need no map.
    Present the plan to the user first.
 4. **Capture presets.** Where the preset can only be chosen in the player's
-   editor, give `expected_preset_name`, then `fiddle_open_guided_library`. The
-   user loads each preset and presses **Capture & continue**; see below.
+   editor, give `expected_preset_name`, then `fiddle_set_patch_preset_with_user`
+   for each patch: the user chooses the preset in the window Fiddle opens and
+   the agent captures it (see below). `fiddle_open_guided_library` does the
+   same for a whole library inside Library Manager.
 5. **Create chairs.** `fiddle_get_chairs` for what exists, then
    `fiddle_create_chairs` (for example the ensemble in [Setup goal](Setup%20goal.md))
    and `fiddle_create_kit` for percussion kits.
@@ -115,6 +119,53 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
    `templateStatus.dirty`, ask the user to quit Dorico, then
    `fiddle_install_playback_template`. The user restarts Dorico and applies
    the Fiddle template in open projects.
+
+## Choosing presets with the user
+
+Many players (Synchron Player, Kontakt) choose presets only in their own
+editor, and don't tell the host which preset is loaded. An agent can't pick
+one, but it can do everything around it:
+
+1. `fiddle_set_patch_preset_with_user` opens the patch's player in a Fiddle
+   window, starting from its saved state. The window is outside the mixer,
+   the audio graph and project versions, in a host of its own
+   (`agentPatchPlayers_`), so Library Manager never closes it.
+2. Once the player has loaded, the tool asks the user, through the MCP
+   client, to choose the patch's expected preset in that window. On the
+   2025 protocol it sends an `elicitation/create` request and waits; on
+   2026-07-28 it returns `input_required` and the client calls it again with
+   the answer.
+3. When the user accepts, Fiddle captures the window's state into the patch,
+   marks it finished and closes the window. Declining or cancelling closes
+   the window without saving.
+
+A capture is refused if the player hasn't changed since its window loaded,
+the same rule as Library Manager's **Capture & continue**, so a default or
+stale state is never recorded as the user's choice. If the right preset was
+already loaded, the user ticks "The preset was already loaded"
+(`allow_unchanged`). Fiddle can tell that the state changed, not which preset
+the user chose: the question names the expected preset, and the user is the
+judge.
+
+Each window has a random session ID, and the answer carries it (through
+the 2026-07-28 `requestState` on a retry). Closing the window by hand ends its
+session. Fiddle refuses an answer for a window that has since closed or
+reopened, including across a restart of Fiddle, and treats a repeated answer for a capture
+that already happened as done rather than capturing again. A window also
+records the patch as it was when it opened (`agent::patchBaseline`: saved
+content, player, expected preset and whether it is finished): if any of these
+changes elsewhere (Library Manager, `fiddle_save_library`) before the
+capture, the capture is refused and the window has to be opened again. The
+adapter likewise never asks about, or captures into, a window that replaced
+the one it opened. Capturing the same state into
+a finished patch succeeds without adding an Undo step.
+
+A client that can't ask (no elicitation capability) gets `waitingForUser`
+with instructions: the agent asks in chat, then calls
+`fiddle_capture_patch_player`. If capture fails, the window stays open so
+the agent can try again. Layers already using the patch keep their earlier
+player state until the user presses **Update from Library** in each layer's
+details; the capture result says how many there are.
 
 ## Guided library setup
 
@@ -203,7 +254,7 @@ whether the user can take it back.
   installing again after an undo puts Dorico back in step.
 - Not exposed: saving or checking out project versions, deleting maps, audio
   device and printing settings, and choosing a preset inside a plug-in's
-  editor (guided capture leaves that to the user).
+  editor. An agent opens the player window and asks; the user chooses.
 
 ## Build and test
 

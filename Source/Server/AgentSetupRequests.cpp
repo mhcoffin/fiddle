@@ -119,6 +119,28 @@ bool coversInstrument(const std::vector<std::string> &listed, const std::string 
                      [&](const std::string &id) { return canonical(id) == wanted; });
 }
 
+std::string patchBaseline(const LibraryPatchRow &patch) {
+  return std::to_string(patch.revision) + "|" + std::to_string(patch.pluginUid) + "|" +
+         (patch.setupComplete ? "done" : "waiting") + "|" + patch.expectedPresetName;
+}
+
+PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
+                                  const std::string &requestedSession, bool allowUnchanged,
+                                  const std::string &currentBaseline) {
+  const bool named = !requestedSession.empty();
+  if (named && requestedSession == state.lastCaptured)
+    return PlayerCapture::alreadyCaptured;
+  if (!state.open)
+    return named ? PlayerCapture::stale : PlayerCapture::notOpen;
+  if (named && requestedSession != state.session)
+    return PlayerCapture::stale;
+  if (state.status == "loading") return PlayerCapture::loading;
+  if (state.status == "failed") return PlayerCapture::failed;
+  if (currentBaseline != state.baseline) return PlayerCapture::patchChanged;
+  if (!state.changed && !allowUnchanged) return PlayerCapture::unchanged;
+  return PlayerCapture::capture;
+}
+
 juce::String suggestedRole(const BrowsableInstrument &instrument) {
   const auto family = instrument.family.toLowerCase();
   const bool section = family == "strings" || family == "string" || family == "choir" ||

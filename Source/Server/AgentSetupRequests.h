@@ -37,6 +37,41 @@ searchInstruments(const std::vector<BrowsableInstrument> &instruments,
 /// base instrument, as playback does.
 bool coversInstrument(const std::vector<std::string> &listed, const std::string &instrument);
 
+/// What a capture request for a patch's player window should do
+/// (fiddle_capture_patch_player, docs/mcp-control.md).
+enum class PlayerCapture {
+  capture,         // save the window's state into the patch
+  alreadyCaptured, // a repeated answer for a capture that already happened
+  stale,           // an answer for a window that has since closed or reopened
+  notOpen,
+  loading,
+  failed,
+  unchanged,       // the user hasn't changed the player
+  patchChanged     // the patch was edited while the window was open
+};
+
+struct PlayerSessionState {
+  bool open = false;
+  std::string session;      // the open window's session ID
+  juce::String status;      // loading, loaded or failed
+  bool changed = false;
+  std::string baseline;     // patchBaseline() when the window opened
+  std::string lastCaptured; // session ID of the patch's last capture
+};
+
+/// What a capture depends on in a patch: its saved content (revision), its
+/// player, the preset the user was asked for, and whether it is finished.
+/// The revision alone misses the last two, which repository saves don't count
+/// as content changes.
+std::string patchBaseline(const LibraryPatchRow &patch);
+
+/// requestedSession is empty when the caller doesn't name a session (the
+/// plain tool), which means the open window. currentBaseline is patchBaseline() of
+/// the patch now.
+PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
+                                  const std::string &requestedSession, bool allowUnchanged,
+                                  const std::string &currentBaseline);
+
 /// The chair role Fiddle suggests for an instrument: strings and choir
 /// default to sections, everything else to solo players (chairModel.js).
 juce::String suggestedRole(const BrowsableInstrument &instrument);

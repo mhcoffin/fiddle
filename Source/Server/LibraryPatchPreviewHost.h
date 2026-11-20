@@ -41,6 +41,8 @@ public:
   void retainOnly(const std::vector<std::string> &ids);
   /// Close one native editor while retaining its captured preview instance.
   void closeEditor(const std::string &patchId);
+  /// Whether a loaded preview's editor window is showing.
+  bool isEditorVisible(const std::string &patchId) const;
   bool isLoading() const;
 
   /// Consume editor/processor notifications from every preview and return the

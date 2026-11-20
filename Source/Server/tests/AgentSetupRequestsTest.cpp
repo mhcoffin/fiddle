@@ -134,6 +134,65 @@ void testCoversInstrument() {
   CHECK(!agent::coversInstrument(listed, "instrument.drumset"));
 }
 
+void testPlayerCapture() {
+  using agent::PlayerCapture;
+  LibraryPatchRow patch;
+  patch.revision = 3;
+  patch.pluginUid = 11;
+  patch.expectedPresetName = "Concert D";
+  patch.setupComplete = false;
+  const auto base = agent::patchBaseline(patch);
+  agent::PlayerSessionState open;
+  open.open = true;
+  open.session = "s7";
+  open.status = "loaded";
+  open.changed = true;
+  open.baseline = base;
+  CHECK(agent::decidePlayerCapture(open, "", false, base) == PlayerCapture::capture);
+  CHECK(agent::decidePlayerCapture(open, "s7", false, base) == PlayerCapture::capture);
+  // An answer for an earlier window never captures the new one.
+  CHECK(agent::decidePlayerCapture(open, "s6", false, base) == PlayerCapture::stale);
+
+  // The patch changed while the window was open: saved content, another
+  // expected preset, finished elsewhere, or another player.
+  auto saved = patch;
+  saved.revision = 4;
+  CHECK(agent::decidePlayerCapture(open, "s7", false, agent::patchBaseline(saved)) == PlayerCapture::patchChanged);
+  auto otherPreset = patch;
+  otherPreset.expectedPresetName = "Upright";
+  CHECK(agent::decidePlayerCapture(open, "s7", false, agent::patchBaseline(otherPreset)) == PlayerCapture::patchChanged);
+  auto finished = patch;
+  finished.setupComplete = true;
+  CHECK(agent::decidePlayerCapture(open, "s7", false, agent::patchBaseline(finished)) == PlayerCapture::patchChanged);
+  auto otherPlayer = patch;
+  otherPlayer.pluginUid = 22;
+  CHECK(agent::decidePlayerCapture(open, "s7", false, agent::patchBaseline(otherPlayer)) == PlayerCapture::patchChanged);
+
+  auto unchanged = open;
+  unchanged.changed = false;
+  CHECK(agent::decidePlayerCapture(unchanged, "s7", false, base) == PlayerCapture::unchanged);
+  CHECK(agent::decidePlayerCapture(unchanged, "s7", true, base) == PlayerCapture::capture);
+  auto loading = open;
+  loading.status = "loading";
+  CHECK(agent::decidePlayerCapture(loading, "", false, base) == PlayerCapture::loading);
+  auto broken = open;
+  broken.status = "failed";
+  CHECK(agent::decidePlayerCapture(broken, "", false, base) == PlayerCapture::failed);
+  // After a capture the window is closed: a repeat of that answer succeeds
+  // without capturing again; anything else finds nothing open.
+  agent::PlayerSessionState done;
+  done.lastCaptured = "s7";
+  CHECK(agent::decidePlayerCapture(done, "s7", false, base) == PlayerCapture::alreadyCaptured);
+  CHECK(agent::decidePlayerCapture(done, "", false, base) == PlayerCapture::notOpen);
+  CHECK(agent::decidePlayerCapture(done, "s6", false, base) == PlayerCapture::stale);
+  // Reopened after a capture: the old answer is still recognised as done.
+  auto reopened = open;
+  reopened.session = "s8";
+  reopened.lastCaptured = "s7";
+  CHECK(agent::decidePlayerCapture(reopened, "s7", false, base) == PlayerCapture::alreadyCaptured);
+  CHECK(agent::decidePlayerCapture(reopened, "s8", false, base) == PlayerCapture::capture);
+}
+
 void testKitNames() {
   const auto names = agent::kitChairNames({"Snare", "Wood Block", "Wood Block", "Kick"});
   CHECK(names[0] == "Snare");
@@ -283,6 +342,7 @@ int main() {
   testSearch();
   testMatching();
   testCoversInstrument();
+  testPlayerCapture();
   testKitNames();
   testCreateLibrary();
   testUpdateLibrary();

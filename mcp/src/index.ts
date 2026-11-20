@@ -2,11 +2,12 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
+import { registerPresetTools } from './preset-tools.js';
 import { registerSetupTools } from './setup-tools.js';
 import { callFiddleTool, localTool } from './tool-results.js';
 import { getRun, listRuns } from './score-test-runs.js';
 
-function createServer(): McpServer {
+function createServer(era: 'legacy' | 'modern'): McpServer {
   const server = new McpServer(
     { name: 'fiddle', version: '0.1.0' },
     {
@@ -232,8 +233,9 @@ function createServer(): McpServer {
   }, async ({ history }) => callFiddleTool('history.redo', history ? { history } : {}));
 
   registerSetupTools(server);
+  registerPresetTools(server, era);
 
   return server;
 }
 
-await serveStdio(() => createServer());
+await serveStdio(ctx => createServer(ctx.era));

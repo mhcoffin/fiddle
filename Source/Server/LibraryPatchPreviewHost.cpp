@@ -149,6 +149,13 @@ void LibraryPatchPreviewHost::closeEditor(const std::string &patchId) {
     found->second->slot.closeEditor();
 }
 
+bool LibraryPatchPreviewHost::isEditorVisible(const std::string &patchId) const {
+  const auto found = previews_.find(patchId);
+  return found != previews_.end() &&
+         found->second->slot.status() == HostedPluginStatus::loaded &&
+         found->second->slot.isEditorVisible();
+}
+
 void LibraryPatchPreviewHost::closeAll() { previews_.clear(); seeds_.clear(); }
 
 } // namespace fiddle

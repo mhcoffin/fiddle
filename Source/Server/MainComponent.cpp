@@ -56,7 +56,8 @@ constexpr const char *kReturnWindowsAfterRestartSetting =
 MainComponent::MainComponent()
     : webViewBridge_(jsRouter_,
                      [this](std::function<void()> f) { safeCallAsync(f); }),
-      libraryPatchPreviewHost_(mixer_.getFormatManager()) {
+      libraryPatchPreviewHost_(mixer_.getFormatManager()),
+      agentPatchPlayers_(mixer_.getFormatManager()) {
   // Chair buses appear as layers are added; watch their effect racks too,
   // and show the new chair strip. This runs with the mixer locked, so the
   // state is pushed later (once for a burst, such as loading a project).
@@ -2972,6 +2973,7 @@ void MainComponent::timerCallback() {
   for (const auto &patchId :
        libraryPatchPreviewHost_.consumeChangedPatchIds())
     broadcastMessage("libraryPatchPreviewChanged", juce::String(patchId));
+  noteAgentPatchPlayerChanges();
 
   // Only peak levels at meter frequency. Structural state is pushed by its
   // change handlers. Do not enqueue full-state refreshes on this timer.
