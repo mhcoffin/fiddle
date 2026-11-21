@@ -74,6 +74,8 @@ PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
 
 /// Whether a chair's bridge map lets its notes play, as the Chairs window
 /// says it (ui/src/lib/bridgeStatus.js). state is one of: playing,
+/// playingProjectRevision (Dorico's project has another revision Fiddle
+/// installed before, older or newer, and Fiddle plays it with that),
 /// differentVersion (Dorico has an older or edited copy; notes are muted),
 /// notInProjectTemplate (Dorico sent other chairs their maps but nothing to
 /// this one), checkOnPlayback (checked when playback starts), unchecked (the
@@ -85,8 +87,14 @@ struct BridgeCheck {
 
 /// beacon is the live check's result (unsupported, absent, matched or
 /// mismatched), empty when there is none. othersReported: another chair's
-/// map has reported a version since playback started.
-BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported);
+/// map has reported a version since playback started. projectRevision: the
+/// revision Fiddle is decoding because Dorico's project has it instead of
+/// the assigned one (0 when it decodes the assigned revision), with
+/// assignedRevision for saying whether it is older or newer; the state is then
+/// playingProjectRevision. ambiguous: Dorico's beacon matched more than one
+/// installed revision, so the chair stays muted.
+BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported,
+                        int projectRevision = 0, int assignedRevision = 0, bool ambiguous = false);
 
 /// Whether fiddle_get_bridge_maps lists a chair as needing attention: its
 /// notes are muted or not sent, or some notes weren't played, even when the

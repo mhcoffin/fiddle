@@ -6292,6 +6292,7 @@ MainComponent::TemplateInstallResult MainComponent::installChairPlaybackTemplate
 
   auto &record = installedTemplate();
   record.recordInstall(chairTemplateLines());
+  refreshBridgeArchive(); // the revisions just installed
   if (!record.save(FiddleConfig::getAppDataDir().getChildFile("installed-playback-template.json")))
     juce::Logger::writeToLog("Could not save the installed playback template record");
   broadcastTemplateDirty();

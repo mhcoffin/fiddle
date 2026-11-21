@@ -211,6 +211,9 @@ std::shared_ptr<const BridgeMapDocument> BridgeMapDocument::compile(
     result->musicalLow = low; result->musicalHigh = high;
     auto compiled = std::make_shared<CompiledBridgeMap>();
     compiled->musicalLow = low; compiled->musicalHigh = high;
+    compiled->entityId = result->entityId.toStdString();
+    compiled->name = result->name.toStdString();
+    compiled->revision = result->revision;
     const auto *init = map->getChildByName("initSwitchData");
     require(init && text(*init, "enabled") == "true", "Initialization must be enabled");
     fields(*init, "enabled initActions");

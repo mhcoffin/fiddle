@@ -319,6 +319,143 @@ void percussion() {
   CHECK(std::string(BridgeDecoderState::key(BridgeDecoderState::Withheld::OutsideRange)) == "outsideRange");
 }
 
+// Dorico sends Init at playback start with the beacon among the other
+// commands in no fixed order: first, last, or in the middle.
+void initializeOrdered(NoteStreamTracker &tracker, const CompiledBridgeMap &profile, int beaconAt) {
+  std::vector<MidiEvent> init;
+  for (const auto &d : profile.dimensions) {
+    int value = d.number == 102 && !d.key ? 0 : d.reset;
+    init.push_back(d.key ? key(d.number, value) : cc(d.number, value));
+  }
+  std::vector<MidiEvent> beacon;
+  for (size_t i = 0; i < profile.beacon.size(); ++i)
+    beacon.push_back(key(CompiledBridgeMap::beaconPitches[i], profile.beacon[i]));
+  const auto at = beaconAt < 0 ? init.size() : std::min(size_t(beaconAt), init.size());
+  init.insert(init.begin() + long(at), beacon.begin(), beacon.end());
+  for (const auto &event : init) tracker.processEvent(event);
+}
+
+// After a map update, an older project still has the older revision: its
+// beacon picks that revision from the archive of installed ones, and the
+// chair plays instead of being muted (BridgeRevisionArchive.h).
+void testOlderRevisionsPlay() {
+  juce::String error;
+  const auto r5 = BridgeMapDocument::compile(
+      fixture("experiments/orchestral-strings-bridge/r5/Fiddle-Orchestral-Strings-r5.doricolib"), error);
+  const auto r4 = BridgeMapDocument::compile(
+      fixture("experiments/orchestral-strings-bridge/r4/Fiddle-Orchestral-Strings-r4.doricolib"), error);
+  CHECK(r5 && r4 && r4->compiled->beacon != r5->compiled->beacon);
+  CHECK(r4->compiled->entityId == r4->entityId.toStdString() && r4->compiled->revision == r4->revision);
+
+  // Families and lookups.
+  CHECK(BridgeRevisionArchive::familyOf("xmap.user.Fiddle.OrchestralStrings.r5") == "xmap.user.Fiddle.OrchestralStrings");
+  CHECK(BridgeRevisionArchive::familyOf("xmap.user.Fiddle.OrchestralStrings") == "xmap.user.Fiddle.OrchestralStrings");
+  CHECK(BridgeRevisionArchive::familyOf("a.b.rc") == "a.b.rc");
+  auto archive = std::make_shared<BridgeRevisionArchive>();
+  archive->add(r4->compiled);
+  archive->add(r5->compiled);
+  archive->add(r4->compiled); // the same revision twice is one
+  const auto family = BridgeRevisionArchive::familyOf(r5->compiled->entityId);
+  CHECK(archive->families.at(family).size() == 2);
+  CHECK(archive->find(family, r4->compiled->beacon).map == r4->compiled);
+  CHECK(!archive->find("xmap.user.Fiddle.OrchestralBrass", r4->compiled->beacon).map);
+  CHECK(!archive->find(family, {1, 1}).map && !archive->find(family, {1, 1}).ambiguous);
+  // A revision sharing another's beacon is a clash (refused when publishing)
+  // and makes the lookup ambiguous (muted rather than guessed).
+  auto clash = std::make_shared<CompiledBridgeMap>(*r5->compiled);
+  clash->entityId = family + ".r9";
+  clash->revision = 9;
+  clash->beacon = r4->compiled->beacon;
+  CHECK(archive->collision(*clash) == r4->compiled);
+  CHECK(!archive->collision(*r4->compiled));
+  auto ambiguous = std::make_shared<BridgeRevisionArchive>(*archive);
+  ambiguous->add(clash);
+  CHECK(ambiguous->find(family, r4->compiled->beacon).ambiguous);
+
+  CHECK(BridgeRevisionArchive::familyOf("a.b.r") == "a.b.r");
+  // r5 pins Dorico's playback options and r4 doesn't, so a note shows which
+  // revision decoded it.
+  CHECK(r5->compiled->pinnedPlayback && !r4->compiled->pinnedPlayback);
+
+  BridgeMapProject project;
+  project.documents[r5->contentHash] = r5;
+  project.assignments[{0, 2}] = r5->contentHash;
+  struct Run {
+    NoteStreamTracker tracker;
+    std::vector<Note> notes;
+    explicit Run(const BridgeMapProject &project, std::shared_ptr<const BridgeRevisionArchive> archive) {
+      tracker.setBridgeMaps(project);
+      tracker.setBridgeArchive(std::move(archive));
+      NoteStreamTracker::Callbacks callbacks;
+      callbacks.onNoteStarted = [this](const Note &note) { notes.push_back(note); };
+      tracker.setCallbacks(callbacks);
+    }
+    bool pinned(size_t i) const { return notes.at(i).notation_dimensions().count(kPinnedPlaybackDimension) > 0; }
+  };
+  for (const int beaconAt : {0, -1, 3}) {
+    Run run(project, archive);
+    // The project still has r4. Its Init, replayed, gives the note its base:
+    // the note plays straight after Init.
+    initializeOrdered(run.tracker, *r4->compiled, beaconAt);
+    auto live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && live->beacon == BridgeDecoderState::Beacon::Matched);
+    CHECK(live->otherRevision && live->playingRevision == r4->revision && live->assignedRevision == r5->revision);
+    run.tracker.processEvent(key(72, 90));
+    CHECK(run.notes.size() == 1 && !run.pinned(0));
+    // Stopping puts the chair back on r5; the next playback checks again.
+    run.tracker.resetForTransportStop();
+    live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && !live->otherRevision && live->playingRevision == r5->revision);
+    CHECK(live->beacon == BridgeDecoderState::Beacon::Absent);
+    // After the template is reapplied the project sends r5.
+    initializeOrdered(run.tracker, *r5->compiled, beaconAt);
+    live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && live->beacon == BridgeDecoderState::Beacon::Matched && !live->otherRevision);
+    run.tracker.processEvent(key(72, 90));
+    CHECK(run.notes.size() == 2 && run.pinned(1));
+  }
+  {
+    // Note entry before the first playback fills the replay with old commands;
+    // the newest ones (Init and the beacon) are kept, so the switch still works.
+    Run run(project, archive);
+    for (size_t i = 0; i < BridgeDecoderState::kReplayLimit + 100; ++i) run.tracker.processEvent(cc(102, 0));
+    initializeOrdered(run.tracker, *r4->compiled, -1);
+    const auto live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && live->beacon == BridgeDecoderState::Beacon::Matched && live->otherRevision);
+    run.tracker.processEvent(key(72, 90));
+    CHECK(run.notes.size() == 1);
+  }
+  {
+    // Counters survive a switch and a stop; a verified export is of the
+    // assigned revision and isn't carried over to another one.
+    Run run(project, archive);
+    run.tracker.verifyBridge(0, 2);
+    initializeOrdered(run.tracker, *r5->compiled, -1);
+    run.tracker.processEvent(key(120, 90)); // above the musical range: withheld
+    auto live = run.tracker.bridgeDiagnostics(0, 2);
+    const auto outside = size_t(BridgeDecoderState::Withheld::OutsideRange);
+    CHECK(live && live->withheld[outside] == 1 && live->attested);
+    run.tracker.resetForTransportStop();
+    initializeOrdered(run.tracker, *r4->compiled, 0);
+    live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && live->otherRevision && live->withheld[outside] == 1 && !live->attested);
+    run.tracker.resetForTransportStop();
+    live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && !live->otherRevision && live->withheld[outside] == 1 && live->attested);
+  }
+  // Without the archive, or with an ambiguous one, the older copy stays muted.
+  for (const auto &available : {std::shared_ptr<BridgeRevisionArchive>{}, ambiguous}) {
+    Run run(project, available);
+    initializeOrdered(run.tracker, *r4->compiled, -1);
+    const auto live = run.tracker.bridgeDiagnostics(0, 2);
+    CHECK(live && live->beacon == BridgeDecoderState::Beacon::Mismatched && !live->otherRevision);
+    CHECK(live->ambiguousRevision == (available != nullptr));
+    run.tracker.processEvent(cc(102, 2));
+    run.tracker.processEvent(key(72, 90));
+    CHECK(run.notes.empty());
+  }
+}
+
 void testPlaybackTemplateRecord() {
   // Nothing recorded: the template counts as out of date, with no per-chair detail.
   PlaybackTemplateRecord record;
@@ -394,6 +531,7 @@ void testPlaybackTemplateRecord() {
 
 void tests() {
   testPlaybackTemplateRecord();
+  testOlderRevisionsPlay();
   juce::String error;
   const auto source = fixture("experiments/orchestral-strings-bridge/r3/Fiddle-Orchestral-Strings-r3.doricolib");
   auto strings = BridgeMapDocument::compile(source, error);

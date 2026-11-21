@@ -350,6 +350,17 @@ void testBridgeCheck() {
   CHECK(bridgeCheck("unsupported", false, true).state == "unchecked");
   CHECK(bridgeCheck("", false, false).state == "unchecked");
   CHECK(bridgeCheck("mismatched", false, false).message.contains("playback template"));
+  // Dorico's project has another revision Fiddle can decode, older or newer.
+  CHECK(bridgeCheck("matched", false, true, 3, 4).state == "playingProjectRevision");
+  CHECK(bridgeCheck("matched", false, true, 3, 4).message.contains("an older revision"));
+  CHECK(bridgeCheck("matched", false, true, 3, 4).message.contains("(r3)"));
+  CHECK(bridgeCheck("matched", false, true, 5, 4).message.contains("a newer revision"));
+  CHECK(bridgeCheck("matched", false, true, 0, 4).state == "playing");
+  CHECK(!agent::bridgeNeedsAttention("playingProjectRevision", 0));
+  CHECK(agent::bridgeNeedsAttention("playingProjectRevision", 2));
+  // A beacon matching several installed revisions says so.
+  CHECK(bridgeCheck("mismatched", false, true, 0, 4, true).message.contains("more than one revision"));
+  CHECK(bridgeCheck("mismatched", false, true).message.contains("edited or unknown copy"));
 
   // Attention: muted or unsent chairs, and withheld notes in any state.
   CHECK(!agent::bridgeNeedsAttention("playing", 0));

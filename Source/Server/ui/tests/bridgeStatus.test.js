@@ -38,6 +38,22 @@ test("status text distinguishes version check, attestation and mismatch in plain
         assert.doesNotMatch(text, /beacon|withheld/i, "no internal jargon");
 });
 
+test("another revision the project has plays, and says so", () => {
+    const a = state.assignments[0];
+    const older = { ...a, beacon: "matched", otherRevision: true, playingRevision: 3, assignedRevision: 4 };
+    assert.equal(verificationText(older), "✓ Dorico has an older version (r3) · playing it");
+    assert.equal(verificationText({ ...older, playingRevision: 5 }), "✓ Dorico has a newer version (r5) · playing it");
+    assert.equal(isPlaying(older), true);
+    assert.match(statusTitle(older), /revision 3 of this map/);
+    assert.match(statusTitle(older), /nothing needs doing/);
+    // A beacon that matches several old revisions is muted, and says why.
+    const ambiguous = { ...a, beacon: "mismatched", receivedBeacon: [1, 2], ambiguousRevision: true };
+    assert.equal(isPlaying(ambiguous), false);
+    assert.match(statusTitle(ambiguous), /more than one revision/);
+    for (const text of [verificationText(older), statusTitle(older), statusTitle(ambiguous)])
+        assert.doesNotMatch(text, /beacon|withheld/i, "no internal jargon");
+});
+
 test("a chair Dorico skips while others report needs the template reapplied", () => {
     const twoChairs = { ...state, assignments: [
         { port: 1, channel: 3, hash: "s", beacon: "absent", receivedBeacon: [-1, -1], expectedBeacon: [9, 8] },

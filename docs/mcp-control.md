@@ -131,8 +131,11 @@ playing it ([library, chair and layer architecture](library-chair-layer-architec
    playback starts, and the chairs needing attention say what to do.
 
 A chair's `bridge.state` is the check the Chairs window shows: `playing`;
-`differentVersion` (Dorico has an older or edited copy of the map, so Fiddle
-mutes the chair: reinstall the template and reapply it); `notInProjectTemplate`
+`playingProjectRevision` (Dorico's project has another revision, older or newer,
+that Fiddle installed before, and Fiddle plays it with that; nothing to do);
+`differentVersion` (Dorico has an edited or unknown copy of the map, or one
+matching several installed revisions, so Fiddle mutes the chair: reinstall the
+template and reapply it); `notInProjectTemplate`
 (Dorico sent other chairs their maps but nothing to this one: restart Dorico
 if the template is new, then reapply it in the project); `checkOnPlayback`
 (not yet checked; play to check); or `unchecked` (the map sends no version

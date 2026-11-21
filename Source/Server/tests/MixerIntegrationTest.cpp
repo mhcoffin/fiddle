@@ -3168,6 +3168,41 @@ void testBridgeMapVersioningAndVerification() {
   }
 }
 
+// Publishing refuses a revision whose beacon matches another revision of its
+// family, installed or in the project: Dorico's beacon must name one revision.
+void testBridgePublishRefusesClashingBeacon() {
+  const auto root = juce::File(FIDDLE_TEST_ROOT).getChildFile("experiments/orchestral-strings-bridge");
+  const auto r5 = root.getChildFile("r5/Fiddle-Orchestral-Strings-r5.doricolib").loadFileAsString();
+  const auto r4 = root.getChildFile("r4/Fiddle-Orchestral-Strings-r4.doricolib").loadFileAsString();
+  juce::String error;
+  const auto r5doc = fiddle::BridgeMapDocument::compile(r5, error);
+  const auto r4doc = fiddle::BridgeMapDocument::compile(r4, error);
+  REQUIRE(r5doc && r4doc);
+  {
+    MixerFixture f;
+    fiddle::NoteStreamTracker tracker;
+    fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [] { return false; });
+    auto archive = std::make_shared<fiddle::BridgeRevisionArchive>();
+    archive->add(r4doc->compiled);
+    bridges.setArchive(archive);
+    REQUIRE(bridges.publish(r5)); // distinct beacons
+  }
+  {
+    MixerFixture f;
+    fiddle::NoteStreamTracker tracker;
+    fiddle::BridgeMapCommands bridges(f.mixer, tracker, f.undo, [] {}, [] { return false; });
+    auto clash = std::make_shared<fiddle::CompiledBridgeMap>(*r4doc->compiled);
+    clash->entityId = fiddle::BridgeRevisionArchive::familyOf(r5doc->compiled->entityId) + ".r9";
+    clash->revision = 9;
+    clash->beacon = r5doc->compiled->beacon;
+    auto archive = std::make_shared<fiddle::BridgeRevisionArchive>();
+    archive->add(clash);
+    bridges.setArchive(archive);
+    REQUIRE(!bridges.publish(r5));
+    REQUIRE(bridges.status()["error"].toString().contains("couldn't tell them apart"));
+  }
+}
+
 void testBridgeSectionsFromChairs() {
   MixerFixture f;
   fiddle::NoteStreamTracker tracker;
@@ -4375,6 +4410,7 @@ int main(int argc, char **argv) {
   run("same-pitch notes never overlap on a layer", testSamePitchNotesNeverOverlap);
   run("pinned bridge dynamics take each layer's Dorico curve", testPinnedDynamicsUseLayerCurves);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
+  run("publishing refuses a revision whose beacon clashes", testBridgePublishRefusesClashingBeacon);
   run("production routing and audibility", testProductionRoutingAndAudibility);
   run("chair buses share their layers' routing, fader, inserts, mute and solo", [] { for (int workers : {1, 2, 4}) testChairBusesShareLayers(workers); });
   run("chair bus latency keeps chairs sample-aligned", [] { for (int workers : {1, 2, 4}) testChairBusLatencyAlignsChairs(workers); });

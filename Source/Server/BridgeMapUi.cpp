@@ -1,10 +1,27 @@
 #include "MainComponent.h"
 #include "BridgeMapCommands.h"
+#include "DoricoConfigGenerator.h"
 #include "FileChooserLaunch.h"
 
 namespace fiddle {
 void MainComponent::pushBridgeMapState() {
   if (bridgeMapCommands_) broadcastMessage("setBridgeMapState", bridgeMapCommands_->status());
+}
+
+void MainComponent::refreshBridgeArchive() {
+  if (!bridgeMapCommands_) return;
+  // Every revision Fiddle installed is still in Dorico's library: installs
+  // never delete them, and they're the maps a project can hold.
+  auto archive = std::make_shared<BridgeRevisionArchive>();
+  const auto library = DoricoConfigGenerator().getDoricoBasePath().getChildFile("DefaultLibraryAdditions");
+  for (const auto &file : library.findChildFiles(juce::File::findFiles, false, "Fiddle-Bridge-*.doricolib")) {
+    // The files don't record a musical range; every built-in map uses the
+    // default 21..114 (a custom range isn't offered in the UI).
+    juce::String error;
+    if (const auto doc = BridgeMapDocument::compile(file.loadFileAsString(), error))
+      archive->add(doc->compiled);
+  }
+  bridgeMapCommands_->setArchive(archive);
 }
 
 void MainComponent::setupBridgeMapHandlers() {
@@ -17,6 +34,7 @@ void MainComponent::setupBridgeMapHandlers() {
     const auto file = templates.getChildFile(info.templateFile);
     return file.existsAsFile() ? file.loadFileAsString() : juce::String{};
   });
+  refreshBridgeArchive();
   mixer_.onBridgeMapsChanged = [this](const std::string &json) {
     bridgeMapCommands_->restore(json); pushBridgeMapState(); broadcastTemplateDirty();
   };

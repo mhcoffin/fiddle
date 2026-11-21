@@ -16,8 +16,11 @@ a section's pinned map differs from the app's built-in one, the list opens and
 shows both, offering **Use built-in revision N** (or **Use all built-in maps**):
 one undoable change that repins the section and moves every channel that used
 the old map. Then reinstall the playback template with Dorico closed and
-reapply it in open projects; until then the beacon mismatches and those notes
-are withheld. The separate Technique Catalog window was removed on 2026-10-19.
+reapply it in open projects. Until then a project that still has the old
+revision plays with it, since Fiddle decodes any revision it installed before
+([older revisions](orchestral-bridge-maps.md#older-revisions-2026-11-20)); only
+a copy matching no installed revision is withheld. The separate Technique
+Catalog window was removed on 2026-10-19.
 
 Chair Manager words the status for musicians: the beacon is the map's
 "version ID", and withheld notes are "not played". A chair's line reads, for
@@ -26,8 +29,11 @@ played (outside the instrument's range)". The other states are "Play to check
 the version" (no beacon yet), "Dorico isn't sending to this chair · reapply
 the playback template in this project" (no beacon while other chairs have
 reported: Dorico sends every channel in its template an Init at playback start,
-used or not, so a silent one isn't in the project's template), "✓ Confirmed from an export" (attested), "Dorico
-has a different version · its notes are muted" (beacon mismatch) and "Not
+used or not, so a silent one isn't in the project's template), "✓ Confirmed from an export" (attested), "✓ Dorico
+has an older version (rN) · playing it" (or newer: the project has another
+revision Fiddle installed before, which decodes the channel), "Dorico
+has a different version · its notes are muted" (a beacon matching no installed
+revision, or several) and "Not
 checked · its notes are muted" (a schema-1 map without attestation). Its
 tooltip explains the check, gives the received and expected beacon and the
 fix, counts notes not played by reason, and lists the other diagnostics.
@@ -84,10 +90,10 @@ so every layer listening to that input receives the same decoded intent.
 2. Start playback so Dorico sends the map's Init and current commands. For a
    schema-2 map, Init includes the **revision beacon** (KS126/KS127). If it
    matches the assigned revision, the input is verified for that playback; the
-   chair's status in Chair Manager shows **✓ Dorico has this version**. A
-   mismatch means Dorico is
-   playing a different map: notes on that input are withheld and the row shows
-   the received and expected beacon. This is evidence from the live MIDI stream,
+   chair's status in Chair Manager shows **✓ Dorico has this version**. If it
+   matches another revision Fiddle installed before, Fiddle decodes the input
+   with that revision. Otherwise Dorico is playing a different map: notes on
+   that input are withheld and the row shows the received and expected beacon. This is evidence from the live MIDI stream,
    not from the exported file.
 3. Optionally, or for schema-1 maps, export the assigned map from Dorico and
    select **Verify assigned map**. The comparison uses the map's *semantic*
@@ -208,7 +214,10 @@ Rejection leaves the existing published project unchanged.
 Their velocities must equal the beacon derived from `entityID:version`
 (SHA-256, first four bytes, mod 127², encoded as two velocities 1–127).
 Publishing through Fiddle restamps the beacon whenever it rewrites the identity,
-and also when an imported or edited map's beacon is stale. In schema 2 every
+and also when an imported or edited map's beacon is stale. It refuses a revision
+whose beacon matches another revision of the same family, installed or in the
+project, since Fiddle decodes an older project's revision by its beacon
+([older revisions](orchestral-bridge-maps.md#older-revisions-2026-11-20)). In schema 2 every
 add-on Off must equal On + 64 (On values below 64); the reset is CC 0 or KS
 velocity 1, written by Init. No add-on may use KS126/127, and the musical range
 must end below 126.

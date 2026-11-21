@@ -141,12 +141,25 @@ PlayerCapture decidePlayerCapture(const PlayerSessionState &state,
   return PlayerCapture::capture;
 }
 
-BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported) {
+BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersReported,
+                        int projectRevision, int assignedRevision, bool ambiguous) {
+  if (beacon == "matched" && projectRevision > 0) {
+    const juce::String age = assignedRevision > 0 && projectRevision > assignedRevision ? "a newer" : "an older";
+    return {"playingProjectRevision",
+            "This project in Dorico has " + age + " revision of the chair's bridge map (r" +
+                juce::String(projectRevision) + "), which Fiddle installed before, so Fiddle plays it "
+                "with that revision. Reapplying the Fiddle playback template in the project moves it "
+                "to the assigned revision; nothing needs doing otherwise."};
+  }
   if (beacon == "mismatched")
     return {"differentVersion",
-            "Dorico is playing an older or edited copy of this chair's bridge map, so Fiddle mutes its "
-            "notes. Have the user quit Dorico, install the playback template, then reapply the Fiddle "
-            "playback template in open projects."};
+            juce::String(ambiguous
+                ? "Dorico's copy of this chair's bridge map matches more than one revision Fiddle installed, "
+                  "so Fiddle can't tell which it is and mutes its notes. "
+                : "Dorico is playing an edited or unknown copy of this chair's bridge map, so Fiddle mutes its "
+                  "notes. ") +
+                "Have the user quit Dorico, install the playback template, then reapply the Fiddle "
+                "playback template in open projects."};
   if (beacon == "matched")
     return {"playing", "When playback started, Dorico sent this map's version ID and it matches."};
   if (verified)
@@ -166,7 +179,8 @@ BridgeCheck bridgeCheck(const juce::String &beacon, bool verified, bool othersRe
 }
 
 bool bridgeNeedsAttention(const juce::String &state, juce::int64 notesNotPlayed) {
-  return notesNotPlayed > 0 || (state != "playing" && state != "checkOnPlayback");
+  return notesNotPlayed > 0 ||
+         (state != "playing" && state != "playingProjectRevision" && state != "checkOnPlayback");
 }
 
 juce::String suggestedRole(const BrowsableInstrument &instrument) {

@@ -1750,7 +1750,11 @@ std::map<std::pair<int, int>, juce::var> MainComponent::agentBridgeChecks() cons
     // Dorico sends every chair in its template its map's version when
     // playback starts, so once any chair has reported, a silent one isn't in
     // this project's template.
-    const auto check = agent::bridgeCheck(beacon, static_cast<bool>(assignment["verified"]), reported);
+    const auto check = agent::bridgeCheck(beacon, static_cast<bool>(assignment["verified"]), reported,
+                                          static_cast<bool>(assignment["otherRevision"])
+                                              ? static_cast<int>(assignment["playingRevision"]) : 0,
+                                          static_cast<int>(assignment["assignedRevision"]),
+                                          static_cast<bool>(assignment["ambiguousRevision"]));
     auto *item = new juce::DynamicObject();
     item->setProperty("map", label.isNotEmpty() ? label : juce::String("Bridge map"));
     item->setProperty("state", check.state);

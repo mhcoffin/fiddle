@@ -336,6 +336,9 @@ private:
   void timerCallback() override;
 
   void setupJsHandlers();
+  /// Load the bridge revisions installed in Dorico's library, so a project's
+  /// older copy of a map plays instead of being muted (BridgeRevisionArchive.h).
+  void refreshBridgeArchive();
   void setupBridgeMapHandlers();
   void pushBridgeMapState();
   void setupScoreTestHandlers();

@@ -52,6 +52,24 @@ voice. The [one-voice note-length fixture](../experiments/orchestral-strings-bri
 is the host check for the defence above. Bridge maps shows, per input, how many
 stale Offs were ignored and how many early Offs were suppressed.
 
+### Older revisions (2026-11-20)
+
+A Dorico project keeps its own copy of the maps it was applied with, so after a
+map update an older project still sends an older revision's beacon. Fiddle
+reads every revision it has installed (the immutable `Fiddle-Bridge-<hash>`
+files in Dorico's `DefaultLibraryAdditions`, which installs never delete) into
+a `BridgeRevisionArchive` at startup and after each install. When a channel's
+beacon is complete and names another revision of the same map family (the
+entity ID without its `.rN`), `NoteStreamTracker` decodes that channel with it,
+replaying the Init commands received so far, so the beacon may come anywhere in
+Init. The chair then reports "Dorico has an older version (rN) · playing it"
+instead of muting; each playback start checks again, so reapplying the template
+moves the project back to the assigned revision. A beacon matching no installed
+revision (an edited copy, or a deleted file) still mutes, as does one matching
+more than one revision of a family; publishing refuses a revision whose beacon
+would clash with an installed or project revision of its family. Until the
+beacon is complete, CCs only the older revision uses can reach instruments once.
+
 ## Supported routing scope — one voice per channel
 
 Decision agreed on 2026-10-15: bridge design, validation and playback-fidelity

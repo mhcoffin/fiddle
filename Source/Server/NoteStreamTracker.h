@@ -2,6 +2,7 @@
 
 #include "ExpressionMap.h"
 #include "BridgeMapDocument.h"
+#include "BridgeRevisionArchive.h"
 #include "MetronomeTempoTracker.h"
 #include "midi_event.pb.h"
 #include <algorithm> // Added for std::find
@@ -32,26 +33,41 @@ class NoteStreamTracker {
 public:
   void setBridgeMaps(const BridgeMapProject &project) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); bridgeConfigurationInvalid_ = false;
+    activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); assignedBridges_.clear();
+    attestedBridges_.clear();
+    bridgeConfigurationInvalid_ = false;
     for (const auto &[ep, hash] : project.assignments) {
-      auto state = compiledBridges.emplace(Endpoint{uint32_t(ep.first), uint32_t(ep.second)},
-                                           project.documents.at(hash)->compiled);
+      const Endpoint endpoint{uint32_t(ep.first), uint32_t(ep.second)};
+      const auto &compiled = project.documents.at(hash)->compiled;
+      auto state = compiledBridges.emplace(endpoint, compiled);
       state.first->second.sampleRate = hostSampleRate_;
+      assignedBridges_[endpoint] = compiled;
     }
+  }
+  /// The revisions installed in Dorico's library (BridgeRevisionArchive.h).
+  void setBridgeArchive(std::shared_ptr<const BridgeRevisionArchive> archive) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    bridgeArchive_ = std::move(archive);
   }
   void rejectBridgeMaps() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     activeNotes.clear(); currentCCs.clear(); compiledBridges.clear(); bridgeConfigurationInvalid_ = true;
+    assignedBridges_.clear(); attestedBridges_.clear();
   }
   void unverifyBridge(int port, int channel) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
-    if (it != compiledBridges.end()) { it->second.reset(); it->second.attested = false; }
+    const Endpoint endpoint{uint32_t(port), uint32_t(channel)};
+    attestedBridges_.erase(endpoint);
+    const auto it = compiledBridges.find(endpoint);
+    if (it != compiledBridges.end()) { restoreAssigned(it->first, it->second); it->second.reset(); it->second.attested = false; }
   }
   void verifyBridge(int port, int channel) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
-    const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
-    if (it != compiledBridges.end()) { it->second.reset(); it->second.attested = true; }
+    // An attested export is of the assigned revision.
+    const Endpoint endpoint{uint32_t(port), uint32_t(channel)};
+    attestedBridges_.insert(endpoint);
+    const auto it = compiledBridges.find(endpoint);
+    if (it != compiledBridges.end()) { restoreAssigned(it->first, it->second); it->second.reset(); it->second.attested = true; }
   }
   // Host-clock rate of incoming sample positions (bridge Off debounce).
   void setHostSampleRate(double rate) {
@@ -64,7 +80,13 @@ public:
     std::lock_guard<std::recursive_mutex> lock(mutex);
     const auto it = compiledBridges.find({uint32_t(port), uint32_t(channel)});
     if (it == compiledBridges.end()) return std::nullopt;
-    return it->second.diagnostics();
+    auto diagnostics = it->second.diagnostics();
+    const auto assigned = assignedBridges_.find(it->first);
+    if (assigned != assignedBridges_.end()) {
+      diagnostics.assignedRevision = assigned->second->revision;
+      diagnostics.otherRevision = assigned->second != it->second.map();
+    }
+    return diagnostics;
   }
   struct Callbacks {
     std::function<void(const fiddle::Note &)> onNoteStarted;
@@ -130,6 +152,9 @@ public:
       if (compiled->second.consume(event)) {
         // Never expose protocol keys as musical notes or raw output MIDI.
         if (callbacks.onBridgeCommand) callbacks.onBridgeCommand(event, absoluteSamples);
+        if (compiled->second.diagnostics().beacon == BridgeDecoderState::Beacon::Mismatched &&
+            beaconBefore != BridgeDecoderState::Beacon::Mismatched)
+          decodeRevisionDoricoSent(compiled->first, compiled->second);
         if (compiled->second.diagnostics().beacon != beaconBefore && callbacks.onBridgeStatusChanged)
           callbacks.onBridgeStatusChanged();
         return;
@@ -257,7 +282,8 @@ public:
     std::lock_guard<std::recursive_mutex> lock(mutex);
     activeNotes.clear();
     currentCCs.clear();
-    for (auto &[endpoint, bridge] : compiledBridges) bridge.reset();
+    // Each playback start checks the revision again, from the assigned one.
+    for (auto &[endpoint, bridge] : compiledBridges) { restoreAssigned(endpoint, bridge); bridge.reset(); }
     if (!compiledBridges.empty() && callbacks.onBridgeStatusChanged) callbacks.onBridgeStatusChanged();
   }
 
@@ -299,6 +325,58 @@ private:
   using Endpoint = std::pair<uint32_t, uint32_t>; // zero-based port, 1-based channel
   std::map<Endpoint, std::array<uint8_t, 128>> currentCCs;
   std::map<Endpoint, BridgeDecoderState> compiledBridges;
+  // What each channel is assigned; compiledBridges may decode an older
+  // revision instead, when Dorico's project still has one.
+  std::map<Endpoint, std::shared_ptr<const CompiledBridgeMap>> assignedBridges_;
+  std::shared_ptr<const BridgeRevisionArchive> bridgeArchive_;
+  // Channels whose assigned revision the user verified from a Dorico export.
+  std::set<Endpoint> attestedBridges_;
+
+  /// Put a channel decoding another revision back on its assigned one,
+  /// keeping its counters and the assigned revision's verification.
+  void restoreAssigned(const Endpoint &endpoint, BridgeDecoderState &decoder) {
+    const auto assigned = assignedBridges_.find(endpoint);
+    if (assigned == assignedBridges_.end() || assigned->second == decoder.map()) return;
+    BridgeDecoderState next(assigned->second);
+    next.sampleRate = decoder.sampleRate;
+    next.attested = attestedBridges_.count(endpoint) > 0;
+    next.adoptCounters(decoder.diagnostics());
+    decoder = std::move(next);
+  }
+
+  /// Dorico's beacon names another revision than this channel decodes: the
+  /// assigned one, or one installed in Dorico's library before. Decode the
+  /// channel with it, replaying the Init received so far, so the project's
+  /// own copy of the map plays instead of being muted. Without a single
+  /// match the channel stays muted.
+  void decodeRevisionDoricoSent(const Endpoint &endpoint, BridgeDecoderState &decoder) {
+    const auto received = decoder.diagnostics().receivedBeacon;
+    const auto assigned = assignedBridges_.find(endpoint);
+    if (assigned == assignedBridges_.end()) return;
+    std::shared_ptr<const CompiledBridgeMap> target;
+    if (assigned->second->beacon == received) {
+      target = assigned->second;
+    } else if (bridgeArchive_) {
+      const auto match = bridgeArchive_->find(
+          BridgeRevisionArchive::familyOf(assigned->second->entityId), received);
+      if (match.ambiguous) { decoder.ambiguousRevision = true; return; }
+      target = match.map;
+    }
+    if (!target || target == decoder.map()) return;
+    BridgeDecoderState next(target);
+    // Only the assigned revision can carry the user's verification; the
+    // matching beacon is what makes another revision playable.
+    next.attested = target == assigned->second && attestedBridges_.count(endpoint) > 0;
+    next.sampleRate = decoder.sampleRate;
+    // Counters from before this playback; the replay recounts its commands
+    // under the right revision.
+    next.adoptCounters(decoder.countersAtReset());
+    const auto replay = decoder.replay();
+    for (const auto &command : replay) next.consume(command);
+    // Never swap in a decoder that didn't receive the beacon.
+    if (next.diagnostics().beacon != BridgeDecoderState::Beacon::Matched) return;
+    decoder = std::move(next);
+  }
   bool bridgeConfigurationInvalid_ = false;
   double hostSampleRate_ = 44100.0;
   uint64_t nextNoteId = 1;

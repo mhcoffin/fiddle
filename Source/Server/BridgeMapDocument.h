@@ -3,6 +3,7 @@
 #include "midi_event.pb.h"
 #include <algorithm>
 #include <array>
+#include <deque>
 #include <juce_core/juce_core.h>
 #include <map>
 #include <memory>
@@ -33,6 +34,9 @@ struct CompiledBridgeMap {
   std::vector<Dimension> dimensions;
   int musicalLow = 21, musicalHigh = 114;
   std::array<int, 2> beacon{-1, -1}; // expected beacon velocities (schema 2)
+  // The map's Dorico identity, for telling revisions apart.
+  std::string entityId, name;
+  int revision = 0;
   // Dorico's playback options are pinned (see kPinnedPlaybackDimension).
   bool pinnedPlayback = false;
   // Unpitched sections: the library's percussion map exists so Dorico plays
@@ -90,6 +94,13 @@ public:
   struct Diagnostics {
     Beacon beacon = Beacon::Unsupported;
     std::array<int, 2> receivedBeacon{-1, -1}, expectedBeacon{-1, -1};
+    // The revision decoding this channel, and whether it is another one
+    // than the assigned revision, which Dorico's project has instead (set
+    // by the tracker, which knows the assignment). ambiguousRevision: more
+    // than one installed revision matched Dorico's beacon, so none was chosen.
+    std::string playingEntityId;
+    int playingRevision = 0, assignedRevision = 0;
+    bool otherRevision = false, ambiguousRevision = false;
     bool attested = false;
     uint64_t invalidCommands = 0, ignoredOffs = 0, debouncedOffs = 0;
     std::array<uint64_t, size_t(Withheld::Count)> withheld{};
@@ -104,7 +115,13 @@ public:
   }
 
   bool attested = false;
+  bool ambiguousRevision = false;
   double sampleRate = 44100.0;
+  /// The most recent commands kept while the beacon is incomplete, so a
+  /// decoder for another revision can be given the same Init. Commands sent
+  /// before Init (note entry before the first playback) are the oldest and
+  /// the first to go.
+  static constexpr size_t kReplayLimit = 512;
 
   // Clears received protocol state (transport stop, verification change).
   // Cumulative counters survive until the assignment itself is replaced.
@@ -113,6 +130,26 @@ public:
     std::fill(lastOn_.begin(), lastOn_.end(), LastOn{});
     diagnostics_.receivedBeacon = {-1, -1};
     if (map_->schema >= 2) diagnostics_.beacon = Beacon::Absent;
+    replay_.clear();
+    ambiguousRevision = false;
+    countersAtReset_ = diagnostics_;
+  }
+  const std::shared_ptr<const CompiledBridgeMap> &map() const { return map_; }
+  /// The recent commands, while the beacon is incomplete.
+  const std::deque<MidiEvent> &replay() const { return replay_; }
+  /// The cumulative counters as they were at the last reset (playback
+  /// start), before this decoder consumed commands that may have been meant
+  /// for another revision.
+  const Diagnostics &countersAtReset() const { return countersAtReset_; }
+  /// Carry cumulative counters over from the decoder this one replaces:
+  /// they survive until the assignment itself changes.
+  void adoptCounters(const Diagnostics &from) {
+    diagnostics_.withheld = from.withheld;
+    diagnostics_.lastWithheld = from.lastWithheld;
+    diagnostics_.invalidCommands = from.invalidCommands;
+    diagnostics_.ignoredOffs = from.ignoredOffs;
+    diagnostics_.debouncedOffs = from.debouncedOffs;
+    countersAtReset_ = diagnostics_;
   }
   bool consumesCC(int number) const {
     for (const auto &d : map_->dimensions)
@@ -124,6 +161,18 @@ public:
   }
 
   bool consume(const MidiEvent &event) {
+    // Until the beacon is complete, keep what this decoder consumes: if the
+    // beacon names another revision, its decoder replays the same Init.
+    const bool keep = map_->schema >= 2 && diagnostics_.beacon == Beacon::Absent;
+    const bool consumed = consumeCommand(event);
+    if (consumed && keep) {
+      replay_.push_back(event);
+      if (replay_.size() > kReplayLimit) replay_.pop_front();
+    }
+    return consumed;
+  }
+
+  bool consumeCommand(const MidiEvent &event) {
     if (map_->schema >= 2 && consumeBeacon(event)) return true;
     for (size_t i = 0; i < values_.size(); ++i) {
       const auto &d = map_->dimensions[i];
@@ -172,6 +221,9 @@ public:
   Diagnostics diagnostics() const {
     auto result = diagnostics_;
     result.attested = attested;
+    result.playingEntityId = map_->entityId;
+    result.playingRevision = map_->revision;
+    result.ambiguousRevision = ambiguousRevision;
     return result;
   }
   /// Stable key for the UI, which words each reason for the user.
@@ -268,5 +320,7 @@ private:
   std::vector<int> values_;
   std::vector<LastOn> lastOn_;
   Diagnostics diagnostics_;
+  Diagnostics countersAtReset_;
+  std::deque<MidiEvent> replay_;
 };
 } // namespace fiddle

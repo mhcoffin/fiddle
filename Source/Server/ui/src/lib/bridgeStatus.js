@@ -18,6 +18,9 @@ export function bridgeForChair(state, chair) {
     return { ...assignment, othersReported, label: section?.label || doc?.name || "Bridge map" };
 }
 
+/** "an older" or "a newer", comparing the revision playing with the assigned one. */
+export const revisionAge = (a) => a.assignedRevision && a.playingRevision > a.assignedRevision ? "a newer" : "an older";
+
 export function isPlaying(a) {
     return a.beacon !== "mismatched" && (a.verified || a.beacon === "matched");
 }
@@ -27,6 +30,7 @@ export const mapName = (a) => /\bmap$/i.test(a.label || "") ? a.label : `${a.lab
 
 export function verificationText(a) {
     if (a.beacon === "mismatched") return "Dorico has a different version · its notes are muted";
+    if (a.beacon === "matched" && a.otherRevision) return `✓ Dorico has ${revisionAge(a)} version (r${a.playingRevision}) · playing it`;
     if (a.beacon === "matched") return "✓ Dorico has this version";
     if (a.verified) return "✓ Confirmed from an export";
     if (a.beacon === "absent" && a.othersReported) return "Dorico isn't sending to this chair · reapply the playback template in this project";
@@ -68,8 +72,14 @@ export function withheldText(a) {
 function explanation(a) {
     if (a.beacon === "mismatched")
         return `Dorico sent version ID ${a.receivedBeacon.join("/")}, but Fiddle installed ${a.expectedBeacon.join("/")}, `
-            + "so Dorico is playing an older or edited copy of this map and Fiddle mutes its notes. "
+            + (a.ambiguousRevision
+                ? "and more than one revision Fiddle installed before has that version ID, so Fiddle can't tell which one Dorico has and mutes its notes. "
+                : "and no revision Fiddle installed before matches it, so Dorico is playing an edited or unknown copy of this map and Fiddle mutes its notes. ")
             + "With Dorico closed, choose Install Playback Template, then reapply the Fiddle template in open projects.";
+    if (a.beacon === "matched" && a.otherRevision)
+        return `When playback started, Dorico sent the version ID of revision ${a.playingRevision} of this map, `
+            + `${revisionAge(a)} one Fiddle installed before and this project has, so Fiddle plays the chair with that revision. `
+            + "Reapplying the Fiddle playback template in the project moves it to the assigned revision; nothing needs doing otherwise.";
     if (a.beacon === "matched")
         return "When playback started, Dorico sent this map's version ID (keyswitches 126/127), "
             + "and it matches the version Fiddle installed.";

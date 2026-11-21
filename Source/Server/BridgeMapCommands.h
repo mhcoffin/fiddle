@@ -154,6 +154,15 @@ public:
     juce::String error;
     const auto doc = BridgeMapDocument::compile(xml, error, low, high);
     if (!doc) return fail(error);
+    // Dorico's beacon must name one revision of a family: refuse a revision
+    // that would share it with one already installed or in this project.
+    if (doc->compiled->schema >= 2) {
+      BridgeRevisionArchive known = archive_ ? *archive_ : BridgeRevisionArchive{};
+      for (const auto &[hash, existing] : project_.documents) known.add(existing->compiled);
+      if (const auto clash = known.collision(*doc->compiled))
+        return fail("This revision's beacon matches " + juce::String(clash->entityId) +
+                    ", so Dorico couldn't tell them apart. Publish it as a different revision number.");
+    }
     for (const auto &[hash, existing] : project_.documents)
       if (existing->entityId == doc->entityId && hash != doc->contentHash)
         return fail("That Dorico map ID already has different content. Publish as a new revision from the selected map.");
@@ -217,6 +226,11 @@ public:
       if (const auto live = tracker_.bridgeDiagnostics(ep.first, ep.second)) {
         static const char *beacons[] = {"unsupported", "absent", "matched", "mismatched"};
         a->setProperty("beacon", beacons[int(live->beacon)]);
+        // Decoding another revision Dorico's project has instead of the assigned one.
+        a->setProperty("otherRevision", live->otherRevision);
+        a->setProperty("playingRevision", live->playingRevision);
+        a->setProperty("assignedRevision", live->assignedRevision);
+        a->setProperty("ambiguousRevision", live->ambiguousRevision);
         a->setProperty("receivedBeacon", juce::Array<juce::var>{live->receivedBeacon[0], live->receivedBeacon[1]});
         a->setProperty("expectedBeacon", juce::Array<juce::var>{live->expectedBeacon[0], live->expectedBeacon[1]});
         a->setProperty("lastWithheld", juce::String(BridgeDecoderState::describe(live->lastWithheld)));
@@ -260,6 +274,13 @@ public:
     return juce::var(o);
   }
   void reportError(const juce::String &error) { error_ = error; }
+  /// The revisions installed in Dorico's library, for decoding a project's
+  /// older copy (passed on to the tracker) and for refusing a revision whose
+  /// beacon would clash.
+  void setArchive(std::shared_ptr<const BridgeRevisionArchive> archive) {
+    archive_ = archive;
+    tracker_.setBridgeArchive(std::move(archive));
+  }
 private:
   bool canChange() {
     if (busy_() || tracker_.hasActiveNotes()) return fail("Stop playback and release auditioned notes before changing or verifying bridge maps");
@@ -277,6 +298,7 @@ private:
   MixerModel &mixer_; NoteStreamTracker &tracker_; UndoManager &undo_;
   std::function<void()> changed_; std::function<bool()> busy_;
   BridgeMapProject project_;
+  std::shared_ptr<const BridgeRevisionArchive> archive_;
   std::map<juce::String, std::shared_ptr<const BridgeMapDocument>> builtIns_;
   std::set<BridgeMapProject::Endpoint> verified_;
   juce::String error_;
