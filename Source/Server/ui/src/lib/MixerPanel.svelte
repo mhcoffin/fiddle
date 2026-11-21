@@ -1900,6 +1900,11 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}
                 onRemoveLua={(index) => removeLuaPlugin(detailsStrip.id, index)}
                 onUseLuaFile={(fileName) => dispatchCpp("useLuaFile", fileName)}
+                onSetLuaParam={(index, name, value) => dispatchCpp("setLuaParam", detailsStrip.id, index, name, value)}
+                onResetLuaParams={(index) => dispatchCpp("resetLuaParams", detailsStrip.id, index)}
+                onSetLuaEnabled={(index, enabled) => dispatchCpp("setLuaEnabled", detailsStrip.id, index, enabled)}
+                onLuaGestureBegin={() => dispatchCpp("beginHistoryGesture")}
+                onLuaGestureEnd={() => dispatchCpp("endHistoryGesture")}
                 onInspectMidi={() => {
                     toggleInspector(detailsStrip.id);
                     layerDetailsStripId = "";

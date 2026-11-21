@@ -53,6 +53,10 @@ inline juce::var luaParamsToVar(const LuaPlugin &plugin) {
       item->setProperty("max", param.max);
       item->setProperty("step", param.step);
       item->setProperty("control", juce::String(param.control));
+      if (!param.zeroLabel.empty())
+        item->setProperty("zeroLabel", juce::String::fromUTF8(param.zeroLabel.c_str()));
+      if (param.randomize)
+        item->setProperty("randomize", true);
     }
     if (param.type == "enum") {
       juce::Array<juce::var> options;

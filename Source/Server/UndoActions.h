@@ -453,33 +453,40 @@ public:
       : mixer_(mixer), fileName_(fileName) {
     // Gather under each strip's lock, then read files without it, so MIDI
     // annotation never waits on disk.
-    std::vector<std::shared_ptr<LuaPlugin>> stale;
+    // Each layer's settings are read under its lock too, as values change
+    // under it (LuaPlugin::setParamValue).
+    struct Candidate {
+      std::shared_ptr<LuaPlugin> plugin;
+      std::map<std::string, LuaParamValue> overrides;
+      bool enabled = true;
+    };
+    std::vector<Candidate> stale;
     for (auto *strip : mixer_.getAllStrips()) {
       auto lock = strip->lockMidiState();
       for (const auto &plugin : strip->luaPlugins)
         if (plugin && std::filesystem::path(plugin->filePath()).filename().string() == fileName_)
-          stale.push_back(plugin);
+          stale.push_back({plugin, plugin->paramOverrides(), plugin->isEnabled()});
     }
-    stale.erase(std::remove_if(stale.begin(), stale.end(), [](const auto &plugin) {
-                  return plugin->fileStatus() != LuaPlugin::FileStatus::changed;
+    stale.erase(std::remove_if(stale.begin(), stale.end(), [](const auto &candidate) {
+                  return candidate.plugin->fileStatus() != LuaPlugin::FileStatus::changed;
                 }),
                 stale.end());
-    for (const auto &plugin : stale) {
+    for (const auto &candidate : stale) {
       // The new text keeps the layer's bypass and the values the user set,
       // where the file still declares them (LuaPlugin::paramNotes says
       // which didn't carry over).
-      auto fresh = std::make_shared<LuaPlugin>(plugin->filePath());
-      fresh->setParamOverrides(plugin->paramOverrides());
-      fresh->setEnabled(plugin->isEnabled());
+      auto fresh = std::make_shared<LuaPlugin>(candidate.plugin->filePath());
+      fresh->setParamOverrides(candidate.overrides);
+      fresh->setEnabled(candidate.enabled);
       if (!fresh->load()) {
         // Every layer using the file says why it keeps its copy.
         error_ = fresh->lastError();
         for (const auto &layer : stale)
-          layer->setFileError(error_);
+          layer.plugin->setFileError(error_);
         swaps_.clear();
         return;
       }
-      swaps_.push_back({plugin, std::move(fresh)});
+      swaps_.push_back({candidate.plugin, std::move(fresh)});
     }
   }
 

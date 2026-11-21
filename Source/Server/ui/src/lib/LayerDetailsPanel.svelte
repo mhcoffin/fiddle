@@ -1,7 +1,7 @@
 <script>
     import MapPicker from "./MapPicker.svelte";
     import { playAsChoices } from "./percussionMaps.js";
-    import { luaFileNote, useFileTitle } from "./luaScripts.js";
+    import LuaScriptCard from "./LuaScriptCard.svelte";
 
     let {
         strip,
@@ -24,6 +24,11 @@
         onAddLua = () => {},
         onRemoveLua = () => {},
         onUseLuaFile = () => {},
+        onSetLuaParam = (_index, _name, _value) => {},
+        onResetLuaParams = (_index) => {},
+        onSetLuaEnabled = (_index, _enabled) => {},
+        onLuaGestureBegin = () => {},
+        onLuaGestureEnd = () => {},
         onInspectMidi = () => {},
         onRefreshLibrary = () => {},
         onDelete = () => {},
@@ -218,23 +223,14 @@
                 </div>
                 {#if strip.luaPlugins?.length}
                     <div class="lua-list">
-                        {#each strip.luaPlugins as plugin}
-                            {@const note = luaFileNote(plugin)}
-                            <div class="lua-row" class:error={!plugin.loaded}>
-                                <div>
-                                    <strong>{plugin.name || "Unknown processor"}</strong>
-                                    <span>{plugin.filePath || ""}</span>
-                                    {#if note}
-                                        <p class="lua-note">{note.text}</p>
-                                    {/if}
-                                </div>
-                                <div class="lua-actions">
-                                    {#if note?.canUseFile}
-                                        <button title={useFileTitle(plugin)} onclick={() => onUseLuaFile(plugin.fileName)}>Use new file</button>
-                                    {/if}
-                                    <button onclick={() => onRemoveLua(plugin.index)}>Remove</button>
-                                </div>
-                            </div>
+                        {#each strip.luaPlugins as plugin (plugin.index)}
+                            <LuaScriptCard {plugin} showPath
+                                onSetParam={(name, value) => onSetLuaParam(plugin.index, name, value)}
+                                onResetParams={() => onResetLuaParams(plugin.index)}
+                                onSetEnabled={(enabled) => onSetLuaEnabled(plugin.index, enabled)}
+                                onUseFile={onUseLuaFile}
+                                onRemove={() => onRemoveLua(plugin.index)}
+                                onGestureBegin={onLuaGestureBegin} onGestureEnd={onLuaGestureEnd} />
                         {/each}
                     </div>
                 {:else}
@@ -319,14 +315,6 @@
     .empty { margin-bottom: 12px; border: 1px dashed #334155; color: #94a3b8; text-align: center; }
     .attention { border-color: #f59e0b; color: #fbbf24; }
     .lua-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-    .lua-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 12px; border: 1px solid #334155; border-radius: 7px; background: #111c2e; }
-    .lua-row > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-    .lua-row strong, .lua-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lua-row strong { color: #e2e8f0; font-size: 0.86rem; }
-    .lua-row span { color: #64748b; font-size: 0.72rem; }
-    .lua-row.error { border-color: #991b1b; }
-    .lua-row .lua-note { margin: 4px 0 0; color: #fbbf24; font-size: 0.74rem; line-height: 1.35; white-space: normal; }
-    .lua-row > .lua-actions { flex-direction: row; gap: 8px; flex-shrink: 0; }
     .danger-zone { justify-content: space-between; gap: 20px; }
     .danger-actions { justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .danger { border-color: #7f1d1d; color: #fecaca; }

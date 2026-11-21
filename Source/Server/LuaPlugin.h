@@ -37,6 +37,8 @@ struct LuaPluginMeta {
     std::string label; // shown; the name with spaces when not given
     std::string unit, description;
     std::string control = "knob"; // int/float: "knob" or "field"
+    std::string zeroLabel; // field: shown for 0 ("Auto")
+    bool randomize = false; // field: offer a button that picks a random value
     double min = 0, max = 0;
     double step = 0; // int: >= 1; float: 0 when the script didn't say
     LuaParamValue defaultValue;

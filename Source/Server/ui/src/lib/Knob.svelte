@@ -11,6 +11,8 @@
         format = (v) => v.toFixed(1),
         parse = (text) => text.trim() && Number.isFinite(Number(text)) ? Number(text) : null,
         oninput = () => {}, onGestureBegin = () => {}, onGestureEnd = () => {},
+        // When set, double-clicking the knob returns it to this value.
+        defaultValue = null,
     } = $props();
 
     let current = $state(0), draft = $state("");
@@ -39,8 +41,9 @@
         frame = null;
         if (pending !== null) { const next = pending; pending = null; oninput(next); }
     }
-    function setValue(next) {
-        next = clamp(Number((Math.round(next / fineStep) * fineStep).toFixed(6)), min, max);
+    // snap: round to fineStep. A default is restored exactly, even off the grid.
+    function setValue(next, snap = true) {
+        next = clamp(snap ? Number((Math.round(next / fineStep) * fineStep).toFixed(6)) : next, min, max);
         if (next === current) return;
         current = next;
         draft = format(next);
@@ -106,6 +109,13 @@
             editing = false; draft = format(current); event.currentTarget.blur();
         }
     }
+    function resetToDefault() {
+        if (disabled || defaultValue === null || clamp(defaultValue, min, max) === current) return;
+        finishGesture();
+        beginGesture();
+        setValue(defaultValue, false);
+        finishGesture();
+    }
     onDestroy(finishGesture);
 </script>
 
@@ -115,7 +125,8 @@
     <div class="knob" bind:this={knob} role="slider" tabindex={disabled ? -1 : 0}
         aria-label={label} aria-valuemin={min} aria-valuemax={max} aria-valuenow={current}
         aria-valuetext={`${format(current)} ${unit}`} aria-disabled={disabled} aria-orientation="vertical"
-        title="Drag up or down. Hold Shift for fine adjustment. Arrow keys adjust; Home sets minimum; End sets maximum."
+        title={`Drag up or down. Hold Shift for fine adjustment. Arrow keys adjust; Home sets minimum; End sets maximum.${defaultValue === null ? "" : " Double-click to reset."}`}
+        ondblclick={resetToDefault}
         onpointerdown={pointerDown} onpointermove={pointerMove}
         onpointerup={(event) => { if (event.pointerId === pointerId) finishGesture(); }}
         onpointercancel={(event) => { if (event.pointerId === pointerId) finishGesture(); }}

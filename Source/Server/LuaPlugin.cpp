@@ -505,6 +505,10 @@ void parseLuaParams(const sol::table &pluginTable, LuaPluginMeta &meta) {
         meta.paramErrors.push_back(p.name + ": control must be \"knob\" or \"field\"; using a knob");
         p.control = "knob";
       }
+      if (p.control == "field") {
+        p.zeroLabel = t.get_or<std::string>("zero_label", "");
+        p.randomize = t.get_or("randomize", false);
+      }
     } else if (p.type == "enum") {
       sol::object options = t["options"];
       if (options.get_type() == sol::type::table) {

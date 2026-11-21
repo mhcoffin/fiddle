@@ -102,6 +102,12 @@ After building the UI, run:
 node Source/Server/ui/browser-tests/chairLayout.mjs
 ```
 
+`node Source/Server/ui/browser-tests/luaControls.mjs` runs the same way and
+checks the Lua script controls (docs/lua-scripts.md): what each control sends,
+that single changes are bracketed by history gestures, that a refused or
+clamped value is put back, and that Escape in a field doesn't close Layer
+details.
+
 This requires Playwright and an installed Chrome. Set `FIDDLE_PLAYWRIGHT_MODULE`
 to an external Playwright package directory if it is not locally installed.
 `FIDDLE_TEST_BROWSER_CHANNEL` can select another supported Chromium channel.

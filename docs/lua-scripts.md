@@ -68,7 +68,8 @@ params = {
     description = "Largest shift of a note's start" },
   { name = "on_beat_only", type = "bool", default = false },
   { name = "seed", label = "Variation", type = "int",
-    min = 0, max = 99999, default = 0, control = "field" },
+    min = 0, max = 99999, default = 0, control = "field",
+    zero_label = "Auto", randomize = true },
   { name = "mode", type = "enum", options = { "soft", "hard" }, default = "soft" },
 }
 ```
@@ -77,7 +78,8 @@ params = {
   and `max`; `enum` needs `options`. `default` falls back to false, `min` or
   the first option.
 - `label`, `unit`, `step`, `description` and `control` (`"knob"` or
-  `"field"`, for numbers) only change how the control looks. Without a label,
+  `"field"`, for numbers; a field also takes `zero_label` and `randomize`)
+  only change how the control looks. Without a label,
   the name is shown with spaces.
 - Parameters keep the order they're listed in.
 - A parameter with a mistake (no range, a default outside it, a repeated name,
@@ -99,7 +101,8 @@ coalesce, like the gain fader's. The action holds the script instance, so a
 step can't reach a different script after the chain changes. Values change
 under the strip's MIDI-state lock, which the MIDI thread holds while it runs
 scripts, and the script sees a new value from its next callback. The mixer
-JSON gives each script `enabled`, `description`, `params` and `paramErrors`.
+JSON gives each script `enabled`, `description`, `params`, `paramErrors` and
+`paramNotes`.
 
 ### Saved with the version
 
@@ -121,4 +124,15 @@ and Undo brings back the old script with all its values.
 Bypass and Reset to defaults save the working setup at once, like mute; knob
 changes are saved with the next save or on quit, like the gain fader.
 
-There are no controls for parameters yet.
+### Controls
+
+Layer details shows each script as a card (`LuaScriptCard.svelte`): its name,
+a bypass switch, and a row per parameter (`LuaParamControls.svelte`). A
+`bool` is a switch; an `int` or `float` is a knob with its value, which can
+be typed (double-click the knob for the default); `control = "field"` is a
+number field, showing `zero_label` for 0 and, with `randomize = true`, a
+**New** button that picks a random whole value; an `enum` is a row of choices,
+or a menu beyond four. A blue dot marks a changed value; clicking it resets
+that one, and **Reset to defaults** resets them all. The card also shows the
+script's declaration mistakes, values that didn't carry over, and its file
+status with **Use new file**.

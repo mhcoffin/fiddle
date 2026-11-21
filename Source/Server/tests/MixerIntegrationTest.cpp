@@ -1638,7 +1638,7 @@ local plugin = {
     { name = "timing", type = "float", min = 0, max = 50, step = 0.5, default = 15 },
     { name = "on_beat", type = "bool" },
     { name = "mode", type = "enum", options = { "soft", "hard" }, default = "hard" },
-    { name = "seed", type = "int", min = 0, max = 99999, control = "field" },
+    { name = "seed", type = "int", min = 0, max = 99999, control = "field", zero_label = "Auto", randomize = true },
     { name = "no_range", type = "int", default = 3 },
     { name = "too_big", type = "float", min = 0, max = 1, default = 2 },
     { name = "velocity", type = "bool" },
@@ -1675,6 +1675,10 @@ return plugin
   REQUIRE(params[2].label == "On beat" && params[2].defaultValue == Value(false) && params[2].control.empty());
   REQUIRE(params[3].defaultValue == Value(std::string("hard")));
   REQUIRE(params[4].control == "field" && params[4].defaultValue == Value(std::int64_t{0}));
+  REQUIRE(params[4].zeroLabel == "Auto" && params[4].randomize && params[0].zeroLabel.empty());
+  const auto json = fiddle::luaParamsToVar(plugin);
+  REQUIRE(json[4]["control"].toString() == "field" && json[4]["zeroLabel"].toString() == "Auto" &&
+          static_cast<bool>(json[4]["randomize"]) && !json[0].hasProperty("zeroLabel"));
   REQUIRE(plugin.meta().paramErrors.size() == 5);
 
   bool sawLoad = false;
@@ -1771,8 +1775,13 @@ void testLuaParamChangesAndUndo() {
   REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "missing", Value(1.0))));
   REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 3, "amount", Value(1.0))));
   REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(7.25))));
+  // A switch flipped back at once is two steps; it doesn't coalesce.
   f.undo.breakCoalescing();
   REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "on", Value(false))));
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "on", Value(true))));
+  REQUIRE(f.undo.undo() && plugin->paramValue("on") == Value(false));
+  REQUIRE(f.undo.undo() && plugin->paramValue("on") == Value(true));
+  REQUIRE(f.undo.redo());
   REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(std::int64_t{40}))));
   REQUIRE(amount() == 10.0);
 
@@ -1782,6 +1791,8 @@ void testLuaParamChangesAndUndo() {
   REQUIRE(params.size() == 2 && params[0]["name"].toString() == "amount");
   REQUIRE(static_cast<double>(params[0]["value"]) == 10.0 && static_cast<double>(params[0]["default"]) == 2.0);
   REQUIRE(params[0]["unit"].toString() == "ms" && !static_cast<bool>(params[1]["value"]));
+  REQUIRE(params[0]["control"].toString() == "knob" && !params[0].hasProperty("zeroLabel") &&
+          !params[0].hasProperty("randomize") && !params[1].hasProperty("control"));
   REQUIRE(static_cast<bool>(json["luaPlugins"][0]["enabled"]));
 
   // Reset to defaults is one step.
@@ -1933,11 +1944,10 @@ void testLuaSettingsSaved() {
   REQUIRE(restoredPlugin->paramValue("count") == Value(std::int64_t{4}));
   REQUIRE(restoredPlugin->savedState() == liveState);
 
-  REQUIRE(restored.undo.perform(std::make_unique<fiddle::SetLuaEnabledAction>(restored.mixer, strip->id, 0, true)));
   REQUIRE(restored.undo.perform(fiddle::SetLuaParamsAction::one(restored.mixer, strip->id, 0, "amount", Value(7.0))));
   REQUIRE(restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "saved.lua")));
   const auto fresh = strip->luaPlugins[0];
-  REQUIRE(fresh != restoredPlugin && fresh->isEnabled());
+  REQUIRE(fresh != restoredPlugin && !fresh->isEnabled()); // still bypassed
   REQUIRE(fresh->paramValue("amount") == Value(7.0) && !fresh->paramValue("count"));
   REQUIRE(fresh->paramNotes().size() == 1 && fresh->paramNotes()[0].find("count") != std::string::npos);
   REQUIRE(restored.undo.undo() && strip->luaPlugins[0] == restoredPlugin);
