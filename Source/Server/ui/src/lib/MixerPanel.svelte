@@ -14,6 +14,8 @@
     import BusAudioPanel from "./BusAudioPanel.svelte";
     import AudioBusBank from "./AudioBusBank.svelte";
     import LayerDetailsPanel from "./LayerDetailsPanel.svelte";
+    import MidiFxPanel from "./MidiFxPanel.svelte";
+    import { midiFxSummary } from "./luaScripts.js";
     import AddBusDialog from "./AddBusDialog.svelte";
     import BusDetailsPanel from "./BusDetailsPanel.svelte";
     import LayerPicker from "./LayerPicker.svelte";
@@ -80,6 +82,11 @@
     let channelAudioStripId = $state("");
     let channelAudio = $state(null);
     let layerDetailsStripId = $state("");
+    // The floating MIDI FX panel (MidiFxPanel.svelte): which layer, where its
+    // band was, and the script to show first. Its dragged position lasts
+    // for the session.
+    let midiFx = $state(null);
+    let midiFxPosition = $state(null);
     let audioBankReveal = $state(0);
     let chairs = $state([]);
     let layerCatalog = $state([]);
@@ -123,6 +130,8 @@
     onFromCpp("setMixerState", (data) => {
         try {
             strips = data;
+            // The MIDI FX panel closes when its layer goes (Undo, a branch switch).
+            if (midiFx && !strips.some((strip) => strip.id === midiFx.stripId)) midiFx = null;
             if (faderDragging.size === 0) {
                 for (const id of Object.keys(gainShadow)) delete gainShadow[id];
                 for (const id of Object.keys(gainShadowRaw)) delete gainShadowRaw[id];
@@ -382,6 +391,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             else if (chairAudioBusId) chairAudioBusId = "";
             else if (busAudioBusId) busAudioBusId = "";
             else if (masterAudioOpen) masterAudioOpen = false;
+            else if (midiFx) closeMidiFx();
             else clearSelection();
         };
         window.addEventListener("keydown", handleKeyDown);
@@ -451,7 +461,22 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
             visibleStripInserts(strip).some((insert) =>
                 insert.status === "missing" || insert.status === "failed"),
         );
+    let midiFxOpens = 0;
+    const openMidiFx = (strip, event, focusIndex = -1) => {
+        const band = event?.currentTarget?.closest?.(".ch-midi-section");
+        midiFx = { stripId: strip.id, anchor: band?.getBoundingClientRect() ?? null, focusIndex,
+            token: ++midiFxOpens, opener: event?.currentTarget ?? null };
+        if (strip.luaPlugins?.length) dispatchCpp("requestMixerState"); // as for Layer details
+    };
+    // Focus goes back to the band that opened the panel, if it was inside.
+    const closeMidiFx = () => {
+        const opener = midiFx?.opener;
+        const focusInside = Boolean(document.activeElement?.closest?.(".midi-fx-panel"));
+        midiFx = null;
+        if (focusInside && opener?.isConnected) opener.focus();
+    };
     const openLayerDetails = (strip) => {
+        midiFx = null;
         channelAudioStripId = "";
         channelAudio = null;
         layerDetailsStripId = strip.id;
@@ -462,7 +487,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
     // And again whenever Fiddle comes back to the front, e.g. after the user
     // fixes a script in an editor, while Layer details is open.
     let detailsHasScripts = $derived(
-        Boolean(strips.find((strip) => strip.id === layerDetailsStripId)?.luaPlugins?.length));
+        Boolean(strips.find((strip) => strip.id === layerDetailsStripId)?.luaPlugins?.length) ||
+        Boolean(midiFx && strips.find((strip) => strip.id === midiFx.stripId)?.luaPlugins?.length));
     $effect(() => {
         if (!detailsHasScripts) return;
         const refresh = () => dispatchCpp("requestMixerState");
@@ -1180,6 +1206,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                         {/if}
                                         {#each instrGroup.strips as strip (strip.id)}
                                             {@const layerShowsChairSends = Boolean(groupChairBus) && !showChairStrip}
+                                            {@const midi = midiFxSummary(strip)}
                                             <!-- svelte-ignore a11y_click_events_have_key_events -->
                                             <!-- svelte-ignore a11y_no_static_element_interactions -->
                                             <div
@@ -1203,6 +1230,40 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                 <div class="ch-strip-identity" title={`${strip.layerName || "Layer"} — ${strip.library || "Unknown library"}`}>
                                                     <strong>{strip.library || "Unknown library"}</strong>
                                                 </div>
+
+                                                <!-- MIDI FX: the layer's Lua scripts, which run before its map and
+                                                     instrument (docs/lua-scripts.md). Every strip has the band. -->
+                                                <section class="ch-strip-section ch-midi-section" class:empty={midi.count === 0}
+                                                    class:open={midiFx?.stripId === strip.id} aria-label="MIDI FX">
+                                                    <div class="ch-section-heading">
+                                                        <span class="ch-section-title">{stripSize === "compact" ? "MIDI" : "MIDI FX"}</span>
+                                                        <button class="ch-midi-fx" class:has-effects={midi.count > 0}
+                                                            onclick={(event) => openMidiFx(strip, event)}
+                                                            aria-label={`MIDI FX for ${strip.layerName || strip.library || "layer"} — ${midi.label}`}
+                                                            title={midi.count ? `MIDI FX: ${midi.label}` : "Add a MIDI FX script"}
+                                                        >{#if midi.count > 0}<span class="ch-insert-count" class:active={midi.active > 0} aria-hidden="true">{#if midi.attention}<span class="ch-attention-dot"></span>{/if}{midi.count}</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 6h8m4 0h6M3 12h2m4 0h12M3 18h12m4 0h2M11 3v6M7 9v6M17 15v6" /></svg>{:else}<span class="ch-midi-add" aria-hidden="true">+</span>{/if}</button>
+                                                    </div>
+                                                    {#if stripSize === "large" && midi.count > 0}
+                                                        <div class="ch-midi-list">
+                                                            {#each strip.luaPlugins as plugin (plugin.index)}
+                                                                <div class="ch-fx-summary-row" class:bypassed={plugin.enabled === false}>
+                                                                    <button class="ch-fx-summary-name" onclick={(event) => openMidiFx(strip, event, plugin.index)}
+                                                                        title={`Show ${plugin.name || "the script"}'s controls`}>
+                                                                        <strong>{plugin.name || "Unknown script"}</strong>
+                                                                    </button>
+                                                                    {#if plugin.loaded}
+                                                                        <div class="ch-fx-summary-actions">
+                                                                            <button class:active={plugin.enabled === false}
+                                                                                onclick={() => dispatchCpp("setLuaEnabled", strip.id, plugin.index, plugin.enabled === false)}
+                                                                                title={`${plugin.enabled === false ? "Enable" : "Bypass"} ${plugin.name || "the script"}`}
+                                                                            >{plugin.enabled === false ? "Enable" : "Bypass"}</button>
+                                                                        </div>
+                                                                    {/if}
+                                                                </div>
+                                                            {/each}
+                                                        </div>
+                                                    {/if}
+                                                </section>
 
                                                 <section class="ch-strip-section ch-instrument-section" aria-label="Instrument">
                                                 <div class="ch-instrument-summary">
@@ -1428,7 +1489,8 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                                                     <span class="ch-chair-kind">Chair</span>
                                                 </div>
 
-                                                <!-- Layers have their instrument here; a chair has none. -->
+                                                <!-- Layers have their MIDI FX and instrument here; a chair has neither. -->
+                                                <div class="ch-midi-section ch-chair-blank" aria-hidden="true"></div>
                                                 <div class="ch-instrument-section ch-chair-blank" aria-hidden="true"></div>
 
                                                 <div class="ch-fx-zone">
@@ -1601,7 +1663,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
 <div
     class="mixer-container"
     class:compact-strips={stripSize === "compact"}
-    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 306 : 236}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
+    style="--strip-width: {stripWidth}px; --strip-control-height: 32px; --strip-pre-fader-height: {stripSize === "large" ? 416 : 278}px; --strip-midi-height: {stripSize === "large" ? 104 : 36}px; --strip-fx-height: {stripSize === "large" ? 150 : 80}px; --strip-send-row-height: {sendRowHeight}px; --strip-pre-send-span: {sendSpan(sendRows.Pre)}px; --strip-post-send-span: {sendSpan(sendRows.Post)}px; --strip-send-span: {sendSpan(sendRows.Pre) + sendSpan(sendRows.Post)}px;"
 >
     {#if layerRefreshResult}
         <div class="layer-refresh-notice" role="status">{layerRefreshResult}</div>
@@ -1874,6 +1936,23 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 }}
                 onClose={() => { busDetailsId = ""; }}
             />
+        {/if}
+    {/if}
+    {#if midiFx}
+        {@const fxStrip = strips.find((strip) => strip.id === midiFx.stripId)}
+        {#if fxStrip}
+            <MidiFxPanel strip={fxStrip} anchor={midiFx.anchor} focusIndex={midiFx.focusIndex} focusToken={midiFx.token}
+                catalog={luaPluginCatalog} position={midiFxPosition}
+                onMove={(position) => { midiFxPosition = position; }}
+                onClose={closeMidiFx}
+                onAdd={(filePath) => addLuaPlugin(fxStrip.id, filePath)}
+                onRemove={(index) => { midiFx = { ...midiFx, focusIndex: -1 }; removeLuaPlugin(fxStrip.id, index); }}
+                onSetParam={(index, name, value) => dispatchCpp("setLuaParam", fxStrip.id, index, name, value)}
+                onResetParams={(index) => dispatchCpp("resetLuaParams", fxStrip.id, index)}
+                onSetEnabled={(index, enabled) => dispatchCpp("setLuaEnabled", fxStrip.id, index, enabled)}
+                onUseFile={(fileName) => dispatchCpp("useLuaFile", fileName)}
+                onGestureBegin={() => dispatchCpp("beginHistoryGesture")}
+                onGestureEnd={() => dispatchCpp("endHistoryGesture")} />
         {/if}
     {/if}
     {#if layerDetailsStripId}
@@ -2842,7 +2921,16 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         flex-shrink: 0;
     }
     .ch-instrument-section { height: 44px; display: flex; flex-direction: column; gap: 4px; }
-    .ch-audio-fx {
+    /* Every strip keeps the band's height, so faders line up. */
+    .ch-midi-section { height: var(--strip-midi-height, 36px); display: flex; flex-direction: column; gap: 4px; }
+    .ch-midi-section.empty { background: transparent; box-shadow: inset 0 0 0 1px #243146; }
+    .ch-midi-section.empty .ch-section-title { color: #64748b; }
+    .ch-midi-section.open { box-shadow: inset 0 0 0 1px #38bdf8; }
+    .ch-midi-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 4px; overflow-y: auto; }
+    .ch-midi-add { width: 16px; color: #64748b; font-size: 0.95rem; line-height: 16px; text-align: center; }
+    .ch-midi-fx:hover .ch-midi-add { color: #bae6fd; }
+    .ch-attention-dot { display: inline-block; width: 5px; height: 5px; margin-right: 2px; border-radius: 50%; background: #fbbf24; vertical-align: 1px; }
+    .ch-audio-fx, .ch-midi-fx {
         min-width: 22px;
         height: 24px;
         min-height: 24px;
@@ -2860,7 +2948,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         cursor: pointer;
         flex-shrink: 0;
     }
-    .ch-audio-fx svg { flex-shrink: 0; }
+    .ch-audio-fx svg, .ch-midi-fx svg { flex-shrink: 0; }
     .ch-insert-count {
         padding: 1px 3px;
         border-radius: 3px;
@@ -2884,10 +2972,10 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         font-size: 0.5rem;
         line-height: 12px;
     }
-    .ch-audio-fx:hover, .ch-audio-fx.has-effects {
+    .ch-audio-fx:hover, .ch-audio-fx.has-effects, .ch-midi-fx:hover, .ch-midi-fx.has-effects {
         color: #bae6fd;
     }
-    .ch-audio-fx:hover { background: #2b4059; }
+    .ch-audio-fx:hover, .ch-midi-fx:hover { background: #2b4059; }
     .ch-strip-identity {
         display: flex;
         height: 38px;

@@ -731,8 +731,9 @@ try {
         assert.equal(controlHeights.vst, 32);
         assert.equal(controlHeights.fx, 24, "FX management uses a compact header button");
         assert.equal(controlHeights.details, controlHeights.vst);
-        assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader'],
-            "layers have no Output row");
+        // Every layer has the MIDI FX band (docs/lua-scripts.md), then its audio FX.
+        assert.deepEqual(await firstStrip.locator('.ch-section-title').allTextContents(),
+            [size === "compact" ? "MIDI" : "MIDI FX", 'Pre-fader', 'Post-fader'], "layers have no Output row");
         assert.deepEqual(await multiChairStrip.locator('.ch-section-title').allTextContents(), ['Pre-fader', 'Post-fader']);
         const headingsFit = await firstStrip.locator('.ch-section-heading').evaluateAll((headings) => headings.every((heading) => {
             const text = heading.querySelector('.ch-section-title').getBoundingClientRect();

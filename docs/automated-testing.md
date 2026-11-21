@@ -105,8 +105,9 @@ node Source/Server/ui/browser-tests/chairLayout.mjs
 `node Source/Server/ui/browser-tests/luaControls.mjs` runs the same way and
 checks the Lua script controls (docs/lua-scripts.md): what each control sends,
 that single changes are bracketed by history gestures, that a refused or
-clamped value is put back, and that Escape in a field doesn't close Layer
-details.
+clamped value is put back, that Escape in a field doesn't close Layer
+details, and that the strip's MIDI FX band opens a floating panel that stays
+open, moves by its header, closes with Escape and adds scripts.
 
 This requires Playwright and an installed Chrome. Set `FIDDLE_PLAYWRIGHT_MODULE`
 to an external Playwright package directory if it is not locally installed.

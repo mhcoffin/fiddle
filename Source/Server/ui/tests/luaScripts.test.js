@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { luaFileNote, useFileTitle, paramSteps, formatParamValue, parseParamText, isParamModified,
-    hasModifiedParams, randomParamValue, paramMessages } from "../src/lib/luaScripts.js";
+    hasModifiedParams, randomParamValue, paramMessages, midiFxSummary } from "../src/lib/luaScripts.js";
 
 test("an unchanged file says nothing", () => {
     assert.equal(luaFileNote({ loaded: true, fileStatus: "unchanged", fileName: "humanize.lua" }), null);
@@ -83,4 +83,16 @@ test("a random value is whole, in range, and never Auto", () => {
 test("declaration mistakes and dropped values are shown", () => {
     assert.deepEqual(paramMessages({ paramErrors: ["a"], paramNotes: ["b"] }), ["a", "b"]);
     assert.deepEqual(paramMessages(null), []);
+});
+
+test("the MIDI FX band counts scripts and flags the ones needing attention", () => {
+    assert.deepEqual(midiFxSummary({ luaPlugins: [] }), { count: 0, active: 0, attention: false, label: "none" });
+    const ok = { loaded: true, enabled: true, fileStatus: "unchanged", paramErrors: [] };
+    assert.equal(midiFxSummary({ luaPlugins: [ok] }).label, "1 script");
+    assert.equal(midiFxSummary({ luaPlugins: [ok, { ...ok, enabled: false }] }).label, "2 scripts, 1 active");
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, enabled: false }] }).label, "1 script, all bypassed");
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, fileStatus: "changed" }] }).attention, true);
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, paramErrors: ["x"] }] }).attention, true);
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, loaded: false }] }).label, "1 script, all bypassed, needs attention");
+    assert.equal(midiFxSummary(null).count, 0);
 });

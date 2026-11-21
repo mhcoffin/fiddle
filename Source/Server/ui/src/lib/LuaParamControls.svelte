@@ -95,6 +95,7 @@
     .choices button:first-child { border-left: 0; }
     .choices button:hover { background: #1e3048; }
     .choices button[aria-pressed="true"] { background: #0e3a52; color: #e0f2fe; }
+    .choices button:focus-visible { outline-offset: -2px; } /* inside the rounded group, which clips */
     select { max-width: 170px; height: 34px; padding: 0 8px; border: 1px solid #475569; border-radius: 6px; background: #172337; color: #e2e8f0; font: inherit; font-size: 0.82rem; }
     button:focus-visible, select:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { .switch::after { transition: none; } }

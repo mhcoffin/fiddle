@@ -103,3 +103,20 @@ export function randomParamValue(param, random = Math.random) {
 
 /** What a script's row says about its parameters: declaration mistakes and dropped values. */
 export const paramMessages = (plugin) => [...(plugin?.paramErrors ?? []), ...(plugin?.paramNotes ?? [])];
+
+/**
+ * What a strip's MIDI FX band shows: how many scripts, how many play (loaded
+ * and not bypassed), whether one needs attention (didn't load, its file
+ * changed or is missing, or its declaration has a mistake), and a label.
+ */
+export function midiFxSummary(strip) {
+    const scripts = strip?.luaPlugins ?? [];
+    const active = scripts.filter((s) => s.loaded && s.enabled !== false).length;
+    const attention = scripts.some((s) => !s.loaded || s.fileStatus === "changed" ||
+        s.fileStatus === "missing" || (s.paramErrors?.length ?? 0) > 0);
+    const count = scripts.length;
+    const label = count === 0 ? "none"
+        : `${count} script${count === 1 ? "" : "s"}${active === count ? "" : active ? `, ${active} active` : ", all bypassed"}`
+            + (attention ? ", needs attention" : "");
+    return { count, active, attention, label };
+}

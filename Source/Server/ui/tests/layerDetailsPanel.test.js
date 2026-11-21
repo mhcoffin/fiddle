@@ -21,6 +21,11 @@ test("every strip reserves the same operational space around its fader", () => {
     // The chair strip keeps a blank row where layers have Edit details.
     assert.match(mixerSource, /\.ch-chair-bottom-blank\s*\{[\s\S]*?height: 32px/);
     assert.doesNotMatch(mixerSource, /master-strip/);
+    // Every layer strip has the MIDI FX band, scripts or not, and a chair
+    // strip keeps a blank of the same height (docs/lua-scripts.md).
+    assert.match(mixerSource, /\.ch-midi-section \{ height: var\(--strip-midi-height/);
+    assert.match(mixerSource, /class="ch-midi-section ch-chair-blank"/);
+    assert.doesNotMatch(mixerSource, /\{#if[^}]*luaPlugins[^}]*\}\s*<section class="ch-strip-section ch-midi-section"/);
 });
 
 test("strip effects are grouped by signal position; only chairs have an output", () => {

@@ -126,7 +126,23 @@ changes are saved with the next save or on quit, like the gain fader.
 
 ### Controls
 
-Layer details shows each script as a card (`LuaScriptCard.svelte`): its name,
+Every layer strip has a **MIDI FX** band above Edit VSTi, whether or not the
+layer has scripts: scripts run on MIDI before the map and the instrument, so
+the strip reads top to bottom in signal order, and a band of fixed height
+(`--strip-midi-height`; a chair strip keeps a blank) keeps the faders lined
+up. At the Compact and Comfortable sizes the band shows a count of scripts,
+dimmed when all are bypassed, with an amber dot when one needs attention
+(`midiFxSummary`); at Large it lists them, each with Bypass. An empty band
+shows **+**.
+
+Clicking the band opens the layer's MIDI FX panel (`MidiFxPanel.svelte`): its
+scripts in chain order, and **Add script…** for the catalog. The panel floats
+beside the strip and stays open while the user plays, solos or rides a fader;
+it moves by its header, closes with × or Escape (never on an outside click),
+and clicking another strip's band shows that layer. Opening it from a script's
+row at Large shows that script's card.
+
+Layer details and the panel show each script as a card (`LuaScriptCard.svelte`): its name,
 a bypass switch, and a row per parameter (`LuaParamControls.svelte`). A
 `bool` is a switch; an `int` or `float` is a knob with its value, which can
 be typed (double-click the knob for the default); `control = "field"` is a

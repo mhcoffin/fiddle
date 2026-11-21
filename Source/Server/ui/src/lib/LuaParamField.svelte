@@ -48,7 +48,15 @@
 <div class="field">
     <input {id} type="text" inputmode="numeric" spellcheck="false" aria-label={label}
         bind:value={draft}
-        onfocus={(event) => { editing = true; draft = String(param.value); event.currentTarget.select(); }}
+        onfocus={(event) => {
+            // Write the raw number into the input before selecting it, so
+            // typing replaces it (the state update reaches the DOM later).
+            const input = event.currentTarget;
+            editing = true;
+            draft = String(param.value);
+            input.value = draft;
+            input.select();
+        }}
         onblur={commit} onkeydown={keyDown} />
     {#if showsUnit}<span class="unit">{param.unit}</span>{/if}
     {#if param.randomize}
