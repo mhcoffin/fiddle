@@ -85,6 +85,14 @@ public:
     return scheduledNoteOffMs_;
   }
 
+  /// Each pass starts the script from the same state, random numbers
+  /// included, so playback repeats (docs/lua-scripts.md).
+  void onTransportStart(const AnnotatorContext &,
+                        std::vector<fiddle::MidiInstruction> &) override {
+    if (plugin_)
+      plugin_->reset();
+  }
+
   void resetState() override {
     if (plugin_)
       plugin_->reset();

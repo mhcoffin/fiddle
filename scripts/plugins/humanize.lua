@@ -7,7 +7,10 @@
 --   velocity_range   – max ± velocity jitter (default 8)
 --   timing_range_ms  – max ± onset shift in ms (default 15)
 --   length_range_ms  – max ± duration jitter in ms (default 10)
---   seed             – PRNG seed; 0 = use os.clock (default 0)
+--   seed             – PRNG seed; 0 = Fiddle's seed for the layer (default 0)
+--
+-- Fiddle seeds math.random for each layer and reseeds it whenever playback
+-- starts, so every pass plays the same jitter (docs/lua-scripts.md).
 
 local plugin = {
   name        = "Humanize",
@@ -40,16 +43,15 @@ end
 
 -- ── lifecycle ────────────────────────────────────────────────────────
 
-function plugin.on_load(ctx)
-  -- Seed the PRNG
+-- A seed set in the config replaces Fiddle's; 0 keeps Fiddle's.
+local function apply_config_seed()
   local cfg = plugin.config or {}
   local seed = cfg.seed or 0
-  if seed == 0 then
-    -- Use sample_rate as a cheap entropy source (os.clock is sandboxed out)
-    seed = math.floor((ctx.sample_rate or 44100) * 1000 + math.random(1, 9999))
-  end
-  math.randomseed(seed)
-  print("Humanize loaded, seed=" .. tostring(seed))
+  if seed ~= 0 then math.randomseed(seed) end
+end
+
+function plugin.on_load(ctx)
+  apply_config_seed()
 end
 
 -- ── note callbacks ───────────────────────────────────────────────────
@@ -104,8 +106,8 @@ function plugin.on_note_end(note, ctx)
 end
 
 function plugin.on_reset()
-  -- Re-seed on transport stop so each pass sounds slightly different.
-  math.randomseed(math.random(1, 999999))
+  -- Called as playback starts, after Fiddle has reseeded.
+  apply_config_seed()
 end
 
 return plugin

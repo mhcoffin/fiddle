@@ -38,6 +38,23 @@ Each script row in Layer details compares the copy with the file
 `fiddle_get_mixer` reports the same as `fileStatus` on each layer's
 `luaProcessors`.
 
+## Random numbers repeat
+
+A script that uses `math.random` (humanize.lua) plays the same on every pass.
+Fiddle seeds each script per layer, from the layer ID and the file name
+(`LuaPlugin::setSeed`), so two layers running one script don't jitter in step.
+Whenever Dorico's transport starts, Fiddle reseeds the script and then calls its
+`on_reset` (`LuaAnnotator::onTransportStart`). A pass from the same position
+therefore repeats exactly, and reopening the project plays it the same way. A
+pass started somewhere else draws different numbers for the same notes, since
+the sequence starts at the first note played.
+
+A script first runs with a seed from its file name. Joining a layer switches
+it to the layer's seed, followed by `on_reset` as at a transport start, so
+randomness drawn at load time (the script's top level or `on_load`) is the
+same on every layer. humanize.lua's `seed` parameter, when not 0, replaces
+Fiddle's seed in `on_load` and `on_reset`.
+
 ## Not kept yet
 
 A script's parameters (`params`) have no controls yet, so every script runs on

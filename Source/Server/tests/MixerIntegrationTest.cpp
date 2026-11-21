@@ -1725,6 +1725,62 @@ void testLuaSavedCopies() {
     REQUIRE(strip.luaPluginSources == std::vector<std::string>{third.toStdString()});
 }
 
+// Script randomness repeats: each layer has its own seed, and every pass
+// (transport start) begins from it (docs/lua-scripts.md).
+void testLuaRandomnessRepeatsEachPass() {
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("jitter.lua");
+  REQUIRE(file.replaceWithText(
+      "return { name = 'Jitter', on_note_start = function(note, ctx) "
+      "note.velocity = math.random(1, 127) return note end }"));
+  // A script that picks its own seed in on_reset, after Fiddle's reseed.
+  const auto pinned = sandbox.directory.getChildFile("pinned.lua");
+  REQUIRE(pinned.replaceWithText(
+      "return { name = 'Pinned', on_reset = function() math.randomseed(7) end, "
+      "on_note_start = function(note, ctx) note.velocity = math.random(1, 127) return note end }"));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  MixerFixture f;
+  std::vector<juce::String> ids;
+  for (int channel = 0; channel < 4; ++channel) {
+    const auto id = f.mixer.addStrip();
+    f.mixer.getStrip(id)->setInputAssignment(0, channel); // transport start reaches assigned layers
+    REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+        f.mixer, catalog, id, (channel < 2 ? file : pinned).getFullPathName().toStdString())));
+    ids.push_back(id);
+  }
+  const auto draw = [&](int index) {
+    auto &strip = *f.mixer.getStrip(ids[static_cast<std::size_t>(index)]);
+    std::vector<int> velocities;
+    for (int i = 0; i < 8; ++i) {
+      fiddle::Note note;
+      note.set_start_velocity(64);
+      strip.luaPlugins[0]->onNoteStart(note, {});
+      velocities.push_back(int(note.start_velocity()));
+    }
+    return velocities;
+  };
+  // Each pass starts at the transport start, through the mixer's chain.
+  f.mixer.transportStarted(f.now);
+  const auto once = draw(0);
+  const auto other = draw(1);
+  const auto pinnedOnce = draw(2);
+  REQUIRE(other != once);                 // layers have their own seeds
+  REQUIRE(draw(3) == pinnedOnce);         // on_reset's own seed wins on both
+  f.mixer.transportStarted(f.now + 1000);
+  REQUIRE(draw(0) == once);
+  REQUIRE(draw(1) == other);
+  REQUIRE(draw(2) == pinnedOnce);
+
+  // A fresh load of the same layer (as after reopening) plays the same.
+  auto &first = *f.mixer.getStrip(ids[0]);
+  auto again = fiddle::restoreLuaPlugin("jitter.lua", first.luaPlugins[0]->source(), "");
+  REQUIRE(again->isLoaded());
+  REQUIRE(first.replaceLuaPlugin(first.luaPlugins[0], again));
+  f.mixer.transportStarted(f.now + 2000);
+  REQUIRE(draw(0) == once);
+}
+
 void testFrozenSaveCapturesEachPluginOnce() {
   Sandbox sandbox;
   fiddle::FiddleDatabase db;
@@ -4564,6 +4620,7 @@ int main(int argc, char **argv) {
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
+  run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);

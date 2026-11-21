@@ -213,9 +213,19 @@ void MixerStrip::setExpressionMap(std::shared_ptr<ExpressionMapData> em) {
   setExpressionMapAssignment({std::move(em), {}, {}});
 }
 
+namespace {
+// A layer's own seed for a script, so two layers running it don't jitter in
+// step, and the same layer plays the same way every time.
+void seedForLayer(LuaPlugin &plugin, const juce::String &layerId) {
+  plugin.setSeed(LuaPlugin::seedFor(layerId.toStdString() + "/" +
+                                    std::filesystem::path(plugin.filePath()).filename().string()));
+}
+} // namespace
+
 void MixerStrip::addLuaPlugin(std::shared_ptr<LuaPlugin> plugin) {
   auto lock = lockMidiState();
   if (plugin) {
+    seedForLayer(*plugin, id);
     luaPlugins.push_back(std::move(plugin));
     rebuildAnnotatorChain();
   }
@@ -233,6 +243,7 @@ void MixerStrip::insertLuaPlugin(size_t index,
                                  std::shared_ptr<LuaPlugin> plugin) {
   auto lock = lockMidiState();
   if (plugin) {
+    seedForLayer(*plugin, id);
     if (index >= luaPlugins.size())
       luaPlugins.push_back(std::move(plugin));
     else
@@ -266,6 +277,7 @@ bool MixerStrip::replaceLuaPlugin(const std::shared_ptr<LuaPlugin> &plugin,
   const auto found = std::find(luaPlugins.begin(), luaPlugins.end(), plugin);
   if (!replacement || found == luaPlugins.end())
     return false;
+  seedForLayer(*replacement, id);
   *found = std::move(replacement);
   rebuildAnnotatorChain();
   return true;

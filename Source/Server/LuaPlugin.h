@@ -2,6 +2,7 @@
 
 #include "TonalContext.h"
 #include "midi_event.pb.h"
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -52,7 +53,7 @@ struct LuaContext {
  *   1. Construct with a .lua file path
  *   2. Call load() to parse and validate
  *   3. Call onNoteStart/onNoteEnd/onCC during playback
- *   4. Call reset() on transport stop
+ *   4. Call reset() on transport start (reseeds, then on_reset)
  *
  * Thread safety: each instance has its own sol::state, so concurrent
  * calls to different instances are safe. Calls to the same instance
@@ -117,8 +118,21 @@ public:
   /// Called for CC events. Returns true to forward, false to suppress.
   bool onCC(int ccNumber, int ccValue, int channel, const LuaContext &ctx);
 
-  /// Reset plugin state (transport stop).
+  /// Reset plugin state when Dorico's transport starts: Fiddle reseeds the
+  /// script's random numbers (setSeed), then calls its on_reset, so every
+  /// pass plays the same (docs/lua-scripts.md).
   void reset();
+
+  /// The seed for math.random. The default, derived from the file name,
+  /// applies before the script first runs. A layer sets its own when the
+  /// script joins it (MixerStrip), so two layers running one script differ;
+  /// a new seed takes effect like a reset(), on_reset included. Every reset()
+  /// reseeds.
+  void setSeed(std::uint32_t seed);
+  std::uint32_t seed() const { return seed_; }
+
+  /// A stable 32-bit hash (FNV-1a) for seeds: the same on every run and Mac.
+  static std::uint32_t seedFor(const std::string &text);
 
   /// Duration adjustment (ms) from the last onNoteEnd call.
   /// Negative = shorter, positive = longer.
@@ -139,6 +153,7 @@ public:
 private:
   std::string filePath_;
   std::string source_;
+  std::uint32_t seed_ = 0;
   bool loaded_ = false;
   bool enabled_ = true;
   LuaPluginMeta meta_;
@@ -161,6 +176,9 @@ private:
 
   /// Run source_ in a fresh Lua state.
   bool run();
+
+  /// math.randomseed(seed_) in the script's state.
+  void reseed();
 
   // fileStatus() rereads the file only when its modification time changes.
   mutable long long checkedFileTime_ = -1;

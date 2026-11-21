@@ -12,6 +12,7 @@ namespace fiddle {
 LuaPlugin::LuaPlugin(const std::string &filePath) : filePath_(filePath) {
   meta_.filePath = filePath_;
   const auto path = std::filesystem::path(filePath_);
+  seed_ = seedFor(path.filename().string());
   meta_.name = path.stem().string();
   if (meta_.name.empty())
     meta_.name = path.filename().string();
@@ -138,6 +139,9 @@ bool LuaPlugin::run() {
   lua_ = std::make_unique<sol::state>();
   setupEnvironment();
   registerAPI();
+
+  // Random numbers repeat from run to run (docs/lua-scripts.md).
+  reseed();
 
   // The chunk is named after the file, so errors still say which script.
   const auto chunkName = "@" + std::filesystem::path(filePath_).filename().string();
@@ -548,8 +552,37 @@ bool LuaPlugin::onCC(int ccNumber, int ccValue, int channel,
   return true; // default: forward
 }
 
+std::uint32_t LuaPlugin::seedFor(const std::string &text) {
+  std::uint32_t hash = 2166136261u;
+  for (const unsigned char c : text) {
+    hash ^= c;
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+void LuaPlugin::reseed() {
+  if (!lua_)
+    return;
+  sol::optional<sol::protected_function> randomseed = (*lua_)["math"]["randomseed"];
+  if (randomseed)
+    (void)(*randomseed)(static_cast<lua_Integer>(seed_));
+}
+
+void LuaPlugin::setSeed(std::uint32_t seed) {
+  if (seed == seed_)
+    return;
+  seed_ = seed;
+  // As at a transport start: reseed, then on_reset, so a script that sets
+  // its own seed there (humanize.lua's seed parameter) keeps it.
+  reset();
+}
+
 void LuaPlugin::reset() {
-  if (!loaded_ || !enabled_ || !fnOnReset_)
+  if (!loaded_)
+    return;
+  reseed();
+  if (!enabled_ || !fnOnReset_)
     return;
 
   auto result = (*fnOnReset_)();
