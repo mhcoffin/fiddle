@@ -93,6 +93,7 @@ test("the MIDI FX band counts scripts and flags the ones needing attention", () 
     assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, enabled: false }] }).label, "1 script, all bypassed");
     assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, fileStatus: "changed" }] }).attention, true);
     assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, paramErrors: ["x"] }] }).attention, true);
-    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, loaded: false }] }).label, "1 script, all bypassed, needs attention");
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, loaded: false }] }).label, "1 script, none active, needs attention");
+    assert.equal(midiFxSummary({ luaPlugins: [{ ...ok, loaded: false, enabled: false }] }).label, "1 script, none active, needs attention");
     assert.equal(midiFxSummary(null).count, 0);
 });

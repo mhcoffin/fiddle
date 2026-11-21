@@ -116,7 +116,8 @@ export function midiFxSummary(strip) {
         s.fileStatus === "missing" || (s.paramErrors?.length ?? 0) > 0);
     const count = scripts.length;
     const label = count === 0 ? "none"
-        : `${count} script${count === 1 ? "" : "s"}${active === count ? "" : active ? `, ${active} active` : ", all bypassed"}`
+        : `${count} script${count === 1 ? "" : "s"}${active === count ? "" : active ? `, ${active} active`
+            : scripts.every((s) => s.loaded && s.enabled === false) ? ", all bypassed" : ", none active"}`
             + (attention ? ", needs attention" : "");
     return { count, active, attention, label };
 }

@@ -4,23 +4,23 @@
 -- note-off at note-on time. This works regardless of when Dorico
 -- sends its own note-off.
 --
--- Configuration:
+-- Parameters (set in the layer's MIDI FX panel):
 --   target_ms   – desired note duration in ms (default 80)
 
 local plugin = {
   name        = "Force Staccato",
-  version     = "3.1",
+  version     = "3.2",
   author      = "Fiddle",
   description = "Shortens every note to a target duration (test/debug plugin).",
 
   params = {
-    { name = "target_ms", type = "float", min = 20, max = 500, default = 80 },
+    { name = "target_ms", label = "Target length", type = "float", min = 20, max = 500, step = 5,
+      default = 80, unit = "ms", description = "How long every note lasts" },
   },
 }
 
 function plugin.on_note_start(note, ctx)
-  local cfg = plugin.config or {}
-  local target = cfg.target_ms or 80
+  local target = plugin.config.target_ms
 
   -- Always schedule an early note-off at the target duration.
   -- duration_samples is 0 at note-on time (Dorico hasn't set it yet),

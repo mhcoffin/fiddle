@@ -53,8 +53,9 @@ the sequence starts at the first note played.
 A script first runs with a seed from its file name. Joining a layer switches
 it to the layer's seed, followed by `on_reset` as at a transport start, so
 randomness drawn at load time (the script's top level or `on_load`) is the
-same on every layer. humanize.lua's `seed` parameter, when not 0, replaces
-Fiddle's seed in `on_load` and `on_reset`.
+same on every layer. humanize.lua's **Variation** (its `seed` parameter),
+when not Auto (0), replaces Fiddle's seed in `on_load` and `on_reset`, so a
+new Variation plays from the next playback start.
 
 ## Parameters
 

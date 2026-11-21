@@ -60,11 +60,14 @@
         drag = { id: event.pointerId, dx: event.clientX - placed.left, dy: event.clientY - placed.top };
         event.currentTarget.setPointerCapture(event.pointerId);
     }
+    // Within the same bounds as placed, so a drag against an edge saves
+    // where the panel actually is.
     function pointerMove(event) {
         if (!drag || event.pointerId !== drag.id) return;
+        const panelWidth = Math.min(WIDTH, viewport.width - 2 * MARGIN);
         onMove({
-            left: Math.max(0, Math.min(event.clientX - drag.dx, window.innerWidth - 80)),
-            top: Math.max(0, Math.min(event.clientY - drag.dy, window.innerHeight - 40)),
+            left: Math.max(MARGIN, Math.min(event.clientX - drag.dx, viewport.width - panelWidth - MARGIN)),
+            top: Math.max(MARGIN, Math.min(event.clientY - drag.dy, viewport.height - 160)),
         });
     }
     function pointerUp(event) {
@@ -91,6 +94,7 @@
     style:max-height={`${maxHeight}px`}>
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <header onpointerdown={pointerDown} onpointermove={pointerMove} onpointerup={pointerUp} onpointercancel={pointerUp}
+        onlostpointercapture={pointerUp}
         title="Drag to move">
         <span class="grip" aria-hidden="true">⋮⋮</span>
         <div class="who">

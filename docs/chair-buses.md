@@ -181,6 +181,7 @@ section, so every fader still aligns:
 | Row | Layer strip | Chair strip |
 | --- | --- | --- |
 | Header | patch / library | chair name, "Chair" |
+| MIDI FX | Lua scripts (docs/lua-scripts.md) | (blank) |
 | VSTi | instrument | (blank) |
 | Pre-fader | inserts, promoted sends | inserts, promoted sends |
 | Post-fader | inserts, promoted sends | inserts, promoted sends |

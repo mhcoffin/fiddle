@@ -1954,6 +1954,55 @@ void testLuaSettingsSaved() {
   REQUIRE(restoredPlugin->paramValue("count") == Value(std::int64_t{4}));
 }
 
+// Fiddle's own scripts load, and declare their parameters without mistakes.
+void testBundledLuaScripts() {
+  const auto plugins = juce::File(__FILE__).getParentDirectory().getParentDirectory()
+                           .getParentDirectory().getParentDirectory().getChildFile("scripts/plugins");
+  REQUIRE(plugins.isDirectory());
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(plugins.getFullPathName().toStdString());
+  // Every script file and package is in the catalog: none failed to probe.
+  int expected = plugins.getNumberOfChildFiles(juce::File::findFiles, "*.lua");
+  for (const auto &dir : plugins.findChildFiles(juce::File::findDirectories, false))
+    expected += dir.getChildFile("init.lua").existsAsFile() ? 1 : 0;
+  REQUIRE(expected >= 3 && catalog.plugins().size() == static_cast<std::size_t>(expected));
+  for (const auto &meta : catalog.plugins()) {
+    fiddle::LuaPlugin plugin(meta.filePath);
+    plugin.setLogCallback([](const std::string &, bool) {});
+    REQUIRE(plugin.load());
+    REQUIRE(plugin.meta().paramErrors.empty());
+    // Its callbacks run without errors, on defaults and with every value changed.
+    const auto play = [&] {
+      plugin.reset();
+      fiddle::Note note;
+      note.set_note_number(60);
+      note.set_start_velocity(80);
+      fiddle::LuaContext ctx;
+      ctx.sampleRate = 48000;
+      plugin.onNoteStart(note, ctx);
+      note.set_duration_samples(24000);
+      plugin.onNoteEnd(note, ctx);
+      plugin.onCC(1, 64, 1, ctx);
+    };
+    play();
+    for (const auto &param : plugin.meta().params) {
+      if (param.type == "bool")
+        REQUIRE(plugin.setParamValue(param.name, fiddle::LuaParamValue(!std::get<bool>(param.defaultValue))));
+      else if (param.type == "enum")
+        REQUIRE(plugin.setParamValue(param.name, fiddle::LuaParamValue(param.options.back())));
+      else
+        REQUIRE(plugin.setParamValue(param.name, fiddle::LuaParamValue(param.max)));
+    }
+    play();
+    REQUIRE(plugin.lastError().empty());
+  }
+  const auto *humanize = catalog.findByFileName("humanize.lua");
+  REQUIRE(humanize && humanize->params.size() == 4);
+  REQUIRE(humanize->params[1].label == "Timing" && humanize->params[1].unit == "ms");
+  REQUIRE(humanize->params[3].control == "field" && humanize->params[3].zeroLabel == "Auto" &&
+          humanize->params[3].randomize);
+}
+
 void testLuaSavedCopies() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("shape.lua");
@@ -4950,6 +4999,7 @@ int main(int argc, char **argv) {
   run("Lua parameters are typed, ordered, checked and in place before on_load", testLuaParameters);
   run("Lua parameter changes coalesce, reset and bypass with Undo", testLuaParamChangesAndUndo);
   run("Lua settings save with versions and carry over to a new file", testLuaSettingsSaved);
+  run("Fiddle's own Lua scripts load and declare their parameters cleanly", testBundledLuaScripts);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
