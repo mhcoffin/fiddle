@@ -1750,6 +1750,7 @@ void MainComponent::setupGroupBusAudioCallbacks(GroupBus &bus) {
 void MainComponent::restoreStripPlugin(MixerStrip &strip, int pluginUid,
                                        const juce::MemoryBlock &state) {
   pluginFingerprints_.erase(strip.id);
+  instrumentEditors_.erase(strip.id); // a new instance's editor hasn't been open
   if (pluginUid == 0)
     return;
 
@@ -1797,7 +1798,9 @@ void MainComponent::processPluginChangeNotifications(
     bool suppressPlaybackChanges) {
   bool changed = false;
   std::vector<std::string> editedLayerIds;
+  const auto nowMs = juce::Time::getMillisecondCounter();
   for (auto *strip : mixer_.getAllStrips()) {
+    instrumentEditors_[strip->id].observe(strip->isEditorVisible(), nowMs);
     const bool explicitEdit =
         strip->consumePluginExplicitEditNotification();
     const bool nonParameterStateChanged =
@@ -1834,7 +1837,10 @@ void MainComponent::processPluginChangeNotifications(
       continue;
     if (explicitEdit)
       pluginStateSettleUntilMs_.erase(strip->id);
-    if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
+    // Only the user's edits make the project unsaved, not the plug-in
+    // changing its own state with its editor closed (PluginEditPolicy.h).
+    if (!isUserPluginEdit(explicitEdit, parametersChanged || nonParameterStateChanged,
+                          instrumentEditors_[strip->id].recentlyOpen(nowMs)))
       continue;
 
     changed = true;
@@ -1915,6 +1921,7 @@ bool MainComponent::shouldSuppressPluginChanges(uint32_t now) {
 bool MainComponent::observeStripPluginFingerprint(MixerStrip &strip) {
   if (!strip.hasPlugin()) {
     pluginFingerprints_.erase(strip.id);
+    instrumentEditors_.erase(strip.id);
     return false;
   }
 
@@ -1928,6 +1935,8 @@ bool MainComponent::observeStripPluginFingerprint(MixerStrip &strip) {
   // Treat the new instance as a fresh baseline here.
   if (it->second.pluginUid != current.pluginUid) {
     it->second = current;
+    // The old instrument's open editor says nothing about this one.
+    instrumentEditors_.erase(strip.id);
     return false;
   }
 
@@ -1964,6 +1973,9 @@ void MainComponent::pollPluginStateChanges() {
         continue;
       pluginStateSettleUntilMs_.erase(settling);
     }
+    // A change with the editor closed is the plug-in's own (PluginEditPolicy.h).
+    if (!isUserPluginEdit(false, true, instrumentEditors_[strip->id].recentlyOpen(now)))
+      continue;
 
     std::cerr << "[PluginPoll] Parameter change detected in strip: "
               << strip->id << " (" << strip->library << ")" << std::endl;
@@ -2191,6 +2203,7 @@ ProjectRestoreService &MainComponent::projectRestoreService() {
     callbacks.resolveLua = [this](const std::string &name) { return luaCatalog_.resolvePluginPath(name); };
     callbacks.stripCreated = [this](MixerStrip &strip) {
       pluginFingerprints_.erase(strip.id);
+      instrumentEditors_.erase(strip.id);
       setupStripPluginSlot(strip);
     };
     callbacks.busCreated = [this](GroupBus &bus) { setupGroupBusAudioCallbacks(bus); };

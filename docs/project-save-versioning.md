@@ -22,6 +22,16 @@ When capture is needed, comparison with the loaded version's state hash avoids
 unnecessary branches after an edit has been undone. This comparison includes
 serialized plug-in state; it is not a semantic comparison of vendor presets.
 
+Only the user's edits set the dirty hint. A hosted plug-in (a layer's
+instrument, or an insert on a layer, bus or the master) counts as edited when it
+reports an editor gesture, or when its parameters or other state change while
+its editor is open or within 5 s of closing (`PluginEditPolicy.h`). Changes it
+makes with its editor closed are its own (finishing loading samples, rewriting
+its state, mirroring Dorico's MIDI) and leave the project clean, so an untouched
+historical version stays retained instead of branching on the next Dorico save.
+Fiddle's own commands on plug-ins (program changes, Update from Library, Undo)
+mark the project themselves.
+
 An automatic branch gets a unique name such as `Main (2)` or `Main (3)` and may
 be renamed later. Its first version contains the edited state and has the
 loaded historical version as its direct parent. There is no automatic merge,

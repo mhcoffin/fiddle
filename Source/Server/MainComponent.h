@@ -588,6 +588,8 @@ private:
   /// State restoration can emit delayed parameter/non-parameter callbacks.
   /// Ignore those briefly unless the plug-in reports an explicit editor
   /// gesture, while continually rebasing its parameter fingerprint.
+  // When each layer's instrument editor was last open (PluginEditPolicy.h).
+  std::map<juce::String, PluginEditorWatch> instrumentEditors_;
   std::map<juce::String, uint32_t> pluginStateSettleUntilMs_;
 
   /// Plugin UIDs that fire AudioProcessorListener callbacks.

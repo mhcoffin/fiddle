@@ -437,7 +437,9 @@ double MasterAudioEngine::latencyMs() const noexcept {
 bool MasterAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
   bool changed = false;
   bool latencyChanged = false;
+  const auto now = juce::Time::getMillisecondCounter();
   for (const auto &entry : inserts_) {
+    entry->editor.observe(editorVisible_(*entry->hosted), now);
     const bool explicitEdit =
         entry->hosted->consumeExplicitEditNotification();
     const bool nonParameterStateChanged =
@@ -461,7 +463,9 @@ bool MasterAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
         entry->parameterFingerprint &&
         *entry->parameterFingerprint != fingerprint;
     entry->parameterFingerprint = fingerprint;
-    if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
+    // Only the user's edits make the project unsaved (PluginEditPolicy.h).
+    if (!isUserPluginEdit(explicitEdit, parametersChanged || nonParameterStateChanged,
+                          entry->editor.recentlyOpen(now)))
       continue;
 
     entry->hosted->refreshStateCache();
@@ -478,7 +482,9 @@ bool MasterAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
 
 bool MasterAudioEngine::refreshPluginStateCaches() {
   bool changed = false;
+  const auto now = juce::Time::getMillisecondCounter();
   for (const auto &entry : inserts_) {
+    entry->editor.observe(editorVisible_(*entry->hosted), now);
     const auto fingerprint = entry->hosted->parameterFingerprint();
     if (!entry->parameterFingerprint) {
       entry->parameterFingerprint = fingerprint;
@@ -487,6 +493,8 @@ bool MasterAudioEngine::refreshPluginStateCaches() {
     if (*entry->parameterFingerprint == fingerprint)
       continue;
     entry->parameterFingerprint = fingerprint;
+    if (!isUserPluginEdit(false, true, entry->editor.recentlyOpen(now)))
+      continue;
     entry->hosted->refreshStateCache();
     changed = true;
   }

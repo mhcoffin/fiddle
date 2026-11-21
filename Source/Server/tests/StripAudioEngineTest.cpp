@@ -197,6 +197,8 @@ void testPlaybackMonitoringDoesNotTakeControlGate() {
     CHECK(engine.insertProcessor(makeSlot("monitor", 1, "Monitor"), position,
                                  0, std::move(processor), false));
     int changes = 0;
+    bool editorOpen = false;
+    engine.setEditorVisibility([&](const fiddle::HostedPluginSlot &) { return editorOpen; });
     engine.setOnChanged([&] { ++changes; });
     const auto before = fiddle::AudioProcessingGate::controlCount();
     parameter->setValueNotifyingHost(0.6f);
@@ -215,6 +217,18 @@ void testPlaybackMonitoringDoesNotTakeControlGate() {
     parameter->endChangeGesture();
     CHECK(engine.consumePluginChanges(true));
     CHECK(changes == 1);
+    // Stopped, editor closed: the plug-in changing its own state.
+    parameter->setValueNotifyingHost(0.75f);
+    CHECK(!engine.consumePluginChanges(false));
+    plugin->updateHostDisplay(
+        juce::AudioProcessor::ChangeDetails{}.withNonParameterStateChanged(true));
+    CHECK(!engine.consumePluginChanges(false));
+    CHECK(changes == 1);
+    // Those changes still moved the baseline: opening the editor alone isn't an edit.
+    editorOpen = true;
+    CHECK(!engine.refreshPluginStateCaches());
+    CHECK(changes == 1);
+    // Editor open: a change is the user's edit.
     parameter->setValueNotifyingHost(0.8f);
     CHECK(engine.consumePluginChanges(false));
     CHECK(changes == 2);
@@ -234,6 +248,26 @@ void testPlaybackMonitoringDoesNotTakeControlGate() {
     CHECK(engine.refreshPluginStateCaches());
     CHECK(changes == 3);
   }
+}
+
+// Which plug-in changes are the user's edits (PluginEditPolicy.h).
+void testPluginEditPolicy() {
+  fiddle::PluginEditorWatch watch;
+  CHECK(!watch.recentlyOpen(1000)); // never open
+  watch.observe(false, 1000);
+  CHECK(!watch.recentlyOpen(1000));
+  watch.observe(true, 2000);
+  CHECK(watch.recentlyOpen(2000));
+  CHECK(watch.recentlyOpen(2000 + fiddle::kPluginEditorGraceMs - 1)); // closed, within the grace
+  CHECK(!watch.recentlyOpen(2000 + fiddle::kPluginEditorGraceMs));
+  // The millisecond counter wraps.
+  fiddle::PluginEditorWatch wrapping;
+  wrapping.observe(true, 0xFFFFFF00u);
+  CHECK(wrapping.recentlyOpen(0x00000100u));
+  CHECK(fiddle::isUserPluginEdit(true, false, false));  // a gesture always counts
+  CHECK(fiddle::isUserPluginEdit(false, true, true));   // a change with the editor open
+  CHECK(!fiddle::isUserPluginEdit(false, true, false)); // the plug-in's own change
+  CHECK(!fiddle::isUserPluginEdit(false, false, true)); // nothing changed
 }
 
 void testSnapshotSerializationRoundTrip() {
@@ -321,6 +355,7 @@ int main() {
   testZeroGainSilencesOnlyItsOwnPath();
   testPreAndPostFaderOrderingAndBypass();
   testPlaybackMonitoringDoesNotTakeControlGate();
+  testPluginEditPolicy();
   testSnapshotSerializationRoundTrip();
   testStereoBalance();
   std::cout << "Passed: " << passed << '\n';

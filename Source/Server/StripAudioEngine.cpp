@@ -611,9 +611,11 @@ void StripAudioEngine::closeEditors() {
 bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
   bool changed = false;
   bool latencyChanged = false;
+  const auto now = juce::Time::getMillisecondCounter();
   for (const auto position : {StripInsertPosition::preFader,
                               StripInsertPosition::postFader}) {
     for (const auto &entry : rack(position)) {
+      entry->editor.observe(editorVisible_(*entry->hosted), now);
       const bool explicitEdit =
           entry->hosted->consumeExplicitEditNotification();
       const bool nonParameterStateChanged =
@@ -634,7 +636,10 @@ bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
       const bool parametersChanged = entry->parameterFingerprint &&
                                      *entry->parameterFingerprint != fingerprint;
       entry->parameterFingerprint = fingerprint;
-      if (!parametersChanged && !explicitEdit && !nonParameterStateChanged)
+      // Only the user's edits make the project unsaved, not the plug-in
+      // changing its own state with its editor closed.
+      if (!isUserPluginEdit(explicitEdit, parametersChanged || nonParameterStateChanged,
+                            entry->editor.recentlyOpen(now)))
         continue;
       entry->hosted->refreshStateCache();
       changed = true;
@@ -651,9 +656,11 @@ bool StripAudioEngine::consumePluginChanges(bool suppressPlaybackChanges) {
 
 bool StripAudioEngine::refreshPluginStateCaches() {
   bool changed = false;
+  const auto now = juce::Time::getMillisecondCounter();
   for (const auto position : {StripInsertPosition::preFader,
                               StripInsertPosition::postFader}) {
     for (const auto &entry : rack(position)) {
+      entry->editor.observe(editorVisible_(*entry->hosted), now);
       const auto fingerprint = entry->hosted->parameterFingerprint();
       if (!entry->parameterFingerprint) {
         entry->parameterFingerprint = fingerprint;
@@ -662,6 +669,8 @@ bool StripAudioEngine::refreshPluginStateCaches() {
       if (*entry->parameterFingerprint == fingerprint)
         continue;
       entry->parameterFingerprint = fingerprint;
+      if (!isUserPluginEdit(false, true, entry->editor.recentlyOpen(now)))
+        continue;
       entry->hosted->refreshStateCache();
       changed = true;
     }

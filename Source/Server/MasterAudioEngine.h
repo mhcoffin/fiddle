@@ -2,6 +2,7 @@
 
 #include "AudioInsertSnapshot.h"
 #include "HostedPluginSlot.h"
+#include "PluginEditPolicy.h"
 #include "StereoMeter.h"
 #include "MasterLoudnessMeter.h"
 
@@ -50,6 +51,10 @@ public:
   [[nodiscard]] std::optional<MasterInsertSnapshot>
   snapshot(const juce::String &slotId, bool captureLiveState = true) const;
   [[nodiscard]] MasterAudioSnapshot snapshotAll(bool captureLiveState = true) const;
+  /// Whether an insert's editor is open; tests replace it (no windows there).
+  void setEditorVisibility(std::function<bool(const HostedPluginSlot &)> visible) {
+    editorVisible_ = std::move(visible);
+  }
   /// The plug-ins in this rack, without copying their state.
   [[nodiscard]] std::vector<juce::PluginDescription> insertDescriptions() const;
 
@@ -109,12 +114,15 @@ private:
     std::shared_ptr<HostedPluginSlot> hosted;
     int graphLatencySamples = 0;
     std::optional<uint64_t> parameterFingerprint;
+    PluginEditorWatch editor; // whether a state change is the user's (PluginEditPolicy.h)
   };
 
   std::shared_ptr<Entry> find(const juce::String &slotId) const;
   void rebuildGraph();
   void notifyChanged(bool notify);
 
+  std::function<bool(const HostedPluginSlot &)> editorVisible_ =
+      [](const HostedPluginSlot &slot) { return slot.isEditorVisible(); };
   std::vector<std::shared_ptr<Entry>> inserts_;
   juce::AudioProcessorGraph graph_;
   std::shared_ptr<std::atomic<float>> gainLinear_;

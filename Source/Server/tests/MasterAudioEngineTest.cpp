@@ -226,12 +226,23 @@ void testVolatileOpaqueStateDoesNotCreateFalseChanges() {
                                std::move(processor), false));
 
   int changes = 0;
+  bool editorOpen = false;
+  master.setEditorVisibility([&](const fiddle::HostedPluginSlot &) { return editorOpen; });
   master.setOnChanged([&] { ++changes; });
   CHECK(!master.refreshPluginStateCaches());
   CHECK(!master.refreshPluginStateCaches());
   CHECK(changes == 0);
 
+  // With its editor closed, a silent change is the plug-in's own.
   processorPointer->setParameterWithoutNotification(0.75f);
+  CHECK(!master.refreshPluginStateCaches());
+  CHECK(changes == 0);
+  // That change still moved the baseline: opening the editor alone isn't an edit.
+  editorOpen = true;
+  CHECK(!master.refreshPluginStateCaches());
+  CHECK(changes == 0);
+  // With it open, a change is the user's edit.
+  processorPointer->setParameterWithoutNotification(0.8f);
   CHECK(master.refreshPluginStateCaches());
   CHECK(changes == 1);
   CHECK(!master.refreshPluginStateCaches());
@@ -245,6 +256,8 @@ void testPlaybackNotificationsDoNotDirtyMasterEffects() {
                                std::move(processor), false));
 
   int changes = 0;
+  bool editorOpen = false;
+  master.setEditorVisibility([&](const fiddle::HostedPluginSlot &) { return editorOpen; });
   master.setOnChanged([&] { ++changes; });
 
   const auto controlsBeforePlayback = fiddle::AudioProcessingGate::controlCount();
@@ -266,6 +279,12 @@ void testPlaybackNotificationsDoNotDirtyMasterEffects() {
   CHECK(master.consumePluginChanges(true));
   CHECK(changes == 1);
 
+  // Stopped, with the editor closed: the plug-in's own change.
+  processorPointer->setParameterWithNotification(0.75f);
+  CHECK(!master.consumePluginChanges(false));
+  CHECK(changes == 1);
+  // With the editor open, the same change is the user's edit.
+  editorOpen = true;
   processorPointer->setParameterWithNotification(0.8f);
   CHECK(master.consumePluginChanges(false));
   CHECK(changes == 2);
