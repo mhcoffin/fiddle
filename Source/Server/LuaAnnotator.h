@@ -19,6 +19,7 @@ public:
 
   void onNoteStart(fiddle::Note &note,
                    const AnnotatorContext &ctx) override {
+    scheduledNoteOffMs_ = -1.0; // reset each note, so a bypassed script schedules none
     if (!plugin_ || !plugin_->isLoaded() || !plugin_->isEnabled())
       return;
 

@@ -6,6 +6,7 @@
 #include "UndoManager.h"
 #include <algorithm>
 #include <filesystem>
+#include <map>
 
 namespace fiddle {
 
@@ -589,6 +590,138 @@ private:
   std::string pluginFileName_;
   std::shared_ptr<LuaPlugin> plugin_;
   bool valid_ = false;
+  bool success_ = false;
+};
+
+/// A layer script's parameter values: one parameter (a knob drag coalesces
+/// into one step) or all of them (Reset to defaults). Holds the script
+/// instance, so a reordered or replaced chain can't receive the values.
+class SetLuaParamsAction : public UndoableAction {
+public:
+  using Values = std::map<std::string, LuaParamValue>;
+
+  /// Set one parameter; value is checked like LuaPlugin::setParamValue.
+  static std::unique_ptr<SetLuaParamsAction> one(MixerModel &mixer, const juce::String &stripId,
+                                                 int pluginIndex, const std::string &name,
+                                                 const LuaParamValue &value) {
+    auto action = std::unique_ptr<SetLuaParamsAction>(new SetLuaParamsAction(mixer, stripId, pluginIndex));
+    const auto *param = action->plugin_ ? action->plugin_->findParam(name) : nullptr;
+    const auto valid = param ? validLuaParamValue(*param, value) : std::nullopt;
+    if (!valid) {
+      action->plugin_.reset();
+      return action;
+    }
+    if (*valid == param->defaultValue)
+      action->after_.erase(name);
+    else
+      action->after_[name] = *valid;
+    action->description_ = action->plugin_->meta().name + ": " + param->label;
+    action->coalesceId_ = "luaParam:" + stripId + ":" +
+        juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(action->plugin_.get())) +
+        ":" + juce::String::fromUTF8(name.c_str());
+    return action;
+  }
+
+  /// Every parameter back to its default.
+  static std::unique_ptr<SetLuaParamsAction> resetAll(MixerModel &mixer, const juce::String &stripId,
+                                                      int pluginIndex) {
+    auto action = std::unique_ptr<SetLuaParamsAction>(new SetLuaParamsAction(mixer, stripId, pluginIndex));
+    action->after_.clear();
+    if (action->plugin_)
+      action->description_ = action->plugin_->meta().name + ": reset to defaults";
+    return action;
+  }
+
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
+  bool isNoOp() const override { return !plugin_ || before_ == after_; }
+  juce::String getDescription() const override { return juce::String::fromUTF8(description_.c_str()); }
+  juce::String getCoalesceId() const override { return coalesceId_; }
+  void coalesceWith(const UndoableAction &newer) override {
+    after_ = static_cast<const SetLuaParamsAction &>(newer).after_;
+  }
+
+private:
+  SetLuaParamsAction(MixerModel &mixer, const juce::String &stripId, int pluginIndex)
+      : mixer_(mixer), stripId_(stripId) {
+    auto *strip = mixer_.getStrip(stripId_);
+    if (!strip || pluginIndex < 0)
+      return;
+    auto lock = strip->lockMidiState();
+    if (static_cast<std::size_t>(pluginIndex) >= strip->luaPlugins.size())
+      return;
+    plugin_ = strip->luaPlugins[static_cast<std::size_t>(pluginIndex)];
+    if (!plugin_ || !plugin_->isLoaded()) {
+      plugin_.reset();
+      return;
+    }
+    before_ = plugin_->paramOverrides();
+    after_ = before_;
+  }
+
+  void apply(const Values &values) {
+    success_ = false;
+    auto *strip = mixer_.getStrip(stripId_);
+    if (!strip || !plugin_)
+      return;
+    auto lock = strip->lockMidiState();
+    if (std::find(strip->luaPlugins.begin(), strip->luaPlugins.end(), plugin_) == strip->luaPlugins.end() ||
+        !plugin_->isLoaded())
+      return;
+    plugin_->setParamValues(values);
+    success_ = true;
+  }
+
+  MixerModel &mixer_;
+  juce::String stripId_;
+  std::shared_ptr<LuaPlugin> plugin_;
+  Values before_, after_;
+  std::string description_;
+  juce::String coalesceId_;
+  bool success_ = false;
+};
+
+/// Bypass or enable a layer's script.
+class SetLuaEnabledAction : public UndoableAction {
+public:
+  SetLuaEnabledAction(MixerModel &mixer, const juce::String &stripId, int pluginIndex, bool enabled)
+      : mixer_(mixer), stripId_(stripId), after_(enabled) {
+    auto *strip = mixer_.getStrip(stripId_);
+    if (!strip || pluginIndex < 0)
+      return;
+    auto lock = strip->lockMidiState();
+    if (static_cast<std::size_t>(pluginIndex) < strip->luaPlugins.size())
+      plugin_ = strip->luaPlugins[static_cast<std::size_t>(pluginIndex)];
+    if (plugin_)
+      before_ = plugin_->isEnabled();
+  }
+
+  void execute() override { apply(after_); }
+  void undo() override { apply(before_); }
+  bool succeeded() const override { return success_; }
+  bool isNoOp() const override { return !plugin_ || before_ == after_; }
+  juce::String getDescription() const override {
+    return (after_ ? "Enable " : "Bypass ") + juce::String::fromUTF8(plugin_ ? plugin_->meta().name.c_str() : "");
+  }
+
+private:
+  void apply(bool enabled) {
+    success_ = false;
+    auto *strip = mixer_.getStrip(stripId_);
+    if (!strip || !plugin_)
+      return;
+    auto lock = strip->lockMidiState();
+    if (std::find(strip->luaPlugins.begin(), strip->luaPlugins.end(), plugin_) == strip->luaPlugins.end())
+      return;
+    plugin_->setEnabled(enabled);
+    success_ = true;
+  }
+
+  MixerModel &mixer_;
+  juce::String stripId_;
+  std::shared_ptr<LuaPlugin> plugin_;
+  bool before_ = true, after_ = true;
   bool success_ = false;
 };
 

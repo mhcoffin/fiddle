@@ -24,6 +24,8 @@
 #include "UndoManager.h"
 #include "BridgeMapCommands.h"
 #include "UndoActions.h"
+#include "LuaParamJson.h"
+#include "LuaAnnotator.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
@@ -1733,6 +1735,109 @@ return plugin
   const auto *meta = catalog.findByFileName("params.lua");
   REQUIRE(meta && meta->params.size() == 5 && meta->params[1].name == "timing" &&
           meta->params[3].defaultValue == Value(std::string("hard")));
+}
+
+void testLuaParamChangesAndUndo() {
+  using Value = fiddle::LuaParamValue;
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("knobs.lua");
+  REQUIRE(file.replaceWithText(
+      "return { name = 'Knobs', params = {"
+      " { name = 'amount', label = 'Amount', type = 'float', min = 0, max = 10, default = 2, unit = 'ms' },"
+      " { name = 'on', type = 'bool', default = true } },"
+      " on_note_start = function(note, ctx) return true end }"));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+      f.mixer, catalog, id, file.getFullPathName().toStdString())));
+  auto *strip = f.mixer.getStrip(id);
+  const auto plugin = strip->luaPlugins[0];
+  const auto amount = [&] { return std::get<double>(*plugin->paramValue("amount")); };
+
+  // A knob drag is one Undo step, named after the script and the label.
+  f.undo.beginGesture();
+  for (double v : {3.0, 4.5, 7.25})
+    REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(v))));
+  f.undo.endGesture();
+  REQUIRE(amount() == 7.25);
+  REQUIRE(f.undo.undoDescription() == "Knobs: Amount");
+  REQUIRE(f.undo.undo() && amount() == 2.0 && plugin->paramOverrides().empty());
+  REQUIRE(f.undo.redo() && amount() == 7.25);
+
+  // Values that don't fit make no step; out-of-range ones are clamped.
+  REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(std::string("x")))));
+  REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "missing", Value(1.0))));
+  REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 3, "amount", Value(1.0))));
+  REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(7.25))));
+  f.undo.breakCoalescing();
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "on", Value(false))));
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(std::int64_t{40}))));
+  REQUIRE(amount() == 10.0);
+
+  // The mixer JSON carries the parameters with their values.
+  const auto json = strip->toJson();
+  const auto params = json["luaPlugins"][0]["params"];
+  REQUIRE(params.size() == 2 && params[0]["name"].toString() == "amount");
+  REQUIRE(static_cast<double>(params[0]["value"]) == 10.0 && static_cast<double>(params[0]["default"]) == 2.0);
+  REQUIRE(params[0]["unit"].toString() == "ms" && !static_cast<bool>(params[1]["value"]));
+  REQUIRE(static_cast<bool>(json["luaPlugins"][0]["enabled"]));
+
+  // Reset to defaults is one step.
+  f.undo.breakCoalescing();
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::resetAll(f.mixer, id, 0)));
+  REQUIRE(plugin->paramOverrides().empty() && amount() == 2.0);
+  REQUIRE(!f.undo.perform(fiddle::SetLuaParamsAction::resetAll(f.mixer, id, 0)));
+  REQUIRE(f.undo.undo() && amount() == 10.0 && plugin->paramOverrides().size() == 2);
+
+  // Bypass.
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetLuaEnabledAction>(f.mixer, id, 0, false)));
+  REQUIRE(!plugin->isEnabled() && f.undo.undoDescription() == "Bypass Knobs");
+  REQUIRE(!f.undo.perform(std::make_unique<fiddle::SetLuaEnabledAction>(f.mixer, id, 0, false)));
+  REQUIRE(f.undo.undo() && plugin->isEnabled());
+
+  // A step made for a script that has since left the layer fails without
+  // touching it, or the script now in its place.
+  f.undo.breakCoalescing();
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(5.0))));
+  auto stale = fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "amount", Value(1.0));
+  auto staleBypass = std::make_unique<fiddle::SetLuaEnabledAction>(f.mixer, id, 0, false);
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::RemoveLuaPluginAction>(f.mixer, id, 0)));
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+      f.mixer, catalog, id, file.getFullPathName().toStdString())));
+  const auto replacement = strip->luaPlugins[0];
+  REQUIRE(replacement != plugin);
+  REQUIRE(!f.undo.perform(std::move(stale)));
+  REQUIRE(!f.undo.perform(std::move(staleBypass)));
+  REQUIRE(amount() == 5.0 && plugin->isEnabled());
+  REQUIRE(replacement->paramOverrides().empty() && replacement->isEnabled());
+
+  // A bypassed script schedules no note-off, though it did before.
+  const auto staccato = std::make_shared<fiddle::LuaPlugin>("staccato.lua");
+  REQUIRE(staccato->loadSaved("return { on_note_start = function(note, ctx) "
+                              "note.schedule_note_off_ms = 80; return note end }"));
+  fiddle::LuaAnnotator annotator(staccato);
+  fiddle::Note note;
+  note.set_note_number(60);
+  note.set_start_velocity(90);
+  annotator.onNoteStart(note, fiddle::AnnotatorContext{});
+  REQUIRE(annotator.scheduledNoteOffMs() == 80.0);
+  staccato->setEnabled(false);
+  annotator.onNoteStart(note, fiddle::AnnotatorContext{});
+  REQUIRE(annotator.scheduledNoteOffMs() < 0);
+
+  // Values from the UI keep their kind; anything else is refused.
+  REQUIRE(fiddle::luaParamFromVar(juce::var(true)) == Value(true));
+  REQUIRE(fiddle::luaParamFromVar(juce::var(3)) == Value(std::int64_t{3}));
+  REQUIRE(fiddle::luaParamFromVar(juce::var(2.5)) == Value(2.5));
+  REQUIRE(fiddle::luaParamFromVar(juce::var("soft")) == Value(std::string("soft")));
+  REQUIRE(!fiddle::luaParamFromVar(juce::var()));
+
+  // A script whose file can no longer be read has no parameters to set.
+  REQUIRE(file.deleteFile());
+  REQUIRE(!replacement->reload());
+  REQUIRE(replacement->meta().params.empty() && !replacement->setParamValue("amount", Value(1.0)));
 }
 
 void testLuaSavedCopies() {
@@ -4729,6 +4834,7 @@ int main(int argc, char **argv) {
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
   run("Lua parameters are typed, ordered, checked and in place before on_load", testLuaParameters);
+  run("Lua parameter changes coalesce, reset and bypass with Undo", testLuaParamChangesAndUndo);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);

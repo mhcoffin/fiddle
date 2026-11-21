@@ -230,6 +230,7 @@ target_sources(FiddleServer PRIVATE
     Source/Server/MixerModel.h
     Source/Server/LuaPlugin.cpp
     Source/Server/LuaPlugin.h
+    Source/Server/LuaParamJson.h
     Source/Server/LuaAnnotator.h
     Source/Server/HarmonicState.h
     Source/Server/HarmonicAnalyzer.cpp

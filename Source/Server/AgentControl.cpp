@@ -10,6 +10,7 @@
 #include "ChairLayerActions.h"
 #include "FiddleConfig.h"
 #include "LibraryCatalogAction.h"
+#include "LuaParamJson.h"
 #include "MixerCommandService.h"
 #include "PercussionMap.h"
 #include "PluginJsHandlers.h"
@@ -298,6 +299,11 @@ juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
     // The layer runs the copy saved with the version; this says whether the
     // file on disk still matches it (docs/lua-scripts.md).
     item->setProperty("fileStatus", juce::String(LuaPlugin::fileStatusName(processor->fileStatus())));
+    item->setProperty("enabled", processor->isEnabled());
+    {
+      auto midiLock = strip.lockMidiState();
+      item->setProperty("params", luaParamsToVar(*processor));
+    }
     luaProcessors.add(juce::var(item));
   }
   layer->setProperty("luaProcessors", juce::var(luaProcessors));

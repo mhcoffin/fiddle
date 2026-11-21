@@ -1,4 +1,5 @@
 #include "MixerStrip.h"
+#include "LuaParamJson.h"
 #include "HostTransport.h"
 
 #include "ExpressionMapAnnotator.h"
@@ -809,22 +810,40 @@ juce::var MixerStrip::toJson() const {
     obj->setProperty("programNames", names);
   }
 
-  // Lua plugin chain info
+  // Lua plugin chain info. Parameter values change under the MIDI-state
+  // lock (LuaPlugin::setParamValue); the file checks read the disk, so they
+  // run after it's released and MIDI never waits on them.
   {
+    std::vector<std::shared_ptr<LuaPlugin>> plugins;
     juce::Array<juce::var> luaArr;
-    for (size_t i = 0; i < luaPlugins.size(); ++i) {
-      auto *lObj = new juce::DynamicObject();
-      const auto &meta = luaPlugins[i]->meta();
-      lObj->setProperty("index", (int)i);
-      lObj->setProperty("name", juce::String(meta.name));
-      lObj->setProperty("filePath", juce::String(meta.filePath));
-      lObj->setProperty("loaded", luaPlugins[i]->isLoaded());
-      lObj->setProperty("fileName", juce::String(std::filesystem::path(luaPlugins[i]->filePath()).filename().string()));
+    {
+      auto midiLock = lockMidiState();
+      plugins = luaPlugins;
+      for (size_t i = 0; i < plugins.size(); ++i) {
+        auto *lObj = new juce::DynamicObject();
+        const auto &meta = plugins[i]->meta();
+        lObj->setProperty("index", (int)i);
+        lObj->setProperty("name", juce::String(meta.name));
+        lObj->setProperty("filePath", juce::String(meta.filePath));
+        lObj->setProperty("loaded", plugins[i]->isLoaded());
+        lObj->setProperty("fileName", juce::String(std::filesystem::path(plugins[i]->filePath()).filename().string()));
+        lObj->setProperty("enabled", plugins[i]->isEnabled());
+        lObj->setProperty("description", juce::String::fromUTF8(meta.description.c_str()));
+        lObj->setProperty("params", luaParamsToVar(*plugins[i]));
+        juce::Array<juce::var> paramErrors;
+        for (const auto &error : meta.paramErrors)
+          paramErrors.add(juce::String::fromUTF8(error.c_str()));
+        lObj->setProperty("paramErrors", paramErrors);
+        luaArr.add(juce::var(lObj));
+      }
+    }
+    for (size_t i = 0; i < plugins.size(); ++i) {
+      auto *lObj = luaArr.getReference(static_cast<int>(i)).getDynamicObject();
       // A layer runs the copy saved with its version: whether the file on
-      // disk still matches it (docs/lua-scripts.md).
-      lObj->setProperty("fileStatus", juce::String(LuaPlugin::fileStatusName(luaPlugins[i]->fileStatus())));
-      lObj->setProperty("fileError", juce::String(luaPlugins[i]->fileError()));
-      luaArr.add(juce::var(lObj));
+      // disk still matches it (docs/lua-scripts.md). fileStatus() first: a
+      // changed file clears the error.
+      lObj->setProperty("fileStatus", juce::String(LuaPlugin::fileStatusName(plugins[i]->fileStatus())));
+      lObj->setProperty("fileError", juce::String(plugins[i]->fileError()));
     }
     obj->setProperty("luaPlugins", luaArr);
   }

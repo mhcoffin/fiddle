@@ -36,7 +36,8 @@ Each script row in Layer details compares the copy with the file
 - **unchanged**: nothing to say.
 
 `fiddle_get_mixer` reports the same as `fileStatus` on each layer's
-`luaProcessors`.
+`luaProcessors`, with `enabled` and `params` (each parameter's declaration,
+default and value).
 
 ## Random numbers repeat
 
@@ -91,5 +92,13 @@ its options. A value the user set is kept only while it differs from the
 default. When a script loads, saved values that no longer fit it are dropped
 and logged; a script that doesn't load keeps them untouched.
 
-There are no controls for parameters yet, and their values aren't saved, so
-every script runs on its defaults.
+A value changes through `setLuaParam` (one parameter), `resetLuaParams`
+(all back to their defaults) and `setLuaEnabled` (bypass), each an Undo step
+(`SetLuaParamsAction`, `SetLuaEnabledAction`); the steps of one knob drag
+coalesce, like the gain fader's. The action holds the script instance, so a
+step can't reach a different script after the chain changes. Values change
+under the strip's MIDI-state lock, which the MIDI thread holds while it runs
+scripts, and the script sees a new value from its next callback. The mixer
+JSON gives each script `enabled`, `description`, `params` and `paramErrors`.
+
+There are no controls for parameters yet, and their values aren't saved.

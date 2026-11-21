@@ -2,6 +2,7 @@
 
 #include "TonalContext.h"
 #include "midi_event.pb.h"
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -119,9 +120,10 @@ public:
   /// Whether the plugin loaded successfully.
   bool isLoaded() const { return loaded_; }
 
-  /// Whether the plugin is enabled (can be toggled by user).
-  bool isEnabled() const { return enabled_; }
-  void setEnabled(bool enabled) { enabled_ = enabled; }
+  /// Whether the plugin is enabled: off is bypassed, and the layer's notes
+  /// pass through untouched. The MIDI thread reads it.
+  bool isEnabled() const { return enabled_.load(std::memory_order_relaxed); }
+  void setEnabled(bool enabled) { enabled_.store(enabled, std::memory_order_relaxed); }
 
   /// Plugin metadata (populated after load()).
   const LuaPluginMeta &meta() const { return meta_; }
@@ -149,6 +151,11 @@ public:
   /// with the strip's MIDI-state lock held, as the MIDI thread runs scripts
   /// under it.
   bool setParamValue(const std::string &name, const LuaParamValue &value);
+
+  /// Make overrides the user's values for every parameter (the rest go back
+  /// to their defaults), as setParamValue does one; same lock. For Undo and
+  /// Reset to defaults.
+  void setParamValues(const std::map<std::string, LuaParamValue> &overrides);
 
   /// Called for every note-on. Mutates the Note.
   /// Returns false if the plugin wants to suppress the note.
@@ -197,7 +204,7 @@ private:
   std::string source_;
   std::uint32_t seed_ = 0;
   bool loaded_ = false;
-  bool enabled_ = true;
+  std::atomic<bool> enabled_{true};
   LuaPluginMeta meta_;
   std::map<std::string, LuaParamValue> overrides_;
   double lastDurationAdjustMs_ = 0.0;

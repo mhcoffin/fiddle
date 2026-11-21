@@ -89,6 +89,8 @@ long long fileTime(const std::string &path) {
 
 bool LuaPlugin::load() {
   loaded_ = false;
+  meta_.params.clear(); // until the file reads and runs
+  meta_.paramErrors.clear();
   source_.clear(); // until the file reads and runs
   auto text = readText(filePath_);
   if (!text) {
@@ -246,7 +248,7 @@ std::optional<LuaParamValue> LuaPlugin::paramValue(const std::string &name) cons
 }
 
 bool LuaPlugin::setParamValue(const std::string &name, const LuaParamValue &value) {
-  const auto *param = findParam(name);
+  const auto *param = loaded_ ? findParam(name) : nullptr;
   if (!param)
     return false;
   auto valid = validLuaParamValue(*param, value);
@@ -259,6 +261,16 @@ bool LuaPlugin::setParamValue(const std::string &name, const LuaParamValue &valu
   if (loaded_)
     writeConfig(name, *valid);
   return true;
+}
+
+void LuaPlugin::setParamValues(const std::map<std::string, LuaParamValue> &overrides) {
+  if (!loaded_)
+    return;
+  for (const auto &param : meta_.params) {
+    const auto found = overrides.find(param.name);
+    if (found == overrides.end() || !setParamValue(param.name, found->second))
+      (void)setParamValue(param.name, param.defaultValue);
+  }
 }
 
 void LuaPlugin::writeConfig(const std::string &name, const LuaParamValue &value) {
@@ -659,7 +671,7 @@ void LuaPlugin::extractInstructions(
 
 bool LuaPlugin::onNoteStart(fiddle::Note &note, const LuaContext &ctx) {
   lastScheduledNoteOffMs_ = -1.0; // reset each note
-  if (!loaded_ || !enabled_ || !fnOnNoteStart_)
+  if (!loaded_ || !isEnabled() || !fnOnNoteStart_)
     return true;
 
   sol::table luaNote = noteToLua(note);
@@ -693,7 +705,7 @@ bool LuaPlugin::onNoteStart(fiddle::Note &note, const LuaContext &ctx) {
 
 bool LuaPlugin::onNoteEnd(fiddle::Note &note, const LuaContext &ctx) {
   lastDurationAdjustMs_ = 0.0; // reset each note
-  if (!loaded_ || !enabled_ || !fnOnNoteEnd_)
+  if (!loaded_ || !isEnabled() || !fnOnNoteEnd_)
     return true;
 
   sol::table luaNote = noteToLua(note);
@@ -726,7 +738,7 @@ bool LuaPlugin::onNoteEnd(fiddle::Note &note, const LuaContext &ctx) {
 
 bool LuaPlugin::onCC(int ccNumber, int ccValue, int channel,
                      const LuaContext &ctx) {
-  if (!loaded_ || !enabled_ || !fnOnCC_)
+  if (!loaded_ || !isEnabled() || !fnOnCC_)
     return true;
 
   sol::table luaCtx = contextToLua(ctx);
@@ -774,7 +786,7 @@ void LuaPlugin::reset() {
   if (!loaded_)
     return;
   reseed();
-  if (!enabled_ || !fnOnReset_)
+  if (!isEnabled() || !fnOnReset_)
     return;
 
   auto result = (*fnOnReset_)();

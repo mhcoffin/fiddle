@@ -8,6 +8,7 @@
 #include "LibraryCatalogAction.h"
 #include "PercussionMap.h"
 #include "UndoActions.h"
+#include "LuaParamJson.h"
 #include "ChairActions.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
@@ -4691,6 +4692,53 @@ void MainComponent::setupJsHandlers() {
       saveAllStripsToDB(false);
       pushMixerState();
       scheduleStateRebuild();
+    });
+  });
+  // A layer script's parameters and bypass (docs/lua-scripts.md). Like the
+  // gain fader, each change is an Undo step (a knob drag coalesces) that
+  // updates the mixer and marks the project unsaved.
+  jsRouter_.registerHandler("setLuaParam", [this](const juce::var &payload) {
+    // payload: [stripId, pluginIndex, name, value]
+    if (!payload.isArray() || payload.size() < 4)
+      return;
+    const auto stripId = payload[0].toString();
+    const int pluginIndex = static_cast<int>(payload[1]);
+    const auto name = payload[2].toString().toStdString();
+    const auto value = luaParamFromVar(payload[3]);
+    if (!value) {
+      safeCallAsync([this]() { pushMixerState(false); }); // puts the control back
+      return;
+    }
+    safeCallAsync([this, stripId, pluginIndex, name, value = *value]() {
+      if (undoManager_.perform(SetLuaParamsAction::one(mixer_, stripId, pluginIndex, name, value)))
+        pushMixerState();
+      else
+        pushMixerState(false); // puts the control back
+    });
+  });
+  jsRouter_.registerHandler("resetLuaParams", [this](const juce::var &payload) {
+    // payload: [stripId, pluginIndex]
+    if (!payload.isArray() || payload.size() < 2)
+      return;
+    const auto stripId = payload[0].toString();
+    const int pluginIndex = static_cast<int>(payload[1]);
+    safeCallAsync([this, stripId, pluginIndex]() {
+      if (undoManager_.perform(SetLuaParamsAction::resetAll(mixer_, stripId, pluginIndex)))
+        pushMixerState();
+    });
+  });
+  jsRouter_.registerHandler("setLuaEnabled", [this](const juce::var &payload) {
+    // payload: [stripId, pluginIndex, enabled]
+    if (!payload.isArray() || payload.size() < 3)
+      return;
+    const auto stripId = payload[0].toString();
+    const int pluginIndex = static_cast<int>(payload[1]);
+    const bool enabled = static_cast<bool>(payload[2]);
+    safeCallAsync([this, stripId, pluginIndex, enabled]() {
+      if (undoManager_.perform(std::make_unique<SetLuaEnabledAction>(mixer_, stripId, pluginIndex, enabled)))
+        pushMixerState();
+      else
+        pushMixerState(false);
     });
   });
   jsRouter_.registerHandler(
