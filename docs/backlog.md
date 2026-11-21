@@ -136,6 +136,19 @@ documented elsewhere; this list records the remaining work and intended order.
   ~8.5 ms gap before the main note; Synchron Percussion has no flam sample.
   A fix could treat a short note followed at once by the same pitch as a
   grace note and play it on the other hand ("Right hand", pitch 62), softer.
+- Restore warnings as macOS notifications (low priority, noted 2026-11-20).
+  When a Dorico project connects and the restore banner is a warning (its setup
+  isn't on this Mac, Fiddle didn't switch, or it may sound different than when
+  it was saved; [project identity](dorico-project-identity-results.md)),
+  FiddleServer could post a macOS notification, so a user working in Dorico
+  with Fiddle out of sight still sees it; clicking it brings Fiddle forward.
+  Not from the plug-in: VST3 has no way for a plug-in to open its editor, its
+  windows live in Dorico's separate audio-engine process, and since macOS 14 an
+  app can only ask to come forward. Use macOS UserNotifications
+  (`UNUserNotificationCenter`) from a small `.mm` helper like `MacWindowMenu.mm`,
+  not `juce::PushNotifications`, which on macOS wraps the deprecated
+  `NSUserNotificationCenter` and is off by default. Check first that the signed
+  app may post them (the user grants permission once).
 - Surround or immersive output.
 - Multi-output instruments.
 - External audio tracks, recording, comping, and waveform editing.
