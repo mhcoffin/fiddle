@@ -55,7 +55,41 @@ randomness drawn at load time (the script's top level or `on_load`) is the
 same on every layer. humanize.lua's `seed` parameter, when not 0, replaces
 Fiddle's seed in `on_load` and `on_reset`.
 
-## Not kept yet
+## Parameters
 
-A script's parameters (`params`) have no controls yet, so every script runs on
-its defaults and nothing about them is saved.
+A script declares its parameters in a `params` list, and Fiddle owns their
+values (`LuaPluginMeta::Param`, `parseLuaParams`):
+
+```lua
+params = {
+  { name = "timing_range_ms", label = "Timing", type = "float",
+    min = 0, max = 50, step = 0.5, default = 15, unit = "ms",
+    description = "Largest shift of a note's start" },
+  { name = "on_beat_only", type = "bool", default = false },
+  { name = "seed", label = "Variation", type = "int",
+    min = 0, max = 99999, default = 0, control = "field" },
+  { name = "mode", type = "enum", options = { "soft", "hard" }, default = "soft" },
+}
+```
+
+- `type` is `bool`, `int`, `float` or `enum`. `int` and `float` need `min`
+  and `max`; `enum` needs `options`. `default` falls back to false, `min` or
+  the first option.
+- `label`, `unit`, `step`, `description` and `control` (`"knob"` or
+  `"field"`, for numbers) only change how the control looks. Without a label,
+  the name is shown with spaces.
+- Parameters keep the order they're listed in.
+- A parameter with a mistake (no range, a default outside it, a repeated name,
+  an unknown type, no options) is skipped, and the problem is logged.
+
+After the script's top-level code runs, and before its `on_load`, Fiddle
+fills `plugin.config` with every parameter's value, so a script reads
+`plugin.config.timing_range_ms` without a fallback. Fiddle only ever writes a
+checked value there (`validLuaParamValue`): numbers are clamped to the range
+and ints rounded, a bool must be true or false, and an enum must be one of
+its options. A value the user set is kept only while it differs from the
+default. When a script loads, saved values that no longer fit it are dropped
+and logged; a script that doesn't load keeps them untouched.
+
+There are no controls for parameters yet, and their values aren't saved, so
+every script runs on its defaults.

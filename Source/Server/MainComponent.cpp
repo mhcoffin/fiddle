@@ -4216,7 +4216,12 @@ void MainComponent::setupJsHandlers() {
             pObj->setProperty("type", juce::String(p.type));
             pObj->setProperty("min", p.min);
             pObj->setProperty("max", p.max);
-            pObj->setProperty("default", p.defaultVal);
+            pObj->setProperty("default", std::visit([](const auto &v) {
+              using T = std::decay_t<decltype(v)>;
+              if constexpr (std::is_same_v<T, std::string>) return juce::var(juce::String(v));
+              else if constexpr (std::is_same_v<T, std::int64_t>) return juce::var(static_cast<juce::int64>(v));
+              else return juce::var(v);
+            }, p.defaultValue));
             juce::Array<juce::var> opts;
             for (const auto &o : p.options)
               opts.add(juce::String(o));

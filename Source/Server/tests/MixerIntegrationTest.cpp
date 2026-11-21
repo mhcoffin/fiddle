@@ -1626,6 +1626,115 @@ void testLuaHistoryAndMissingRestore() {
 // A layer plays the copy of its script saved with the version, not the file
 // as it is now; "Use new file" switches every layer to the file, undoably
 // (docs/lua-scripts.md).
+void testLuaParameters() {
+  using Value = fiddle::LuaParamValue;
+  const std::string source = R"lua(
+local plugin = {
+  name = "Params",
+  params = {
+    { name = "velocity", label = "Velocity", type = "int", min = 0, max = 40, default = 8, unit = "vel" },
+    { name = "timing", type = "float", min = 0, max = 50, step = 0.5, default = 15 },
+    { name = "on_beat", type = "bool" },
+    { name = "mode", type = "enum", options = { "soft", "hard" }, default = "hard" },
+    { name = "seed", type = "int", min = 0, max = 99999, control = "field" },
+    { name = "no_range", type = "int", default = 3 },
+    { name = "too_big", type = "float", min = 0, max = 1, default = 2 },
+    { name = "velocity", type = "bool" },
+    { name = "strange", type = "colour" },
+    { name = "empty", type = "enum", options = {} },
+  },
+}
+local function show(when)
+  local c = plugin.config
+  print(string.format("%s velocity=%s timing=%s on_beat=%s mode=%s seed=%s", when,
+    tostring(c.velocity), tostring(c.timing), tostring(c.on_beat), c.mode, tostring(c.seed)))
+end
+function plugin.on_load() show("load") end
+function plugin.on_reset() show("reset") end
+function plugin.on_note_start(note, ctx) return true end
+return plugin
+)lua";
+  std::vector<std::string> lines;
+  const auto lastLine = [&] { return lines.empty() ? std::string() : lines.back(); };
+
+  fiddle::LuaPlugin plugin("params.lua");
+  plugin.setLogCallback([&](const std::string &msg, bool) { lines.push_back(msg); });
+  // Saved values are in place before on_load; ones that don't fit are dropped.
+  plugin.setParamOverrides({{"velocity", Value(std::int64_t{20})}, {"mode", Value(std::string("loud"))},
+                            {"gone", Value(true)}, {"timing", Value(std::int64_t{15})}});
+  REQUIRE(plugin.loadSaved(source));
+
+  const auto &params = plugin.meta().params;
+  REQUIRE(params.size() == 5);
+  REQUIRE(params[0].name == "velocity" && params[1].name == "timing" && params[2].name == "on_beat" &&
+          params[3].name == "mode" && params[4].name == "seed");
+  REQUIRE(params[0].label == "Velocity" && params[0].unit == "vel" && params[0].step == 1);
+  REQUIRE(params[1].label == "Timing" && params[1].step == 0.5);
+  REQUIRE(params[2].label == "On beat" && params[2].defaultValue == Value(false) && params[2].control.empty());
+  REQUIRE(params[3].defaultValue == Value(std::string("hard")));
+  REQUIRE(params[4].control == "field" && params[4].defaultValue == Value(std::int64_t{0}));
+  REQUIRE(plugin.meta().paramErrors.size() == 5);
+
+  bool sawLoad = false;
+  for (const auto &line : lines)
+    sawLoad = sawLoad || line.find("load velocity=20 timing=15.0 on_beat=false mode=hard seed=0") != std::string::npos;
+  REQUIRE(sawLoad);
+  // Only the velocity survives: mode isn't an option, gone isn't declared,
+  // and the timing equals the default.
+  REQUIRE(plugin.paramOverrides().size() == 1);
+  REQUIRE(plugin.paramValue("velocity") == Value(std::int64_t{20}));
+
+  // Changes are clamped and rounded, and the default removes the user's value.
+  REQUIRE(plugin.setParamValue("velocity", Value(99.6)));
+  REQUIRE(plugin.paramValue("velocity") == Value(std::int64_t{40}));
+  REQUIRE(plugin.setParamValue("timing", Value(std::int64_t{-3})));
+  REQUIRE(plugin.paramValue("timing") == Value(0.0));
+  REQUIRE(plugin.setParamValue("on_beat", Value(true)));
+  REQUIRE(plugin.setParamValue("mode", Value(std::string("soft"))));
+  REQUIRE(!plugin.setParamValue("mode", Value(std::string("loud"))));
+  REQUIRE(!plugin.setParamValue("on_beat", Value(std::int64_t{1})));
+  REQUIRE(!plugin.setParamValue("velocity", Value(std::string("10"))));
+  REQUIRE(!plugin.setParamValue("velocity", Value(std::nan(""))));
+  REQUIRE(!plugin.setParamValue("unknown", Value(true)));
+  plugin.reset();
+  REQUIRE(lastLine().find("reset velocity=40 timing=0.0 on_beat=true mode=soft seed=0") != std::string::npos);
+  REQUIRE(plugin.paramOverrides().size() == 4);
+  REQUIRE(plugin.setParamValue("velocity", Value(std::int64_t{8})));
+  REQUIRE(plugin.paramOverrides().count("velocity") == 0);
+
+  // A script that doesn't load keeps the values it was given, untouched.
+  fiddle::LuaPlugin broken("broken.lua");
+  broken.setLogCallback([](const std::string &, bool) {});
+  broken.setParamOverrides({{"anything", Value(std::string("kept"))}});
+  REQUIRE(!broken.loadSaved("return {"));
+  REQUIRE(broken.paramOverrides().size() == 1 && broken.meta().params.empty());
+  REQUIRE(!broken.setParamValue("anything", Value(std::string("x"))));
+
+  // Nor does one whose on_load fails after its params were read.
+  fiddle::LuaPlugin failing("failing.lua");
+  failing.setLogCallback([](const std::string &, bool) {});
+  failing.setParamOverrides({{"level", Value(std::int64_t{3})}, {"gone", Value(true)}});
+  REQUIRE(!failing.loadSaved("return { params = { { name = 'level', type = 'int', min = 0, max = 9 } },"
+                             " on_load = function() error('boom') end }"));
+  REQUIRE(failing.paramOverrides().size() == 2 && failing.meta().params.empty());
+  REQUIRE(!failing.setParamValue("level", Value(std::int64_t{4})));
+
+  // Ranges a double can't hold exactly are refused for ints.
+  fiddle::LuaPlugin huge("huge.lua");
+  huge.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(huge.loadSaved("return { params = { { name = 'n', type = 'int', min = 0, max = math.maxinteger } } }"));
+  REQUIRE(huge.meta().params.empty() && huge.meta().paramErrors.size() == 1);
+
+  // The catalog reads the same declaration, in order.
+  Sandbox sandbox;
+  REQUIRE(sandbox.directory.getChildFile("params.lua").replaceWithText(source));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  const auto *meta = catalog.findByFileName("params.lua");
+  REQUIRE(meta && meta->params.size() == 5 && meta->params[1].name == "timing" &&
+          meta->params[3].defaultValue == Value(std::string("hard")));
+}
+
 void testLuaSavedCopies() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("shape.lua");
@@ -4619,6 +4728,7 @@ int main(int argc, char **argv) {
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
+  run("Lua parameters are typed, ordered, checked and in place before on_load", testLuaParameters);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);

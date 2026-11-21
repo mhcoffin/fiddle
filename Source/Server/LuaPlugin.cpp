@@ -1,4 +1,6 @@
 #include "LuaPlugin.h"
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -136,6 +138,8 @@ LuaPlugin::FileStatus LuaPlugin::fileStatus() const {
 
 bool LuaPlugin::run() {
   loaded_ = false;
+  meta_.params.clear(); // until this source declares them
+  meta_.paramErrors.clear();
   lua_ = std::make_unique<sol::state>();
   setupEnvironment();
   registerAPI();
@@ -168,30 +172,16 @@ bool LuaPlugin::run() {
   meta_.description =
       pluginTable_.get_or<std::string>("description", "No description");
 
-  // Extract params (optional)
-  meta_.params.clear();
-  sol::optional<sol::table> paramsOpt = pluginTable_["params"];
-  if (paramsOpt) {
-    for (auto &kv : *paramsOpt) {
-      if (kv.second.get_type() == sol::type::table) {
-        sol::table pt = kv.second.as<sol::table>();
-        LuaPluginMeta::Param p;
-        p.name = pt.get_or<std::string>("name", "");
-        p.type = pt.get_or<std::string>("type", "int");
-        p.min = pt.get_or("min", 0.0);
-        p.max = pt.get_or("max", 127.0);
-        p.defaultVal = pt.get_or("default", 0.0);
-        sol::optional<sol::table> options = pt["options"];
-        if (options) {
-          for (auto &opt : *options) {
-            if (opt.second.get_type() == sol::type::string)
-              p.options.push_back(opt.second.as<std::string>());
-          }
-        }
-        if (!p.name.empty())
-          meta_.params.push_back(std::move(p));
-      }
-    }
+  parseLuaParams(pluginTable_, meta_);
+  for (const auto &error : meta_.paramErrors)
+    log("[" + meta_.name + "] " + error, true);
+  // The user's values reach plugin.config before on_load; overrides_ itself
+  // changes only once the script has loaded, so a failure keeps it intact.
+  std::vector<std::string> dropped;
+  auto checked = checkedOverrides(dropped);
+  for (const auto &param : meta_.params) {
+    const auto found = checked.find(param.name);
+    writeConfig(param.name, found != checked.end() ? found->second : param.defaultValue);
   }
 
   // Cache function references — only store if actually a function (sol::optional
@@ -217,10 +207,15 @@ bool LuaPlugin::run() {
       sol::error err = callResult;
       log("on_load error: " + std::string(err.what()), true);
       loaded_ = false;
+      meta_.params.clear();
+      meta_.paramErrors.clear();
       return false;
     }
   }
 
+  overrides_ = std::move(checked);
+  for (const auto &message : dropped)
+    log("[" + meta_.name + "] " + message);
   loaded_ = true;
   log("Loaded plugin: " + meta_.name + " v" + meta_.version);
   return true;
@@ -231,24 +226,221 @@ bool LuaPlugin::reload() {
   return load();
 }
 
-void LuaPlugin::setParam(const std::string &name, sol::object value) {
-  if (!loaded_ || !lua_)
+void LuaPlugin::setParamOverrides(std::map<std::string, LuaParamValue> overrides) {
+  overrides_ = std::move(overrides);
+}
+
+const LuaPluginMeta::Param *LuaPlugin::findParam(const std::string &name) const {
+  for (const auto &param : meta_.params)
+    if (param.name == name)
+      return &param;
+  return nullptr;
+}
+
+std::optional<LuaParamValue> LuaPlugin::paramValue(const std::string &name) const {
+  const auto *param = findParam(name);
+  if (!param)
+    return std::nullopt;
+  const auto found = overrides_.find(name);
+  return found != overrides_.end() ? found->second : param->defaultValue;
+}
+
+bool LuaPlugin::setParamValue(const std::string &name, const LuaParamValue &value) {
+  const auto *param = findParam(name);
+  if (!param)
+    return false;
+  auto valid = validLuaParamValue(*param, value);
+  if (!valid)
+    return false;
+  if (*valid == param->defaultValue)
+    overrides_.erase(name);
+  else
+    overrides_[name] = *valid;
+  if (loaded_)
+    writeConfig(name, *valid);
+  return true;
+}
+
+void LuaPlugin::writeConfig(const std::string &name, const LuaParamValue &value) {
+  if (!lua_)
     return;
-  // Store in the plugin table under a 'config' sub-table
   sol::optional<sol::table> existing = pluginTable_["config"];
   sol::table config = existing ? *existing : lua_->create_table();
   if (!existing)
     pluginTable_["config"] = config;
-  config[name] = value;
+  std::visit([&](const auto &v) {
+    using T = std::decay_t<decltype(v)>;
+    if constexpr (std::is_same_v<T, std::int64_t>)
+      config[name] = static_cast<lua_Integer>(v);
+    else
+      config[name] = v;
+  }, value);
 }
 
-sol::object LuaPlugin::getParam(const std::string &name) const {
-  if (!loaded_ || !lua_)
-    return sol::lua_nil;
-  sol::optional<sol::table> config = pluginTable_["config"];
-  if (config)
-    return (*config)[name];
-  return sol::lua_nil;
+std::map<std::string, LuaParamValue>
+LuaPlugin::checkedOverrides(std::vector<std::string> &dropped) const {
+  std::map<std::string, LuaParamValue> checked;
+  for (const auto &[name, value] : overrides_) {
+    const auto *param = findParam(name);
+    auto valid = param ? validLuaParamValue(*param, value) : std::nullopt;
+    if (!valid)
+      dropped.push_back("Dropped the saved value of " + name +
+                        (param ? ": it doesn't fit the parameter" : ": the script has no such parameter"));
+    else if (*valid != param->defaultValue)
+      checked.emplace(name, std::move(*valid));
+  }
+  return checked;
+}
+
+namespace {
+std::string labelFor(const std::string &name) {
+  std::string label = name;
+  std::replace(label.begin(), label.end(), '_', ' ');
+  if (!label.empty() && label[0] >= 'a' && label[0] <= 'z')
+    label[0] = static_cast<char>(label[0] - 'a' + 'A');
+  return label;
+}
+
+bool present(const sol::object &value) {
+  return value.valid() && value.get_type() != sol::type::lua_nil && value.get_type() != sol::type::none;
+}
+
+std::optional<double> number(const sol::object &value) {
+  if (value.get_type() != sol::type::number)
+    return std::nullopt;
+  const double v = value.as<double>();
+  return std::isfinite(v) ? std::optional<double>(v) : std::nullopt;
+}
+} // namespace
+
+void parseLuaParams(const sol::table &pluginTable, LuaPluginMeta &meta) {
+  meta.params.clear();
+  meta.paramErrors.clear();
+  sol::object declared = pluginTable["params"];
+  if (!present(declared))
+    return;
+  if (declared.get_type() != sol::type::table) {
+    meta.paramErrors.push_back("params must be a list");
+    return;
+  }
+  const auto list = declared.as<sol::table>();
+  const auto count = list.size();
+  for (std::size_t i = 1; i <= count; ++i) {
+    const auto where = "Parameter " + std::to_string(i);
+    sol::object entry = list[i];
+    if (entry.get_type() != sol::type::table) {
+      meta.paramErrors.push_back(where + " isn't a table; skipped");
+      continue;
+    }
+    const auto t = entry.as<sol::table>();
+    LuaPluginMeta::Param p;
+    p.name = t.get_or<std::string>("name", "");
+    const auto fail = [&](const std::string &why) {
+      meta.paramErrors.push_back((p.name.empty() ? where : p.name) + ": " + why + "; skipped");
+    };
+    if (p.name.empty()) { fail("it has no name"); continue; }
+    if (std::any_of(meta.params.begin(), meta.params.end(),
+                    [&](const auto &other) { return other.name == p.name; })) {
+      fail("another parameter has this name");
+      continue;
+    }
+    p.type = t.get_or<std::string>("type", "");
+    sol::optional<std::string> label = t["label"];
+    p.label = label && !label->empty() ? *label : labelFor(p.name);
+    p.unit = t.get_or<std::string>("unit", "");
+    p.description = t.get_or<std::string>("description", "");
+    sol::object def = t["default"];
+    const bool hasDefault = present(def);
+
+    if (p.type == "bool") {
+      if (hasDefault && def.get_type() != sol::type::boolean) { fail("its default isn't true or false"); continue; }
+      p.defaultValue = hasDefault && def.as<bool>();
+    } else if (p.type == "int" || p.type == "float") {
+      const auto lo = number(t["min"]), hi = number(t["max"]);
+      if (!lo || !hi) { fail("it needs a min and a max"); continue; }
+      p.min = *lo;
+      p.max = *hi;
+      const bool isInt = p.type == "int";
+      if (isInt) {
+        // Whole numbers a double (and the UI's JavaScript) holds exactly.
+        constexpr double exact = 9007199254740991.0;
+        if (p.min < -exact || p.max > exact) { fail("its range is too large for whole numbers"); continue; }
+        p.min = std::ceil(p.min);
+        p.max = std::floor(p.max);
+      }
+      if (!(p.min < p.max)) { fail("its min isn't below its max"); continue; }
+      sol::object stepValue = t["step"];
+      const auto step = number(stepValue);
+      if (present(stepValue) && (!step || *step <= 0)) { fail("its step isn't a positive number"); continue; }
+      p.step = isInt ? std::max(1.0, std::round(step.value_or(1.0))) : step.value_or(0.0);
+      const auto d = hasDefault ? number(def) : std::optional<double>(p.min);
+      if (!d) { fail("its default isn't a number"); continue; }
+      if (*d < p.min || *d > p.max) { fail("its default is outside min..max"); continue; }
+      if (isInt)
+        p.defaultValue = static_cast<std::int64_t>(std::llround(*d));
+      else
+        p.defaultValue = *d;
+      p.control = t.get_or<std::string>("control", "knob");
+      if (p.control != "knob" && p.control != "field") {
+        meta.paramErrors.push_back(p.name + ": control must be \"knob\" or \"field\"; using a knob");
+        p.control = "knob";
+      }
+    } else if (p.type == "enum") {
+      sol::object options = t["options"];
+      if (options.get_type() == sol::type::table) {
+        const auto list = options.as<sol::table>();
+        for (std::size_t o = 1; o <= list.size(); ++o) {
+          sol::object option = list[o];
+          if (option.get_type() == sol::type::string)
+            p.options.push_back(option.as<std::string>());
+        }
+      }
+      if (p.options.empty()) { fail("it needs a list of options"); continue; }
+      std::vector<std::string> sorted = p.options;
+      std::sort(sorted.begin(), sorted.end());
+      if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end()) { fail("its options repeat"); continue; }
+      if (hasDefault && (def.get_type() != sol::type::string ||
+                         std::find(p.options.begin(), p.options.end(), def.as<std::string>()) == p.options.end())) {
+        fail("its default isn't one of its options");
+        continue;
+      }
+      p.defaultValue = hasDefault ? def.as<std::string>() : p.options.front();
+    } else {
+      fail("its type must be bool, int, float or enum");
+      continue;
+    }
+    if (p.type != "int" && p.type != "float")
+      p.control.clear();
+    meta.params.push_back(std::move(p));
+  }
+}
+
+std::optional<LuaParamValue> validLuaParamValue(const LuaPluginMeta::Param &param,
+                                                const LuaParamValue &value) {
+  if (param.type == "bool") {
+    if (const auto *b = std::get_if<bool>(&value))
+      return *b;
+    return std::nullopt;
+  }
+  if (param.type == "enum") {
+    const auto *s = std::get_if<std::string>(&value);
+    if (s && std::find(param.options.begin(), param.options.end(), *s) != param.options.end())
+      return *s;
+    return std::nullopt;
+  }
+  std::optional<double> v;
+  if (const auto *i = std::get_if<std::int64_t>(&value))
+    v = static_cast<double>(*i);
+  else if (const auto *d = std::get_if<double>(&value))
+    v = *d;
+  if (!v || !std::isfinite(*v))
+    return std::nullopt;
+  const double clamped = std::clamp(*v, param.min, param.max);
+  if (param.type == "int")
+    return static_cast<std::int64_t>(std::llround(clamped));
+  if (param.type == "float")
+    return clamped == 0.0 ? 0.0 : clamped; // no -0
+  return std::nullopt;
 }
 
 sol::table LuaPlugin::noteToLua(const fiddle::Note &note) {
@@ -685,6 +877,7 @@ bool LuaPluginCatalog::probePlugin(const std::string &filePath,
   meta.author = pluginTable.get_or<std::string>("author", "Unknown");
   meta.description =
       pluginTable.get_or<std::string>("description", "No description");
+  parseLuaParams(pluginTable, meta);
 
   return true;
 }

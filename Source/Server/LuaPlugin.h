@@ -4,9 +4,11 @@
 #include "midi_event.pb.h"
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 // sol2 requires these defines before inclusion
@@ -14,6 +16,9 @@
 #include <sol/sol.hpp>
 
 namespace fiddle {
+
+/// A script parameter's value: bool, int, float or enum (a string).
+using LuaParamValue = std::variant<bool, std::int64_t, double, std::string>;
 
 /// Metadata about a discovered Lua plugin (before instantiation).
 struct LuaPluginMeta {
@@ -23,15 +28,32 @@ struct LuaPluginMeta {
   std::string description;
   std::string filePath; // absolute path to the .lua file
 
-  /// Declared configurable parameters.
+  /// Declared parameters, in the order the script lists them
+  /// (docs/lua-scripts.md, "Parameters").
   struct Param {
     std::string name;
-    std::string type; // "int", "float", "bool", "enum"
-    double min = 0, max = 127, defaultVal = 0;
-    std::vector<std::string> options; // for enum type
+    std::string type; // "bool", "int", "float", "enum"
+    std::string label; // shown; the name with spaces when not given
+    std::string unit, description;
+    std::string control = "knob"; // int/float: "knob" or "field"
+    double min = 0, max = 0;
+    double step = 0; // int: >= 1; float: 0 when the script didn't say
+    LuaParamValue defaultValue;
+    std::vector<std::string> options; // enum
   };
   std::vector<Param> params;
+  /// Problems in the declaration. A parameter with one is skipped.
+  std::vector<std::string> paramErrors;
 };
+
+/// Read a script's params table: ordered, checked, labels filled in.
+void parseLuaParams(const sol::table &pluginTable, LuaPluginMeta &meta);
+
+/// value as param accepts it: numbers clamped to min..max, ints rounded;
+/// nullopt when it can't be (a string for a number, an enum value that isn't
+/// one of the options, a NaN).
+std::optional<LuaParamValue> validLuaParamValue(const LuaPluginMeta::Param &param,
+                                                const LuaParamValue &value);
 
 /// Context passed to Lua plugin callbacks. Populated by LuaAnnotator.
 struct LuaContext {
@@ -104,9 +126,29 @@ public:
   /// Plugin metadata (populated after load()).
   const LuaPluginMeta &meta() const { return meta_; }
 
-  /// Get/set a configuration parameter.
-  void setParam(const std::string &name, sol::object value);
-  sol::object getParam(const std::string &name) const;
+  /// Parameters (docs/lua-scripts.md). Fiddle owns their values: before
+  /// the script's on_load, plugin.config holds every declared parameter's
+  /// value, and later changes write only checked values.
+  ///
+  /// The values the user set, by name; a parameter not listed has its
+  /// default. Set them before load()/loadSaved() so on_load sees them. When
+  /// the script loads, values that don't fit its declaration are dropped;
+  /// when it doesn't, they're kept as they are, so a later save keeps them.
+  void setParamOverrides(std::map<std::string, LuaParamValue> overrides);
+  const std::map<std::string, LuaParamValue> &paramOverrides() const { return overrides_; }
+
+  /// The declared parameter called name, or nullptr.
+  const LuaPluginMeta::Param *findParam(const std::string &name) const;
+
+  /// A parameter's current value: the user's, else the default.
+  std::optional<LuaParamValue> paramValue(const std::string &name) const;
+
+  /// Set a parameter, checked (validLuaParamValue). A value equal to the
+  /// default removes the user's value. Returns false for an unknown name or a
+  /// value that doesn't fit. The script sees it from its next callback; call
+  /// with the strip's MIDI-state lock held, as the MIDI thread runs scripts
+  /// under it.
+  bool setParamValue(const std::string &name, const LuaParamValue &value);
 
   /// Called for every note-on. Mutates the Note.
   /// Returns false if the plugin wants to suppress the note.
@@ -157,6 +199,7 @@ private:
   bool loaded_ = false;
   bool enabled_ = true;
   LuaPluginMeta meta_;
+  std::map<std::string, LuaParamValue> overrides_;
   double lastDurationAdjustMs_ = 0.0;
   double lastScheduledNoteOffMs_ = -1.0;
 
@@ -179,6 +222,11 @@ private:
 
   /// math.randomseed(seed_) in the script's state.
   void reseed();
+
+  /// overrides_ as the declared params accept them, without defaults; what
+  /// doesn't fit is described in dropped.
+  std::map<std::string, LuaParamValue> checkedOverrides(std::vector<std::string> &dropped) const;
+  void writeConfig(const std::string &name, const LuaParamValue &value);
 
   // fileStatus() rereads the file only when its modification time changes.
   mutable long long checkedFileTime_ = -1;
