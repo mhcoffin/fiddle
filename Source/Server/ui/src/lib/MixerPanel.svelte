@@ -455,7 +455,20 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
         channelAudioStripId = "";
         channelAudio = null;
         layerDetailsStripId = strip.id;
+        // Script rows compare each saved copy with its file, which may have
+        // changed outside Fiddle since the last mixer update (docs/lua-scripts.md).
+        if (strip.luaPlugins?.length) dispatchCpp("requestMixerState");
     };
+    // And again whenever Fiddle comes back to the front, e.g. after the user
+    // fixes a script in an editor, while Layer details is open.
+    let detailsHasScripts = $derived(
+        Boolean(strips.find((strip) => strip.id === layerDetailsStripId)?.luaPlugins?.length));
+    $effect(() => {
+        if (!detailsHasScripts) return;
+        const refresh = () => dispatchCpp("requestMixerState");
+        window.addEventListener("focus", refresh);
+        return () => window.removeEventListener("focus", refresh);
+    });
     /** Route a chair, or every selected chair when this one is selected. */
     const setChairOutput = (chairBusId, busId) => {
         const chosen = selectedChairs();
@@ -1886,6 +1899,7 @@ groupMasters = Object.fromEntries((state.lockedChairIds || []).map(id => [id, { 
                 {doricoInstruments}
                 onAddLua={(filePath) => addLuaPlugin(detailsStrip.id, filePath)}
                 onRemoveLua={(index) => removeLuaPlugin(detailsStrip.id, index)}
+                onUseLuaFile={(fileName) => dispatchCpp("useLuaFile", fileName)}
                 onInspectMidi={() => {
                     toggleInspector(detailsStrip.id);
                     layerDetailsStripId = "";

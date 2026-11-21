@@ -74,7 +74,8 @@ void FiddleDatabase::createSchema() {
       active         INTEGER NOT NULL DEFAULT 1,
       muted          INTEGER NOT NULL DEFAULT 0,
       soloed         INTEGER NOT NULL DEFAULT 0,
-      lua_plugins    TEXT NOT NULL DEFAULT ''
+      lua_plugins    TEXT NOT NULL DEFAULT '',
+      lua_sources    TEXT NOT NULL DEFAULT ''
     )
   )");
 
@@ -258,6 +259,7 @@ void FiddleDatabase::createSchema() {
       muted         INTEGER NOT NULL DEFAULT 0,
       soloed        INTEGER NOT NULL DEFAULT 0,
       lua_plugins   TEXT NOT NULL DEFAULT '',
+      lua_sources   TEXT NOT NULL DEFAULT '',
       audio_insert_state BLOB,
       direct_output_bus TEXT NOT NULL DEFAULT '',
       sends_json TEXT NOT NULL DEFAULT ''
@@ -369,6 +371,10 @@ void FiddleDatabase::createSchema() {
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN lua_plugins TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
 
+  // Each Lua script's text, as saved with versions (docs/lua-scripts.md).
+  sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN lua_sources TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
+
   // Stereo balance defaults to unchanged stereo for existing sessions.
   sqlite3_exec(db_, "ALTER TABLE strips ADD COLUMN balance REAL NOT NULL DEFAULT 0",
                nullptr, nullptr, nullptr);
@@ -421,8 +427,8 @@ void FiddleDatabase::prepareStatements() {
     INSERT OR REPLACE INTO strips
       (id, position, library, family, is_solo, input_port, input_channel,
        plugin_uid, gain_db, expression_map, expression_map_path,
-       expression_map_source, active, lua_plugins, muted, soloed, balance)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       expression_map_source, active, lua_plugins, muted, soloed, balance, lua_sources)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   )",
        stmtSaveStrip_);
 
@@ -437,8 +443,8 @@ void FiddleDatabase::prepareStatements() {
 
   prep("SELECT id, position, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, active, "
-       "lua_plugins, muted, soloed, expression_map_path, expression_map_source, balance "
-       "FROM strips ORDER BY position",
+       "lua_plugins, muted, soloed, expression_map_path, expression_map_source, balance, "
+       "lua_sources FROM strips ORDER BY position",
        stmtLoadStrips_);
 
   prep("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
@@ -691,6 +697,9 @@ void FiddleDatabase::saveStrip(const MixerStrip &strip, int position) {
   sqlite3_bind_int(stmtSaveStrip_, 15, realtime.muted ? 1 : 0);
   sqlite3_bind_int(stmtSaveStrip_, 16, realtime.soloed ? 1 : 0);
   sqlite3_bind_double(stmtSaveStrip_, 17, strip.audioEngine().balance());
+  const auto luaSources = versioning::encodeLuaSources(strip.getLuaPluginSources());
+  sqlite3_bind_text(stmtSaveStrip_, 18, luaSources.data(), static_cast<int>(luaSources.size()),
+                    SQLITE_TRANSIENT);
 
   if (sqlite3_step(stmtSaveStrip_) != SQLITE_DONE) {
     std::cerr << "[FiddleDB] saveStrip failed: " << sqlite3_errmsg(db_)
@@ -798,6 +807,9 @@ std::vector<StripRow> FiddleDatabase::loadAllStrips() {
     if (const auto *source = reinterpret_cast<const char *>(
             sqlite3_column_text(stmtLoadStrips_, 16)))
       row.expressionMapSourceXml = juce::String::fromUTF8(source);
+    if (const auto *sources = reinterpret_cast<const char *>(sqlite3_column_text(stmtLoadStrips_, 18)))
+      row.luaPluginSources = versioning::decodeLuaSources(
+          std::string(sources, static_cast<std::size_t>(sqlite3_column_bytes(stmtLoadStrips_, 18))));
 
     sqlite3_stmt *audioStatement = nullptr;
     const char *audioSql =

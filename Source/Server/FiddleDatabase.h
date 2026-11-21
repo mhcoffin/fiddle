@@ -31,6 +31,7 @@ struct StripRow {
   juce::MemoryBlock pluginState; // binary BLOB
   StripAudioSnapshot audio;
   std::vector<std::string> luaPluginFileNames; // ordered Lua plugin filenames
+  std::vector<std::string> luaPluginSources;   // their saved text (VersionTypes.h)
 };
 
 /// Metadata for a saved configuration version.

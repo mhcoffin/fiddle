@@ -50,6 +50,41 @@ inline Hash xxh3_128(const std::string &s) {
   return xxh3_128(s.data(), s.size());
 }
 
+/// Saved script copies (StripBlob::luaPluginSources) as one text: each
+/// source as its length in bytes, a colon, then the text. Empty when every
+/// source is empty, as in versions saved before copies were kept.
+inline std::string encodeLuaSources(const std::vector<std::string> &sources) {
+  if (std::all_of(sources.begin(), sources.end(), [](const auto &s) { return s.empty(); }))
+    return {};
+  std::string text;
+  for (const auto &source : sources)
+    text += std::to_string(source.size()) + ":" + source;
+  return text;
+}
+
+/// The sources encodeLuaSources wrote, or an empty list when text is empty
+/// or malformed.
+inline std::vector<std::string> decodeLuaSources(const std::string &text) {
+  std::vector<std::string> sources;
+  std::size_t at = 0;
+  while (at < text.size()) {
+    const auto colon = text.find(':', at);
+    if (colon == std::string::npos || colon == at || colon - at > 12)
+      return {};
+    std::size_t length = 0;
+    for (auto i = at; i < colon; ++i) {
+      if (text[i] < '0' || text[i] > '9')
+        return {};
+      length = length * 10 + std::size_t(text[i] - '0');
+    }
+    if (length > text.size() - colon - 1)
+      return {};
+    sources.push_back(text.substr(colon + 1, length));
+    at = colon + 1 + length;
+  }
+  return sources;
+}
+
 // ---------------------------------------------------------------------------
 // StripBlob — all settings for a single strip
 // ---------------------------------------------------------------------------
@@ -96,6 +131,10 @@ struct StripBlob {
 
   /// Ordered Lua plugin filenames (basenames, e.g. "force_staccato.lua").
   std::vector<std::string> luaPluginFileNames;
+  /// The text of each script, in the same order: the copy the layer runs
+  /// when the version is restored (docs/lua-scripts.md). Empty for versions
+  /// saved before copies were kept, which load the file instead.
+  std::vector<std::string> luaPluginSources;
 
   /// Serialize all fields into a canonical byte sequence for hashing.
   /// Identity key: (inputPort, inputChannel, libraryId) + content fields.
@@ -143,6 +182,11 @@ struct StripBlob {
     if (pluginMidiChannel != 0) {
       header.append("\0pluginMidiChannel\0", 19);
       header.append(std::to_string(pluginMidiChannel));
+    }
+    // And for layers without saved script copies.
+    if (const auto sources = encodeLuaSources(luaPluginSources); !sources.empty()) {
+      header.append("\0luaSources\0", 12);
+      header.append(sources);
     }
     return header;
   }

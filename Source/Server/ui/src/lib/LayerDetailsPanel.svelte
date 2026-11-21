@@ -1,6 +1,7 @@
 <script>
     import MapPicker from "./MapPicker.svelte";
     import { playAsChoices } from "./percussionMaps.js";
+    import { luaFileNote, useFileTitle } from "./luaScripts.js";
 
     let {
         strip,
@@ -22,6 +23,7 @@
         doricoInstruments = [],
         onAddLua = () => {},
         onRemoveLua = () => {},
+        onUseLuaFile = () => {},
         onInspectMidi = () => {},
         onRefreshLibrary = () => {},
         onDelete = () => {},
@@ -217,12 +219,21 @@
                 {#if strip.luaPlugins?.length}
                     <div class="lua-list">
                         {#each strip.luaPlugins as plugin}
+                            {@const note = luaFileNote(plugin)}
                             <div class="lua-row" class:error={!plugin.loaded}>
                                 <div>
                                     <strong>{plugin.name || "Unknown processor"}</strong>
                                     <span>{plugin.filePath || ""}</span>
+                                    {#if note}
+                                        <p class="lua-note">{note.text}</p>
+                                    {/if}
                                 </div>
-                                <button onclick={() => onRemoveLua(plugin.index)}>Remove</button>
+                                <div class="lua-actions">
+                                    {#if note?.canUseFile}
+                                        <button title={useFileTitle(plugin)} onclick={() => onUseLuaFile(plugin.fileName)}>Use new file</button>
+                                    {/if}
+                                    <button onclick={() => onRemoveLua(plugin.index)}>Remove</button>
+                                </div>
                             </div>
                         {/each}
                     </div>
@@ -314,6 +325,8 @@
     .lua-row strong { color: #e2e8f0; font-size: 0.86rem; }
     .lua-row span { color: #64748b; font-size: 0.72rem; }
     .lua-row.error { border-color: #991b1b; }
+    .lua-row .lua-note { margin: 4px 0 0; color: #fbbf24; font-size: 0.74rem; line-height: 1.35; white-space: normal; }
+    .lua-row > .lua-actions { flex-direction: row; gap: 8px; flex-shrink: 0; }
     .danger-zone { justify-content: space-between; gap: 20px; }
     .danger-actions { justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
     .danger { border-color: #7f1d1d; color: #fecaca; }

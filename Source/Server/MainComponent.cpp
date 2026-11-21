@@ -910,12 +910,13 @@ void MainComponent::initMidiServer() {
               restoreStripPlugin(*strip, rs.pluginUid, rs.pluginState);
               restoreStripAudio(*strip, rs.audioInsertState, false);
 
-              // Restore Lua plugins
-              for (const auto &fileName : rs.luaPluginFileNames) {
-                auto resolved = luaCatalog_.resolvePluginPath(fileName);
-                auto plugin = std::make_shared<LuaPlugin>(
-                    resolved.empty() ? fileName : resolved);
-                if (resolved.empty() || !plugin->load())
+              // Restore Lua plugins, from their saved copies when the blob has them
+              for (std::size_t i = 0; i < rs.luaPluginFileNames.size(); ++i) {
+                const auto &fileName = rs.luaPluginFileNames[i];
+                auto plugin = restoreLuaPlugin(
+                    fileName, savedLuaSource(rs.luaPluginSources, rs.luaPluginFileNames, i),
+                    luaCatalog_.resolvePluginPath(fileName));
+                if (!plugin->isLoaded())
                   pushLogMessage("<b>[Restore]</b> Lua processor '" +
                                      juce::String(fileName) +
                                      "' is unavailable and remains unloaded.",
@@ -2053,12 +2054,13 @@ void MainComponent::loadStripsFromDB() {
       restoreStripPlugin(*strip, row.pluginUid, row.pluginState);
       restoreStripAudio(*strip, row.audio, false);
 
-      // Restore Lua plugins
-      for (const auto &fileName : row.luaPluginFileNames) {
-        auto resolved = luaCatalog_.resolvePluginPath(fileName);
-        auto plugin = std::make_shared<LuaPlugin>(
-            resolved.empty() ? fileName : resolved);
-        if (!resolved.empty() && plugin->load()) {
+      // Restore Lua plugins, from their saved copies when the row has them
+      for (std::size_t i = 0; i < row.luaPluginFileNames.size(); ++i) {
+        const auto &fileName = row.luaPluginFileNames[i];
+        auto plugin = restoreLuaPlugin(
+            fileName, savedLuaSource(row.luaPluginSources, row.luaPluginFileNames, i),
+            luaCatalog_.resolvePluginPath(fileName));
+        if (plugin->isLoaded()) {
           std::cerr << "[loadDB] Restored Lua plugin '" << fileName
                     << "' for strip " << strip->id << std::endl;
         } else {
@@ -2501,13 +2503,24 @@ std::optional<ProjectEnvironment::Plugin> pluginOnDisk(const juce::PluginDescrip
                                     instrument};
 }
 
-std::optional<juce::String> scriptFingerprint(const juce::String &path) {
-  if (!juce::File::isAbsolutePath(path))
-    return std::nullopt;
-  const juce::File file(path);
-  if (!file.existsAsFile())
-    return std::nullopt;
-  return ProjectEnvironment::fingerprintOf(file.loadFileAsString());
+// The scripts the layers run, by name: the text each one loaded, which is
+// the version's saved copy when it has one (docs/lua-scripts.md). Loaded
+// scripts only: an unloaded placeholder names a missing file.
+std::map<juce::String, ProjectEnvironment::Script> runningScripts(MixerModel &mixer) {
+  std::map<juce::String, ProjectEnvironment::Script> scripts;
+  for (auto *strip : mixer.getAllStrips()) {
+    auto lock = strip->lockMidiState();
+    for (const auto &lua : strip->luaPlugins) {
+      const auto name = juce::String(lua->meta().name);
+      if (!lua->isLoaded() || name.isEmpty() || scripts.count(name))
+        continue;
+      const auto &source = lua->source();
+      scripts[name] = {juce::String(lua->filePath()),
+                       ProjectEnvironment::fingerprintOf(
+                           juce::String::fromUTF8(source.data(), static_cast<int>(source.size())))};
+    }
+  }
+  return scripts;
 }
 } // namespace
 
@@ -2525,17 +2538,8 @@ ProjectEnvironment MainComponent::captureEnvironment() {
       instrumentUids.insert(uid);
     for (auto &description : strip->audioEngine().insertDescriptions())
       effects.push_back(std::move(description));
-    // Loaded scripts only: an unloaded placeholder names a missing file.
-    for (const auto &lua : strip->luaPlugins) {
-      const auto &meta = lua->meta();
-      const auto name = juce::String(meta.name);
-      if (!lua->isLoaded() || name.isEmpty() || environment.scripts.count(name))
-        continue;
-      const auto path = juce::String(meta.filePath);
-      if (const auto fingerprint = scriptFingerprint(path))
-        environment.scripts[name] = {path, *fingerprint};
-    }
   }
+  environment.scripts = runningScripts(mixer_);
   for (auto *bus : mixer_.getAllBuses())
     for (auto &description : bus->audioEngine().insertDescriptions())
       effects.push_back(std::move(description));
@@ -2568,8 +2572,8 @@ std::vector<juce::String> MainComponent::environmentChangesSince(const versionin
                                     : ProjectEnvironment::fromJson(juce::JSON::parse(juce::String(stored)));
   if (!saved)
     return {};
-  // Now, for the same plug-ins and scripts, read from disk. A plug-in whose
-  // bundle moved is found again by its ID in the scan.
+  // Now, for the same plug-ins, read from disk. A plug-in whose bundle moved
+  // is found again by its ID in the scan.
   ProjectEnvironment now;
   if (auto *app = juce::JUCEApplicationBase::getInstance())
     now.appVersion = app->getApplicationVersion();
@@ -2588,9 +2592,9 @@ std::vector<juce::String> MainComponent::environmentChangesSince(const versionin
     if (found)
       now.plugins[uid] = *found;
   }
-  for (const auto &[name, script] : saved->scripts)
-    if (const auto fingerprint = scriptFingerprint(script.filePath))
-      now.scripts[name] = {script.filePath, *fingerprint};
+  // Scripts as the layers run them: a version with saved copies runs what
+  // it saved, so only an older version, which loads the file, can differ.
+  now.scripts = runningScripts(mixer_);
   return environmentChanges(*saved, now);
 }
 
@@ -4659,6 +4663,31 @@ void MainComponent::setupJsHandlers() {
         });
         return;
       });
+  // "Use new file": layers running a saved copy of a script switch to the
+  // file's current text (docs/lua-scripts.md).
+  jsRouter_.registerHandler("useLuaFile", [this](const juce::var &payload) {
+    // payload: [fileName]
+    const auto fileName = payload.isArray() && payload.size() > 0
+                              ? payload[0].toString().toStdString()
+                              : payload.toString().toStdString();
+    if (fileName.empty())
+      return;
+    safeCallAsync([this, fileName]() {
+      auto action = std::make_unique<UseLuaFileAction>(mixer_, fileName);
+      const auto error = action->error();
+      if (!undoManager_.perform(std::move(action))) {
+        pushLogMessage("<b>[Lua]</b> Layers keep their saved copy of " + juce::String(fileName) +
+                           (error.empty() ? juce::String(": no layer runs a copy that differs from the file.")
+                                          : ": the file didn't load. " + juce::String(error)),
+                       true);
+        pushMixerState(false); // shows the file's error on the layers
+        return;
+      }
+      saveAllStripsToDB(false);
+      pushMixerState();
+      scheduleStateRebuild();
+    });
+  });
   jsRouter_.registerHandler(
       "getLuaPluginCatalog", [this](const juce::var &payload) {
         // Re-push the catalog (e.g., after a rescan)

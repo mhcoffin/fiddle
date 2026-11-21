@@ -6,6 +6,7 @@
 #include "LuaPlugin.h"
 #include "BridgeSections.h"
 #include "PercussionMapAnnotator.h"
+#include <algorithm>
 #include <filesystem>
 
 namespace fiddle {
@@ -249,6 +250,25 @@ std::vector<std::string> MixerStrip::getLuaPluginFileNames() const {
     names.push_back(fp.filename().string());
   }
   return names;
+}
+
+std::vector<std::string> MixerStrip::getLuaPluginSources() const {
+  auto lock = lockMidiState();
+  std::vector<std::string> sources;
+  for (const auto &p : luaPlugins)
+    sources.push_back(p->source());
+  return sources;
+}
+
+bool MixerStrip::replaceLuaPlugin(const std::shared_ptr<LuaPlugin> &plugin,
+                                  std::shared_ptr<LuaPlugin> replacement) {
+  auto lock = lockMidiState();
+  const auto found = std::find(luaPlugins.begin(), luaPlugins.end(), plugin);
+  if (!replacement || found == luaPlugins.end())
+    return false;
+  *found = std::move(replacement);
+  rebuildAnnotatorChain();
+  return true;
 }
 
 void MixerStrip::rebuildAnnotatorChain() {
@@ -787,6 +807,11 @@ juce::var MixerStrip::toJson() const {
       lObj->setProperty("name", juce::String(meta.name));
       lObj->setProperty("filePath", juce::String(meta.filePath));
       lObj->setProperty("loaded", luaPlugins[i]->isLoaded());
+      lObj->setProperty("fileName", juce::String(std::filesystem::path(luaPlugins[i]->filePath()).filename().string()));
+      // A layer runs the copy saved with its version: whether the file on
+      // disk still matches it (docs/lua-scripts.md).
+      lObj->setProperty("fileStatus", juce::String(LuaPlugin::fileStatusName(luaPlugins[i]->fileStatus())));
+      lObj->setProperty("fileError", juce::String(luaPlugins[i]->fileError()));
       luaArr.add(juce::var(lObj));
     }
     obj->setProperty("luaPlugins", luaArr);

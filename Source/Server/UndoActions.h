@@ -442,6 +442,88 @@ private:
   bool success_ = false;
 };
 
+/// Undo/redo for "Use new file" (docs/lua-scripts.md): every layer running a
+/// saved copy of fileName that differs from the file on disk switches to the
+/// file's current text. Nothing changes if the file fails to load; error()
+/// then says why.
+class UseLuaFileAction : public UndoableAction {
+public:
+  UseLuaFileAction(MixerModel &mixer, const std::string &fileName)
+      : mixer_(mixer), fileName_(fileName) {
+    // Gather under each strip's lock, then read files without it, so MIDI
+    // annotation never waits on disk.
+    std::vector<std::shared_ptr<LuaPlugin>> stale;
+    for (auto *strip : mixer_.getAllStrips()) {
+      auto lock = strip->lockMidiState();
+      for (const auto &plugin : strip->luaPlugins)
+        if (plugin && std::filesystem::path(plugin->filePath()).filename().string() == fileName_)
+          stale.push_back(plugin);
+    }
+    stale.erase(std::remove_if(stale.begin(), stale.end(), [](const auto &plugin) {
+                  return plugin->fileStatus() != LuaPlugin::FileStatus::changed;
+                }),
+                stale.end());
+    for (const auto &plugin : stale) {
+      auto fresh = std::make_shared<LuaPlugin>(plugin->filePath());
+      if (!fresh->load()) {
+        // Every layer using the file says why it keeps its copy.
+        error_ = fresh->lastError();
+        for (const auto &layer : stale)
+          layer->setFileError(error_);
+        swaps_.clear();
+        return;
+      }
+      swaps_.push_back({plugin, std::move(fresh)});
+    }
+  }
+
+  void execute() override { success_ = swapAll(false); }
+  void undo() override { success_ = swapAll(true); }
+  bool succeeded() const override { return success_; }
+  bool isNoOp() const override { return swaps_.empty(); }
+  juce::String getDescription() const override {
+    return "Use the file " + juce::String(fileName_);
+  }
+  const std::string &error() const { return error_; }
+  std::size_t layerCount() const { return swaps_.size(); }
+
+private:
+  // Each layer is found by the script instance it runs, which is unique.
+  struct Swap {
+    std::shared_ptr<LuaPlugin> before, after;
+  };
+
+  bool replace(const std::shared_ptr<LuaPlugin> &from, const std::shared_ptr<LuaPlugin> &to) {
+    for (auto *strip : mixer_.getAllStrips())
+      if (strip->replaceLuaPlugin(from, to))
+        return true;
+    return false;
+  }
+
+  bool swapAll(bool back) {
+    std::size_t done = 0;
+    for (; done < swaps_.size(); ++done) {
+      const auto &swap = swaps_[done];
+      if (!replace(back ? swap.after : swap.before, back ? swap.before : swap.after))
+        break;
+    }
+    if (done == swaps_.size())
+      return true;
+    // Put back the layers already switched, so the setup stays consistent.
+    while (done-- > 0) {
+      const auto &swap = swaps_[done];
+      (void)replace(back ? swap.before : swap.after, back ? swap.after : swap.before);
+    }
+    return false;
+  }
+
+  MixerModel &mixer_;
+  std::string fileName_;
+  std::vector<Swap> swaps_;
+  std::string error_;
+  bool success_ = false;
+};
+
 /// Undo/redo for removing a Lua plugin from a strip.
 class RemoveLuaPluginAction : public UndoableAction {
 public:

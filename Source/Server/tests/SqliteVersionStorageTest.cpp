@@ -93,6 +93,12 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     strip.pluginState = {0, 1, 2, 255};
     strip.audioInsertState = {9, 8, 7, 6, 5};
     strip.luaPluginFileNames = {"first.lua", "second.lua"};
+    // Layers without saved script copies hash as before.
+    const auto hashWithoutSources = strip.computeHash();
+    strip.luaPluginSources = {"", ""};
+    CHECK(strip.computeHash() == hashWithoutSources);
+    strip.luaPluginSources = {"return { name = 'First' }\n", "-- a: b\n12:34"};
+    CHECK(strip.computeHash() != hashWithoutSources);
     strip.percussionMapSourceXml = "<saved-percussion-map/>";
     // Play as is part of the strip; a layer without one hashes as before.
     const auto hashWithoutPlayAs = strip.computeHash();
@@ -108,6 +114,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored && restored->soloed);
     CHECK(restored &&
           restored->luaPluginFileNames == strip.luaPluginFileNames);
+    CHECK(restored && restored->luaPluginSources == strip.luaPluginSources);
     CHECK(restored && restored->pluginState == strip.pluginState);
     CHECK(restored && restored->audioInsertState == strip.audioInsertState);
     CHECK(restored && restored->directOutputBusId == "strings-bus");
@@ -369,12 +376,29 @@ void testGarbageCollectionRetainsEverythingReferencedByVersions() {
 
 } // namespace
 
+// Saved script copies keep any text, including colons, digits and newlines,
+// and a damaged record reads as no copies rather than wrong ones.
+void testLuaSourcesEncoding() {
+  using fiddle::versioning::decodeLuaSources;
+  using fiddle::versioning::encodeLuaSources;
+  CHECK(encodeLuaSources({}).empty());
+  CHECK(encodeLuaSources({"", ""}).empty());
+  const std::vector<std::string> sources{"12:ab\n", "", "return {}\n-- é"};
+  CHECK(decodeLuaSources(encodeLuaSources(sources)) == sources);
+  CHECK(decodeLuaSources("").empty());
+  CHECK(decodeLuaSources("5:abc").empty());   // too short
+  CHECK(decodeLuaSources("x:abc").empty());   // not a length
+  CHECK(decodeLuaSources(":abc").empty());
+  CHECK(decodeLuaSources("3:abc4").empty());  // trailing length without a colon
+}
+
 int main() {
   std::cout << "===== SQLite Version Storage Tests =====\n";
   testStripStateRoundTripsThroughMigratedSqlite();
   testMuteAndSoloParticipateInStripIdentity();
   testMasterAudioRoundTripsThroughSqlite();
   testGarbageCollectionRetainsEverythingReferencedByVersions();
+  testLuaSourcesEncoding();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

@@ -295,6 +295,9 @@ juce::var MainComponent::agentLayerSnapshot(const MixerStrip &strip) const {
     auto *item = new juce::DynamicObject();
     item->setProperty("name", juce::String(processor->meta().name));
     item->setProperty("loaded", processor->isLoaded());
+    // The layer runs the copy saved with the version; this says whether the
+    // file on disk still matches it (docs/lua-scripts.md).
+    item->setProperty("fileStatus", juce::String(LuaPlugin::fileStatusName(processor->fileStatus())));
     luaProcessors.add(juce::var(item));
   }
   layer->setProperty("luaProcessors", juce::var(luaProcessors));

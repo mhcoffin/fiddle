@@ -213,6 +213,14 @@ struct MixerStrip {
   /// Returns basenames only (e.g. "force_staccato.lua"), not full paths.
   std::vector<std::string> getLuaPluginFileNames() const;
 
+  /// The text each installed Lua plugin runs, in the same order (saved with
+  /// a version so it restores the script as it was, docs/lua-scripts.md).
+  std::vector<std::string> getLuaPluginSources() const;
+
+  /// Put replacement where plugin is in the chain. False if plugin isn't installed.
+  bool replaceLuaPlugin(const std::shared_ptr<LuaPlugin> &plugin,
+                        std::shared_ptr<LuaPlugin> replacement);
+
   /// Rebuild the annotator chain: Lua plugins (in order), the percussion map,
   /// then the ExpressionMapAnnotator.
   void rebuildAnnotatorChain();

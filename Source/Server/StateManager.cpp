@@ -308,6 +308,7 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
         sb.sendsJson = juce::JSON::toString(audioSendsToJson(sends), true).toStdString();
     }
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
+    sb.luaPluginSources = strip->getLuaPluginSources();
 
     const auto &cached = strip->cachedPluginState();
     if (cached.getSize() > 0) {
@@ -400,6 +401,10 @@ juce::MemoryBlock StateManager::buildStateBlob(MixerModel &mixer, bool captureLi
     for (const auto &name : strip->getLuaPluginFileNames())
       luaArr.add(juce::String(name));
     obj->setProperty("luaPlugins", luaArr);
+    juce::Array<juce::var> luaSources;
+    for (const auto &source : strip->getLuaPluginSources())
+      luaSources.add(juce::String::fromUTF8(source.data(), static_cast<int>(source.size())));
+    obj->setProperty("luaSources", luaSources);
 
     juce::String json = juce::JSON::toString(juce::var(obj), true);
     std::string jsonUtf8 = json.toStdString();
@@ -499,6 +504,7 @@ versioning::FiddleState StateManager::captureCurrentState(
         sb.sendsJson = juce::JSON::toString(audioSendsToJson(sends), true).toStdString();
     }
     sb.luaPluginFileNames = strip->getLuaPluginFileNames();
+    sb.luaPluginSources = strip->getLuaPluginSources();
 
     const auto &cached = strip->cachedPluginState();
     if (cached.getSize() > 0) {

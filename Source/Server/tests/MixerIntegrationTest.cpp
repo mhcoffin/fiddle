@@ -1562,8 +1562,8 @@ void testLuaHistoryAndMissingRestore() {
   REQUIRE(f.undo.undo());
   REQUIRE(strip->luaPlugins.size() == 1 && strip->luaPlugins[0] == retained);
 
-  // Version restore retains an inert, visible placeholder when the saved
-  // source is unavailable, preventing the next save from erasing the entry.
+  // Version restore runs the script's saved copy, even though its file is
+  // gone (docs/lua-scripts.md).
   fiddle::FiddleDatabase db;
   REQUIRE(db.open(sandbox.directory.getChildFile("lua.sqlite")));
   fiddle::versioning::VersionStore versions(*db.getVersionStorage());
@@ -1591,9 +1591,21 @@ void testLuaHistoryAndMissingRestore() {
   REQUIRE(finished == 1 && restored.mixer.size() == 1);
   auto *restoredStrip = restored.mixer.getAllStrips().front();
   REQUIRE(restoredStrip->luaPlugins.size() == 1);
-  REQUIRE(!restoredStrip->luaPlugins[0]->isLoaded());
+  REQUIRE(restoredStrip->luaPlugins[0]->isLoaded());
+  REQUIRE(restoredStrip->luaPlugins[0]->source() == retained->source());
+  REQUIRE(restoredStrip->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::missing);
   REQUIRE(restoredStrip->getLuaPluginFileNames() ==
           std::vector<std::string>{"retained.lua"});
+
+  // A version saved before copies were kept, with its file missing, keeps an
+  // inert, visible placeholder, so the next save doesn't erase the entry.
+  const auto placeholder = fiddle::restoreLuaPlugin("retained.lua", "", "");
+  REQUIRE(!placeholder->isLoaded() && placeholder->source().empty());
+  restoredStrip->addLuaPlugin(placeholder);
+  REQUIRE(restoredStrip->getLuaPluginFileNames() ==
+          (std::vector<std::string>{"retained.lua", "retained.lua"}));
+  REQUIRE(restoredStrip->getLuaPluginSources() ==
+          (std::vector<std::string>{retained->source(), ""}));
 
   // Catalog probing accepts this table, but full activation must reject its
   // failing lifecycle callback without touching the chain or Undo stack.
@@ -1609,6 +1621,108 @@ void testLuaHistoryAndMissingRestore() {
   REQUIRE(!f.undo.perform(
       std::make_unique<fiddle::RemoveLuaPluginAction>(f.mixer, id, 99)));
   REQUIRE(strip->luaPlugins.size() == originalSize && !f.undo.canUndo());
+}
+
+// A layer plays the copy of its script saved with the version, not the file
+// as it is now; "Use new file" switches every layer to the file, undoably
+// (docs/lua-scripts.md).
+void testLuaSavedCopies() {
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("shape.lua");
+  const juce::String first = "return { name = 'Shape', version = '1', on_note_start = function(note, ctx) return true end }";
+  const juce::String second = "return { name = 'Shape', version = '2', on_note_start = function(note, ctx) return true end }";
+  REQUIRE(file.replaceWithText(first));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+
+  MixerFixture f;
+  const auto a = f.mixer.addStrip();
+  const auto b = f.mixer.addStrip();
+  for (const auto &id : {a, b})
+    REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+        f.mixer, catalog, id, file.getFullPathName().toStdString())));
+  REQUIRE(f.mixer.getStrip(a)->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::unchanged);
+
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("copies.sqlite")));
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager state;
+  state.setVersionStore(&versions);
+  state.initialize(sandbox.directory.getChildFile("copies-state.bin"));
+  const auto saved = state.saveCurrentState(f.mixer, branch, root);
+  REQUIRE(saved.succeeded());
+  const auto savedState = versions.getState(versions.getVersion(saved.versionId)->stateHash);
+  REQUIRE(savedState.has_value());
+
+  // The file is edited after the save.
+  REQUIRE(file.replaceWithText(second));
+  REQUIRE(f.mixer.getStrip(a)->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::changed);
+
+  MixerFixture restored;
+  fiddle::ProjectRestoreService::Callbacks callbacks;
+  const auto path = file.getFullPathName().toStdString();
+  callbacks.resolveLua = [path](const std::string &) { return path; };
+  fiddle::ProjectRestoreService restore(restored.mixer, versions, nullptr, std::move(callbacks));
+  REQUIRE(restore.restore(*savedState).accepted);
+  pumpUntil([&] { return !restore.isLoading(); });
+  REQUIRE(restored.mixer.size() == 2);
+  for (auto *strip : restored.mixer.getAllStrips()) {
+    REQUIRE(strip->luaPlugins.size() == 1 && strip->luaPlugins[0]->isLoaded());
+    REQUIRE(strip->luaPlugins[0]->source() == first.toStdString());
+    REQUIRE(strip->luaPlugins[0]->meta().version == "1");
+    REQUIRE(strip->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::changed);
+  }
+
+  // Use new file: both layers switch, and Undo puts both copies back.
+  const auto sourceOf = [&](int index) {
+    return restored.mixer.getAllStrips()[static_cast<std::size_t>(index)]->luaPlugins[0]->source();
+  };
+  REQUIRE(restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua")));
+  REQUIRE(sourceOf(0) == second.toStdString() && sourceOf(1) == second.toStdString());
+  REQUIRE(restored.mixer.getAllStrips()[0]->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::unchanged);
+  REQUIRE(restored.undo.undo());
+  REQUIRE(sourceOf(0) == first.toStdString() && sourceOf(1) == first.toStdString());
+  REQUIRE(restored.undo.redo());
+  REQUIRE(sourceOf(0) == second.toStdString());
+  // Nothing differs now, so there's nothing to do.
+  REQUIRE(!restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua")));
+
+  // A file that doesn't load changes nothing and says why on the layers.
+  REQUIRE(file.replaceWithText("return { name = 'Shape', on_note_start = function(note, ctx) return true"));
+  auto broken = std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua");
+  REQUIRE(!broken->error().empty());
+  REQUIRE(!restored.undo.perform(std::move(broken)));
+  REQUIRE(sourceOf(0) == second.toStdString() && sourceOf(1) == second.toStdString());
+  for (auto *strip : restored.mixer.getAllStrips())
+    REQUIRE(!strip->luaPlugins[0]->fileError().empty());
+
+  // A file that doesn't run isn't kept as a copy, so a later save can't
+  // store the broken text in place of the file.
+  fiddle::LuaPlugin brokenFile(file.getFullPathName().toStdString());
+  REQUIRE(!brokenFile.load() && brokenFile.source().empty());
+
+  // Fixing the file clears the error, and using it then works.
+  const juce::String third = "return { name = 'Shape', version = '3', on_note_start = function(note, ctx) return true end }";
+  REQUIRE(file.replaceWithText(third));
+  auto *first0 = restored.mixer.getAllStrips()[0];
+  REQUIRE(first0->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::changed);
+  REQUIRE(first0->luaPlugins[0]->fileError().empty());
+  REQUIRE(restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua")));
+  REQUIRE(sourceOf(0) == third.toStdString() && sourceOf(1) == third.toStdString());
+
+  // The working setup (strips table) and the state blob keep the copies too.
+  db.saveStrip(*first0, 0);
+  const auto rows = db.loadAllStrips();
+  REQUIRE(rows.size() == 1);
+  REQUIRE(rows[0].luaPluginFileNames == std::vector<std::string>{"shape.lua"});
+  REQUIRE(rows[0].luaPluginSources == std::vector<std::string>{third.toStdString()});
+  const auto blob = state.buildStateBlob(restored.mixer, false);
+  const auto fromBlob = fiddle::StateManager::deserializeBlob(blob.getData(), blob.getSize());
+  REQUIRE(fromBlob.has_value() && fromBlob->strips.size() == 2);
+  for (const auto &strip : fromBlob->strips)
+    REQUIRE(strip.luaPluginSources == std::vector<std::string>{third.toStdString()});
 }
 
 void testFrozenSaveCapturesEachPluginOnce() {
@@ -4449,6 +4563,7 @@ int main(int argc, char **argv) {
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
+  run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);

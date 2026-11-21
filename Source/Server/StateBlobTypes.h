@@ -49,6 +49,7 @@ struct RestoredStripState {
   juce::MemoryBlock pluginState;
   juce::MemoryBlock audioInsertState;
   std::vector<std::string> luaPluginFileNames;
+  std::vector<std::string> luaPluginSources; // their saved text, when the blob has it
 };
 
 struct RestoredProjectState {

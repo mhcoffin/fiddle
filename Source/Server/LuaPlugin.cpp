@@ -1,5 +1,7 @@
 #include "LuaPlugin.h"
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace fiddle {
 
@@ -18,6 +20,8 @@ LuaPlugin::LuaPlugin(const std::string &filePath) : filePath_(filePath) {
 LuaPlugin::~LuaPlugin() = default;
 
 void LuaPlugin::log(const std::string &msg, bool isError) {
+  if (isError)
+    lastError_ = msg;
   if (logCallback_)
     logCallback_(msg, isError);
   else
@@ -63,14 +67,81 @@ void LuaPlugin::registerAPI() {
   lua["CHORD_HALFDIM7"] = 8;
 }
 
+namespace {
+std::optional<std::string> readText(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  if (!in)
+    return std::nullopt;
+  std::ostringstream text;
+  text << in.rdbuf();
+  return text.str();
+}
+
+long long fileTime(const std::string &path) {
+  std::error_code ec;
+  const auto time = std::filesystem::last_write_time(path, ec);
+  return ec ? -1 : static_cast<long long>(time.time_since_epoch().count());
+}
+} // namespace
+
 bool LuaPlugin::load() {
+  loaded_ = false;
+  source_.clear(); // until the file reads and runs
+  auto text = readText(filePath_);
+  if (!text) {
+    log("Failed to load " + filePath_ + ": the file can't be read", true);
+    return false;
+  }
+  source_ = std::move(*text);
+  checkedFileTime_ = -1;
+  if (run())
+    return true;
+  // A file that doesn't run isn't kept as the layer's copy: a later save
+  // would otherwise store the broken text, and the fixed file would never be
+  // read again. A saved copy (loadSaved) is kept even if it fails to run.
+  source_.clear();
+  return false;
+}
+
+bool LuaPlugin::loadSaved(const std::string &source) {
+  source_ = source;
+  checkedFileTime_ = -1;
+  return run();
+}
+
+const char *LuaPlugin::fileStatusName(FileStatus status) {
+  switch (status) {
+  case FileStatus::unchanged: return "unchanged";
+  case FileStatus::changed: return "changed";
+  case FileStatus::missing: break;
+  }
+  return "missing";
+}
+
+LuaPlugin::FileStatus LuaPlugin::fileStatus() const {
+  const auto time = std::filesystem::path(filePath_).is_absolute() ? fileTime(filePath_) : -1;
+  if (time == -1)
+    return FileStatus::missing;
+  if (time != checkedFileTime_) {
+    const auto text = readText(filePath_);
+    checkedStatus_ = !text ? FileStatus::missing
+                     : *text == source_ ? FileStatus::unchanged
+                                        : FileStatus::changed;
+    checkedFileTime_ = time;
+    fileError_.clear();
+  }
+  return checkedStatus_;
+}
+
+bool LuaPlugin::run() {
   loaded_ = false;
   lua_ = std::make_unique<sol::state>();
   setupEnvironment();
   registerAPI();
 
-  // Load the script file
-  auto result = lua_->safe_script_file(filePath_, sol::script_pass_on_error);
+  // The chunk is named after the file, so errors still say which script.
+  const auto chunkName = "@" + std::filesystem::path(filePath_).filename().string();
+  auto result = lua_->safe_script(source_, sol::script_pass_on_error, chunkName);
   if (!result.valid()) {
     sol::error err = result;
     log("Failed to load " + filePath_ + ": " + err.what(), true);
@@ -486,6 +557,17 @@ void LuaPlugin::reset() {
     sol::error err = result;
     log("on_reset error: " + std::string(err.what()), true);
   }
+}
+
+std::shared_ptr<LuaPlugin> restoreLuaPlugin(const std::string &fileName,
+                                            const std::string &source,
+                                            const std::string &resolvedPath) {
+  auto plugin = std::make_shared<LuaPlugin>(resolvedPath.empty() ? fileName : resolvedPath);
+  if (!source.empty())
+    (void)plugin->loadSaved(source);
+  else if (!resolvedPath.empty())
+    (void)plugin->load();
+  return plugin;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

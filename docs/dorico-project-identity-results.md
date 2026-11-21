@@ -50,8 +50,9 @@ with now and the restore banner, now an amber warning titled "This project may
 sound different than when it was saved", lists what changed under "Since this
 project was saved": a newer Fiddle, a different sample rate, a plug-in updated or
 reinstalled (the bundle's own version, or its date, read from disk rather than
-from the scan cache, which keeps neither), a script edited, or an effect
-plug-in no longer installed. A missing instrument or script is listed by the
+from the scan cache, which keeps neither), a script edited (only for versions
+saved before Fiddle kept a copy of each script; a newer version plays its own
+copy, `docs/lua-scripts.md`), or an effect plug-in no longer installed. A missing instrument or script is listed by the
 banner's own check of the mixer instead. Saving the project in Dorico records
 the current state and clears the list. A Fiddle save records a new version's
 state; an unchanged save leaves the record alone. Versions saved before this

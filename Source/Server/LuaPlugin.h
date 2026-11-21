@@ -3,6 +3,8 @@
 #include "TonalContext.h"
 #include "midi_event.pb.h"
 #include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -61,12 +63,35 @@ public:
   explicit LuaPlugin(const std::string &filePath);
   ~LuaPlugin();
 
-  /// Load and validate the plugin script.
-  /// Returns true if the script loaded successfully and has valid callbacks.
+  /// Read the script file and run it. Returns true if the script loaded
+  /// successfully and has valid callbacks. source() is then the file's text.
   bool load();
+
+  /// Run a saved copy of the script instead of the file (a restored
+  /// version's own copy, docs/lua-scripts.md). filePath() still names the
+  /// file, for fileStatus() and display.
+  bool loadSaved(const std::string &source);
 
   /// Reload the script from disk (hot-reload).
   bool reload();
+
+  /// The text this instance runs: the file's text when it was loaded, or the
+  /// saved copy. Empty when nothing was read (a placeholder for a missing file).
+  const std::string &source() const { return source_; }
+
+  /// How the file on disk compares with source(): unchanged, changed (the
+  /// file was edited or replaced since this copy was read), or missing.
+  enum class FileStatus { unchanged, changed, missing };
+  FileStatus fileStatus() const;
+  static const char *fileStatusName(FileStatus status);
+
+  /// Why the file couldn't replace this copy ("Use new file"), until the file
+  /// changes again; empty otherwise.
+  const std::string &fileError() const { return fileError_; }
+  void setFileError(std::string error) const { fileError_ = std::move(error); }
+
+  /// The last error this instance logged (a script that failed to load).
+  const std::string &lastError() const { return lastError_; }
 
   /// Whether the plugin loaded successfully.
   bool isLoaded() const { return loaded_; }
@@ -113,6 +138,7 @@ public:
 
 private:
   std::string filePath_;
+  std::string source_;
   bool loaded_ = false;
   bool enabled_ = true;
   LuaPluginMeta meta_;
@@ -132,6 +158,15 @@ private:
   std::function<void(const std::string &, bool)> logCallback_;
 
   void log(const std::string &msg, bool isError = false);
+
+  /// Run source_ in a fresh Lua state.
+  bool run();
+
+  // fileStatus() rereads the file only when its modification time changes.
+  mutable long long checkedFileTime_ = -1;
+  mutable FileStatus checkedStatus_ = FileStatus::missing;
+  mutable std::string fileError_;
+  std::string lastError_;
 
   /// Set up the Lua environment (sandbox, print redirect, etc.)
   void setupEnvironment();
@@ -153,6 +188,23 @@ private:
                            google::protobuf::RepeatedPtrField<
                                fiddle::MidiInstruction> *target);
 };
+
+/// A layer's script as a saved version names it: its saved copy when the
+/// version has one, else the file (versions saved before copies were kept).
+/// resolvedPath is the catalog's path for fileName, empty when it isn't on
+/// this Mac. When neither runs, the result is an unloaded placeholder that
+/// keeps the layer's reference, so a later save doesn't drop it.
+std::shared_ptr<LuaPlugin> restoreLuaPlugin(const std::string &fileName,
+                                            const std::string &source,
+                                            const std::string &resolvedPath);
+
+/// The saved copy of names[index] in a stored list of copies, or empty when
+/// the list doesn't line up with the names (a version saved before copies
+/// were kept, or a damaged record).
+inline std::string savedLuaSource(const std::vector<std::string> &sources,
+                                  const std::vector<std::string> &names, std::size_t index) {
+  return sources.size() == names.size() && index < sources.size() ? sources[index] : std::string();
+}
 
 /**
  * Scans a directory for Lua plugin files and provides metadata.

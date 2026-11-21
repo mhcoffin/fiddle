@@ -248,15 +248,15 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
           keepingPlayAs({std::move(map), juce::String::fromUTF8(blob.percussionMapSourceXml.c_str())},
                         blob.percussionPlayAs));
     current->setPluginMidiChannel(blob.pluginMidiChannel);
-    for (const auto &name : blob.luaPluginFileNames) {
+    for (std::size_t i = 0; i < blob.luaPluginFileNames.size(); ++i) {
+      const auto &name = blob.luaPluginFileNames[i];
       const auto path = callbacks_.resolveLua ? callbacks_.resolveLua(name) : "";
-      auto plugin = std::make_shared<LuaPlugin>(path.empty() ? name : path);
-      if (!path.empty())
-        (void)plugin->load();
-      // Preserve the ordered reference even if its source is currently missing
-      // or invalid. The unloaded placeholder is inert and remains visible in
-      // the UI, so a later save cannot silently erase project intent.
-      current->addLuaPlugin(std::move(plugin));
+      // The version's own copy of the script when it has one, so an edited
+      // or missing file doesn't change how it plays (docs/lua-scripts.md).
+      // Otherwise an unloaded placeholder keeps the ordered reference, so a
+      // later save cannot silently erase project intent.
+      current->addLuaPlugin(restoreLuaPlugin(
+          name, savedLuaSource(blob.luaPluginSources, blob.luaPluginFileNames, i), path));
     }
     restoreRack(current->audioEngine(), blob.audioInsertState);
     if (blob.pluginUid == 0)
