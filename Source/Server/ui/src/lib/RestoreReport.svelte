@@ -3,12 +3,13 @@
     // what differs from when the project was saved, and what to do about it.
     import { onDestroy } from "svelte";
     import { dispatchCpp, onFromCpp } from "./ipc.js";
-    import { restoreProblems, showRestoreReport } from "./restoreReport.js";
+    import { restoreBannerLook, restoreProblems, showRestoreReport } from "./restoreReport.js";
 
     let report = $state(null);
     let strips = $state([]);
     const problems = $derived(restoreProblems(strips));
     const visible = $derived(showRestoreReport(report, problems));
+    const look = $derived(restoreBannerLook(report, problems));
 
     const unsubscribers = [
         onFromCpp("setRestoreReport", (data) => { report = data && data.kind ? data : null; }),
@@ -23,9 +24,9 @@
 </script>
 
 {#if visible}
-    <div class="restore-report" class:warning={report.severity === "warning"} role="status" aria-live="polite">
+    <div class="restore-report" class:warning={look.warning} role="status" aria-live="polite">
         <div class="text">
-            <strong>{report.title}</strong>
+            <strong>{look.title}</strong>
             <span>{report.message}</span>
             {#if report.options?.length}
                 <ul class="options">

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { restoreProblems, showRestoreReport } from "../src/lib/restoreReport.js";
+import { restoreBannerLook, restoreProblems, showRestoreReport } from "../src/lib/restoreReport.js";
 
 test("layers that can't play as saved are listed by kind", () => {
     const problems = restoreProblems([
@@ -41,4 +41,13 @@ test("the main window shows the restore report with its actions", () => {
     assert.match(banner, /Since this project was saved/);
     for (const message of ["dismissRestoreReport", "useCurrentSetupForProject", "retryProjectRestore"])
         assert.match(banner, new RegExp(`dispatchCpp\\("${message}"\\)`));
+});
+
+test("an exact restore with silent layers warns like one with changes", () => {
+    const plain = { kind: "exact", severity: "info", title: "Dorico project connected" };
+    assert.deepEqual(restoreBannerLook(plain, []), { warning: false, title: "Dorico project connected" });
+    assert.deepEqual(restoreBannerLook(plain, ["Plug-in not installed"]),
+        { warning: true, title: "This project may sound different than when it was saved" });
+    const missing = { kind: "notFound", severity: "warning", title: "This project's Fiddle setup isn't on this Mac" };
+    assert.deepEqual(restoreBannerLook(missing, ["x"]), { warning: true, title: missing.title });
 });

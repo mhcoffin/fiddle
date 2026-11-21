@@ -168,6 +168,24 @@ void testEnvironmentChanges() {
   in.changes = changes;
   const auto built = buildRestoreReport(in);
   CHECK(built["changes"].size() == 6);
+  // Changes make the right setup a warning: it may not sound the same.
+  CHECK(built["severity"] == "warning");
+  CHECK(built["title"] == "This project may sound different than when it was saved");
+  CHECK(report(RestoreOutcome::exact)["title"] == "Dorico project connected");
+
+  // A Dorico save accepts the changes: an exact report is plain news again,
+  // keeping what else it said; other warnings keep their look.
+  RestoreReportInput withEdits = in;
+  withEdits.savedEditsBranch = "Main (2)";
+  const auto cleared = withoutChanges(buildRestoreReport(withEdits));
+  CHECK(cleared["changes"].size() == 0);
+  CHECK(cleared["severity"] == "info");
+  CHECK(cleared["title"] == "Dorico project connected");
+  CHECK(bool(cleared["savedEdits"]));
+  CHECK(cleared["message"] == buildRestoreReport(withEdits)["message"]);
+  const auto gone = withoutChanges(report(RestoreOutcome::newerOnBranch));
+  CHECK(gone["severity"] == "warning" && gone["title"] == report(RestoreOutcome::newerOnBranch)["title"]);
+  CHECK(withoutChanges(juce::var()).isVoid());
   CHECK(restoreReportText(built).contains("Synchron Player has been updated"));
   CHECK(report(RestoreOutcome::exact)["changes"].size() == 0);
 }

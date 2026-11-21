@@ -44,3 +44,13 @@ export function showRestoreReport(report, problems) {
         return problems.length > 0 || report.savedEdits === true || (report.changes?.length ?? 0) > 0;
     return true;
 }
+
+/**
+ * How the banner looks: an exact restore with layers that can't play as saved
+ * may sound different too, so it gets the same warning as one with changes.
+ */
+export function restoreBannerLook(report, problems) {
+    if (report?.kind === "exact" && problems.length > 0)
+        return { warning: true, title: "This project may sound different than when it was saved" };
+    return { warning: report?.severity === "warning", title: report?.title ?? "" };
+}

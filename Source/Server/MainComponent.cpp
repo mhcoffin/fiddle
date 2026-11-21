@@ -2451,14 +2451,6 @@ juce::String MainComponent::changesKey(const versioning::VersionId &versionId,
   return key;
 }
 
-juce::var MainComponent::withoutChanges(const juce::var &report) {
-  auto *copy = report.getDynamicObject() ? report.getDynamicObject()->clone().release() : nullptr;
-  if (!copy)
-    return report;
-  copy->setProperty("changes", juce::Array<juce::var>());
-  return juce::var(copy);
-}
-
 juce::String MainComponent::branchNameOf(const versioning::BranchId &branchId) const {
   if (!versionStore_ || branchId.empty())
     return {};

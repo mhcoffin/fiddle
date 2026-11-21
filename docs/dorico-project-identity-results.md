@@ -46,8 +46,9 @@ plug-ins and the Fiddle scripts (Lua files) its layers use. Every Fiddle save
 and every Dorico save records these for the current version
 (`ProjectEnvironment.h`, stored in the `settings` table as
 `environment.<version ID>`). After an exact restore, Fiddle compares the record
-with now and the restore banner lists what changed under "Since this project
-was saved": a newer Fiddle, a different sample rate, a plug-in updated or
+with now and the restore banner, now an amber warning titled "This project may
+sound different than when it was saved", lists what changed under "Since this
+project was saved": a newer Fiddle, a different sample rate, a plug-in updated or
 reinstalled (the bundle's own version, or its date, read from disk rather than
 from the scan cache, which keeps neither), a script edited, or an effect
 plug-in no longer installed. A missing instrument or script is listed by the

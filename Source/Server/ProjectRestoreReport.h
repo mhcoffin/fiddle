@@ -36,6 +36,12 @@ struct RestoreReportInput {
 /// project's own setup isn't loaded; the message then ends "You can:". action is
 /// "useCurrentSetup" when the project still points at a setup Fiddle doesn't
 /// have, "retry" when Fiddle didn't switch, and empty otherwise.
+/// An exact restore's title and severity: a warning when the project may
+/// not sound as saved, otherwise plain news.
+inline constexpr const char *kExactTitle = "Dorico project connected";
+inline constexpr const char *kMaySoundDifferentTitle =
+    "This project may sound different than when it was saved";
+
 inline juce::var buildRestoreReport(const RestoreReportInput &in) {
   const auto quoted = [](const juce::String &name) {
     return name.isEmpty() ? juce::String("an unnamed branch") : "branch \"" + name + "\"";
@@ -60,8 +66,10 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
   switch (in.outcome) {
   case RestoreOutcome::exact:
     kind = "exact";
-    severity = "info";
-    title = "Dorico project connected";
+    // The right setup, but things it depends on changed: it may not sound
+    // the same, so this is a warning like the other "may sound different" cases.
+    severity = in.changes.empty() ? "info" : "warning";
+    title = in.changes.empty() ? kExactTitle : kMaySoundDifferentTitle;
     message = "Fiddle loaded the setup this project was saved with (" + quoted(in.branchName) + ").";
     break;
   case RestoreOutcome::newerOnBranch:
@@ -121,6 +129,20 @@ inline juce::var buildRestoreReport(const RestoreReportInput &in) {
   for (const auto &change : in.changes) changes.add(change);
   report->setProperty("changes", changes);
   return juce::var(report);
+}
+
+/// The report with its list of changes emptied (after a Dorico save accepts
+/// them). An exact restore without changes is plain news again.
+inline juce::var withoutChanges(const juce::var &report) {
+  auto *copy = report.getDynamicObject() ? report.getDynamicObject()->clone().release() : nullptr;
+  if (!copy)
+    return report;
+  copy->setProperty("changes", juce::Array<juce::var>());
+  if (copy->getProperty("kind").toString() == "exact") {
+    copy->setProperty("severity", "info");
+    copy->setProperty("title", kExactTitle);
+  }
+  return juce::var(copy);
 }
 
 /// The report as one line of text, choices included (for the Debug log).

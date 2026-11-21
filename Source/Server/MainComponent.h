@@ -288,8 +288,6 @@ private:
   std::vector<juce::String> environmentChangesSince(const versioning::VersionId &versionId);
   static juce::String changesKey(const versioning::VersionId &versionId,
                                  const std::vector<juce::String> &changes);
-  /// The report with its list of changes emptied (after a Dorico save).
-  static juce::var withoutChanges(const juce::var &report);
   juce::String dismissedChanges_; // changesKey of a list the user dismissed
   /// The user chose a setup (Use current setup, a checkout, a new branch):
   /// a connected project whose own setup wasn't loaded now uses it.
