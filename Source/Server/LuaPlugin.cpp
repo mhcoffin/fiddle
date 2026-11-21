@@ -1,6 +1,10 @@
 #include "LuaPlugin.h"
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -218,6 +222,7 @@ bool LuaPlugin::run() {
   overrides_ = std::move(checked);
   for (const auto &message : dropped)
     log("[" + meta_.name + "] " + message);
+  paramNotes_ = std::move(dropped);
   loaded_ = true;
   log("Loaded plugin: " + meta_.name + " v" + meta_.version);
   return true;
@@ -289,6 +294,109 @@ void LuaPlugin::writeConfig(const std::string &name, const LuaParamValue &value)
   }, value);
 }
 
+// savedState(): "!" when bypassed, then each value the user set, sorted by
+// name: <length>:<name>, a type letter and the value. b is 0 or 1; i is
+// decimal and ends with ';'; f is the double's 16 hex digits (exact, and the
+// same in every locale); s is <length>:<text>.
+std::string LuaPlugin::savedState() const {
+  std::string text = isEnabled() ? "" : "!";
+  for (const auto &[name, value] : overrides_) {
+    text += std::to_string(name.size()) + ":" + name;
+    std::visit([&](const auto &v) {
+      using T = std::decay_t<decltype(v)>;
+      if constexpr (std::is_same_v<T, bool>) {
+        text += v ? "b1" : "b0";
+      } else if constexpr (std::is_same_v<T, std::int64_t>) {
+        text += "i" + std::to_string(v) + ";";
+      } else if constexpr (std::is_same_v<T, double>) {
+        std::uint64_t bits = 0;
+        std::memcpy(&bits, &v, sizeof bits);
+        char hex[17];
+        std::snprintf(hex, sizeof hex, "%016llx", static_cast<unsigned long long>(bits));
+        text += std::string("f") + hex;
+      } else {
+        text += "s" + std::to_string(v.size()) + ":" + v;
+      }
+    }, value);
+  }
+  return text;
+}
+
+bool LuaPlugin::restoreSavedState(const std::string &text) {
+  std::size_t at = 0;
+  const bool enabled = !(at < text.size() && text[at] == '!');
+  if (!enabled)
+    ++at;
+  // <digits>:<that many bytes>
+  const auto counted = [&](std::string &out) {
+    const auto colon = text.find(':', at);
+    if (colon == std::string::npos || colon == at || colon - at > 12)
+      return false;
+    std::size_t length = 0;
+    for (auto i = at; i < colon; ++i) {
+      if (text[i] < '0' || text[i] > '9')
+        return false;
+      length = length * 10 + std::size_t(text[i] - '0');
+    }
+    if (length > text.size() - colon - 1)
+      return false;
+    out = text.substr(colon + 1, length);
+    at = colon + 1 + length;
+    return true;
+  };
+  std::map<std::string, LuaParamValue> values;
+  while (at < text.size()) {
+    std::string name;
+    if (!counted(name) || at >= text.size())
+      return false;
+    const char type = text[at++];
+    if (type == 'b') {
+      if (at >= text.size() || (text[at] != '0' && text[at] != '1'))
+        return false;
+      values[name] = text[at++] == '1';
+    } else if (type == 'i') {
+      const auto end = text.find(';', at);
+      if (end == std::string::npos || end == at || end - at > 20)
+        return false;
+      errno = 0;
+      char *stop = nullptr;
+      const auto digits = text.substr(at, end - at);
+      const long long v = std::strtoll(digits.c_str(), &stop, 10);
+      if (errno != 0 || stop != digits.c_str() + digits.size())
+        return false;
+      values[name] = static_cast<std::int64_t>(v);
+      at = end + 1;
+    } else if (type == 'f') {
+      if (text.size() - at < 16)
+        return false;
+      std::uint64_t bits = 0;
+      for (std::size_t i = 0; i < 16; ++i) {
+        const char c = text[at + i];
+        const int digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+        if (digit < 0)
+          return false;
+        bits = (bits << 4) | static_cast<std::uint64_t>(digit);
+      }
+      double v = 0;
+      std::memcpy(&v, &bits, sizeof v);
+      if (!std::isfinite(v))
+        return false;
+      values[name] = v;
+      at += 16;
+    } else if (type == 's') {
+      std::string v;
+      if (!counted(v))
+        return false;
+      values[name] = std::move(v);
+    } else {
+      return false;
+    }
+  }
+  setEnabled(enabled);
+  overrides_ = std::move(values);
+  return true;
+}
+
 std::map<std::string, LuaParamValue>
 LuaPlugin::checkedOverrides(std::vector<std::string> &dropped) const {
   std::map<std::string, LuaParamValue> checked;
@@ -296,8 +404,8 @@ LuaPlugin::checkedOverrides(std::vector<std::string> &dropped) const {
     const auto *param = findParam(name);
     auto valid = param ? validLuaParamValue(*param, value) : std::nullopt;
     if (!valid)
-      dropped.push_back("Dropped the saved value of " + name +
-                        (param ? ": it doesn't fit the parameter" : ": the script has no such parameter"));
+      dropped.push_back(param ? param->label + " is back to its default: the saved value doesn't fit it"
+                              : "The saved value of " + name + " was dropped: the script no longer has it");
     else if (*valid != param->defaultValue)
       checked.emplace(name, std::move(*valid));
   }
@@ -798,8 +906,11 @@ void LuaPlugin::reset() {
 
 std::shared_ptr<LuaPlugin> restoreLuaPlugin(const std::string &fileName,
                                             const std::string &source,
-                                            const std::string &resolvedPath) {
+                                            const std::string &resolvedPath,
+                                            const std::string &state) {
   auto plugin = std::make_shared<LuaPlugin>(resolvedPath.empty() ? fileName : resolvedPath);
+  if (!state.empty() && !plugin->restoreSavedState(state))
+    std::cerr << "[LuaPlugin] Ignored the damaged saved settings of " << fileName << std::endl;
   if (!source.empty())
     (void)plugin->loadSaved(source);
   else if (!resolvedPath.empty())

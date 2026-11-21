@@ -272,6 +272,14 @@ std::vector<std::string> MixerStrip::getLuaPluginSources() const {
   return sources;
 }
 
+std::vector<std::string> MixerStrip::getLuaPluginStates() const {
+  auto lock = lockMidiState();
+  std::vector<std::string> states;
+  for (const auto &p : luaPlugins)
+    states.push_back(p->savedState());
+  return states;
+}
+
 bool MixerStrip::replaceLuaPlugin(const std::shared_ptr<LuaPlugin> &plugin,
                                   std::shared_ptr<LuaPlugin> replacement) {
   auto lock = lockMidiState();
@@ -834,6 +842,10 @@ juce::var MixerStrip::toJson() const {
         for (const auto &error : meta.paramErrors)
           paramErrors.add(juce::String::fromUTF8(error.c_str()));
         lObj->setProperty("paramErrors", paramErrors);
+        juce::Array<juce::var> paramNotes;
+        for (const auto &note : plugins[i]->paramNotes())
+          paramNotes.add(juce::String::fromUTF8(note.c_str()));
+        lObj->setProperty("paramNotes", paramNotes);
         luaArr.add(juce::var(lObj));
       }
     }

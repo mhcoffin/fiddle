@@ -101,4 +101,24 @@ under the strip's MIDI-state lock, which the MIDI thread holds while it runs
 scripts, and the script sees a new value from its next callback. The mixer
 JSON gives each script `enabled`, `description`, `params` and `paramErrors`.
 
-There are no controls for parameters yet, and their values aren't saved.
+### Saved with the version
+
+A version keeps each script's bypass and the values the user set
+(`LuaPlugin::savedState`, `StripBlob::luaPluginStates`, the `lua_states`
+column of `strip_blobs` and `strips`, and `luaStates` in the state blob),
+next to its saved copy. The text is canonical: values sorted by name, a
+float as the 16 hex digits of its bits, so the same settings always hash the
+same. A script enabled on its defaults saves nothing, so versions without
+settings keep their hashes. Restoring applies the settings before the script
+loads, so `on_load` sees them. A value that doesn't fit the script any more
+is dropped, and the script's row says so (`paramNotes`). A script that
+doesn't load keeps its saved text exactly, so a later save doesn't lose it.
+
+**Use new file** carries each layer's bypass and values over to the new
+text, where it still declares them; the rows say which didn't carry over,
+and Undo brings back the old script with all its values.
+
+Bypass and Reset to defaults save the working setup at once, like mute; knob
+changes are saved with the next save or on quit, like the gain fader.
+
+There are no controls for parameters yet.

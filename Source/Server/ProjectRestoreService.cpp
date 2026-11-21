@@ -256,7 +256,8 @@ ProjectRestoreService::restore(const versioning::FiddleState &state) {
       // Otherwise an unloaded placeholder keeps the ordered reference, so a
       // later save cannot silently erase project intent.
       current->addLuaPlugin(restoreLuaPlugin(
-          name, savedLuaSource(blob.luaPluginSources, blob.luaPluginFileNames, i), path));
+          name, savedLuaSource(blob.luaPluginSources, blob.luaPluginFileNames, i), path,
+          savedLuaSource(blob.luaPluginStates, blob.luaPluginFileNames, i)));
     }
     restoreRack(current->audioEngine(), blob.audioInsertState);
     if (blob.pluginUid == 0)

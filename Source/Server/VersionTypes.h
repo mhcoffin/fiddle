@@ -52,7 +52,8 @@ inline Hash xxh3_128(const std::string &s) {
 
 /// Saved script copies (StripBlob::luaPluginSources) as one text: each
 /// source as its length in bytes, a colon, then the text. Empty when every
-/// source is empty, as in versions saved before copies were kept.
+/// source is empty, as in versions saved before copies were kept. Saved
+/// script settings (luaPluginStates) use the same encoding.
 inline std::string encodeLuaSources(const std::vector<std::string> &sources) {
   if (std::all_of(sources.begin(), sources.end(), [](const auto &s) { return s.empty(); }))
     return {};
@@ -135,6 +136,9 @@ struct StripBlob {
   /// when the version is restored (docs/lua-scripts.md). Empty for versions
   /// saved before copies were kept, which load the file instead.
   std::vector<std::string> luaPluginSources;
+  /// Each script's bypass and the parameter values the user set
+  /// (LuaPlugin::savedState), in the same order; empty for defaults.
+  std::vector<std::string> luaPluginStates;
 
   /// Serialize all fields into a canonical byte sequence for hashing.
   /// Identity key: (inputPort, inputChannel, libraryId) + content fields.
@@ -187,6 +191,11 @@ struct StripBlob {
     if (const auto sources = encodeLuaSources(luaPluginSources); !sources.empty()) {
       header.append("\0luaSources\0", 12);
       header.append(sources);
+    }
+    // And for layers whose scripts run enabled on their defaults.
+    if (const auto states = encodeLuaSources(luaPluginStates); !states.empty()) {
+      header.append("\0luaStates\0", 11);
+      header.append(states);
     }
     return header;
   }

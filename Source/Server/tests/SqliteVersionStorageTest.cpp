@@ -99,6 +99,12 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(strip.computeHash() == hashWithoutSources);
     strip.luaPluginSources = {"return { name = 'First' }\n", "-- a: b\n12:34"};
     CHECK(strip.computeHash() != hashWithoutSources);
+    // Scripts enabled on their defaults hash as before.
+    const auto hashWithoutStates = strip.computeHash();
+    strip.luaPluginStates = {"", ""};
+    CHECK(strip.computeHash() == hashWithoutStates);
+    strip.luaPluginStates = {"!", "6:amounti7;"};
+    CHECK(strip.computeHash() != hashWithoutStates);
     strip.percussionMapSourceXml = "<saved-percussion-map/>";
     // Play as is part of the strip; a layer without one hashes as before.
     const auto hashWithoutPlayAs = strip.computeHash();
@@ -115,6 +121,7 @@ void testStripStateRoundTripsThroughMigratedSqlite() {
     CHECK(restored &&
           restored->luaPluginFileNames == strip.luaPluginFileNames);
     CHECK(restored && restored->luaPluginSources == strip.luaPluginSources);
+    CHECK(restored && restored->luaPluginStates == strip.luaPluginStates);
     CHECK(restored && restored->pluginState == strip.pluginState);
     CHECK(restored && restored->audioInsertState == strip.audioInsertState);
     CHECK(restored && restored->directOutputBusId == "strings-bus");

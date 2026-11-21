@@ -465,7 +465,12 @@ public:
                 }),
                 stale.end());
     for (const auto &plugin : stale) {
+      // The new text keeps the layer's bypass and the values the user set,
+      // where the file still declares them (LuaPlugin::paramNotes says
+      // which didn't carry over).
       auto fresh = std::make_shared<LuaPlugin>(plugin->filePath());
+      fresh->setParamOverrides(plugin->paramOverrides());
+      fresh->setEnabled(plugin->isEnabled());
       if (!fresh->load()) {
         // Every layer using the file says why it keeps its copy.
         error_ = fresh->lastError();
@@ -616,7 +621,11 @@ public:
     else
       action->after_[name] = *valid;
     action->description_ = action->plugin_->meta().name + ": " + param->label;
-    action->coalesceId_ = "luaParam:" + stripId + ":" +
+    // A knob drag is one step; a switch or a choice flipped back within the
+    // coalesce window stays two, so Undo never holds a step that changes
+    // nothing.
+    if (param->type == "int" || param->type == "float")
+      action->coalesceId_ = "luaParam:" + stripId + ":" +
         juce::String::toHexString(reinterpret_cast<juce::pointer_sized_int>(action->plugin_.get())) +
         ":" + juce::String::fromUTF8(name.c_str());
     return action;

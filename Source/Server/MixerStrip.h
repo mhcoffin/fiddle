@@ -217,6 +217,10 @@ struct MixerStrip {
   /// a version so it restores the script as it was, docs/lua-scripts.md).
   std::vector<std::string> getLuaPluginSources() const;
 
+  /// Each installed Lua plugin's bypass and parameter values
+  /// (LuaPlugin::savedState), in the same order.
+  std::vector<std::string> getLuaPluginStates() const;
+
   /// Put replacement where plugin is in the chain. False if plugin isn't installed.
   bool replaceLuaPlugin(const std::shared_ptr<LuaPlugin> &plugin,
                         std::shared_ptr<LuaPlugin> replacement);

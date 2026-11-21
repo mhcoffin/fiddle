@@ -139,6 +139,20 @@ public:
   void setParamOverrides(std::map<std::string, LuaParamValue> overrides);
   const std::map<std::string, LuaParamValue> &paramOverrides() const { return overrides_; }
 
+  /// What a version saves of the user's settings for this script: bypass
+  /// and the parameter values they set, as canonical text (the same settings
+  /// always give the same text). Empty when the script is enabled with every
+  /// parameter at its default, so versions without settings hash as before.
+  std::string savedState() const;
+
+  /// Take a savedState() text, before load()/loadSaved(). Returns false, and
+  /// changes nothing, for a malformed text.
+  bool restoreSavedState(const std::string &text);
+
+  /// Why the last load dropped saved values (a parameter the script no
+  /// longer has, or a value that no longer fits), for the UI.
+  const std::vector<std::string> &paramNotes() const { return paramNotes_; }
+
   /// The declared parameter called name, or nullptr.
   const LuaPluginMeta::Param *findParam(const std::string &name) const;
 
@@ -207,6 +221,7 @@ private:
   std::atomic<bool> enabled_{true};
   LuaPluginMeta meta_;
   std::map<std::string, LuaParamValue> overrides_;
+  std::vector<std::string> paramNotes_;
   double lastDurationAdjustMs_ = 0.0;
   double lastScheduledNoteOffMs_ = -1.0;
 
@@ -267,13 +282,16 @@ private:
 /// resolvedPath is the catalog's path for fileName, empty when it isn't on
 /// this Mac. When neither runs, the result is an unloaded placeholder that
 /// keeps the layer's reference, so a later save doesn't drop it.
+/// state is the version's savedState() for the script, applied first, so
+/// the script loads with the user's values and bypass.
 std::shared_ptr<LuaPlugin> restoreLuaPlugin(const std::string &fileName,
                                             const std::string &source,
-                                            const std::string &resolvedPath);
+                                            const std::string &resolvedPath,
+                                            const std::string &state = {});
 
-/// The saved copy of names[index] in a stored list of copies, or empty when
-/// the list doesn't line up with the names (a version saved before copies
-/// were kept, or a damaged record).
+/// The saved copy (or saved state) of names[index] in a stored list, or
+/// empty when the list doesn't line up with the names (a version saved
+/// before copies or settings were kept, or a damaged record).
 inline std::string savedLuaSource(const std::vector<std::string> &sources,
                                   const std::vector<std::string> &names, std::size_t index) {
   return sources.size() == names.size() && index < sources.size() ? sources[index] : std::string();

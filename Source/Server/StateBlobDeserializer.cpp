@@ -166,6 +166,9 @@ std::optional<RestoredProjectState> deserializeStateBlob(const void *data,
       if (auto *sources = obj->getProperty("luaSources").getArray())
         for (const auto &item : *sources)
           strip.luaPluginSources.push_back(item.toString().toStdString());
+      if (auto *states = obj->getProperty("luaStates").getArray())
+        for (const auto &item : *states)
+          strip.luaPluginStates.push_back(item.toString().toStdString());
     }
 
     uint32_t blobSize = readU32();

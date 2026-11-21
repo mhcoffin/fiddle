@@ -1840,6 +1840,110 @@ void testLuaParamChangesAndUndo() {
   REQUIRE(replacement->meta().params.empty() && !replacement->setParamValue("amount", Value(1.0)));
 }
 
+void testLuaSettingsSaved() {
+  using Value = fiddle::LuaParamValue;
+  // The saved text round-trips every kind of value exactly.
+  const std::string declared =
+      "return { name = 'Saved', params = {"
+      " { name = 'amount', type = 'float', min = 0, max = 10, default = 2 },"
+      " { name = 'count', type = 'int', min = -5, max = 5, default = 0 },"
+      " { name = 'on', type = 'bool', default = true },"
+      " { name = 'mode', type = 'enum', options = { 'a', 'b:1;' }, default = 'a' } },"
+      " on_note_start = function(note, ctx) return true end }";
+  fiddle::LuaPlugin plugin("saved.lua");
+  REQUIRE(plugin.loadSaved(declared));
+  REQUIRE(plugin.savedState().empty());
+  REQUIRE(plugin.setParamValue("amount", Value(0.1)));
+  REQUIRE(plugin.setParamValue("count", Value(std::int64_t{-3})));
+  REQUIRE(plugin.setParamValue("on", Value(false)));
+  REQUIRE(plugin.setParamValue("mode", Value(std::string("b:1;"))));
+  plugin.setEnabled(false);
+  const auto state = plugin.savedState();
+  REQUIRE(state.front() == '!');
+  fiddle::LuaPlugin copy("saved.lua");
+  REQUIRE(copy.restoreSavedState(state));
+  REQUIRE(copy.loadSaved(declared));
+  REQUIRE(!copy.isEnabled() && copy.savedState() == state);
+  REQUIRE(copy.paramValue("amount") == Value(0.1) && copy.paramValue("count") == Value(std::int64_t{-3}));
+  REQUIRE(copy.paramValue("mode") == Value(std::string("b:1;")) && copy.paramValue("on") == Value(false));
+  // A damaged text changes nothing.
+  for (const std::string bad : {"x", "3:abc", "6:amountf12", "6:amountq", "5:counti;", "5:countiz;", "2:onb2", "4:modes9:a"}) {
+    fiddle::LuaPlugin damaged("saved.lua");
+    REQUIRE(!damaged.restoreSavedState(bad));
+    REQUIRE(damaged.isEnabled() && damaged.paramOverrides().empty());
+  }
+  // A placeholder keeps the saved text exactly, so a later save keeps it.
+  const auto placeholder = fiddle::restoreLuaPlugin("gone.lua", "", "", state);
+  REQUIRE(!placeholder->isLoaded() && placeholder->savedState() == state);
+
+  // Through a version and back, with the working setup's table too.
+  Sandbox sandbox;
+  const auto file = sandbox.directory.getChildFile("saved.lua");
+  REQUIRE(file.replaceWithText(declared));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::AddLuaPluginAction>(
+      f.mixer, catalog, id, file.getFullPathName().toStdString())));
+  REQUIRE(f.undo.perform(fiddle::SetLuaParamsAction::one(f.mixer, id, 0, "count", Value(std::int64_t{4}))));
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::SetLuaEnabledAction>(f.mixer, id, 0, false)));
+  const auto liveState = f.mixer.getStrip(id)->luaPlugins[0]->savedState();
+  REQUIRE(!liveState.empty());
+
+  fiddle::FiddleDatabase db;
+  REQUIRE(db.open(sandbox.directory.getChildFile("settings.sqlite")));
+  db.clearStrips();
+  db.saveStrip(*f.mixer.getStrip(id), 0);
+  const auto rows = db.loadAllStrips();
+  REQUIRE(rows.size() == 1 && rows[0].luaPluginStates == std::vector<std::string>{liveState});
+
+  fiddle::versioning::VersionStore versions(*db.getVersionStorage());
+  const auto root = versions.initializeEmpty();
+  const auto branch = versions.getVersion(root)->branchId;
+  fiddle::StateManager stateManager;
+  stateManager.setVersionStore(&versions);
+  stateManager.initialize(sandbox.directory.getChildFile("settings-state.bin"));
+  const auto saved = stateManager.saveCurrentState(f.mixer, branch, root);
+  REQUIRE(saved.succeeded());
+  const auto savedState = versions.getState(versions.getVersion(saved.versionId)->stateHash);
+  REQUIRE(savedState.has_value());
+  const auto blob = stateManager.buildStateBlob(f.mixer, false);
+  const auto fromBlob = fiddle::StateManager::deserializeBlob(blob.getData(), blob.getSize());
+  REQUIRE(fromBlob.has_value() && fromBlob->strips.size() == 1 &&
+          fromBlob->strips[0].luaPluginStates == std::vector<std::string>{liveState});
+
+  // The file then loses a parameter: Use new file keeps what it still has.
+  REQUIRE(file.replaceWithText(
+      "return { name = 'Saved', params = {"
+      " { name = 'amount', type = 'float', min = 0, max = 10, default = 2 } },"
+      " on_note_start = function(note, ctx) return true end }"));
+
+  MixerFixture restored;
+  fiddle::ProjectRestoreService::Callbacks callbacks;
+  const auto path = file.getFullPathName().toStdString();
+  callbacks.resolveLua = [path](const std::string &) { return path; };
+  fiddle::ProjectRestoreService restore(restored.mixer, versions, nullptr, std::move(callbacks));
+  REQUIRE(restore.restore(*savedState).accepted);
+  pumpUntil([&] { return !restore.isLoading(); });
+  REQUIRE(restored.mixer.size() == 1);
+  auto *strip = restored.mixer.getAllStrips()[0];
+  const auto restoredPlugin = strip->luaPlugins[0];
+  REQUIRE(restoredPlugin->isLoaded() && !restoredPlugin->isEnabled());
+  REQUIRE(restoredPlugin->paramValue("count") == Value(std::int64_t{4}));
+  REQUIRE(restoredPlugin->savedState() == liveState);
+
+  REQUIRE(restored.undo.perform(std::make_unique<fiddle::SetLuaEnabledAction>(restored.mixer, strip->id, 0, true)));
+  REQUIRE(restored.undo.perform(fiddle::SetLuaParamsAction::one(restored.mixer, strip->id, 0, "amount", Value(7.0))));
+  REQUIRE(restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "saved.lua")));
+  const auto fresh = strip->luaPlugins[0];
+  REQUIRE(fresh != restoredPlugin && fresh->isEnabled());
+  REQUIRE(fresh->paramValue("amount") == Value(7.0) && !fresh->paramValue("count"));
+  REQUIRE(fresh->paramNotes().size() == 1 && fresh->paramNotes()[0].find("count") != std::string::npos);
+  REQUIRE(restored.undo.undo() && strip->luaPlugins[0] == restoredPlugin);
+  REQUIRE(restoredPlugin->paramValue("count") == Value(std::int64_t{4}));
+}
+
 void testLuaSavedCopies() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("shape.lua");
@@ -4835,6 +4939,7 @@ int main(int argc, char **argv) {
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
   run("Lua parameters are typed, ordered, checked and in place before on_load", testLuaParameters);
   run("Lua parameter changes coalesce, reset and bypass with Undo", testLuaParamChangesAndUndo);
+  run("Lua settings save with versions and carry over to a new file", testLuaSettingsSaved);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);

@@ -916,7 +916,8 @@ void MainComponent::initMidiServer() {
                 const auto &fileName = rs.luaPluginFileNames[i];
                 auto plugin = restoreLuaPlugin(
                     fileName, savedLuaSource(rs.luaPluginSources, rs.luaPluginFileNames, i),
-                    luaCatalog_.resolvePluginPath(fileName));
+                    luaCatalog_.resolvePluginPath(fileName),
+                    savedLuaSource(rs.luaPluginStates, rs.luaPluginFileNames, i));
                 if (!plugin->isLoaded())
                   pushLogMessage("<b>[Restore]</b> Lua processor '" +
                                      juce::String(fileName) +
@@ -2060,7 +2061,8 @@ void MainComponent::loadStripsFromDB() {
         const auto &fileName = row.luaPluginFileNames[i];
         auto plugin = restoreLuaPlugin(
             fileName, savedLuaSource(row.luaPluginSources, row.luaPluginFileNames, i),
-            luaCatalog_.resolvePluginPath(fileName));
+            luaCatalog_.resolvePluginPath(fileName),
+            savedLuaSource(row.luaPluginStates, row.luaPluginFileNames, i));
         if (plugin->isLoaded()) {
           std::cerr << "[loadDB] Restored Lua plugin '" << fileName
                     << "' for strip " << strip->id << std::endl;
@@ -4723,8 +4725,10 @@ void MainComponent::setupJsHandlers() {
     const auto stripId = payload[0].toString();
     const int pluginIndex = static_cast<int>(payload[1]);
     safeCallAsync([this, stripId, pluginIndex]() {
-      if (undoManager_.perform(SetLuaParamsAction::resetAll(mixer_, stripId, pluginIndex)))
+      if (undoManager_.perform(SetLuaParamsAction::resetAll(mixer_, stripId, pluginIndex))) {
+        saveAllStripsToDB(false); // a single change, like mute; knob drags save later, like gain
         pushMixerState();
+      }
     });
   });
   jsRouter_.registerHandler("setLuaEnabled", [this](const juce::var &payload) {
@@ -4735,9 +4739,10 @@ void MainComponent::setupJsHandlers() {
     const int pluginIndex = static_cast<int>(payload[1]);
     const bool enabled = static_cast<bool>(payload[2]);
     safeCallAsync([this, stripId, pluginIndex, enabled]() {
-      if (undoManager_.perform(std::make_unique<SetLuaEnabledAction>(mixer_, stripId, pluginIndex, enabled)))
+      if (undoManager_.perform(std::make_unique<SetLuaEnabledAction>(mixer_, stripId, pluginIndex, enabled))) {
+        saveAllStripsToDB(false);
         pushMixerState();
-      else
+      } else
         pushMixerState(false);
     });
   });

@@ -32,6 +32,7 @@ struct StripRow {
   StripAudioSnapshot audio;
   std::vector<std::string> luaPluginFileNames; // ordered Lua plugin filenames
   std::vector<std::string> luaPluginSources;   // their saved text (VersionTypes.h)
+  std::vector<std::string> luaPluginStates;    // their bypass and parameter values
 };
 
 /// Metadata for a saved configuration version.

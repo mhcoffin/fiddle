@@ -413,6 +413,8 @@ void SqliteVersionStorage::prepareStatements() {
                nullptr, nullptr, nullptr);
   sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN lua_sources TEXT NOT NULL DEFAULT ''",
                nullptr, nullptr, nullptr);
+  sqlite3_exec(db_, "ALTER TABLE strip_blobs ADD COLUMN lua_states TEXT NOT NULL DEFAULT ''",
+               nullptr, nullptr, nullptr);
 
   auto prep = [&](const char *sql, sqlite3_stmt **stmt) {
     if (sqlite3_prepare_v2(db_, sql, -1, stmt, nullptr) != SQLITE_OK) {
@@ -427,15 +429,15 @@ void SqliteVersionStorage::prepareStatements() {
        "expression_map, plugin_state, active, lua_plugins, muted, soloed, "
        "audio_insert_state, direct_output_bus, expression_map_path, "
        "expression_map_source, sends_json, percussion_map_source, percussion_play_as, "
-       "plugin_midi_channel, lua_sources) "
-       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+       "plugin_midi_channel, lua_sources, lua_states) "
+       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
        &stmtPutStripBlob_);
   prep("SELECT library_id, library, family, is_solo, input_port, "
        "input_channel, plugin_uid, gain_db, expression_map, plugin_state, "
        "active, lua_plugins, muted, soloed, audio_insert_state, "
        "direct_output_bus, expression_map_path, expression_map_source, sends_json, "
-       "percussion_map_source, percussion_play_as, plugin_midi_channel, lua_sources "
-       "FROM strip_blobs WHERE hash = ?",
+       "percussion_map_source, percussion_play_as, plugin_midi_channel, lua_sources, "
+       "lua_states FROM strip_blobs WHERE hash = ?",
        &stmtGetStripBlob_);
   prep("SELECT 1 FROM strip_blobs WHERE hash = ?", &stmtHasStripBlob_);
 
@@ -578,6 +580,9 @@ void SqliteVersionStorage::putStripBlob(const Hash &hash,
   const auto luaSources = encodeLuaSources(blob.luaPluginSources);
   sqlite3_bind_text(stmtPutStripBlob_, 24, luaSources.data(), static_cast<int>(luaSources.size()),
                     SQLITE_TRANSIENT);
+  const auto luaStates = encodeLuaSources(blob.luaPluginStates);
+  sqlite3_bind_text(stmtPutStripBlob_, 25, luaStates.data(), static_cast<int>(luaStates.size()),
+                    SQLITE_TRANSIENT);
 
   sqlite3_step(stmtPutStripBlob_);
 }
@@ -644,6 +649,9 @@ SqliteVersionStorage::getStripBlob(const Hash &hash) const {
     if (const auto *sources = reinterpret_cast<const char *>(sqlite3_column_text(stmtGetStripBlob_, 22)))
       blob.luaPluginSources = decodeLuaSources(
           std::string(sources, static_cast<std::size_t>(sqlite3_column_bytes(stmtGetStripBlob_, 22))));
+    if (const auto *states = reinterpret_cast<const char *>(sqlite3_column_text(stmtGetStripBlob_, 23)))
+      blob.luaPluginStates = decodeLuaSources(
+          std::string(states, static_cast<std::size_t>(sqlite3_column_bytes(stmtGetStripBlob_, 23))));
     return blob;
   }
   return std::nullopt;
