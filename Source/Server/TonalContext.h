@@ -10,7 +10,7 @@ namespace fiddle {
 // TonalContext
 //
 // Tonal metadata computed by TonalCenterClassifier and passed to Lua Fiddles
-// via the `ctx.tonal_context` table.
+// via the `ctx.harmony` table.
 //
 // Fields are set in two stages:
 //   1. "Key-level" fields (current_key_root, is_minor, confidence) are

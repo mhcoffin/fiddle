@@ -9,8 +9,16 @@
  * script to the file as it is now.
  */
 export function luaFileNote(plugin) {
-    if (!plugin?.loaded) return null;
+    if (!plugin) return null;
     const fileName = plugin.fileName || "the file";
+    // A copy that doesn't run (its error is shown above): its file may have
+    // been updated since, as for a script written for the earlier API.
+    if (!plugin.loaded) {
+        if (plugin.fileStatus !== "changed") return null;
+        if (plugin.fileError)
+            return { text: `${fileName} has changed, but it has an error too. ${plugin.fileError}`, canUseFile: false };
+        return { text: `${fileName} has changed since this copy was saved. Use the new file to run it instead.`, canUseFile: true };
+    }
     if (plugin.fileStatus === "changed") {
         if (plugin.fileError)
             return {

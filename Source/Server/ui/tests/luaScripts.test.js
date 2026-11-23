@@ -7,9 +7,19 @@ test("an unchanged file says nothing", () => {
     assert.equal(luaFileNote({ loaded: true, fileStatus: "unchanged", fileName: "humanize.lua" }), null);
 });
 
-test("an unloaded script is reported by the row's error style, not a note", () => {
+test("an unloaded script is reported by its error, not a note", () => {
     assert.equal(luaFileNote({ loaded: false, fileStatus: "missing" }), null);
+    assert.equal(luaFileNote({ loaded: false, fileStatus: "unchanged" }), null);
     assert.equal(luaFileNote(null), null);
+});
+
+test("an unloaded copy whose file has changed offers the new file", () => {
+    const note = luaFileNote({ loaded: false, fileStatus: "changed", fileName: "humanize.lua" });
+    assert.equal(note.canUseFile, true);
+    assert.match(note.text, /humanize\.lua has changed/);
+    const broken = luaFileNote({ loaded: false, fileStatus: "changed", fileName: "humanize.lua", fileError: "boom" });
+    assert.equal(broken.canUseFile, false);
+    assert.match(broken.text, /boom/);
 });
 
 test("a changed file offers to use it", () => {

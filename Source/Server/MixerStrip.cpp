@@ -899,6 +899,9 @@ juce::var MixerStrip::toJson() const {
         lObj->setProperty("name", juce::String(meta.name));
         lObj->setProperty("filePath", juce::String(meta.filePath));
         lObj->setProperty("loaded", plugins[i]->isLoaded());
+        // Why a script doesn't run (an error, or the earlier script API).
+        if (!plugins[i]->isLoaded())
+          lObj->setProperty("loadError", juce::String::fromUTF8(plugins[i]->lastError().c_str()));
         lObj->setProperty("fileName", juce::String(std::filesystem::path(plugins[i]->filePath()).filename().string()));
         lObj->setProperty("enabled", plugins[i]->isEnabled());
         lObj->setProperty("description", juce::String::fromUTF8(meta.description.c_str()));

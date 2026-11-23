@@ -26,6 +26,7 @@
 #include "UndoActions.h"
 #include "LuaParamJson.h"
 #include "LuaAnnotator.h"
+#include "ExpressionMapAnnotator.h"
 #include "ProjectSettingsAction.h"
 #include "MixerControlActions.h"
 #include "RenderAheadEngine.h"
@@ -1541,8 +1542,7 @@ void testLuaHistoryAndMissingRestore() {
   Sandbox sandbox;
   const auto valid = sandbox.directory.getChildFile("retained.lua");
   REQUIRE(valid.replaceWithText(
-      "return { name = 'Retained', on_note_start = function(note, ctx) "
-      "return true end }"));
+      "return { name = 'Retained', on_note = function(note, ctx) end }"));
 
   fiddle::LuaPluginCatalog catalog;
   catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
@@ -1613,7 +1613,7 @@ void testLuaHistoryAndMissingRestore() {
   // failing lifecycle callback without touching the chain or Undo stack.
   const auto broken = sandbox.directory.getChildFile("broken.lua");
   REQUIRE(broken.replaceWithText(
-      "return { name = 'Broken', on_load = function(ctx) error('boom') end }"));
+      "return { name = 'Broken', on_reset = function(ctx) error('boom') end }"));
   catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
   f.undo.clear();
   const auto originalSize = strip->luaPlugins.size();
@@ -1646,14 +1646,12 @@ local plugin = {
     { name = "empty", type = "enum", options = {} },
   },
 }
-local function show(when)
-  local c = plugin.config
-  print(string.format("%s velocity=%s timing=%s on_beat=%s mode=%s seed=%s", when,
+function plugin.on_reset(ctx)
+  local c = ctx.params
+  print(string.format("reset velocity=%s timing=%s on_beat=%s mode=%s seed=%s",
     tostring(c.velocity), tostring(c.timing), tostring(c.on_beat), c.mode, tostring(c.seed)))
 end
-function plugin.on_load() show("load") end
-function plugin.on_reset() show("reset") end
-function plugin.on_note_start(note, ctx) return true end
+function plugin.on_note(note, ctx) end
 return plugin
 )lua";
   std::vector<std::string> lines;
@@ -1661,7 +1659,7 @@ return plugin
 
   fiddle::LuaPlugin plugin("params.lua");
   plugin.setLogCallback([&](const std::string &msg, bool) { lines.push_back(msg); });
-  // Saved values are in place before on_load; ones that don't fit are dropped.
+  // Saved values are in place for the first on_reset; ones that don't fit are dropped.
   plugin.setParamOverrides({{"velocity", Value(std::int64_t{20})}, {"mode", Value(std::string("loud"))},
                             {"gone", Value(true)}, {"timing", Value(std::int64_t{15})}});
   REQUIRE(plugin.loadSaved(source));
@@ -1683,7 +1681,7 @@ return plugin
 
   bool sawLoad = false;
   for (const auto &line : lines)
-    sawLoad = sawLoad || line.find("load velocity=20 timing=15.0 on_beat=false mode=hard seed=0") != std::string::npos;
+    sawLoad = sawLoad || line.find("reset velocity=20 timing=15.0 on_beat=false mode=hard seed=0") != std::string::npos;
   REQUIRE(sawLoad);
   // Only the velocity survives: mode isn't an option, gone isn't declared,
   // and the timing equals the default.
@@ -1716,12 +1714,12 @@ return plugin
   REQUIRE(broken.paramOverrides().size() == 1 && broken.meta().params.empty());
   REQUIRE(!broken.setParamValue("anything", Value(std::string("x"))));
 
-  // Nor does one whose on_load fails after its params were read.
+  // Nor does one whose first on_reset fails after its params were read.
   fiddle::LuaPlugin failing("failing.lua");
   failing.setLogCallback([](const std::string &, bool) {});
   failing.setParamOverrides({{"level", Value(std::int64_t{3})}, {"gone", Value(true)}});
   REQUIRE(!failing.loadSaved("return { params = { { name = 'level', type = 'int', min = 0, max = 9 } },"
-                             " on_load = function() error('boom') end }"));
+                             " on_reset = function() error('boom') end }"));
   REQUIRE(failing.paramOverrides().size() == 2 && failing.meta().params.empty());
   REQUIRE(!failing.setParamValue("level", Value(std::int64_t{4})));
 
@@ -1749,7 +1747,7 @@ void testLuaParamChangesAndUndo() {
       "return { name = 'Knobs', params = {"
       " { name = 'amount', label = 'Amount', type = 'float', min = 0, max = 10, default = 2, unit = 'ms' },"
       " { name = 'on', type = 'bool', default = true } },"
-      " on_note_start = function(note, ctx) return true end }"));
+      " on_note = function(note, ctx) end }"));
   fiddle::LuaPluginCatalog catalog;
   catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
   MixerFixture f;
@@ -1824,10 +1822,9 @@ void testLuaParamChangesAndUndo() {
   REQUIRE(amount() == 5.0 && plugin->isEnabled());
   REQUIRE(replacement->paramOverrides().empty() && replacement->isEnabled());
 
-  // A bypassed script schedules no note-off, though it did before.
+  // A bypassed script caps no note, though it did before.
   const auto staccato = std::make_shared<fiddle::LuaPlugin>("staccato.lua");
-  REQUIRE(staccato->loadSaved("return { on_note_start = function(note, ctx) "
-                              "note.schedule_note_off_ms = 80; return note end }"));
+  REQUIRE(staccato->loadSaved("return { on_note = function(note, ctx) note.max_length_ms = 80 end }"));
   fiddle::LuaAnnotator annotator(staccato);
   fiddle::Note note;
   note.set_note_number(60);
@@ -1860,7 +1857,7 @@ void testLuaSettingsSaved() {
       " { name = 'count', type = 'int', min = -5, max = 5, default = 0 },"
       " { name = 'on', type = 'bool', default = true },"
       " { name = 'mode', type = 'enum', options = { 'a', 'b:1;' }, default = 'a' } },"
-      " on_note_start = function(note, ctx) return true end }";
+      " on_note = function(note, ctx) end }";
   fiddle::LuaPlugin plugin("saved.lua");
   REQUIRE(plugin.loadSaved(declared));
   REQUIRE(plugin.savedState().empty());
@@ -1928,7 +1925,7 @@ void testLuaSettingsSaved() {
   REQUIRE(file.replaceWithText(
       "return { name = 'Saved', params = {"
       " { name = 'amount', type = 'float', min = 0, max = 10, default = 2 } },"
-      " on_note_start = function(note, ctx) return true end }"));
+      " on_note = function(note, ctx) end }"));
 
   MixerFixture restored;
   fiddle::ProjectRestoreService::Callbacks callbacks;
@@ -1977,12 +1974,8 @@ void testBundledLuaScripts() {
       fiddle::Note note;
       note.set_note_number(60);
       note.set_start_velocity(80);
-      fiddle::LuaContext ctx;
-      ctx.sampleRate = 48000;
-      plugin.onNoteStart(note, ctx);
-      note.set_duration_samples(24000);
-      plugin.onNoteEnd(note, ctx);
-      plugin.onCC(1, 64, 1, ctx);
+      (void)plugin.onNote(note, fiddle::LuaContext{});
+      (void)plugin.onCC(1, 64, 1, fiddle::LuaContext{});
     };
     play();
     for (const auto &param : plugin.meta().params) {
@@ -2001,13 +1994,34 @@ void testBundledLuaScripts() {
   REQUIRE(humanize->params[1].label == "Timing" && humanize->params[1].unit == "ms");
   REQUIRE(humanize->params[3].control == "field" && humanize->params[3].zeroLabel == "Auto" &&
           humanize->params[3].randomize);
+
+  // What they do: humanize moves and lengthens or shortens notes within its
+  // ranges; force_staccato caps them.
+  fiddle::Note note;
+  note.set_note_number(60);
+  note.set_start_velocity(80);
+  fiddle::LuaPlugin human(humanize->filePath);
+  human.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(human.load());
+  bool moved = false, resized = false;
+  for (int i = 0; i < 8; ++i) {
+    const auto change = human.onNote(note, {});
+    REQUIRE(change && std::abs(change->startOffsetMs) <= 15 && std::abs(change->lengthDeltaMs) <= 10 &&
+            std::abs(change->velocity - 80) <= 8);
+    moved = moved || change->startOffsetMs != 0;
+    resized = resized || change->lengthDeltaMs != 0;
+  }
+  REQUIRE(moved && resized);
+  fiddle::LuaPlugin staccato(catalog.findByFileName("force_staccato.lua")->filePath);
+  staccato.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(staccato.load() && staccato.onNote(note, {})->maxLengthMs == 80);
 }
 
 void testLuaSavedCopies() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("shape.lua");
-  const juce::String first = "return { name = 'Shape', version = '1', on_note_start = function(note, ctx) return true end }";
-  const juce::String second = "return { name = 'Shape', version = '2', on_note_start = function(note, ctx) return true end }";
+  const juce::String first = "return { name = 'Shape', version = '1', on_note = function(note, ctx) end }";
+  const juce::String second = "return { name = 'Shape', version = '2', on_note = function(note, ctx) end }";
   REQUIRE(file.replaceWithText(first));
   fiddle::LuaPluginCatalog catalog;
   catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
@@ -2067,7 +2081,7 @@ void testLuaSavedCopies() {
   REQUIRE(!restored.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua")));
 
   // A file that doesn't load changes nothing and says why on the layers.
-  REQUIRE(file.replaceWithText("return { name = 'Shape', on_note_start = function(note, ctx) return true"));
+  REQUIRE(file.replaceWithText("return { name = 'Shape', on_note = function(note, ctx) end"));
   auto broken = std::make_unique<fiddle::UseLuaFileAction>(restored.mixer, "shape.lua");
   REQUIRE(!broken->error().empty());
   REQUIRE(!restored.undo.perform(std::move(broken)));
@@ -2081,7 +2095,7 @@ void testLuaSavedCopies() {
   REQUIRE(!brokenFile.load() && brokenFile.source().empty());
 
   // Fixing the file clears the error, and using it then works.
-  const juce::String third = "return { name = 'Shape', version = '3', on_note_start = function(note, ctx) return true end }";
+  const juce::String third = "return { name = 'Shape', version = '3', on_note = function(note, ctx) end }";
   REQUIRE(file.replaceWithText(third));
   auto *first0 = restored.mixer.getAllStrips()[0];
   REQUIRE(first0->luaPlugins[0]->fileStatus() == fiddle::LuaPlugin::FileStatus::changed);
@@ -2108,13 +2122,13 @@ void testLuaRandomnessRepeatsEachPass() {
   Sandbox sandbox;
   const auto file = sandbox.directory.getChildFile("jitter.lua");
   REQUIRE(file.replaceWithText(
-      "return { name = 'Jitter', on_note_start = function(note, ctx) "
-      "note.velocity = math.random(1, 127) return note end }"));
+      "return { name = 'Jitter', on_note = function(note, ctx) "
+      "note.velocity = math.random(1, 127) end }"));
   // A script that picks its own seed in on_reset, after Fiddle's reseed.
   const auto pinned = sandbox.directory.getChildFile("pinned.lua");
   REQUIRE(pinned.replaceWithText(
       "return { name = 'Pinned', on_reset = function() math.randomseed(7) end, "
-      "on_note_start = function(note, ctx) note.velocity = math.random(1, 127) return note end }"));
+      "on_note = function(note, ctx) note.velocity = math.random(1, 127) end }"));
   fiddle::LuaPluginCatalog catalog;
   catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
   MixerFixture f;
@@ -2132,8 +2146,7 @@ void testLuaRandomnessRepeatsEachPass() {
     for (int i = 0; i < 8; ++i) {
       fiddle::Note note;
       note.set_start_velocity(64);
-      strip.luaPlugins[0]->onNoteStart(note, {});
-      velocities.push_back(int(note.start_velocity()));
+      velocities.push_back(strip.luaPlugins[0]->onNote(note, {})->velocity);
     }
     return velocities;
   };
@@ -2156,6 +2169,254 @@ void testLuaRandomnessRepeatsEachPass() {
   REQUIRE(first.replaceLuaPlugin(first.luaPlugins[0], again));
   f.mixer.transportStarted(f.now + 2000);
   REQUIRE(draw(0) == once);
+}
+
+// The script API (docs/lua-scripts.md): one on_note per note, whose
+// decisions Fiddle carries to the note-off; checked fields; on_cc; on_reset
+// with ctx.params and ctx.state.
+void testLuaScriptApi() {
+  std::vector<std::string> errors;
+  const auto load = [&](const std::string &source) {
+    auto plugin = std::make_shared<fiddle::LuaPlugin>("api.lua");
+    plugin->setLogCallback([&](const std::string &msg, bool error) {
+      if (error)
+        errors.push_back(msg);
+    });
+    REQUIRE(plugin->loadSaved(source));
+    return plugin;
+  };
+  const auto makeNote = [](uint64_t id, int pitch) {
+    fiddle::Note note;
+    note.set_id(id);
+    note.set_channel(2);
+    note.set_note_number(static_cast<uint32_t>(pitch));
+    note.set_start_velocity(90);
+    note.set_beat_prominence(1);
+    (*note.mutable_notation_techniques())["articulation"] = "pt.legato";
+    (*note.mutable_notation_techniques())["base"] = "pt.natural";
+    (*note.mutable_notation_is_default())["base"] = true;
+    return note;
+  };
+  fiddle::AnnotatorContext at;
+  at.currentTimeMs = 1000;
+
+  // Changes reach the note; no return is needed. The note-off goes to the
+  // pitch and channel the note-on used, with the same techniques.
+  auto changer = load(R"lua(return { on_note = function(note, ctx)
+    assert(note.pitch == 60 and note.velocity == 90 and note.channel == 2 and note.beat == 1)
+    assert(note.techniques.legato and not note.techniques.natural)
+    note.pitch = note.pitch + 12.4
+    note.velocity = 300
+    note.channel = 5
+    note.techniques.legato = nil
+    note.techniques.staccato = true
+    note.start_offset_ms = -20
+    note.length_delta_ms = -30
+    note:cc(11, 64)
+    note:cc(64, 0, 5, "end")
+  end })lua");
+  fiddle::LuaAnnotator annotator(changer);
+  auto start = makeNote(1, 60);
+  annotator.onNoteStart(start, at);
+  REQUIRE(errors.empty());
+  REQUIRE(start.note_number() == 72 && start.start_velocity() == 127 && start.channel() == 5);
+  REQUIRE(fiddle::collectInputTechniqueIds(start) == std::set<std::string>{"pt.staccato"});
+  REQUIRE(start.notation_techniques().at("base") == "pt.natural"); // defaults stay
+  REQUIRE(annotator.noteStartOffsetMs() == -20 && annotator.scheduledNoteOffMs() < 0);
+  REQUIRE(start.during_note_size() == 1 && start.during_note(0).param1() == 11 &&
+          start.during_note(0).param2() == 64 && start.post_note_size() == 0);
+  auto end = makeNote(1, 60);
+  at.currentTimeMs = 1500;
+  annotator.onNoteEnd(end, at);
+  REQUIRE(end.note_number() == 72 && end.channel() == 5 && !annotator.noteSuppressed());
+  REQUIRE(fiddle::collectInputTechniqueIds(end) == std::set<std::string>{"pt.staccato"});
+  REQUIRE(annotator.durationAdjustMs() == -50); // moved 20 earlier, 30 shorter
+  REQUIRE(end.post_note_size() == 1 && end.post_note(0).param1() == 64 && end.post_note(0).delay_ms() == 5);
+
+  // The expression map after it chooses from the script's techniques.
+  auto map = std::make_shared<fiddle::ExpressionMapData>();
+  map->combinations.push_back(fiddle::TechniqueCombination{.name = "Legato", .techniqueIDs = {"pt.legato"}});
+  map->combinations.push_back(fiddle::TechniqueCombination{.name = "Staccato", .techniqueIDs = {"pt.staccato"}});
+  fiddle::AnnotatorChain chain;
+  chain.add(std::make_unique<fiddle::LuaAnnotator>(changer));
+  auto expression = std::make_unique<fiddle::ExpressionMapAnnotator>(map);
+  auto *mapAnnotator = expression.get();
+  chain.add(std::move(expression));
+  map->combinations.back().lengthFactor = 0.5f;
+  auto chained = makeNote(2, 60);
+  chain.onNoteStart(chained, at);
+  REQUIRE(mapAnnotator->lastAnnotationRecord()->baseSwitchName == "Staccato");
+  // At the note-off the map still finds the note the script changed.
+  auto chainedEnd = makeNote(2, 60);
+  chainedEnd.set_duration_samples(44100); // 1 s
+  chain.onNoteEnd(chainedEnd, at);
+  REQUIRE(chainedEnd.note_number() == 72 && chainedEnd.channel() == 5);
+  REQUIRE(chain.durationAdjustMs() < -500); // the script's -50, and staccato's half length
+
+  // Shortened no further than 10 ms; a note Dorico sent shorter isn't
+  // lengthened.
+  auto shortener = load("return { on_note = function(note) note.length_delta_ms = -1000 end }");
+  fiddle::LuaAnnotator shortening(shortener);
+  auto shortNote = makeNote(3, 60);
+  at.currentTimeMs = 2000;
+  shortening.onNoteStart(shortNote, at);
+  at.currentTimeMs = 2100;
+  shortNote = makeNote(3, 60);
+  shortening.onNoteEnd(shortNote, at);
+  REQUIRE(shortening.durationAdjustMs() == -90);
+  shortNote = makeNote(4, 60);
+  shortening.onNoteStart(shortNote, at);
+  at.currentTimeMs = 2105;
+  shortNote = makeNote(4, 60);
+  shortening.onNoteEnd(shortNote, at);
+  REQUIRE(shortening.durationAdjustMs() == 0);
+
+  // A dropped note's note-off is dropped too, even if the script is
+  // bypassed in between; caps are at least 10 ms; timing is clamped.
+  auto dropper = load(R"lua(return { on_note = function(note)
+    if note.pitch == 61 then note.drop = true end
+    note.max_length_ms = 2
+    note.start_offset_ms = 9000
+  end })lua");
+  fiddle::LuaAnnotator dropping(dropper);
+  auto dropped = makeNote(5, 61);
+  dropping.onNoteStart(dropped, at);
+  REQUIRE(dropping.noteSuppressed());
+  dropper->setEnabled(false);
+  dropped = makeNote(5, 61);
+  dropping.onNoteEnd(dropped, at);
+  REQUIRE(dropping.noteSuppressed());
+  dropper->setEnabled(true);
+  auto capped = makeNote(6, 62);
+  dropping.onNoteStart(capped, at);
+  REQUIRE(!dropping.noteSuppressed() && dropping.scheduledNoteOffMs() == 10);
+  REQUIRE(dropping.noteStartOffsetMs() == fiddle::kLuaMaxStartOffsetMs);
+
+  // Mistakes are errors that name the field, and leave the note as it came.
+  for (const std::string body : {"note.velcity = 3", "local v = note.velcity", "note.id = 3",
+                                 "note.velocity = 'loud'", "note.drop = 1", "note.techniques = 'staccato'",
+                                 "note:cc(200, 1)", "note:cc(1, 2, 0, 'middle')", "note:cc(1, 2, 0/0)",
+                                 "note:cc(1, 2, math.huge)", "note.cc(11, 64, 10)", "local x = ctx.params.typo",
+                                 "ctx.params.step = 3", "note.pitch = nil"}) {
+    errors.clear();
+    auto wrong = load("return { params = { { name = 'step', type = 'int', min = 1, max = 4 } },"
+                      " on_note = function(note, ctx) note.velocity = 1; " + body + " end }");
+    fiddle::LuaAnnotator checking(wrong);
+    auto untouched = makeNote(7, 60);
+    checking.onNoteStart(untouched, at);
+    REQUIRE(untouched.start_velocity() == 90 && untouched.during_note_size() == 0);
+    REQUIRE(errors.size() == 1);
+  }
+  errors.clear();
+  REQUIRE(load("return { on_note = function(note) note.techniques = { 'staccato', '' } end }")
+              ->onNote(makeNote(8, 60), {})->techniques == std::set<std::string>{"pt.staccato"});
+  // drop may be cleared like any field; controllers keep the order sent.
+  const auto ordered = load(R"lua(return { on_note = function(note)
+    note.drop = nil
+    assert(not note.drop and note.max_length_ms == nil)
+    for i = 1, 20 do note:cc(i, i) end
+  end })lua")->onNote(makeNote(8, 60), {});
+  REQUIRE(ordered && !ordered->drop && ordered->controllers.size() == 20);
+  for (int i = 0; i < 20; ++i)
+    REQUIRE(ordered->controllers[static_cast<std::size_t>(i)].number == i + 1);
+  REQUIRE(errors.empty());
+
+  // on_cc changes or drops live controllers.
+  auto controllers = load(R"lua(return { on_cc = function(cc, ctx)
+    if cc.number == 64 then cc.drop = true end
+    if cc.number == 1 then cc.number = 11; cc.value = cc.value // 2; cc.channel = 3 end
+  end })lua");
+  fiddle::LuaAnnotator ccs(controllers);
+  int number = 1, value = 100, channel = 2;
+  REQUIRE(ccs.transformCC(number, value, channel, at) && number == 11 && value == 50 && channel == 3);
+  number = 64;
+  REQUIRE(!ccs.transformCC(number, value, channel, at));
+  number = 7, value = 90, channel = 2;
+  REQUIRE(ccs.transformCC(number, value, channel, at) && number == 7 && value == 90 && channel == 2);
+  // A mistake in on_cc leaves the controller as it came.
+  auto badCc = load("return { on_cc = function(cc) cc.number = 3; cc.value = 'x' end }");
+  fiddle::LuaAnnotator badCcs(badCc);
+  number = 1, value = 100, channel = 2;
+  errors.clear();
+  REQUIRE(badCcs.transformCC(number, value, channel, at) && number == 1 && value == 100);
+  REQUIRE(errors.size() == 1);
+  errors.clear();
+
+  // ctx: params, state (emptied by every reset), harmony, tempo and time.
+  auto counting = load(R"lua(return {
+    params = { { name = 'step', type = 'int', min = 1, max = 4, default = 2 } },
+    on_reset = function(ctx) assert(ctx.state.count == nil) ctx.state.count = 0 end,
+    on_note = function(note, ctx)
+      ctx.state.count = ctx.state.count + ctx.params.step
+      note.velocity = ctx.state.count
+      assert(ctx.harmony.chord_quality == "dom7" and ctx.harmony.bass_root == 7)
+      assert(ctx.tempo_bpm == 90 and ctx.time_ms == 2105)
+    end })lua");
+  fiddle::LuaContext context;
+  context.tempoBpm = 90;
+  context.timeMs = 2105;
+  context.tonalContext.chord_quality = 4;
+  context.tonalContext.bass_pitch_class = 7;
+  REQUIRE(counting->onNote(makeNote(9, 60), context)->velocity == 2);
+  REQUIRE(counting->onNote(makeNote(9, 60), context)->velocity == 4);
+  counting->setEnabled(false);
+  counting->reset(); // bypassed scripts start over too
+  counting->setEnabled(true);
+  REQUIRE(counting->onNote(makeNote(9, 60), context)->velocity == 2);
+  REQUIRE(errors.empty());
+
+  // A script loads again and again from its file (each run a fresh state).
+  Sandbox files;
+  const auto again = files.directory.getChildFile("again.lua");
+  REQUIRE(again.replaceWithText("return { params = { { name = 'v', type = 'int', min = 1, max = 127, default = 33 } },"
+                                " on_note = function(note, ctx) note.velocity = ctx.params.v end }"));
+  fiddle::LuaPlugin reloading(again.getFullPathName().toStdString());
+  reloading.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(reloading.load() && reloading.load() && reloading.reload());
+  REQUIRE(reloading.onNote(makeNote(10, 60), {})->velocity == 33);
+
+  // A script for the earlier API doesn't run, says why, and isn't offered.
+  fiddle::LuaPlugin old("old.lua");
+  old.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(!old.loadSaved("return { on_note_start = function(note, ctx) return note end }"));
+  REQUIRE(old.lastError().find("earlier script API") != std::string::npos);
+  Sandbox sandbox;
+  REQUIRE(sandbox.directory.getChildFile("old.lua").replaceWithText(
+      "return { on_note_start = function(note, ctx) return note end }"));
+  fiddle::LuaPluginCatalog catalog;
+  catalog.scanDirectory(sandbox.directory.getFullPathName().toStdString());
+  REQUIRE(catalog.plugins().empty());
+
+  // A version's copy for the earlier API: its card says why it doesn't run
+  // and, once the file is updated, offers it; Use new file keeps the values,
+  // and Undo brings the old copy back.
+  using Value = fiddle::LuaParamValue;
+  const auto file = sandbox.directory.getChildFile("migrate.lua");
+  REQUIRE(file.replaceWithText("return { params = { { name = 'amount', type = 'float', min = 0, max = 10, default = 2 } },"
+                               " on_note = function(note, ctx) end }"));
+  MixerFixture f;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  auto copy = std::make_shared<fiddle::LuaPlugin>(file.getFullPathName().toStdString());
+  copy->setLogCallback([](const std::string &, bool) {});
+  copy->setParamOverrides({{"amount", Value(7.0)}});
+  REQUIRE(!copy->loadSaved("return { params = { { name = 'amount', type = 'float', min = 0, max = 10, default = 2 } },"
+                           " on_note_start = function(note, ctx) return note end }"));
+  strip->addLuaPlugin(copy);
+  const auto card = strip->toJson()["luaPlugins"][0];
+  REQUIRE(!static_cast<bool>(card["loaded"]) && card["loadError"].toString().contains("earlier script API"));
+  REQUIRE(card["fileStatus"].toString() == "changed");
+  REQUIRE(f.undo.perform(std::make_unique<fiddle::UseLuaFileAction>(f.mixer, "migrate.lua")));
+  REQUIRE(strip->luaPlugins[0] != copy && strip->luaPlugins[0]->isLoaded());
+  REQUIRE(strip->luaPlugins[0]->paramValue("amount") == Value(7.0));
+  REQUIRE(!strip->toJson()["luaPlugins"][0].hasProperty("loadError"));
+  REQUIRE(f.undo.undo() && strip->luaPlugins[0] == copy);
+
+  // A version saved before copies were kept, whose file doesn't run: the
+  // file counts as unchanged (nothing new to offer) until it's edited.
+  fiddle::LuaPlugin legacy(sandbox.directory.getChildFile("old.lua").getFullPathName().toStdString());
+  legacy.setLogCallback([](const std::string &, bool) {});
+  REQUIRE(!legacy.load() && legacy.fileStatus() == fiddle::LuaPlugin::FileStatus::unchanged);
 }
 
 void testFrozenSaveCapturesEachPluginOnce() {
@@ -5174,12 +5435,13 @@ int main(int argc, char **argv) {
   run("UI bus removal and undo/redo", testBusRemovalThroughUiCommandsAndUndo);
   run("instrument program selection retains both states across undo", testProgramSelectionUndo);
   run("Lua history retains instances and missing restore placeholders", testLuaHistoryAndMissingRestore);
-  run("Lua parameters are typed, ordered, checked and in place before on_load", testLuaParameters);
+  run("Lua parameters are typed, ordered, checked and in place before on_reset", testLuaParameters);
   run("Lua parameter changes coalesce, reset and bypass with Undo", testLuaParamChangesAndUndo);
   run("Lua settings save with versions and carry over to a new file", testLuaSettingsSaved);
   run("Fiddle's own Lua scripts load and declare their parameters cleanly", testBundledLuaScripts);
   run("Lua layers play their saved copies until the new file is used", testLuaSavedCopies);
   run("Lua randomness repeats on every pass, per layer", testLuaRandomnessRepeatsEachPass);
+  run("Lua scripts change notes, controllers and timing through the checked API", testLuaScriptApi);
   run("instrument replacement undo preserves both edited states", testInstrumentReplacementStateUndo);
   run("batch library refresh preserves independent live, imported, pending and missing state", testLayerLibrarySetupUndo);
   run("FX add/remove cycles preserve edited and pending state on all racks", testFxStateUndo);

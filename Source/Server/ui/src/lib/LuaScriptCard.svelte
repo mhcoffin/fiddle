@@ -39,7 +39,7 @@
     </header>
     {#if description}<p class="description">{description}</p>{/if}
     {#if !plugin?.loaded}
-        <p class="lua-note">This script didn't load, so the layer plays without it.</p>
+        <p class="lua-note">This script didn't load, so the layer plays without it.{plugin?.loadError ? ` ${plugin.loadError}` : ""}</p>
     {/if}
     {#if plugin?.params?.length}
         <div class="controls">

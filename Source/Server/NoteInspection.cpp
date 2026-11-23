@@ -1,5 +1,7 @@
 #include "NoteInspection.h"
 
+#include <vector>
+
 namespace fiddle {
 
 std::set<std::string> collectInputTechniqueIds(const fiddle::Note &note) {
@@ -14,6 +16,29 @@ std::set<std::string> collectInputTechniqueIds(const fiddle::Note &note) {
       result.insert(std::move(id));
   }
   return result;
+}
+
+void setInputTechniqueIds(fiddle::Note &note, const std::set<std::string> &ids) {
+  const auto current = collectInputTechniqueIds(note);
+  auto &techniques = *note.mutable_notation_techniques();
+  auto &defaults = *note.mutable_notation_is_default();
+  std::vector<std::string> unwanted;
+  for (const auto &[dimension, display] : techniques) {
+    const auto defaultIt = defaults.find(dimension);
+    const bool isDefault = defaultIt != defaults.end() && defaultIt->second;
+    if (!isDefault && ids.count(techniqueIdFromDisplay(display)) == 0)
+      unwanted.push_back(dimension);
+  }
+  for (const auto &dimension : unwanted) {
+    techniques.erase(dimension);
+    defaults.erase(dimension);
+  }
+  for (const auto &id : ids) {
+    if (current.count(id) != 0)
+      continue;
+    techniques["script:" + id] = id;
+    defaults["script:" + id] = false;
+  }
 }
 
 LengthCategory inputLengthCategory(const fiddle::Note &note,

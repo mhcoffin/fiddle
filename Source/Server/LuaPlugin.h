@@ -8,6 +8,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -58,18 +59,42 @@ void parseLuaParams(const sol::table &pluginTable, LuaPluginMeta &meta);
 std::optional<LuaParamValue> validLuaParamValue(const LuaPluginMeta::Param &param,
                                                 const LuaParamValue &value);
 
-/// Context passed to Lua plugin callbacks. Populated by LuaAnnotator.
+/// What a script's callbacks are told about the moment (ctx in
+/// docs/lua-scripts.md). Populated by LuaAnnotator.
 struct LuaContext {
-  int stripChannel = 1;
-  double sampleRate = 44100.0;
-  double currentTimeMs = 0.0;
-  std::string instrumentFamily;
-  bool isSolo = true;
-
-  /// Tonal context for the note being processed.
-  /// Populated by MixerModel::routeAnnotatedNoteOn before the chain runs.
+  double timeMs = 0.0;     // Fiddle's clock: only differences mean anything
+  double tempoBpm = 120.0;
   TonalContext tonalContext;
 };
+
+/// What on_note did to a note, checked and clamped (docs/lua-scripts.md,
+/// "The note").
+struct LuaNoteChange {
+  bool drop = false;
+  int pitch = 60, velocity = 100, channel = 1;
+  double startOffsetMs = 0.0, lengthDeltaMs = 0.0;
+  double maxLengthMs = -1.0; // none
+  /// The note's techniques ("pt.staccato") when the script changed them.
+  std::optional<std::set<std::string>> techniques;
+  /// note:cc(), relative to the note's start or end.
+  struct Controller {
+    int number = 0, value = 0;
+    double offsetMs = 0.0;
+    bool atEnd = false;
+  };
+  std::vector<Controller> controllers;
+};
+
+/// What on_cc did to a controller.
+struct LuaControllerChange {
+  bool drop = false;
+  int number = 0, value = 0, channel = 1;
+};
+
+/// Limits on what a script asks of a note's timing (docs/lua-scripts.md).
+inline constexpr double kLuaMaxStartOffsetMs = 500.0;
+inline constexpr double kLuaMaxLengthDeltaMs = 10000.0;
+inline constexpr double kLuaMinNoteLengthMs = 10.0;
 
 /**
  * A single Lua plugin instance. Owns an isolated Lua VM (sol::state).
@@ -130,14 +155,15 @@ public:
   /// Plugin metadata (populated after load()).
   const LuaPluginMeta &meta() const { return meta_; }
 
-  /// Parameters (docs/lua-scripts.md). Fiddle owns their values: before
-  /// the script's on_load, plugin.config holds every declared parameter's
-  /// value, and later changes write only checked values.
+  /// Parameters (docs/lua-scripts.md). Fiddle owns their values: every
+  /// callback's ctx.params holds every declared parameter's value, and
+  /// changes write only checked values.
   ///
   /// The values the user set, by name; a parameter not listed has its
-  /// default. Set them before load()/loadSaved() so on_load sees them. When
-  /// the script loads, values that don't fit its declaration are dropped;
-  /// when it doesn't, they're kept as they are, so a later save keeps them.
+  /// default. Set them before load()/loadSaved() so the first on_reset sees
+  /// them. When the script loads, values that don't fit its declaration are
+  /// dropped; when it doesn't, they're kept as they are, so a later save
+  /// keeps them.
   void setParamOverrides(std::map<std::string, LuaParamValue> overrides);
   const std::map<std::string, LuaParamValue> &paramOverrides() const { return overrides_; }
 
@@ -173,19 +199,20 @@ public:
   /// Reset to defaults.
   void setParamValues(const std::map<std::string, LuaParamValue> &overrides);
 
-  /// Called for every note-on. Mutates the Note.
-  /// Returns false if the plugin wants to suppress the note.
-  bool onNoteStart(fiddle::Note &note, const LuaContext &ctx);
+  /// The script's on_note for a note as it arrives: what it changed, or
+  /// nullopt when it has no on_note or failed (the note is then left as it
+  /// came; the error is logged). Bypass is the caller's to check.
+  std::optional<LuaNoteChange> onNote(const fiddle::Note &note, const LuaContext &ctx);
 
-  /// Called on note-off. Mutates the Note.
-  bool onNoteEnd(fiddle::Note &note, const LuaContext &ctx);
+  /// The script's on_cc for a live controller (channel is 1-based): what it
+  /// changed, or nullopt when it has no on_cc or failed.
+  std::optional<LuaControllerChange> onCC(int number, int value, int channel,
+                                          const LuaContext &ctx);
 
-  /// Called for CC events. Returns true to forward, false to suppress.
-  bool onCC(int ccNumber, int ccValue, int channel, const LuaContext &ctx);
-
-  /// Reset plugin state when Dorico's transport starts: Fiddle reseeds the
-  /// script's random numbers (setSeed), then calls its on_reset, so every
-  /// pass plays the same (docs/lua-scripts.md).
+  /// Start the script over, as at a transport start: Fiddle reseeds its
+  /// random numbers (setSeed), empties ctx.state and calls its on_reset, so
+  /// every pass plays the same (docs/lua-scripts.md). Bypassed scripts too,
+  /// so turning one back on mid-pass finds it set up.
   void reset();
 
   /// The seed for math.random. The default, derived from the file name,
@@ -198,14 +225,6 @@ public:
 
   /// A stable 32-bit hash (FNV-1a) for seeds: the same on every run and Mac.
   static std::uint32_t seedFor(const std::string &text);
-
-  /// Duration adjustment (ms) from the last onNoteEnd call.
-  /// Negative = shorter, positive = longer.
-  double lastDurationAdjustMs() const { return lastDurationAdjustMs_; }
-
-  /// Scheduled note-off (ms after note-on) from the last onNoteStart call.
-  /// Returns -1.0 if not set.
-  double lastScheduledNoteOffMs() const { return lastScheduledNoteOffMs_; }
 
   /// Set a logging callback for plugin messages.
   void setLogCallback(std::function<void(const std::string &, bool)> cb) {
@@ -224,18 +243,20 @@ private:
   LuaPluginMeta meta_;
   std::map<std::string, LuaParamValue> overrides_;
   std::vector<std::string> paramNotes_;
-  double lastDurationAdjustMs_ = 0.0;
-  double lastScheduledNoteOffMs_ = -1.0;
 
   std::unique_ptr<sol::state> lua_;
   sol::table pluginTable_;
+  sol::table params_;      // the parameters' values
+  sol::object paramsView_; // ctx.params: params_, read only
+  sol::table state_;       // ctx.state: emptied by every reset()
+  // Fiddle's helpers in the script's state, out of its reach: the checked
+  // note, controller and parameter tables.
+  sol::protected_function makeNote_, makeController_, makeParams_;
 
   // Cached function references (avoid repeated lookup)
-  sol::optional<sol::protected_function> fnOnNoteStart_;
-  sol::optional<sol::protected_function> fnOnNoteEnd_;
+  sol::optional<sol::protected_function> fnOnNote_;
   sol::optional<sol::protected_function> fnOnCC_;
   sol::optional<sol::protected_function> fnOnReset_;
-  sol::optional<sol::protected_function> fnOnLoad_;
 
   std::function<void(const std::string &, bool)> logCallback_;
 
@@ -261,22 +282,14 @@ private:
   /// Set up the Lua environment (sandbox, print redirect, etc.)
   void setupEnvironment();
 
-  /// Register the Fiddle API types in the Lua state
-  void registerAPI();
+  /// Load Fiddle's helpers (makeNote_, makeController_).
+  bool registerAPI();
 
-  /// Convert a Note protobuf → Lua table
-  sol::table noteToLua(const fiddle::Note &note);
+  /// reseed, a fresh ctx.state, then on_reset. False when on_reset fails.
+  bool startOver();
 
-  /// Update a Note protobuf from a Lua table
-  void luaToNote(const sol::table &t, fiddle::Note &note);
-
-  /// Create a context table
+  /// ctx for a callback.
   sol::table contextToLua(const LuaContext &ctx);
-
-  /// Extract MidiInstructions from a Lua array
-  void extractInstructions(const sol::table &luaList,
-                           google::protobuf::RepeatedPtrField<
-                               fiddle::MidiInstruction> *target);
 };
 
 /// A layer's script as a saved version names it: its saved copy when the

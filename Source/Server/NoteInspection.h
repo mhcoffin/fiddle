@@ -12,6 +12,10 @@ namespace fiddle {
 /// Collect non-default playback techniques from an incoming structured note.
 std::set<std::string> collectInputTechniqueIds(const fiddle::Note &note);
 
+/// Make collectInputTechniqueIds(note) == ids: techniques not wanted are
+/// removed (defaults stay), and new ones added as chosen by a script.
+void setInputTechniqueIds(fiddle::Note &note, const std::set<std::string> &ids);
+
 /// Determine the note-length category supplied by Dorico, falling back to the
 /// current duration when a category was not supplied.
 LengthCategory inputLengthCategory(const fiddle::Note &note,

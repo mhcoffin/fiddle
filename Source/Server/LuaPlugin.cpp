@@ -1,5 +1,7 @@
 #include "LuaPlugin.h"
+#include "NoteInspection.h"
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -53,25 +55,100 @@ void LuaPlugin::setupEnvironment() {
   });
 }
 
-void LuaPlugin::registerAPI() {
-  // Register MidiInstruction type names as constants
-  auto &lua = *lua_;
-  lua["MIDI_CC"] = "cc";
-  lua["MIDI_KEY_SWITCH"] = "key_switch";
-  lua["MIDI_PROGRAM_CHANGE"] = "program_change";
-  lua["MIDI_PITCH_BEND"] = "pitch_bend";
-  lua["MIDI_CHANNEL_PRESSURE"] = "channel_pressure";
+namespace {
+// Fiddle's helpers, run in each script's state. The note and controller a
+// callback gets are proxies: reading or writing a field they don't have is
+// an error that names it, so a typo can't pass for a field nobody reads.
+constexpr const char *kPrelude = R"lua(
+local error, setmetatable, tostring, type = error, setmetatable, tostring, type
+local floor, huge = math.floor, math.huge
 
-  // Chord quality constants (match fiddle::hmm::ChordQuality enum values)
-  lua["CHORD_MAJ"]      = 0;
-  lua["CHORD_MIN"]      = 1;
-  lua["CHORD_DIM"]      = 2;
-  lua["CHORD_AUG"]      = 3;
-  lua["CHORD_DOM7"]     = 4;
-  lua["CHORD_MAJ7"]     = 5;
-  lua["CHORD_MIN7"]     = 6;
-  lua["CHORD_DIM7"]     = 7;
-  lua["CHORD_HALFDIM7"] = 8;
+local function proxy(kind, values, writable, readonly)
+  return setmetatable({}, {
+    __index = function(_, k)
+      local v = values[k]
+      if v ~= nil then return v end
+      v = readonly[k]
+      if v ~= nil then return v end
+      if writable[k] then return nil end
+      error(kind .. " has no field '" .. tostring(k) .. "'", 2)
+    end,
+    __newindex = function(_, k, v)
+      if writable[k] then values[k] = v return end
+      if readonly[k] ~= nil then error(kind .. "." .. tostring(k) .. " can't be changed", 2) end
+      error(kind .. " has no field '" .. tostring(k) .. "'", 2)
+    end,
+    __metatable = false,
+  })
+end
+
+local function check_midi(what, v)
+  if type(v) ~= "number" or v ~= floor(v) or v < 0 or v > 127 then
+    error(what .. " must be a whole number from 0 to 127", 3)
+  end
+end
+
+local NOTE = { pitch = true, velocity = true, channel = true, start_offset_ms = true,
+  length_delta_ms = true, max_length_ms = true, drop = true, techniques = true }
+
+local function make_note(values, readonly)
+  local controllers = {}
+  local note
+  readonly.cc = function(self, number, value, offset_ms, anchor)
+    if self ~= note then error("call note:cc(...) with a colon", 2) end
+    check_midi("note:cc's controller number", number)
+    check_midi("note:cc's value", value)
+    if offset_ms ~= nil and (type(offset_ms) ~= "number" or offset_ms ~= offset_ms
+                             or offset_ms == huge or offset_ms == -huge) then
+      error("note:cc's offset must be a number of milliseconds", 2)
+    end
+    if anchor ~= nil and anchor ~= "start" and anchor ~= "end" then
+      error("note:cc's anchor must be \"start\" or \"end\"", 2)
+    end
+    controllers[#controllers + 1] = { number, value, offset_ms or 0, anchor == "end" }
+  end
+  note = proxy("note", values, NOTE, readonly)
+  return note, controllers
+end
+
+local CONTROLLER = { number = true, value = true, channel = true, drop = true }
+
+local function make_controller(values)
+  return proxy("cc", values, CONTROLLER, {})
+end
+
+-- Read only: Fiddle sets the values (LuaPlugin::writeConfig).
+local function make_params(values)
+  return proxy("ctx.params", {}, {}, values)
+end
+
+return { note = make_note, controller = make_controller, params = make_params }
+)lua";
+
+// Chord qualities by TonalContext::chord_quality (hmm::ChordQuality).
+constexpr std::array<const char *, 9> kChordQualities = {
+    "maj", "min", "dim", "aug", "dom7", "maj7", "min7", "dim7", "hdim7"};
+
+// Scripts name techniques without Dorico's "pt." prefix.
+std::string techniqueName(const std::string &id) {
+  return id.rfind("pt.", 0) == 0 ? id.substr(3) : id;
+}
+std::string techniqueIdFromName(const std::string &name) {
+  return name.rfind("pt.", 0) == 0 ? name : "pt." + name;
+}
+} // namespace
+
+bool LuaPlugin::registerAPI() {
+  auto helpers = lua_->safe_script(kPrelude, sol::script_pass_on_error, "=fiddle");
+  if (!helpers.valid() || helpers.get_type() != sol::type::table) {
+    log("Fiddle's script helpers failed to load", true);
+    return false;
+  }
+  sol::table table = helpers;
+  makeNote_ = table["note"];
+  makeController_ = table["controller"];
+  makeParams_ = table["params"];
+  return true;
 }
 
 namespace {
@@ -108,7 +185,10 @@ bool LuaPlugin::load() {
   // A file that doesn't run isn't kept as the layer's copy: a later save
   // would otherwise store the broken text, and the fixed file would never be
   // read again. A saved copy (loadSaved) is kept even if it fails to run.
+  // The file counts as unchanged until it's edited: only then might it run.
   source_.clear();
+  checkedFileTime_ = fileTime(filePath_);
+  checkedStatus_ = FileStatus::unchanged;
   return false;
 }
 
@@ -146,9 +226,29 @@ bool LuaPlugin::run() {
   loaded_ = false;
   meta_.params.clear(); // until this source declares them
   meta_.paramErrors.clear();
+  // References into the old state go before it does.
+  fnOnNote_.reset();
+  fnOnCC_.reset();
+  fnOnReset_.reset();
+  makeNote_ = sol::lua_nil;
+  makeController_ = sol::lua_nil;
+  makeParams_ = sol::lua_nil;
+  paramsView_ = sol::object();
+  params_ = sol::lua_nil;
+  state_ = sol::lua_nil;
+  pluginTable_ = sol::lua_nil;
   lua_ = std::make_unique<sol::state>();
   setupEnvironment();
-  registerAPI();
+  if (!registerAPI())
+    return false;
+  params_ = lua_->create_table();
+  state_ = lua_->create_table();
+  {
+    auto view = makeParams_(params_);
+    if (!view.valid())
+      return false;
+    paramsView_ = view.get<sol::object>();
+  }
 
   // Random numbers repeat from run to run (docs/lua-scripts.md).
   reseed();
@@ -170,6 +270,17 @@ bool LuaPlugin::run() {
 
   pluginTable_ = result.get<sol::table>();
 
+  // A script written for the earlier API (on_note_start and friends) would
+  // run with its callbacks never called: say so instead.
+  for (const char *old : {"on_note_start", "on_note_end", "on_load"}) {
+    if (pluginTable_[old].get_type() == sol::type::function) {
+      log(std::filesystem::path(filePath_).filename().string() +
+              " was written for Fiddle's earlier script API (it uses " + old + ").",
+          true);
+      return false;
+    }
+  }
+
   // Extract metadata
   meta_.filePath = filePath_;
   meta_.name = pluginTable_.get_or<std::string>("name", "Unnamed Plugin");
@@ -181,8 +292,9 @@ bool LuaPlugin::run() {
   parseLuaParams(pluginTable_, meta_);
   for (const auto &error : meta_.paramErrors)
     log("[" + meta_.name + "] " + error, true);
-  // The user's values reach plugin.config before on_load; overrides_ itself
-  // changes only once the script has loaded, so a failure keeps it intact.
+  // The user's values reach ctx.params before the first on_reset;
+  // overrides_ itself changes only once the script has loaded, so a failure
+  // keeps it intact.
   std::vector<std::string> dropped;
   auto checked = checkedOverrides(dropped);
   for (const auto &param : meta_.params) {
@@ -198,25 +310,16 @@ bool LuaPlugin::run() {
       return obj.as<sol::protected_function>();
     return sol::nullopt;
   };
-  fnOnNoteStart_ = cacheFunction("on_note_start");
-  fnOnNoteEnd_ = cacheFunction("on_note_end");
+  fnOnNote_ = cacheFunction("on_note");
   fnOnCC_ = cacheFunction("on_cc");
   fnOnReset_ = cacheFunction("on_reset");
-  fnOnLoad_ = cacheFunction("on_load");
 
-  // Call on_load if present (with a stub context for now)
-  if (fnOnLoad_) {
-    sol::table ctx = lua_->create_table();
-    ctx["sample_rate"] = 44100.0;
-    auto callResult = (*fnOnLoad_)(ctx);
-    if (!callResult.valid()) {
-      sol::error err = callResult;
-      log("on_load error: " + std::string(err.what()), true);
-      loaded_ = false;
-      meta_.params.clear();
-      meta_.paramErrors.clear();
-      return false;
-    }
+  // The script starts as every pass will.
+  if (!startOver()) {
+    loaded_ = false;
+    meta_.params.clear();
+    meta_.paramErrors.clear();
+    return false;
   }
 
   overrides_ = std::move(checked);
@@ -281,16 +384,12 @@ void LuaPlugin::setParamValues(const std::map<std::string, LuaParamValue> &overr
 void LuaPlugin::writeConfig(const std::string &name, const LuaParamValue &value) {
   if (!lua_)
     return;
-  sol::optional<sol::table> existing = pluginTable_["config"];
-  sol::table config = existing ? *existing : lua_->create_table();
-  if (!existing)
-    pluginTable_["config"] = config;
   std::visit([&](const auto &v) {
     using T = std::decay_t<decltype(v)>;
     if constexpr (std::is_same_v<T, std::int64_t>)
-      config[name] = static_cast<lua_Integer>(v);
+      params_[name] = static_cast<lua_Integer>(v);
     else
-      config[name] = v;
+      params_[name] = v;
   }, value);
 }
 
@@ -567,305 +666,197 @@ std::optional<LuaParamValue> validLuaParamValue(const LuaPluginMeta::Param &para
   return std::nullopt;
 }
 
-sol::table LuaPlugin::noteToLua(const fiddle::Note &note) {
-  auto &lua = *lua_;
-  sol::table t = lua.create_table();
-
-  t["id"] = note.id();
-  t["note_number"] = (int)note.note_number();
-  t["channel"] = (int)note.channel();
-  t["velocity"] = (int)note.start_velocity();
-  t["port"] = (int)note.port();
-  t["duration_samples"] = note.duration_samples();
-
-  // Dynamics mode
-  t["dynamics_mode"] =
-      (note.dynamics_mode() == fiddle::Note::CC) ? "cc" : "velocity";
-
-  // Techniques map
-  sol::table techs = lua.create_table();
-  for (const auto &[dim, display] : note.notation_techniques())
-    techs[dim] = display;
-  t["techniques"] = techs;
-
-  // Dimensions map
-  sol::table dims = lua.create_table();
-  for (const auto &[dim, val] : note.notation_dimensions())
-    dims[dim] = val;
-  t["dimensions"] = dims;
-
-  // CC automation
-  sol::table ccAuto = lua.create_table();
-  for (const auto &[ccNum, lane] : note.cc_automation()) {
-    sol::table points = lua.create_table();
-    for (int i = 0; i < lane.points_size(); ++i) {
-      sol::table pt = lua.create_table();
-      pt["offset"] = lane.points(i).offset_samples();
-      pt["value"] = (int)lane.points(i).value();
-      points[i + 1] = pt; // 1-indexed for Lua
-    }
-    ccAuto[(int)ccNum] = points;
-  }
-  t["cc_automation"] = ccAuto;
-
-  // Output instruction lists (start empty, plugins add to them)
-  t["pre_note"] = lua.create_table();
-  t["during_note"] = lua.create_table();
-  t["post_note"] = lua.create_table();
-
-  // Copy any existing instructions (from earlier plugins in the chain)
-  for (const auto &instr : note.pre_note()) {
-    sol::table entry = lua.create_table();
-    switch (instr.type()) {
-    case fiddle::MidiInstruction::CC:
-      entry["type"] = "cc";
-      break;
-    case fiddle::MidiInstruction::KEY_SWITCH:
-      entry["type"] = "key_switch";
-      break;
-    case fiddle::MidiInstruction::PROGRAM_CHANGE:
-      entry["type"] = "program_change";
-      break;
-    case fiddle::MidiInstruction::PITCH_BEND:
-      entry["type"] = "pitch_bend";
-      break;
-    case fiddle::MidiInstruction::CHANNEL_PRESSURE:
-      entry["type"] = "channel_pressure";
-      break;
-    case fiddle::MidiInstruction::NOTE_ON:
-      entry["type"] = "note_on";
-      break;
-    case fiddle::MidiInstruction::NOTE_OFF:
-      entry["type"] = "note_off";
-      break;
-    default:
-      break;
-    }
-    entry["param1"] = instr.param1();
-    entry["param2"] = instr.param2();
-    entry["delay_ms"] = instr.delay_ms();
-    if (instr.channel() > 0)
-      entry["channel"] = instr.channel();
-    t.get<sol::table>("pre_note").add(entry);
-  }
-
-  return t;
-}
-
-void LuaPlugin::luaToNote(const sol::table &t, fiddle::Note &note) {
-  // Read back mutable fields
-  sol::optional<int> noteNum = t["note_number"];
-  if (noteNum)
-    note.set_note_number(std::clamp(*noteNum, 0, 127));
-
-  sol::optional<int> vel = t["velocity"];
-  if (vel)
-    note.set_start_velocity(std::clamp(*vel, 1, 127));
-
-  sol::optional<int> channel = t["channel"];
-  if (channel)
-    note.set_channel(*channel);
-
-  sol::optional<uint64_t> durSamples = t["duration_samples"];
-  if (durSamples)
-    note.set_duration_samples(*durSamples);
-
-  // Read back MIDI instructions
-  sol::optional<sol::table> preNote = t["pre_note"];
-  if (preNote) {
-    note.clear_pre_note();
-    extractInstructions(*preNote, note.mutable_pre_note());
-  }
-
-  sol::optional<sol::table> duringNote = t["during_note"];
-  if (duringNote) {
-    note.clear_during_note();
-    extractInstructions(*duringNote, note.mutable_during_note());
-  }
-
-  sol::optional<sol::table> postNote = t["post_note"];
-  if (postNote) {
-    note.clear_post_note();
-    extractInstructions(*postNote, note.mutable_post_note());
-  }
-
-  // Read back CC automation changes
-  sol::optional<sol::table> ccAuto = t["cc_automation"];
-  if (ccAuto) {
-    note.clear_cc_automation();
-    for (auto &kv : *ccAuto) {
-      if (kv.first.get_type() == sol::type::number &&
-          kv.second.get_type() == sol::type::table) {
-        int ccNum = kv.first.as<int>();
-        sol::table points = kv.second.as<sol::table>();
-        auto &lane = (*note.mutable_cc_automation())[ccNum];
-        for (auto &ptKv : points) {
-          if (ptKv.second.get_type() == sol::type::table) {
-            sol::table pt = ptKv.second.as<sol::table>();
-            auto *point = lane.add_points();
-            point->set_offset_samples(pt.get_or("offset", uint64_t{0}));
-            point->set_value(pt.get_or("value", uint32_t{0}));
-          }
-        }
-      }
-    }
-  }
-}
-
 sol::table LuaPlugin::contextToLua(const LuaContext &ctx) {
   auto &lua = *lua_;
   sol::table t = lua.create_table();
-  t["strip_channel"] = ctx.stripChannel;
-  t["sample_rate"] = ctx.sampleRate;
-  t["current_time_ms"] = ctx.currentTimeMs;
-  t["instrument_family"] = ctx.instrumentFamily;
-  t["is_solo"] = ctx.isSolo;
-
-  // Tonal context — populated by TonalCenterClassifier before the chain runs.
-  // Lua API:
-  //   ctx.tonal_context.key_root      -- int 0–11 (0=C)
-  //   ctx.tonal_context.is_minor      -- bool
-  //   ctx.tonal_context.confidence    -- float (Pearson r, 0–1)
-  //   ctx.tonal_context.is_diatonic   -- bool
-  //   ctx.tonal_context.scale_degree  -- int 1–7 (0 if chromatic)
-  {
-    sol::table tc = lua.create_table();
-    tc["key_root"]     = ctx.tonalContext.current_key_root;
-    tc["is_minor"]     = ctx.tonalContext.is_minor;
-    tc["confidence"]   = ctx.tonalContext.confidence;
-    tc["is_diatonic"]  = ctx.tonalContext.is_diatonic;
-    tc["scale_degree"] = ctx.tonalContext.scale_degree;
-    tc["chord_root"]   = ctx.tonalContext.chord_root;
-    tc["chord_quality"] = ctx.tonalContext.chord_quality;
-    tc["bass_pc"]      = ctx.tonalContext.bass_pitch_class;
-    t["tonal_context"] = tc;
-  }
-
-  // Per-instance state table (persists across calls)
-  sol::optional<sol::table> existingState = pluginTable_["_state"];
-  if (!existingState) {
-    pluginTable_["_state"] = lua.create_table();
-  }
-  t["state"] = pluginTable_["_state"];
-
+  t["params"] = paramsView_;
+  t["state"] = state_;
+  t["time_ms"] = ctx.timeMs;
+  t["tempo_bpm"] = ctx.tempoBpm;
+  const auto &tonal = ctx.tonalContext;
+  sol::table harmony = lua.create_table();
+  harmony["key_root"] = tonal.current_key_root;
+  harmony["is_minor"] = tonal.is_minor;
+  harmony["confidence"] = tonal.confidence;
+  harmony["is_diatonic"] = tonal.is_diatonic;
+  harmony["scale_degree"] = tonal.scale_degree;
+  harmony["chord_root"] = tonal.chord_root;
+  harmony["chord_quality"] =
+      tonal.chord_quality >= 0 && tonal.chord_quality < static_cast<int>(kChordQualities.size())
+          ? kChordQualities[static_cast<size_t>(tonal.chord_quality)]
+          : "maj";
+  harmony["bass_root"] = tonal.bass_pitch_class;
+  t["harmony"] = harmony;
   return t;
 }
 
-void LuaPlugin::extractInstructions(
-    const sol::table &luaList,
-    google::protobuf::RepeatedPtrField<fiddle::MidiInstruction> *target) {
-  if (!target)
-    return;
-  for (auto &kv : luaList) {
-    if (kv.second.get_type() != sol::type::table)
-      continue;
-    sol::table entry = kv.second.as<sol::table>();
-    auto *instr = target->Add();
-
-    std::string type = entry.get_or<std::string>("type", "cc");
-    if (type == "cc")
-      instr->set_type(fiddle::MidiInstruction::CC);
-    else if (type == "key_switch")
-      instr->set_type(fiddle::MidiInstruction::KEY_SWITCH);
-    else if (type == "program_change")
-      instr->set_type(fiddle::MidiInstruction::PROGRAM_CHANGE);
-    else if (type == "pitch_bend")
-      instr->set_type(fiddle::MidiInstruction::PITCH_BEND);
-    else if (type == "channel_pressure")
-      instr->set_type(fiddle::MidiInstruction::CHANNEL_PRESSURE);
-
-    instr->set_param1(entry.get_or("param1", int{0}));
-    instr->set_param2(entry.get_or("param2", int{0}));
-    instr->set_delay_ms(entry.get_or("delay_ms", int{0}));
-    instr->set_channel(entry.get_or("channel", int{0}));
-  }
-}
-
-bool LuaPlugin::onNoteStart(fiddle::Note &note, const LuaContext &ctx) {
-  lastScheduledNoteOffMs_ = -1.0; // reset each note
-  if (!loaded_ || !isEnabled() || !fnOnNoteStart_)
-    return true;
-
-  sol::table luaNote = noteToLua(note);
-  sol::table luaCtx = contextToLua(ctx);
-
-  auto result = (*fnOnNoteStart_)(luaNote, luaCtx);
-  if (!result.valid()) {
-    sol::error err = result;
-    log("on_note_start error: " + std::string(err.what()), true);
-    return true; // don't suppress on error
-  }
-
-  // If the plugin returned nil, suppress the note
-  sol::object retval = result.get<sol::object>();
-  if (retval.get_type() == sol::type::lua_nil)
+namespace {
+// Reads what a script left in a field, checked. On a problem, describe it in
+// problem and leave out untouched.
+bool readNumber(const sol::table &values, const char *key, double &out, std::string &problem,
+                const char *kind) {
+  const sol::object value = values[key];
+  if (value.get_type() != sol::type::number || !std::isfinite(value.as<double>())) {
+    problem = std::string(kind) + "." + key + " must be a number";
     return false;
-
-  // Read back the note table (returned or mutated in-place)
-  sol::table resultTable = (retval.get_type() == sol::type::table)
-                               ? retval.as<sol::table>()
-                               : luaNote;
-  luaToNote(resultTable, note);
-
-  // Read back schedule_note_off_ms if set by the plugin
-  sol::optional<double> noteOffMs = resultTable["schedule_note_off_ms"];
-  if (noteOffMs && *noteOffMs > 0)
-    lastScheduledNoteOffMs_ = *noteOffMs;
-
+  }
+  out = value.as<double>();
   return true;
 }
-
-bool LuaPlugin::onNoteEnd(fiddle::Note &note, const LuaContext &ctx) {
-  lastDurationAdjustMs_ = 0.0; // reset each note
-  if (!loaded_ || !isEnabled() || !fnOnNoteEnd_)
-    return true;
-
-  sol::table luaNote = noteToLua(note);
-  sol::table luaCtx = contextToLua(ctx);
-
-  auto result = (*fnOnNoteEnd_)(luaNote, luaCtx);
-  if (!result.valid()) {
-    sol::error err = result;
-    log("on_note_end error: " + std::string(err.what()), true);
-    return true;
-  }
-
-  sol::object retval = result.get<sol::object>();
-  if (retval.get_type() == sol::type::lua_nil)
+bool readWhole(const sol::table &values, const char *key, int lo, int hi, int &out,
+               std::string &problem, const char *kind) {
+  double number = 0;
+  if (!readNumber(values, key, number, problem, kind))
     return false;
-
-  // Read back the note table (returned or mutated in-place)
-  sol::table resultTable = (retval.get_type() == sol::type::table)
-                               ? retval.as<sol::table>()
-                               : luaNote;
-  luaToNote(resultTable, note);
-
-  // Read back duration_adjust_ms if set by the plugin
-  sol::optional<double> durAdjust = resultTable["duration_adjust_ms"];
-  if (durAdjust)
-    lastDurationAdjustMs_ = *durAdjust;
-
+  out = static_cast<int>(std::clamp(std::round(number), double(lo), double(hi)));
   return true;
 }
-
-bool LuaPlugin::onCC(int ccNumber, int ccValue, int channel,
-                     const LuaContext &ctx) {
-  if (!loaded_ || !isEnabled() || !fnOnCC_)
-    return true;
-
-  sol::table luaCtx = contextToLua(ctx);
-  auto result = (*fnOnCC_)(ccNumber, ccValue, channel, luaCtx);
-  if (!result.valid()) {
-    sol::error err = result;
-    log("on_cc error: " + std::string(err.what()), true);
+bool readFlag(const sol::table &values, const char *key, bool &out, std::string &problem,
+              const char *kind) {
+  const sol::object value = values[key];
+  if (value.get_type() == sol::type::lua_nil) {
+    out = false;
     return true;
   }
+  if (value.get_type() != sol::type::boolean) {
+    problem = std::string(kind) + "." + key + " must be true or false";
+    return false;
+  }
+  out = value.as<bool>();
+  return true;
+}
+} // namespace
 
-  sol::object retval = result.get<sol::object>();
-  if (retval.get_type() == sol::type::boolean)
-    return retval.as<bool>();
+std::optional<LuaNoteChange> LuaPlugin::onNote(const fiddle::Note &note, const LuaContext &ctx) {
+  if (!loaded_ || !fnOnNote_)
+    return std::nullopt;
+  auto &lua = *lua_;
 
-  return true; // default: forward
+  sol::table values = lua.create_table();
+  values["pitch"] = static_cast<int>(note.note_number());
+  values["velocity"] = static_cast<int>(note.start_velocity());
+  values["channel"] = static_cast<int>(note.channel());
+  values["start_offset_ms"] = 0.0;
+  values["length_delta_ms"] = 0.0;
+  values["drop"] = false;
+  // The techniques the expression map will choose from.
+  const auto before = collectInputTechniqueIds(note);
+  sol::table techniques = lua.create_table();
+  for (const auto &id : before)
+    techniques[techniqueName(id)] = true;
+  values["techniques"] = techniques;
+
+  sol::table readonly = lua.create_table();
+  readonly["id"] = static_cast<lua_Integer>(note.id());
+  readonly["beat"] = static_cast<int>(note.beat_prominence());
+  sol::table dimensions = lua.create_table();
+  for (const auto &[dimension, value] : note.notation_dimensions())
+    dimensions[dimension] = value;
+  readonly["dimensions"] = dimensions;
+
+  auto made = makeNote_(values, readonly);
+  if (!made.valid()) {
+    sol::error err = made;
+    log("[" + meta_.name + "] " + err.what(), true);
+    return std::nullopt;
+  }
+  sol::object proxy = made.get<sol::object>(0);
+  sol::table controllers = made.get<sol::table>(1);
+
+  auto result = (*fnOnNote_)(proxy, contextToLua(ctx));
+  if (!result.valid()) {
+    sol::error err = result;
+    log("[" + meta_.name + "] on_note: " + err.what(), true);
+    return std::nullopt;
+  }
+
+  // Everything is checked before anything is used: a note is changed
+  // completely or not at all.
+  LuaNoteChange change;
+  std::string problem;
+  double maxLength = 0;
+  const sol::object cap = values["max_length_ms"];
+  const sol::object chosen = values["techniques"];
+  const bool ok =
+      readFlag(values, "drop", change.drop, problem, "note") &&
+      readWhole(values, "pitch", 0, 127, change.pitch, problem, "note") &&
+      readWhole(values, "velocity", 1, 127, change.velocity, problem, "note") &&
+      readWhole(values, "channel", 1, 16, change.channel, problem, "note") &&
+      readNumber(values, "start_offset_ms", change.startOffsetMs, problem, "note") &&
+      readNumber(values, "length_delta_ms", change.lengthDeltaMs, problem, "note") &&
+      (cap.get_type() == sol::type::lua_nil ||
+       readNumber(values, "max_length_ms", maxLength, problem, "note")) &&
+      (chosen.get_type() == sol::type::table ||
+       (problem = "note.techniques must be a table, like { staccato = true }", false));
+  if (!ok) {
+    log("[" + meta_.name + "] on_note: " + problem, true);
+    return std::nullopt;
+  }
+  change.startOffsetMs = std::clamp(change.startOffsetMs, -kLuaMaxStartOffsetMs, kLuaMaxStartOffsetMs);
+  change.lengthDeltaMs = std::clamp(change.lengthDeltaMs, -kLuaMaxLengthDeltaMs, kLuaMaxLengthDeltaMs);
+  if (cap.get_type() != sol::type::lua_nil)
+    change.maxLengthMs = std::max(maxLength, kLuaMinNoteLengthMs);
+
+  // A set ({ staccato = true }) or a list ({ "staccato" }); no empty names.
+  std::set<std::string> after;
+  const auto choose = [&](const std::string &name) {
+    if (!name.empty() && name != "pt.")
+      after.insert(techniqueIdFromName(name));
+  };
+  for (const auto &[key, value] : chosen.as<sol::table>()) {
+    if (key.get_type() == sol::type::string && value.get_type() != sol::type::lua_nil &&
+        !(value.get_type() == sol::type::boolean && !value.as<bool>()))
+      choose(key.as<std::string>());
+    else if (key.get_type() == sol::type::number && value.get_type() == sol::type::string)
+      choose(value.as<std::string>());
+  }
+  if (after != before)
+    change.techniques = std::move(after);
+
+  // In the order the script sent them.
+  for (std::size_t i = 1, n = controllers.size(); i <= n; ++i) {
+    const sol::table t = controllers[i];
+    const double offset = t.get<double>(3);
+    change.controllers.push_back({t.get<int>(1), t.get<int>(2),
+                                  std::isfinite(offset)
+                                      ? std::clamp(offset, -kLuaMaxLengthDeltaMs, kLuaMaxLengthDeltaMs)
+                                      : 0.0,
+                                  t.get<bool>(4)});
+  }
+  return change;
+}
+
+std::optional<LuaControllerChange> LuaPlugin::onCC(int number, int value, int channel,
+                                                   const LuaContext &ctx) {
+  if (!loaded_ || !fnOnCC_)
+    return std::nullopt;
+  sol::table values = lua_->create_table();
+  values["number"] = number;
+  values["value"] = value;
+  values["channel"] = channel;
+  values["drop"] = false;
+  auto made = makeController_(values);
+  if (!made.valid()) {
+    sol::error err = made;
+    log("[" + meta_.name + "] " + err.what(), true);
+    return std::nullopt;
+  }
+  auto result = (*fnOnCC_)(made.get<sol::object>(), contextToLua(ctx));
+  if (!result.valid()) {
+    sol::error err = result;
+    log("[" + meta_.name + "] on_cc: " + err.what(), true);
+    return std::nullopt;
+  }
+  LuaControllerChange change;
+  std::string problem;
+  if (!(readFlag(values, "drop", change.drop, problem, "cc") &&
+        readWhole(values, "number", 0, 127, change.number, problem, "cc") &&
+        readWhole(values, "value", 0, 127, change.value, problem, "cc") &&
+        readWhole(values, "channel", 1, 16, change.channel, problem, "cc"))) {
+    log("[" + meta_.name + "] on_cc: " + problem, true);
+    return std::nullopt;
+  }
+  return change;
 }
 
 std::uint32_t LuaPlugin::seedFor(const std::string &text) {
@@ -895,17 +886,25 @@ void LuaPlugin::setSeed(std::uint32_t seed) {
 }
 
 void LuaPlugin::reset() {
-  if (!loaded_)
-    return;
-  reseed();
-  if (!isEnabled() || !fnOnReset_)
-    return;
+  if (loaded_)
+    (void)startOver();
+}
 
-  auto result = (*fnOnReset_)();
+bool LuaPlugin::startOver() {
+  reseed();
+  state_ = lua_->create_table();
+  if (!fnOnReset_)
+    return true;
+  sol::table ctx = lua_->create_table();
+  ctx["params"] = paramsView_;
+  ctx["state"] = state_;
+  auto result = (*fnOnReset_)(ctx);
   if (!result.valid()) {
     sol::error err = result;
-    log("on_reset error: " + std::string(err.what()), true);
+    log("[" + meta_.name + "] on_reset: " + err.what(), true);
+    return false;
   }
+  return true;
 }
 
 std::shared_ptr<LuaPlugin> restoreLuaPlugin(const std::string &fileName,
@@ -998,6 +997,15 @@ bool LuaPluginCatalog::probePlugin(const std::string &filePath,
   }
 
   sol::table pluginTable = result.get<sol::table>();
+  // A script for the earlier API wouldn't run (LuaPlugin::run), so it isn't
+  // offered.
+  for (const char *old : {"on_note_start", "on_note_end", "on_load"}) {
+    if (pluginTable[old].get_type() == sol::type::function) {
+      std::cerr << "[LuaPluginCatalog] " << filePath << " uses the earlier script API ("
+                << old << "); not listed" << std::endl;
+      return false;
+    }
+  }
   meta.filePath = filePath;
   meta.name = pluginTable.get_or<std::string>("name", "Unnamed Plugin");
   meta.version = pluginTable.get_or<std::string>("version", "0.0");

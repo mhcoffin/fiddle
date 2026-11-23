@@ -6,6 +6,102 @@ map. Scripts are files: Fiddle's own ship in the app bundle
 `~/Library/Application Support/Fiddle/plugins`. Layer details lists the scripts
 Fiddle found under **Add Lua processor…**.
 
+## Writing a script
+
+A script is a Lua file that returns a table: its name, its parameters, and
+up to three functions, all optional.
+
+```lua
+local plugin = {
+  name = "Humanize", version = "2.0", author = "Fiddle",
+  description = "Adds small random changes to each note's velocity, timing and length.",
+  params = { ... },                      -- see Parameters
+}
+
+function plugin.on_note(note, ctx) ... end  -- each note, as it starts
+function plugin.on_cc(cc, ctx) ... end      -- each live controller
+function plugin.on_reset(ctx) ... end       -- after loading, and at every playback start
+
+return plugin
+```
+
+A function changes what it's given; nothing needs returning. Fiddle checks
+everything a function leaves before using any of it: a field the note doesn't
+have (`note.velcity`), a field that can't be changed, or a value of the wrong
+kind is an error that names it, and the note goes on as it came. Errors go to
+the log.
+
+### The note
+
+`on_note` runs once for each note, as it starts (`LuaPlugin::onNote`).
+Fiddle hears Dorico live, so a note's length isn't known yet: scripts say how
+a note should end instead, and Fiddle applies that at its note-off
+(`LuaAnnotator`). The note-off always goes to the pitch and channel the
+note-on used, and a dropped note's note-off is dropped too.
+
+| Field | |
+|---|---|
+| `pitch` | 0–127 |
+| `velocity` | 1–127; Fiddle clamps what the script leaves |
+| `channel` | 1–16 |
+| `start_offset_ms` | moves the note, and its end with it: negative is earlier. At most 500 ms either way, within the playback delay |
+| `length_delta_ms` | makes the note longer or shorter. Fiddle never shortens a note below 10 ms |
+| `max_length_ms` | the longest the note lasts (at least 10). Fiddle ends a longer note then, and Dorico's later note-off sends nothing more |
+| `drop` | `true` drops the note |
+| `techniques` | the playing techniques the expression map chooses from, as a set: `note.techniques.staccato`. Change it to choose another articulation (`note.techniques.legato = nil`); a list (`{ "staccato" }`) works too. Defaults the note had stay |
+| `id`, `beat`, `dimensions` | read only: Dorico's note id, how strong its beat is (0 downbeat … 3 off-beat), and Dorico's raw notation values |
+| `note:cc(number, value, offset_ms, anchor)` | sends a controller with the note: `offset_ms` (default 0) from its start, or from its end with `anchor` `"end"` |
+
+When a layer has several scripts, each sees the note as the one before left
+it: start offsets and length changes add up, and the shortest
+`max_length_ms` wins.
+
+### Controllers
+
+`on_cc` sees each live controller on the layer's channel, before the
+expression map does: `cc.number`, `cc.value` (0–127) and `cc.channel`
+(1–16) can be changed, and `cc.drop = true` drops it.
+
+### ctx
+
+| Field | |
+|---|---|
+| `ctx.params` | the parameters' values (see Parameters), read only: a name the script doesn't declare is an error |
+| `ctx.state` | a table for the script's own use. Fiddle empties it before every `on_reset`, so each pass starts the same |
+| `ctx.harmony` | Fiddle's harmonic analysis: `key_root` (0–11, 0 is C), `is_minor`, `confidence`, `chord_root`, `chord_quality` (`"maj"`, `"min"`, `"dim"`, `"aug"`, `"dom7"`, `"maj7"`, `"min7"`, `"dim7"`, `"hdim7"`), `bass_root`, and for a note `is_diatonic` and `scale_degree` (1–7, 0 if chromatic) |
+| `ctx.tempo_bpm` | Dorico's tempo |
+| `ctx.time_ms` | when, on Fiddle's clock: only differences mean anything |
+
+`on_reset` gets only `params` and `state`. It runs after the script loads
+and at every playback start, bypassed or not, so a script turned back on
+mid-pass finds itself set up.
+
+### Examples
+
+```lua
+-- Never longer than 80 ms; shorter notes stay as they are.
+function plugin.on_note(note, ctx)
+  note.max_length_ms = 80
+end
+
+-- Accent the downbeats: louder, and marcato.
+function plugin.on_note(note, ctx)
+  if note.beat == 0 then
+    note.velocity = note.velocity + 12
+    note.techniques.marcato = true
+  end
+end
+```
+
+### Scripts for the earlier API
+
+Scripts written for Fiddle's earlier API had `on_note_start`, `on_note_end`
+and `on_load`. Such a script doesn't run: the layer plays without it, its card says
+why, and it isn't offered under **Add Lua processor…**. When a version's copy
+is one of these and the file has been updated (Fiddle's own scripts were),
+**Use new file** on the card switches to the file and keeps the parameter
+values.
+
 ## A version keeps its own copy
 
 A file can change after a project is saved: the user edits it, or a Fiddle
@@ -52,10 +148,10 @@ the sequence starts at the first note played.
 
 A script first runs with a seed from its file name. Joining a layer switches
 it to the layer's seed, followed by `on_reset` as at a transport start, so
-randomness drawn at load time (the script's top level or `on_load`) is the
-same on every layer. humanize.lua's **Variation** (its `seed` parameter),
-when not Auto (0), replaces Fiddle's seed in `on_load` and `on_reset`, so a
-new Variation plays from the next playback start.
+randomness drawn at load time (the script's top level or its first
+`on_reset`) is the same on every layer. humanize.lua's **Variation** (its
+`seed` parameter), when not Auto (0), replaces Fiddle's seed in `on_reset`,
+so a new Variation plays from the next playback start.
 
 ## Parameters
 
@@ -86,9 +182,9 @@ params = {
 - A parameter with a mistake (no range, a default outside it, a repeated name,
   an unknown type, no options) is skipped, and the problem is logged.
 
-After the script's top-level code runs, and before its `on_load`, Fiddle
-fills `plugin.config` with every parameter's value, so a script reads
-`plugin.config.timing_range_ms` without a fallback. Fiddle only ever writes a
+After the script's top-level code runs, and before its first `on_reset`,
+Fiddle fills `ctx.params` with every parameter's value, so a script reads
+`ctx.params.timing_range_ms` without a fallback. Fiddle only ever writes a
 checked value there (`validLuaParamValue`): numbers are clamped to the range
 and ints rounded, a bool must be true or false, and an enum must be one of
 its options. A value the user set is kept only while it differs from the
@@ -114,7 +210,7 @@ next to its saved copy. The text is canonical: values sorted by name, a
 float as the 16 hex digits of its bits, so the same settings always hash the
 same. A script enabled on its defaults saves nothing, so versions without
 settings keep their hashes. Restoring applies the settings before the script
-loads, so `on_load` sees them. A value that doesn't fit the script any more
+loads, so its first `on_reset` sees them. A value that doesn't fit the script any more
 is dropped, and the script's row says so (`paramNotes`). A script that
 doesn't load keeps its saved text exactly, so a later save doesn't lose it.
 
@@ -152,4 +248,5 @@ number field, showing `zero_label` for 0 and, with `randomize = true`, a
 or a menu beyond four. A blue dot marks a changed value; clicking it resets
 that one, and **Reset to defaults** resets them all. The card also shows the
 script's declaration mistakes, values that didn't carry over, and its file
-status with **Use new file**.
+status with **Use new file**. A script that didn't load says why
+(`loadError` in the mixer JSON).
