@@ -79,6 +79,18 @@ public:
   /// Populate note.post_note() with cleanup MIDI if needed.
   virtual void onNoteEnd(fiddle::Note &note, const AnnotatorContext &ctx) = 0;
 
+  /// Change or drop a live controller before onCC() and the rest of the
+  /// chain see it (a layer's scripts, docs/lua-scripts.md). channel is the
+  /// 1-based output channel. Return false to drop the controller.
+  virtual bool transformCC(int &number, int &value, int &channel,
+                           const AnnotatorContext &ctx) {
+    (void)number;
+    (void)value;
+    (void)channel;
+    (void)ctx;
+    return true;
+  }
+
   /// Called when a CC event arrives on this strip's input.
   /// Return true to forward the CC to the VST as-is.
   /// Return false to suppress it (annotator consumed/transformed it).
@@ -123,10 +135,9 @@ public:
     (void)out;
   }
 
-  /// If > 0, schedules an early note-off at note-on time + this many ms.
-  /// This is set during onNoteStart and checked by routeAnnotatedNoteOn.
-  /// Unlike durationAdjustMs (which adjusts Dorico's note-off timing),
-  /// this proactively schedules a note-off independent of Dorico.
+  /// If > 0, the longest the last onNoteStart()'s note may sound (ms from
+  /// its note-on). routeAnnotatedNoteOn schedules the note-off then; Dorico's
+  /// note-off only moves it earlier (MixerStrip::scheduleCappedNoteOff).
   virtual double scheduledNoteOffMs() const { return -1.0; }
 
   /// True when the last onNoteStart()/onNoteEnd() withheld the note: it is

@@ -8,6 +8,7 @@
 #include "BridgeSections.h"
 #include "PercussionMapAnnotator.h"
 #include <algorithm>
+#include <cmath>
 #include <filesystem>
 
 namespace fiddle {
@@ -307,6 +308,11 @@ void MixerStrip::rebuildAnnotatorChain() {
   annotator = std::move(chain);
 }
 
+void MixerStrip::setAnnotatorChainForTesting(std::unique_ptr<AnnotatorChain> chain) {
+  auto lock = lockMidiState();
+  annotator = std::move(chain);
+}
+
 void MixerStrip::pushAnnotation(const AnnotationRecord &rec) {
   auto lock = lockMidiState();
   recentAnnotations_.push_back(rec);
@@ -464,12 +470,15 @@ void MixerStrip::prepareToPlay(double sampleRate, int blockSize) {
   audioEngine_.prepareToPlay(sampleRate, blockSize);
 }
 
-void MixerStrip::addDelayedMessage(double triggerTime,
-                                   const juce::MidiMessage &msg, uint64_t tag) {
+double MixerStrip::advancedTime(double triggerTime) const noexcept {
   // Each strip may have a different insert-rack and destination-bus latency.
   // Advance MIDI independently so direct and grouped paths remain aligned.
-  if (triggerTime > 0.0)
-    triggerTime = juce::jmax(0.0, triggerTime - midiAdvanceMs());
+  return triggerTime > 0.0 ? juce::jmax(0.0, triggerTime - midiAdvanceMs()) : triggerTime;
+}
+
+void MixerStrip::addDelayedMessage(double triggerTime,
+                                   const juce::MidiMessage &msg, uint64_t tag) {
+  triggerTime = advancedTime(triggerTime);
   const int channel = pluginMidiChannel();
   if (channel > 0 && msg.getChannel() > 0 && msg.getChannel() != channel) {
     auto onChannel = msg;
@@ -519,12 +528,7 @@ void MixerStrip::scheduleNoteOn(double triggerTime, const juce::MidiMessage &not
   for (auto &off : notes.offs) {
     if (off.time <= end || off.onTime >= triggerTime)
       continue;
-    midiScheduler_.cancel(off.tag);
-    const double previous = off.time;
-    off.time = std::max(off.onTime, end);
-    off.tag = midiScheduler_.nextTag();
-    addDelayedMessage(off.time, juce::MidiMessage::noteOff(channel, pitch, (juce::uint8)64), off.tag);
-    emittedCapture.retimeNoteOff(previous, channel, pitch, off.time);
+    retimeNoteOff(channel, pitch, off, std::max(off.onTime, end));
   }
   dropOldOffs(notes.offs, triggerTime);
   notes.onTimes.push_back(triggerTime);
@@ -540,16 +544,75 @@ double MixerStrip::scheduleNoteOff(double triggerTime, const juce::MidiMessage &
     onTime = notes.onTimes.front();
     notes.onTimes.pop_front();
   }
+  return addNoteOff(notes, key, onTime, triggerTime, noteOff).time;
+}
+
+MixerStrip::PitchNotes::Off MixerStrip::addNoteOff(PitchNotes &notes, std::pair<int, int> key,
+                                                   double onTime, double triggerTime,
+                                                   const juce::MidiMessage &noteOff) {
+  // A note-off before its note-on would leave the note sounding.
+  triggerTime = std::max(triggerTime, onTime);
   // A later note of this pitch has already been scheduled: end before it.
-  for (const double later : notes.onTimes)
+  // A capped note's start is with its note-off. A note-off without a
+  // note-on has no place among them.
+  const auto endBefore = [&](double later) {
     if (later > onTime && triggerTime > later - kSamePitchGapMs)
       triggerTime = std::max(onTime, later - kSamePitchGapMs);
-  const auto tag = midiScheduler_.nextTag();
-  addDelayedMessage(triggerTime, noteOff, tag);
-  notes.offs.push_back({tag, triggerTime, onTime});
+  };
+  if (std::isfinite(onTime)) {
+    for (const double later : notes.onTimes)
+      endBefore(later);
+    for (const auto &other : notes.offs)
+      endBefore(other.onTime);
+  }
+  const PitchNotes::Off off{midiScheduler_.nextTag(), triggerTime, onTime};
+  addDelayedMessage(triggerTime, noteOff, off.tag);
+  notes.offs.push_back(off);
   dropOldOffs(notes.offs, triggerTime);
   if (notes.onTimes.empty() && notes.offs.empty())
     pitchNotes_.erase(key);
+  return off;
+}
+
+// Moved in place: a note-off already sent isn't sent again.
+void MixerStrip::retimeNoteOff(int channel, int pitch, PitchNotes::Off &off, double time) {
+  midiScheduler_.retime(off.tag, advancedTime(time));
+  const double previous = off.time;
+  off.time = time;
+  emittedCapture.retimeNoteOff(previous, channel, pitch, off.time);
+}
+
+double MixerStrip::scheduleCappedNoteOff(const NoteIdentity &note, double triggerTime,
+                                         const juce::MidiMessage &noteOff) {
+  auto lock = lockMidiState();
+  const auto key = std::make_pair(noteOff.getChannel(), noteOff.getNoteNumber());
+  auto &notes = pitchNotes_[key];
+  // The note-on just scheduled is the newest.
+  double onTime = -std::numeric_limits<double>::infinity();
+  if (!notes.onTimes.empty()) {
+    onTime = notes.onTimes.back();
+    notes.onTimes.pop_back();
+  }
+  const auto off = addNoteOff(notes, key, onTime, triggerTime, noteOff);
+  cappedNotes_[note] = {key.first, key.second, off.tag};
+  return off.time;
+}
+
+std::optional<double> MixerStrip::finishCappedNote(const NoteIdentity &note, double triggerTime) {
+  auto lock = lockMidiState();
+  const auto found = cappedNotes_.find(note);
+  if (found == cappedNotes_.end())
+    return std::nullopt;
+  const auto capped = found->second;
+  cappedNotes_.erase(found);
+  if (const auto pitch = pitchNotes_.find({capped.channel, capped.pitch}); pitch != pitchNotes_.end())
+    for (auto &off : pitch->second.offs)
+      if (off.tag == capped.tag) {
+        if (const double end = std::max(off.onTime, triggerTime); end < off.time)
+          retimeNoteOff(capped.channel, capped.pitch, off, end);
+        return off.time;
+      }
+  // Its note-off was sent long ago and its record dropped.
   return triggerTime;
 }
 
@@ -561,6 +624,7 @@ void MixerStrip::setDownstreamLatencySamples(int samples) noexcept {
 void MixerStrip::clearDelayedMessages() {
   auto lock = lockMidiState();
   pitchNotes_.clear();
+  cappedNotes_.clear();
   midiScheduler_.requestClear();
 }
 
@@ -568,6 +632,7 @@ void MixerStrip::allNotesOff() {
   auto lock = lockMidiState();
   heldKeyswitchNotes.clear();
   pitchNotes_.clear();
+  cappedNotes_.clear();
   midiScheduler_.requestPanic();
 }
 

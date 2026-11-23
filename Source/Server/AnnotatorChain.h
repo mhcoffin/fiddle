@@ -44,6 +44,16 @@ public:
 
   bool noteSuppressed() const override { return suppressedBy_ != nullptr; }
 
+  /// In chain order: each annotator sees the controller as the ones before
+  /// it left it, and a drop ends the chain.
+  bool transformCC(int &number, int &value, int &channel,
+                   const AnnotatorContext &ctx) override {
+    for (auto &annotator : chain_)
+      if (!annotator->transformCC(number, value, channel, ctx))
+        return false;
+    return true;
+  }
+
   bool onCC(const fiddle::MidiEvent &event,
             const AnnotatorContext &ctx) override {
     // Each annotator can suppress the CC. If any returns false, the CC is
@@ -103,9 +113,11 @@ public:
   }
 
   double scheduledNoteOffMs() const override {
-    // Return the smallest positive value — the earliest scheduled note-off wins.
+    // Return the smallest positive value — the earliest scheduled note-off
+    // wins. Only annotators that saw the note count.
     double earliest = -1.0;
-    for (const auto &a : chain_) {
+    for (size_t i = 0; i < ran_; ++i) {
+      const auto &a = chain_[i];
       double v = a->scheduledNoteOffMs();
       if (v > 0 && (earliest < 0 || v < earliest))
         earliest = v;

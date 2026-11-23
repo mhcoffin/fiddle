@@ -3574,6 +3574,183 @@ void testSamePitchNotesNeverOverlap() {
   }
 }
 
+fiddle::MidiEvent ccEvent(int number, int value) {
+  fiddle::MidiEvent event;
+  event.mutable_cc()->set_controller_number(static_cast<uint32_t>(number));
+  event.mutable_cc()->set_controller_value(static_cast<uint32_t>(value));
+  return event;
+}
+
+// Stands in for a layer's script (LuaAnnotator): fixed timing and
+// controller changes.
+struct ScriptedAnnotator : fiddle::Annotator {
+  double startOffsetMs = 0, capMs = -1, lengthDeltaMs = 0;
+  void onNoteStart(fiddle::Note &, const fiddle::AnnotatorContext &) override {}
+  void onNoteEnd(fiddle::Note &, const fiddle::AnnotatorContext &) override {}
+  double noteStartOffsetMs() const override { return startOffsetMs; }
+  double durationAdjustMs() const override { return lengthDeltaMs; }
+  double scheduledNoteOffMs() const override { return capMs; }
+  bool transformCC(int &number, int &value, int &channel, const fiddle::AnnotatorContext &) override {
+    if (number == 64)
+      return false; // the pedal is dropped
+    if (number == 1) {
+      number = 11; // CC1 is sent as CC11, at half value, on channel 5
+      value /= 2;
+      channel = 5;
+    }
+    return true;
+  }
+  std::string name() const override { return "Scripted"; }
+};
+
+// The rest of a chain: what it was given.
+struct RecordingAnnotator : fiddle::Annotator {
+  bool suppress = false;
+  double capMs = -1;
+  std::vector<std::tuple<int, int, int>> ccs; // (channel, number, value)
+  void onNoteStart(fiddle::Note &, const fiddle::AnnotatorContext &) override {}
+  void onNoteEnd(fiddle::Note &, const fiddle::AnnotatorContext &) override {}
+  bool noteSuppressed() const override { return suppress; }
+  double scheduledNoteOffMs() const override { return capMs; }
+  bool onCC(const fiddle::MidiEvent &event, const fiddle::AnnotatorContext &) override {
+    ccs.emplace_back(int(event.channel()), int(event.cc().controller_number()), int(event.cc().controller_value()));
+    return true;
+  }
+  std::string name() const override { return "Recording"; }
+};
+
+// A capped note ends at its cap or at Dorico's note-off, whichever comes
+// first, with one note-off that never cuts a later note of its pitch or
+// comes before its own note-on; scripts change controllers before the
+// rest of the chain.
+void testScriptTimingAndControllers() {
+  MixerFixture f;
+  f.now = 1000;
+  juce::String error;
+  const auto id = f.mixer.addStrip();
+  auto *strip = f.mixer.getStrip(id);
+  strip->setInputAssignment(0, 1);
+  std::vector<std::pair<double, juce::MidiMessage>> received;
+  auto processor = std::make_unique<SignalProcessor>(true, 0.25f);
+  processor->onMidi = [&](const juce::MidiMessage &msg) { received.emplace_back(f.now, msg); };
+  REQUIRE(strip->installInstrumentProcessor(description(true), std::move(processor), error));
+  auto chain = std::make_unique<fiddle::AnnotatorChain>();
+  auto scripted = std::make_unique<ScriptedAnnotator>();
+  auto *script = scripted.get();
+  auto recording = std::make_unique<RecordingAnnotator>();
+  auto *rest = recording.get();
+  chain->add(std::move(scripted));
+  chain->add(std::move(recording));
+  strip->setAnnotatorChainForTesting(std::move(chain));
+
+  const auto note = [&](uint64_t noteId, int pitch) {
+    fiddle::Note n;
+    n.set_id(noteId); n.set_channel(2); n.set_note_number(pitch); n.set_start_velocity(90);
+    return n;
+  };
+  const double start = f.now;
+  const auto on = [&](uint64_t noteId, int pitch, double ms) {
+    auto n = note(noteId, pitch);
+    f.mixer.routeAnnotatedNoteOn(0, 1, n, start + ms);
+  };
+  const auto off = [&](uint64_t noteId, int pitch, double ms) {
+    auto n = note(noteId, pitch);
+    f.mixer.routeAnnotatedNoteOff(0, 1, n, start + ms);
+  };
+  script->capMs = 80;
+  on(1, 60, 10); off(1, 60, 210);                   // long: ends at its cap
+  on(2, 62, 10); off(2, 62, 60);                    // short: ends at Dorico's off
+  on(3, 64, 10); on(4, 64, 60); off(3, 64, 110); off(4, 64, 310); // re-struck before the cap
+  script->capMs = -1;
+  on(9, 69, 10);                                    // an ordinary note, then a capped one
+  script->capMs = 80;
+  on(10, 69, 30); off(9, 69, 60); off(10, 69, 330);
+  script->capMs = -1;
+  script->startOffsetMs = 20;
+  script->lengthDeltaMs = -400;
+  on(5, 65, 10); off(5, 65, 110);                   // would end before it starts
+  script->startOffsetMs = 0;
+  script->lengthDeltaMs = 0;
+  f.mixer.routeAnnotatedCC(0, 1, ccEvent(1, 100), juce::MidiMessage::controllerEvent(2, 1, 100), start + 10);
+  f.mixer.routeAnnotatedCC(0, 1, ccEvent(64, 127), juce::MidiMessage::controllerEvent(2, 64, 127), start + 10);
+  f.mixer.routeAnnotatedCC(0, 1, ccEvent(7, 90), juce::MidiMessage::controllerEvent(2, 7, 90), start + 10);
+  while (f.now < start + 400) f.render();
+
+  const auto events = [&](int pitch) {
+    std::vector<std::pair<double, bool>> result; // (time from start, on)
+    for (const auto &[at, msg] : received)
+      if ((msg.isNoteOn() || msg.isNoteOff()) && msg.getNoteNumber() == pitch)
+        result.emplace_back(at - start, msg.isNoteOn());
+    return result;
+  };
+  const auto near = [](double a, double b) { return std::abs(a - b) < 2.0; };
+  auto e = events(60);
+  REQUIRE(e.size() == 2 && e[0].second && !e[1].second && near(e[1].first, 90));
+  e = events(62);
+  REQUIRE(e.size() == 2 && !e[1].second && near(e[1].first, 60));
+  e = events(64);
+  REQUIRE(e.size() == 4 && e[0].second && !e[1].second && e[2].second && !e[3].second);
+  REQUIRE(near(e[1].first, 59) && near(e[2].first, 60) && near(e[3].first, 140));
+  e = events(65);
+  REQUIRE(e.size() == 2 && e[0].second && !e[1].second && near(e[0].first, 30) && near(e[1].first, 30));
+  e = events(69);
+  REQUIRE(e.size() == 4 && e[0].second && !e[1].second && e[2].second && !e[3].second);
+  REQUIRE(near(e[1].first, 29) && near(e[2].first, 30) && near(e[3].first, 110));
+  // The rest of the chain saw the changed controller, on its new channel.
+  REQUIRE(std::find(rest->ccs.begin(), rest->ccs.end(), std::make_tuple(5, 11, 50)) != rest->ccs.end());
+
+  std::vector<std::tuple<int, int, int>> ccs; // (channel, number, value)
+  for (const auto &[at, msg] : received)
+    if (msg.isController())
+      ccs.emplace_back(msg.getChannel(), msg.getControllerNumber(), msg.getControllerValue());
+  REQUIRE(std::find(ccs.begin(), ccs.end(), std::make_tuple(5, 11, 50)) != ccs.end());
+  REQUIRE(std::find(ccs.begin(), ccs.end(), std::make_tuple(2, 7, 90)) != ccs.end());
+  for (const auto &[channel, number, value] : ccs)
+    REQUIRE(number != 64 && number != 1);
+
+  // As playback runs: Dorico's note-off for a capped note whose note-off has
+  // already been sent sends nothing more, so it can't cut the next note.
+  const double later = f.now - start;
+  script->capMs = 30;
+  script->lengthDeltaMs = -100;
+  on(7, 67, later + 5);
+  while (f.now < start + later + 60) f.render();    // its note-off has gone out
+  script->capMs = -1;
+  script->lengthDeltaMs = 0;
+  on(8, 67, later + 70);
+  script->lengthDeltaMs = -100;
+  off(7, 67, later + 80);                           // would end before the first note's off
+  script->lengthDeltaMs = 0;
+  off(8, 67, later + 200);
+  while (f.now < start + later + 250) f.render();
+  e = events(67);
+  REQUIRE(e.size() == 4 && e[0].second && !e[1].second && e[2].second && !e[3].second);
+  REQUIRE(near(e[1].first, later + 35) && near(e[3].first, later + 200));
+
+  // A stray note-off (no note-on to match) stays where it was asked for.
+  const double stray = strip->scheduleNoteOff(start + later + 500, juce::MidiMessage::noteOff(2, 60, (juce::uint8)64));
+  REQUIRE(near(stray - start, later + 500));
+
+  // A panic or stop forgets capped notes still waiting for Dorico's note-off.
+  script->capMs = 50;
+  on(11, 70, later + 300);
+  strip->allNotesOff();
+  REQUIRE(!strip->finishCappedNote({11, 2, 70}, start + later + 400));
+  script->capMs = -1;
+
+  // A withheld note takes no cap from annotators after the one withholding it.
+  fiddle::AnnotatorChain only;
+  auto suppressor = std::make_unique<RecordingAnnotator>();
+  suppressor->suppress = true;
+  auto capper = std::make_unique<RecordingAnnotator>();
+  capper->capMs = 40;
+  only.add(std::move(suppressor));
+  only.add(std::move(capper));
+  fiddle::Note withheld;
+  only.onNoteStart(withheld, fiddle::AnnotatorContext{});
+  REQUIRE(only.noteSuppressed() && only.scheduledNoteOffMs() < 0);
+}
+
 // A pinned bridge's linear dynamics reach the instrument on the project's
 // Dorico curve (power 1.75 here), and a layer map's own curve wins.
 void testPinnedDynamicsUseLayerCurves() {
@@ -4955,6 +5132,7 @@ int main(int argc, char **argv) {
   run("layer expression map plays through the mixer as Dorico would", testLayerMapPlaysLikeDorico);
   run("written-length notes take the project's Dorico durations", testWrittenDurationsUseProjectOptions);
   run("same-pitch notes never overlap on a layer", testSamePitchNotesNeverOverlap);
+  run("script timing caps, moves and controller changes reach the instrument", testScriptTimingAndControllers);
   run("pinned bridge dynamics take each layer's Dorico curve", testPinnedDynamicsUseLayerCurves);
   run("template installation assigns bridge maps by instrument section", testBridgeSectionsFromChairs);
   run("publishing refuses a revision whose beacon clashes", testBridgePublishRefusesClashingBeacon);

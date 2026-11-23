@@ -178,6 +178,34 @@ void testCancelWithdrawsOnlyTheTaggedPendingEvent() {
   CHECK(events.size() == 1 && events[0].message.getNoteNumber() == 61);
 }
 
+// A retime moves a pending message, and one still in the queue, in place;
+// an already rendered one is not sent again.
+void testRetimeMovesOnlyPendingEvents() {
+  fiddle::RealtimeMidiScheduler scheduler;
+  juce::MidiBuffer block;
+  const auto rendered = scheduler.nextTag(), pending = scheduler.nextTag(), unseen = scheduler.nextTag();
+  scheduler.schedule(1000.0, juce::MidiMessage::noteOff(1, 60), rendered);
+  scheduler.schedule(3000.0, juce::MidiMessage::noteOff(1, 61), pending);
+  scheduler.renderBlock(1000.0, 48000.0, 512, block);
+  CHECK(capture(block).size() == 1);
+
+  CHECK(scheduler.retime(rendered, 2000.0));
+  CHECK(scheduler.retime(pending, 2000.0));
+  scheduler.schedule(3000.0, juce::MidiMessage::noteOff(1, 62), unseen);
+  CHECK(scheduler.retime(unseen, 4000.0)); // later retimes of a tag win
+  CHECK(scheduler.retime(unseen, 2000.0));
+  CHECK(!scheduler.retime(0, 2000.0));
+  block.clear();
+  scheduler.renderBlock(1999.0, 48000.0, 512, block);
+  const auto events = capture(block);
+  CHECK(events.size() == 2);
+  CHECK(events.size() == 2 && events[0].message.getNoteNumber() == 61 &&
+        events[1].message.getNoteNumber() == 62 && events[0].sampleOffset == 48);
+  block.clear();
+  scheduler.renderBlock(3000.0, 48000.0, 512, block);
+  CHECK(capture(block).empty());
+}
+
 int main() {
   testSampleAccurateSchedulingAndRetention();
   testClearDropsQueuedAndPendingEvents();
@@ -186,6 +214,7 @@ int main() {
   testMillisecondJitterRoundsToNearestSample();
   testUnsupportedMessagesAreCounted();
   testCancelWithdrawsOnlyTheTaggedPendingEvent();
+  testRetimeMovesOnlyPendingEvents();
   std::cout << "Passed: " << passed << '\n';
   std::cout << "Failed: " << failed << '\n';
   return failed == 0 ? 0 : 1;

@@ -813,6 +813,13 @@ void MixerModel::captureInstruction(MidiCaptureLog &log, double timeMs,
   }
 }
 
+namespace {
+// Dorico's note as it reached the mixer, before any layer changed it.
+MixerStrip::NoteIdentity noteIdentity(const fiddle::Note &note) {
+  return {note.id(), note.channel(), note.note_number()};
+}
+} // namespace
+
 void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &inputNote,
                                       double triggerTimeMs) {
   // ── Read tonal context from the harmonic analysis service ─────────────
@@ -924,14 +931,13 @@ void MixerModel::routeAnnotatedNoteOn(int port, int channel, fiddle::Note &input
         startMs, (int)note.channel(), CapturedMidiEvent::NoteOn,
         (int)note.note_number(), (int)note.start_velocity());
 
-    // If an annotator (e.g. Lua plugin) scheduled an early note-off,
-    // schedule it now at note-on time + scheduled ms.
-    double noteOffMs = strip->annotator->scheduledNoteOffMs();
+    // A note with a longest length (a script's max_length_ms) gets its
+    // note-off now; Dorico's can only bring it earlier (routeAnnotatedNoteOff).
+    const double noteOffMs = strip->annotator->scheduledNoteOffMs();
     if (noteOffMs > 0) {
-      double noteOffTime = startMs + noteOffMs;
-      juce::MidiMessage earlyNoteOff = juce::MidiMessage::noteOff(
-          (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
-      strip->addDelayedMessage(noteOffTime, earlyNoteOff);
+      const double noteOffTime = strip->scheduleCappedNoteOff(
+          noteIdentity(inputNote), startMs + noteOffMs,
+          juce::MidiMessage::noteOff((int)note.channel(), (int)note.note_number(), (juce::uint8)64));
       strip->emittedCapture.record(noteOffTime, (int)note.channel(),
                                    CapturedMidiEvent::NoteOff,
                                    (int)note.note_number(), 64);
@@ -988,14 +994,20 @@ void MixerModel::routeAnnotatedNoteOff(int port, int channel,
     }
 
     // Schedule the noteOff at adjusted time (with switch label, matching
-    // Dorico)
-    juce::MidiMessage noteOffMsg = juce::MidiMessage::noteOff(
-        (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
-    // Ends before a later note of the same pitch on this layer.
-    const double adjustedTime = strip->scheduleNoteOff(requestedOffMs, noteOffMsg);
-    strip->emittedCapture.record(adjustedTime, (int)note.channel(),
-                                 CapturedMidiEvent::NoteOff,
-                                 (int)note.note_number(), 64, switchLabel);
+    // Dorico). A capped note's note-off is already scheduled: this one only
+    // moves it earlier.
+    double adjustedTime = 0.0;
+    if (const auto capped = strip->finishCappedNote(noteIdentity(inputNote), requestedOffMs)) {
+      adjustedTime = *capped;
+    } else {
+      juce::MidiMessage noteOffMsg = juce::MidiMessage::noteOff(
+          (int)note.channel(), (int)note.note_number(), (juce::uint8)64);
+      // Ends before a later note of the same pitch on this layer.
+      adjustedTime = strip->scheduleNoteOff(requestedOffMs, noteOffMsg);
+      strip->emittedCapture.record(adjustedTime, (int)note.channel(),
+                                   CapturedMidiEvent::NoteOff,
+                                   (int)note.note_number(), 64, switchLabel);
+    }
 
     // Schedule post_note instructions (relative to adjusted noteOff time)
     for (const auto &instr : note.post_note()) {
@@ -1155,6 +1167,9 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
   if (!graph)
     return;
 
+  // Scripts see the key and chord (docs/lua-scripts.md).
+  const TonalContext tonalCtx = harmonicService_ ? harmonicService_->getContext() : TonalContext{};
+
   for (auto *strip : graph->strips) {
     if (!strip->matchesInput(port, channel))
       continue;
@@ -1168,22 +1183,49 @@ void MixerModel::routeAnnotatedCC(int port, int channel,
     ctx.doricoDurationPercents = doricoDurationPercents();
     ctx.doricoSwitchLeadTicks = doricoSwitchLeadTicks_.load(std::memory_order_relaxed);
     ctx.doricoDynamics = doricoDynamics();
+    ctx.tonalContext = tonalCtx;
     auto midiLock = strip->lockMidiState();
     const double t = triggerTimeMs + strip->annotator->controllerOffsetMs();
-    if (strip->annotator->onCC(event, ctx)) {
-      strip->addDelayedMessage(t, msg);
-      if (event.has_cc()) {
-        strip->emittedCapture.record(t, channel + 1,
+
+    // A layer's scripts may change or drop a controller before the rest of
+    // its chain sees it.
+    const fiddle::MidiEvent *seen = &event;
+    fiddle::MidiEvent changed;
+    juce::MidiMessage out = msg;
+    int outChannel = channel + 1;
+    if (event.has_cc()) {
+      int number = (int)event.cc().controller_number();
+      int value = (int)event.cc().controller_value();
+      if (!strip->annotator->transformCC(number, value, outChannel, ctx))
+        continue;
+      number = std::clamp(number, 0, 127);
+      value = std::clamp(value, 0, 127);
+      outChannel = std::clamp(outChannel, 1, 16);
+      if (number != (int)event.cc().controller_number() ||
+          value != (int)event.cc().controller_value() || outChannel != channel + 1) {
+        changed = event;
+        changed.set_channel((uint32_t)outChannel);
+        changed.mutable_cc()->set_controller_number((uint32_t)number);
+        changed.mutable_cc()->set_controller_value((uint32_t)value);
+        seen = &changed;
+        out = juce::MidiMessage::controllerEvent(outChannel, number, value);
+      }
+    }
+
+    if (strip->annotator->onCC(*seen, ctx)) {
+      strip->addDelayedMessage(t, out);
+      if (seen->has_cc()) {
+        strip->emittedCapture.record(t, outChannel,
                                      CapturedMidiEvent::CC,
-                                     (int)event.cc().controller_number(),
-                                     (int)event.cc().controller_value());
+                                     (int)seen->cc().controller_number(),
+                                     (int)seen->cc().controller_value());
       }
     } else {
       std::vector<fiddle::MidiInstruction> replacements;
-      strip->annotator->translateCC(event, ctx, replacements);
+      strip->annotator->translateCC(*seen, ctx, replacements);
       for (const auto &instr : replacements) {
-        strip->addDelayedMessage(t, instructionToMidi(instr, channel + 1));
-        captureInstruction(strip->emittedCapture, t, instr, channel + 1);
+        strip->addDelayedMessage(t, instructionToMidi(instr, outChannel));
+        captureInstruction(strip->emittedCapture, t, instr, outChannel);
       }
     }
   }

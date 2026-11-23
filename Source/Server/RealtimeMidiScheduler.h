@@ -24,6 +24,10 @@ public:
   /// Withdraws a pending message scheduled with @p tag. A message that has
   /// already been rendered is unaffected. Call from the scheduling thread.
   bool cancel(uint64_t tag) noexcept;
+  /// Moves a pending message scheduled with @p tag to @p triggerTimeMs. A
+  /// message that has already been rendered or withdrawn is unaffected, so
+  /// it is never sent twice. Call from the scheduling thread.
+  bool retime(uint64_t tag, double triggerTimeMs) noexcept;
   void requestClear() noexcept;
   void requestPanic() noexcept;
 
@@ -44,6 +48,9 @@ private:
   RealtimeMpscQueue<uint64_t, kCancelCapacity> cancels_;
   std::atomic<uint64_t> nextTag_{1};
   std::array<uint64_t, kCancelCapacity> cancelled_{}; // audio thread only
+  struct Retime { uint64_t tag = 0; double triggerTimeMs = 0.0; };
+  RealtimeMpscQueue<Retime, kCancelCapacity> retimes_;
+  std::array<Retime, kCancelCapacity> retimed_{}; // audio thread only
   std::array<RealtimeMidiMessage, kCapacity> pending_{};
   size_t pendingCount_ = 0; // audio thread only
   std::atomic<uint64_t> droppedMessages_{0};

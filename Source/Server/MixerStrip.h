@@ -18,7 +18,9 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
+#include <tuple>
 #include <vector>
 
 namespace fiddle {
@@ -229,6 +231,10 @@ struct MixerStrip {
   /// then the ExpressionMapAnnotator.
   void rebuildAnnotatorChain();
 
+  /// Tests: run chain in place of the one built from the layer's scripts
+  /// and maps, until the next rebuildAnnotatorChain().
+  void setAnnotatorChainForTesting(std::unique_ptr<AnnotatorChain> chain);
+
 private:
   friend class MixerModel;
   // MIDI/control domain, guarded by midiStateMutex_. Never accessed by DSP.
@@ -301,9 +307,23 @@ public:
   /// earlier note ends kSamePitchGapMs before its successor starts, whichever
   /// message arrives first. Notes of one pitch are matched first in, first out.
   void scheduleNoteOn(double triggerTime, const juce::MidiMessage &noteOn);
-  /// Returns the time the note-off was scheduled for.
+  /// Returns the time the note-off was scheduled for: never before its
+  /// note-on.
   double scheduleNoteOff(double triggerTime, const juce::MidiMessage &noteOff);
   static constexpr double kSamePitchGapMs = 1.0;
+
+  /// Dorico's note as Fiddle received it: id, channel, pitch.
+  using NoteIdentity = std::tuple<uint64_t, uint32_t, uint32_t>;
+  /// A note with a longest length (Annotator::scheduledNoteOffMs): its
+  /// note-off is scheduled with its note-on, which must be the last one
+  /// scheduled for its channel and pitch. Returns the note-off's time.
+  double scheduleCappedNoteOff(const NoteIdentity &note, double triggerTime,
+                               const juce::MidiMessage &noteOff);
+  /// Dorico's note-off for a capped note: moves its note-off earlier when
+  /// Dorico's comes first, and is otherwise swallowed. Returns when the note
+  /// ends, or nullopt for a note that wasn't capped (schedule its note-off
+  /// with scheduleNoteOff).
+  std::optional<double> finishCappedNote(const NoteIdentity &note, double triggerTime);
 
   /// Additional lead beyond the full strip rack for its longest routed path.
   /// MixerModel updates this whenever it publishes routing.
@@ -388,11 +408,19 @@ private:
 
   // Same-pitch bookkeeping for scheduleNoteOn/Off (MIDI-state lock).
   struct PitchNotes {
+    // tag names the scheduled note-off, and stays when it's moved.
     struct Off { uint64_t tag; double time, onTime; };
     std::deque<double> onTimes; // sounding notes, oldest first
     std::vector<Off> offs;      // scheduled note-offs that may still be due
   };
   std::map<std::pair<int, int>, PitchNotes> pitchNotes_; // (channel, pitch)
+  // Capped notes still waiting for Dorico's note-off: where their note-off is.
+  struct CappedNote { int channel, pitch; uint64_t tag; };
+  std::map<NoteIdentity, CappedNote> cappedNotes_;
+  void retimeNoteOff(int channel, int pitch, PitchNotes::Off &off, double time);
+  double advancedTime(double triggerTime) const noexcept;
+  PitchNotes::Off addNoteOff(PitchNotes &notes, std::pair<int, int> key, double onTime,
+                             double triggerTime, const juce::MidiMessage &noteOff);
   juce::MidiBuffer processMidiBuffer_; // audio thread only, preallocated
 
   std::atomic<double> currentSampleRate_{44100.0};

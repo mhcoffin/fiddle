@@ -33,6 +33,13 @@ bool RealtimeMidiScheduler::cancel(uint64_t tag) noexcept {
   return false;
 }
 
+bool RealtimeMidiScheduler::retime(uint64_t tag, double triggerTimeMs) noexcept {
+  if (tag != 0 && retimes_.tryPush({tag, triggerTimeMs}))
+    return true;
+  droppedMessages_.fetch_add(1, std::memory_order_relaxed);
+  return false;
+}
+
 void RealtimeMidiScheduler::requestClear() noexcept {
   currentGeneration_.fetch_add(1, std::memory_order_acq_rel);
   clearRequested_.store(true, std::memory_order_release);
@@ -51,6 +58,10 @@ void RealtimeMidiScheduler::renderBlock(
   size_t cancelCount = 0;
   while (cancelCount < cancelled_.size() && cancels_.tryPop(cancelled_[cancelCount]))
     ++cancelCount;
+  // Retimes likewise, applied in the order they were made.
+  size_t retimeCount = 0;
+  while (retimeCount < retimed_.size() && retimes_.tryPop(retimed_[retimeCount]))
+    ++retimeCount;
 
   RealtimeMidiMessage queued;
   while (incoming_.tryPop(queued)) {
@@ -59,6 +70,11 @@ void RealtimeMidiScheduler::renderBlock(
     else
       droppedMessages_.fetch_add(1, std::memory_order_relaxed);
   }
+
+  for (size_t r = 0; r < retimeCount; ++r)
+    for (size_t i = 0; i < pendingCount_; ++i)
+      if (pending_[i].tag == retimed_[r].tag)
+        pending_[i].triggerTimeMs = retimed_[r].triggerTimeMs;
 
   if (cancelCount > 0) {
     const auto first = cancelled_.begin(), last = first + cancelCount;
