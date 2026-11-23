@@ -16,8 +16,15 @@ Fiddle reserves port 1, channel 1 (Dorico's numbering; port 0 inside Fiddle)
 for the click (`MainComponent::kMetronomePort`). Each Dorico project needs
 the **Tempo** track routed there in Play mode (**Set Click Routing**) and the
 click on for playback (the metronome button in Play mode's toolbar, the
-project's `enableClick` playback option); routing alone sends nothing. Fiddle's playback template can't set
-either: endpoint configurations hold only plugin slots and instruments.
+project's `enableClick` playback option); routing alone sends nothing.
+Fiddle's **Chairs → Install Playback Template** can't set either: the endpoint
+configuration it writes holds only plugin slots and instruments.
+
+A **Dorico project template** holds both (found 2026-11-22): set up a project
+with the Tempo track routed to Fiddle and the click on, save it as a project
+template, and new projects made from it start with both set. Fiddle might ship
+its own project templates later; for now each user can make one in a few
+minutes.
 
 Fiddle's tempo (`MetronomeTempoTracker`) and every note's beat prominence
 (`NoteStreamTracker`, a script's `note.beat`) come from these clicks. A note

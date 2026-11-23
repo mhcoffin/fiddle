@@ -70,7 +70,9 @@ which takes two settings in each Dorico project:
 2. Turn the click on for playback (the metronome button in Play mode's
    toolbar). Routing alone sends nothing.
 
-Without them every note's `beat` is 3.
+Without them every note's `beat` is 3. A Dorico project template saved with
+both set gives every new project made from it the click
+(`docs/clicks.md`).
 
 ### Controllers
 
