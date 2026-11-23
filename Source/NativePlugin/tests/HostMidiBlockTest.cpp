@@ -55,7 +55,7 @@ int main() {
   cc.points = {{0, 0.0}, {12, 2.0 / 127}, {48, 7.0 / 127}};
   Queue program; program.id = 100 + 17; program.points = {{20, 40.0 / 127}, {30, 41.0 / 127}};
   Parameters params; params.queues = {&cc, &program};
-  Events events; events.events = {note(8, 72, 90), note(12, 0, 1), note(12, 127, 126), note(24, 60, 64, 1, 1)};
+  Events events; events.events = {note(8, 72, 90), note(12, 0, 1, 0, 1), note(12, 127, 126, 0, 1), note(24, 60, 64, 1, 1)};
   ProcessContext context{}; context.projectTimeSamples = 9000; // No music-valid flag!
   ProcessData data{}; data.numSamples = 64; data.processContext = &context;
   data.inputParameterChanges = &params; data.inputEvents = &events;
@@ -77,6 +77,27 @@ int main() {
   }
   CHECK(HostMidiBlock::midi7(std::numeric_limits<double>::quiet_NaN()) == -1);
   CHECK(HostMidiBlock::midi7(-0.1) == -1); CHECK(HostMidiBlock::midi7(1.1) == -1);
+  // The shipping bridge puts a click before the other events at its position;
+  // parameters stay first, and collect() alone keeps the host's order (the
+  // probe's).
+  Queue tie; tie.id = FiddleController::kCCParamBase + 3 * 256; tie.points = {{12, 5.0 / 127}};
+  params.queues = {&tie};
+  Event off{}; off.type = Event::kNoteOffEvent; off.sampleOffset = 12; off.noteOff.pitch = 83;
+  off.noteOff.velocity = 64 / 127.0f;
+  events.events = {note(12, 60, 90, 1, 14), note(12, 62, 90, 1, 0), off, note(12, 83, 0, 0, 0),
+                   note(12, 83, 64, 0, 0), note(12, 61, 90, 0, 1), note(13, 79, 56, 0, 0)};
+  block->collect(data);
+  CHECK(block->count == 8);
+  CHECK(block->inputs[5].midi.data1 == 83 && HostMidiBlock::isClick(block->inputs[5].midi));
+  block->putClicksFirst();
+  CHECK(block->inputs[0].source == 0);                                   // the parameter
+  CHECK(block->inputs[1].midi.data1 == 83 && block->inputs[1].midi.data2 == 64); // the click
+  CHECK(block->inputs[2].midi.data1 == 60 && block->inputs[3].midi.data1 == 62);  // port 2's channel 1 isn't the click
+  CHECK(block->inputs[4].midi.type == RealtimeMidiEventType::NoteOff);   // nor a note-off
+  CHECK(block->inputs[5].midi.data2 == 0 && !HostMidiBlock::isClick(block->inputs[5].midi)); // nor velocity 0
+  CHECK(block->inputs[6].midi.data1 == 61);
+  CHECK(block->inputs[7].midi.data1 == 79 && block->inputs[7].midi.timestampSamples == 13); // later stays later
+  params.queues = {&cc, &program};
   events.events = {note(-1, 72, 90), note(64, 72, 90), note(0, 72, 90, 16), note(0, 72, 90, 0, 16)};
   data.inputParameterChanges = nullptr; block->collect(data);
   CHECK(block->invalid == 4);

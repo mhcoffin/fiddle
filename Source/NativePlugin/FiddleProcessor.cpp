@@ -267,6 +267,7 @@ tresult PLUGIN_API FiddleProcessor::process(ProcessData &data) {
   }
 
   inputBlock_.collect(data);
+  inputBlock_.putClicksFirst();
   droppedHostInputs_.fetch_add(inputBlock_.dropped + inputBlock_.invalid, std::memory_order_relaxed);
   for (size_t i = 0; i < inputBlock_.count; ++i) {
     const auto &input = inputBlock_.inputs[i];

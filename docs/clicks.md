@@ -10,6 +10,25 @@ Summary of the tables below:
 
 So we can detect bar lines by finding the strong beats (note 83 with velocity 64). 
 
+## Getting the click to Fiddle
+
+Fiddle reserves port 1, channel 1 (Dorico's numbering; port 0 inside Fiddle)
+for the click (`MainComponent::kMetronomePort`). Each Dorico project needs
+the **Tempo** track routed there in Play mode (**Set Click Routing**) and the
+click on for playback (the metronome button in Play mode's toolbar, the
+project's `enableClick` playback option); routing alone sends nothing. Fiddle's playback template can't set
+either: endpoint configurations hold only plugin slots and instruments.
+
+Fiddle's tempo (`MetronomeTempoTracker`) and every note's beat prominence
+(`NoteStreamTracker`, a script's `note.beat`) come from these clicks. A note
+takes the strength of a click within about 50 ms of it, else 3 (off the
+beat). The click and a note on the same beat reach the plugin at the same
+sample position; the plugin passes the click on before the other events
+there (`HostMidiBlock::putClicksFirst`), so the beat is known when the note
+arrives. A
+trace of a 2026-11-22 playthrough found every on-beat note at exactly its
+click's position, and the click already received in every case.
+
 
 
 ## 4/4

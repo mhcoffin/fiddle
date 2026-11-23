@@ -17,6 +17,8 @@ namespace fiddle {
 // VST3 supplies separate parameter queues and an event list, not a total order.
 // Preserve each source's order at equal offsets; parameters precede events at
 // ties. Never claim this tie policy is an observed cross-list host ordering.
+// The shipping bridge then moves clicks ahead of other events at their
+// position (putClicksFirst); the probe keeps the host's order.
 struct HostMidiInput {
   RealtimeMidiEvent midi;
   double rawValue = 0;
@@ -32,6 +34,32 @@ struct HostMidiInput {
 
 class HostMidiBlock {
 public:
+  /// Dorico's metronome click: a sounding note-on on port 0, channel 1, the
+  /// input Fiddle reserves for the tempo track's click
+  /// (MainComponent::kMetronomePort, docs/clicks.md).
+  static bool isClick(const RealtimeMidiEvent &midi) noexcept {
+    return midi.type == RealtimeMidiEventType::NoteOn && midi.port == 0 && midi.channel == 1 && midi.data2 > 0;
+  }
+
+  /// The shipping bridge, after collect(): a click goes before the other
+  /// events at its position (parameters stay first), so Fiddle knows the
+  /// beat when a note on it arrives (its beat prominence, a script's
+  /// note.beat), whatever order the host listed them. In place, no
+  /// allocation. The probe doesn't call this: it records the host's order.
+  void putClicksFirst() noexcept {
+    for (size_t i = 1; i < count; ++i) {
+      if (!isClick(inputs[i].midi))
+        continue;
+      const auto at = inputs[i].midi.timestampSamples;
+      size_t j = i;
+      while (j > 0 && inputs[j - 1].midi.timestampSamples == at && inputs[j - 1].source == 1 &&
+             !isClick(inputs[j - 1].midi))
+        --j;
+      if (j != i)
+        std::rotate(inputs.begin() + j, inputs.begin() + i, inputs.begin() + i + 1);
+    }
+  }
+
   static constexpr size_t capacity = 16384;
   std::array<HostMidiInput, capacity> inputs{};
   size_t count = 0;

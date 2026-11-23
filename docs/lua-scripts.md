@@ -49,12 +49,28 @@ note-on used, and a dropped note's note-off is dropped too.
 | `max_length_ms` | the longest the note lasts (at least 10). Fiddle ends a longer note then, and Dorico's later note-off sends nothing more |
 | `drop` | `true` drops the note |
 | `techniques` | the playing techniques the expression map chooses from, as a set: `note.techniques.staccato`. Change it to choose another articulation (`note.techniques.legato = nil`); a list (`{ "staccato" }`) works too. Defaults the note had stay |
-| `id`, `beat`, `dimensions` | read only: Dorico's note id, how strong its beat is (0 downbeat … 3 off-beat), and Dorico's raw notation values |
+| `id`, `beat`, `dimensions` | read only: Dorico's note id, how strong its beat is (see Beats below), and Dorico's raw notation values |
 | `note:cc(number, value, offset_ms, anchor)` | sends a controller with the note: `offset_ms` (default 0) from its start, or from its end with `anchor` `"end"` |
 
 When a layer has several scripts, each sees the note as the one before left
 it: start offsets and length changes add up, and the shortest
 `max_length_ms` wins.
+
+### Beats
+
+`note.beat` comes from Dorico's metronome click (`docs/clicks.md`): 0 for a
+note on a downbeat, 1 on another beat, 2 on a subdivision beat of a compound
+meter (6/8's beats 2, 3, 5, 6), and 3 for anything else — in 4/4 an eighth
+between beats is 3. Fiddle only knows the beats if Dorico sends it the click,
+which takes two settings in each Dorico project:
+
+1. In Play mode, route the **Tempo** track to Fiddle, port 1, channel 1
+   (**Set Click Routing**). Install Playback Template can't do this: Dorico
+   keeps it in the project, not in an endpoint configuration.
+2. Turn the click on for playback (the metronome button in Play mode's
+   toolbar). Routing alone sends nothing.
+
+Without them every note's `beat` is 3.
 
 ### Controllers
 
