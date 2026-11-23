@@ -50,6 +50,8 @@ try {
                 { name: "beat", label: "Only on the beat", type: "bool", default: false, value: false },
                 { name: "feel", label: "Feel", type: "enum", options: ["Tight", "Loose"], default: "Tight", value: "Loose" },
                 { name: "seed", label: "Variation", type: "int", min: 0, max: 99999, step: 1, control: "field", zeroLabel: "Auto", randomize: true, default: 0, value: 0 },
+                { name: "velocity", label: "Velocity", type: "int", min: 0, max: 40, step: 1, control: "knob", default: 8, value: 8 },
+                { name: "rate", label: "Rate", type: "int", min: 40, max: 240, step: 1, unit: "BPM", control: "knob", default: 120, value: 120 },
             ],
         }];
         window.fixtureLua2 = [{
@@ -103,6 +105,16 @@ try {
     const clear = () => page.evaluate(() => { window.fixtureMessages = []; });
     const sent = (type, ...payload) => ({ type, payload });
     const single = (type, ...payload) => [sent("beginHistoryGesture"), sent(type, ...payload), sent("endHistoryGesture")];
+
+    // Knobs line up whatever their units, and fit their card.
+    const linedUp = async (where) => {
+        const right = (name) => where.getByRole("textbox", { name }).evaluate((e) => e.getBoundingClientRect().right);
+        const edges = [await right("Humanize: Velocity"), await right("Humanize: Timing in ms"), await right("Humanize: Rate in BPM")];
+        assert.ok(Math.max(...edges) - Math.min(...edges) < 1, `knob fields line up: ${edges}`);
+        const article = where.getByRole("article", { name: "Humanize" });
+        assert.ok(await article.evaluate((e) => e.scrollWidth <= e.clientWidth), "the card doesn't overflow");
+    };
+    await linedUp(details);
 
     // The field: Auto for 0, typed values clamped, a refused one put back.
     const field = card.getByRole("textbox", { name: "Humanize: Variation" });
@@ -158,6 +170,7 @@ try {
     await band.getByRole("button", { name: /MIDI FX for Violin I/ }).click();
     const panel = page.getByRole("dialog", { name: "MIDI FX for Violin I" });
     await panel.waitFor();
+    await linedUp(panel);
     // It stays open while the user works elsewhere in the mixer.
     await page.locator(".channel-strip .ch-strip-identity").first().click();
     assert.equal(await panel.isVisible(), true);

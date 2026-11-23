@@ -21,6 +21,14 @@
         const text = formatParamValue(param, value);
         return param.unit && text !== param.zeroLabel ? `${text} ${param.unit}` : text;
     };
+    // When the knobs' units differ (or some have none), each knob makes room
+    // for all of them, so the column lines up exactly.
+    const unitSamples = $derived.by(() => {
+        const units = [...new Set((plugin?.params ?? [])
+            .filter((p) => (p.type === "int" || p.type === "float") && p.control !== "field")
+            .map((p) => p.unit || ""))];
+        return units.length > 1 ? units.filter(Boolean) : [];
+    });
     // A single change is its own Undo step, never merged with a nearby one.
     const commit = (name, value) => { onGestureBegin(); onSet(name, value); onGestureEnd(); };
 </script>
@@ -67,7 +75,7 @@
                     {@const steps = paramSteps(param)}
                     <Knob value={Number(param.value)} min={param.min} max={param.max}
                         step={steps.step} fineStep={steps.fineStep} unit={param.unit || ""}
-                        {label} defaultValue={Number(param.default)}
+                        {label} defaultValue={Number(param.default)} {unitSamples}
                         format={(value) => formatParamValue(param, value)}
                         parse={(text) => parseParamText(param, text)}
                         oninput={(value) => onSet(param.name, value)}

@@ -13,6 +13,9 @@
         oninput = () => {}, onGestureBegin = () => {}, onGestureEnd = () => {},
         // When set, double-clicking the knob returns it to this value.
         defaultValue = null,
+        // Other knobs' units in the same column: this one's unit takes as much
+        // room as the widest of them, even when it has none, so they line up.
+        unitSamples = [],
     } = $props();
 
     let current = $state(0), draft = $state("");
@@ -146,7 +149,9 @@
         <input type="text" inputmode="decimal" aria-label={`${label}${unit ? ` in ${unit}` : ""}`}
             {disabled} bind:value={draft} onfocus={() => { editing = true; }}
             onblur={commitText} onkeydown={textKeyDown} spellcheck="false" />
-        {#if unit}<span>{unit}</span>{/if}
+        {#if unit || unitSamples.length}
+            <span class="unit"><span>{unit}</span>{#each unitSamples as sample}<span class="sizer" aria-hidden="true">{sample}</span>{/each}</span>
+        {/if}
     </label>
 </div>
 
@@ -162,6 +167,9 @@
     line { stroke: #e0f2fe; stroke-width: 2.5; stroke-linecap: round; }
     .knob:hover circle { fill: #29415e; stroke: #7dd3fc; }
     .readout { display: flex; align-items: center; gap: 5px; font-size: 0.85rem; color: #cbd5e1; }
+    .unit { display: inline-grid; }
+    .unit > span { grid-area: 1 / 1; }
+    .sizer { visibility: hidden; }
     input { width: 64px; height: 34px; box-sizing: border-box; padding: 6px; border: 1px solid #475569; border-radius: 6px; background: #111c2e; color: #e2e8f0; font: inherit; text-align: right; font-variant-numeric: tabular-nums; }
     input:focus { outline: 2px solid #38bdf8; outline-offset: 1px; }
     .disabled { opacity: 0.45; }
