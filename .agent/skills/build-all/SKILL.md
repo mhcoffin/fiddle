@@ -59,8 +59,10 @@ cmake --build build/release --config Release --target FiddleNative
 ```
 
 Locate the actual `.vst3` output under `build/release/FiddleNative_artefacts/`.
-Building does not install it. Only replace the installed plugin when authorized,
-with Dorico closed; then restart Dorico to load it. `fiddle.sh` never installs
+The build signs the bundle ad hoc (identifier `com.antigravity.fiddle`), so a
+copy installs with a valid signature. Building does not install it. Only
+replace the installed plugin when authorized, with Dorico closed; then restart
+Dorico to load it. `fiddle.sh` never installs
 plugins or bumps the project version.
 
 ## Directory safety

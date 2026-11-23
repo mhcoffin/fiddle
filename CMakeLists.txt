@@ -544,8 +544,17 @@ if(APPLE)
         COMMAND ${CMAKE_COMMAND} -E copy
             "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativePlugin/moduleinfo.json"
             "${FIDDLE_VST3_BUNDLE}/Contents/Resources/moduleinfo.json"
-        COMMENT "Copying moduleinfo.json into FiddleNative bundle"
+        # The linker's signature doesn't cover the file just added: sign the
+        # whole bundle ad hoc again, so the plugin installs with a valid
+        # signature (identifier com.antigravity.fiddle, from Info.plist).
+        COMMAND codesign --force --sign - "${FIDDLE_VST3_BUNDLE}"
+        COMMENT "Copying moduleinfo.json into FiddleNative bundle and signing it"
     )
+    # The signature seals both files, so a change to either relinks (and with
+    # it copies and signs again), even when no source changed.
+    set_property(TARGET FiddleNative APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source/NativePlugin/moduleinfo.json"
+        "${FIDDLE_VST3_BUNDLE}/Contents/Info.plist")
 endif()
 
 # ==============================================================================
@@ -571,7 +580,11 @@ if(APPLE)
     set(FIDDLE_PROBE_BUNDLE "${CMAKE_BINARY_DIR}/FiddleMidiProbe_artefacts/VST3/Fiddle MIDI Probe.vst3")
     add_custom_command(TARGET FiddleMidiProbe POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${FIDDLE_PROBE_BUNDLE}/Contents/Resources"
-        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/probe-moduleinfo.json" "${FIDDLE_PROBE_BUNDLE}/Contents/Resources/moduleinfo.json")
+        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/probe-moduleinfo.json" "${FIDDLE_PROBE_BUNDLE}/Contents/Resources/moduleinfo.json"
+        COMMAND codesign --force --sign - "${FIDDLE_PROBE_BUNDLE}")
+    set_property(TARGET FiddleMidiProbe APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_BINARY_DIR}/probe-moduleinfo.json"
+        "${FIDDLE_PROBE_BUNDLE}/Contents/Info.plist")
     add_executable(MidiProbeSmokeTest EXCLUDE_FROM_ALL Source/NativePlugin/tests/MidiProbeSmokeTest.cpp
         "${VST3_SDK}/pluginterfaces/base/funknown.cpp"
         "${VST3_SDK}/pluginterfaces/base/coreiids.cpp"
